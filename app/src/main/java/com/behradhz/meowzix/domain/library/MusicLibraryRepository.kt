@@ -1,7 +1,11 @@
 package com.behradhz.meowzix.domain.library
 
-/**
- * Domain boundary for the unified Meowzix music library.
- * Increment 1 will add local-track observation and refresh operations.
- */
-interface MusicLibraryRepository
+import com.behradhz.meowzix.core.model.Track
+import kotlinx.coroutines.flow.Flow
+
+interface MusicLibraryRepository {
+    val tracks: Flow<List<Track>>
+
+    /** Refreshes the authoritative device-local MediaStore source. */
+    suspend fun refreshLocalMusic(): LocalLibraryRefreshResult
+}
