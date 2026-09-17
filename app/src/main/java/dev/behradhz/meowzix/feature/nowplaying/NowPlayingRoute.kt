@@ -1,5 +1,9 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -35,6 +40,8 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -45,17 +52,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.ui.components.AudioSpectrum
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
@@ -68,9 +79,37 @@ fun NowPlayingRoute(
     onOpenQueue: () -> Unit,
     viewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()
+    var spectrumPermissionGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        spectrumPermissionGranted = granted
+    }
+
+    LaunchedEffect(spectrumPermissionGranted, state.status) {
+        viewModel.setSpectrumCaptureEnabled(
+            spectrumPermissionGranted && state.status == PlaybackStatus.PLAYING,
+        )
+    }
+    DisposableEffect(Unit) {
+        onDispose { viewModel.setSpectrumCaptureEnabled(false) }
+    }
+
     NowPlayingScreen(
         state = state,
+        spectrum = spectrum,
+        spectrumPermissionGranted = spectrumPermissionGranted,
+        onRequestSpectrumPermission = {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        },
         onBack = onBack,
         onTogglePlayPause = viewModel::togglePlayPause,
         onSeek = viewModel::seekTo,
@@ -85,6 +124,9 @@ fun NowPlayingRoute(
 @Composable
 private fun NowPlayingScreen(
     state: PlaybackState,
+    spectrum: AudioSpectrumState,
+    spectrumPermissionGranted: Boolean,
+    onRequestSpectrumPermission: () -> Unit,
     onBack: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onSeek: (Long) -> Unit,
@@ -200,6 +242,15 @@ private fun NowPlayingScreen(
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
+
+                Spacer(Modifier.height(18.dp))
+
+                LiveSpectrumPanel(
+                    hazeState = hazeState,
+                    spectrum = spectrum,
+                    permissionGranted = spectrumPermissionGranted,
+                    onRequestPermission = onRequestSpectrumPermission,
+                )
 
                 if (state.errorMessage != null) {
                     GlassSurface(
@@ -360,6 +411,92 @@ private fun NowPlayingScreen(
                     color = Color.White.copy(alpha = 0.52f),
                     modifier = Modifier.padding(top = 18.dp),
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveSpectrumPanel(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    spectrum: AudioSpectrumState,
+    permissionGranted: Boolean,
+    onRequestPermission: () -> Unit,
+) {
+    GlassSurface(
+        hazeState = hazeState,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(104.dp),
+        shape = RoundedCornerShape(24.dp),
+        fallbackColor = Color.Black.copy(alpha = 0.22f),
+        tint = Color.White.copy(alpha = 0.06f),
+    ) {
+        if (permissionGranted) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "LIVE SPECTRUM",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White.copy(alpha = 0.58f),
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (!spectrum.isCapturing) {
+                        Text(
+                            text = if (spectrum.sessionId > 0) "Ready" else "Waiting for audio",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.42f),
+                        )
+                    }
+                }
+
+                AudioSpectrum(
+                    bands = spectrum.bands,
+                    color = Color.White,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(top = 6.dp),
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(onClick = onRequestPermission)
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Rounded.GraphicEq,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.76f),
+                )
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp),
+                ) {
+                    Text(
+                        text = "Enable live spectrum",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Android requires audio permission for playback visualization. Meowzix reads only its own player session.",
+                        color = Color.White.copy(alpha = 0.58f),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
     }
