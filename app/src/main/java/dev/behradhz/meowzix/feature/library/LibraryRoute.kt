@@ -1,8 +1,10 @@
 package dev.behradhz.meowzix.feature.library
 
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -90,6 +92,14 @@ fun LibraryRoute(viewModel: LibraryViewModel = hiltViewModel()) {
         state = state,
         permissionStatus = audioPermissionStatus(permissionGranted, permissionRequestAttempted),
         onRequestPermission = { permissionLauncher.launch(permission) },
+        onOpenSettings = {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", context.packageName, null),
+                ),
+            )
+        },
         onRefresh = viewModel::refresh,
     )
 }
@@ -99,6 +109,7 @@ private fun LibraryScreen(
     state: LibraryUiState,
     permissionStatus: AudioPermissionStatus,
     onRequestPermission: () -> Unit,
+    onOpenSettings: () -> Unit,
     onRefresh: () -> Unit,
 ) {
     Scaffold { padding ->
@@ -128,9 +139,9 @@ private fun LibraryScreen(
                 )
                 permissionStatus == AudioPermissionStatus.DENIED -> MessageState(
                     title = "Music access denied",
-                    message = "Your local library is unavailable until audio access is allowed.",
-                    action = "Try again",
-                    onAction = onRequestPermission,
+                    message = "Allow audio access in app settings to restore your local library.",
+                    action = "Open settings",
+                    onAction = onOpenSettings,
                 )
                 state.isRefreshing && state.tracks.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 state.errorMessage != null && state.tracks.isEmpty() -> MessageState("Couldn't scan music", state.errorMessage, "Try again", onRefresh)
