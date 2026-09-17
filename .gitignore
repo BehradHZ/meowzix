@@ -8,5 +8,3 @@
 .externalNativeBuild/
 .cxx/
 **/build/
-app/schemas/*.json
-!app/schemas/.gitkeep

@@ -14,6 +14,7 @@ import com.behradhz.meowzix.data.db.entity.TrackSourceEntity
 import com.behradhz.meowzix.data.db.toDomain
 import com.behradhz.meowzix.data.localmedia.LocalLibraryReconciliationPlanner
 import com.behradhz.meowzix.data.localmedia.LocalMusicScanner
+import com.behradhz.meowzix.data.localmedia.LocalTrackChangeDetector
 import com.behradhz.meowzix.data.localmedia.ScannedLocalTrack
 import com.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import com.behradhz.meowzix.domain.library.MusicLibraryRepository
@@ -110,31 +111,32 @@ class DefaultMusicLibraryRepository @Inject constructor(
             return true
         }
 
-        val candidateTrack = item.toTrackEntity(
-            trackId = existingTrack.id,
-            createdAt = existingTrack.createdAtEpochMs,
-            updatedAt = existingTrack.updatedAtEpochMs,
-            favorite = existingTrack.favorite,
-            hidden = existingTrack.hidden,
-        )
-        val trackChanged = candidateTrack != existingTrack
+        val trackChanged = LocalTrackChangeDetector.trackChanged(existingTrack, item)
         if (trackChanged) {
-            trackDao.upsert(candidateTrack.copy(updatedAtEpochMs = now))
+            trackDao.upsert(
+                item.toTrackEntity(
+                    trackId = existingTrack.id,
+                    createdAt = existingTrack.createdAtEpochMs,
+                    updatedAt = now,
+                    favorite = existingTrack.favorite,
+                    hidden = existingTrack.hidden,
+                ),
+            )
         }
 
-        val candidateSource = item.toTrackSourceEntity(
-            sourceId = existingSource.id,
-            trackId = existingSource.trackId,
-            now = now,
-            createdAt = existingSource.createdAtEpochMs,
+        val sourceMeaningfullyChanged = LocalTrackChangeDetector.sourceChanged(existingSource, item)
+        trackSourceDao.upsert(
+            item.toTrackSourceEntity(
+                sourceId = existingSource.id,
+                trackId = existingSource.trackId,
+                now = now,
+                createdAt = existingSource.createdAtEpochMs,
+            ),
         )
-        val sourceMeaningfullyChanged = candidateSource.copy(lastVerifiedAtEpochMs = existingSource.lastVerifiedAtEpochMs) != existingSource
-        trackSourceDao.upsert(candidateSource)
 
-        val candidateLocal = item.toLocalMediaSourceEntity(existingLocal.trackSourceId)
-        val localChanged = candidateLocal != existingLocal
+        val localChanged = LocalTrackChangeDetector.localSourceChanged(existingLocal, item)
         if (localChanged) {
-            localMediaSourceDao.upsert(candidateLocal)
+            localMediaSourceDao.upsert(item.toLocalMediaSourceEntity(existingLocal.trackSourceId))
         }
 
         return trackChanged || sourceMeaningfullyChanged || localChanged
