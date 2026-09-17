@@ -14,6 +14,8 @@ import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.ScannedLocalTrack
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.playback.PlayableTrack
+import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -26,7 +28,7 @@ class LocalMusicLibraryRepository @Inject constructor(
     private val database: MeowzixDatabase,
     private val dao: LibraryDao,
     private val scanner: LocalMediaScanner,
-) : MusicLibraryRepository {
+) : MusicLibraryRepository, PlaybackCatalog {
 
     override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableLocalTracks().map { rows ->
         rows.map(TrackEntity::toDomain)
@@ -75,6 +77,21 @@ class LocalMusicLibraryRepository @Inject constructor(
             markedMissing = plan.missingSourceIds.size,
         )
     }
+
+    override suspend fun availableLocalTracks(): List<PlayableTrack> =
+        dao.availableLocalPlaybackRows()
+            .distinctBy { it.id }
+            .map { row ->
+                PlayableTrack(
+                    id = UUID.fromString(row.id),
+                    title = row.title,
+                    artist = row.artist,
+                    album = row.album,
+                    durationMs = row.durationMs,
+                    artworkRef = row.artworkRef,
+                    contentUri = row.contentUri,
+                )
+            }
 
     private suspend fun persistScannedItem(
         item: ScannedLocalTrack,

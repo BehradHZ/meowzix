@@ -15,6 +15,7 @@ import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import javax.inject.Singleton
 
 @Module
@@ -23,6 +24,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindMusicLibraryRepository(impl: LocalMusicLibraryRepository): MusicLibraryRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPlaybackCatalog(impl: LocalMusicLibraryRepository): PlaybackCatalog
 
     @Binds
     @Singleton
