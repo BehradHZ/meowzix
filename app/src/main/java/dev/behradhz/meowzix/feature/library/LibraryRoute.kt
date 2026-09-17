@@ -2,12 +2,11 @@ package dev.behradhz.meowzix.feature.library
 
 import android.content.pm.PackageManager
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,9 +34,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -50,11 +46,13 @@ import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.core.permissions.AudioPermission
 import dev.behradhz.meowzix.core.permissions.AudioPermissionStatus
 import dev.behradhz.meowzix.core.permissions.audioPermissionStatus
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import dev.behradhz.meowzix.ui.components.TrackArtwork
 
 @Composable
-fun LibraryRoute(viewModel: LibraryViewModel = hiltViewModel()) {
+fun LibraryRoute(
+    onOpenNowPlaying: () -> Unit,
+    viewModel: LibraryViewModel = hiltViewModel(),
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -101,6 +99,11 @@ fun LibraryRoute(viewModel: LibraryViewModel = hiltViewModel()) {
             )
         },
         onRefresh = viewModel::refresh,
+        onPlayTrack = { track ->
+            viewModel.playTrack(track)
+            onOpenNowPlaying()
+        },
+        onOpenNowPlaying = onOpenNowPlaying,
     )
 }
 
@@ -111,6 +114,8 @@ private fun LibraryScreen(
     onRequestPermission: () -> Unit,
     onOpenSettings: () -> Unit,
     onRefresh: () -> Unit,
+    onPlayTrack: (Track) -> Unit,
+    onOpenNowPlaying: () -> Unit,
 ) {
     Scaffold { padding ->
         Column(
@@ -125,8 +130,13 @@ private fun LibraryScreen(
                     Text("Meowzix", style = MaterialTheme.typography.headlineLarge)
                     Text("Local music", style = MaterialTheme.typography.bodyMedium)
                 }
-                if (permissionStatus == AudioPermissionStatus.GRANTED) {
-                    Button(onClick = onRefresh, enabled = !state.isRefreshing) { Text("Rescan") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (state.playback.currentTrack != null) {
+                        Button(onClick = onOpenNowPlaying) { Text("Now playing") }
+                    }
+                    if (permissionStatus == AudioPermissionStatus.GRANTED) {
+                        Button(onClick = onRefresh, enabled = !state.isRefreshing) { Text("Rescan") }
+                    }
                 }
             }
 
@@ -148,7 +158,7 @@ private fun LibraryScreen(
                 state.tracks.isEmpty() -> MessageState("No music found", "Add music to your device, then rescan.", "Rescan", onRefresh)
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(state.tracks, key = { it.id.toString() }) { track ->
-                        TrackRow(track)
+                        TrackRow(track, onClick = { onPlayTrack(track) })
                         HorizontalDivider()
                     }
                 }
@@ -158,35 +168,18 @@ private fun LibraryScreen(
 }
 
 @Composable
-private fun TrackRow(track: Track) {
+private fun TrackRow(track: Track, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        LocalArtwork(track.artworkRef, track.title)
+        TrackArtwork(track.artworkRef, track.title)
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
             Text(track.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
             Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodyMedium, maxLines = 1)
         }
         Text(formatDuration(track.durationMs), style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-@Composable
-private fun LocalArtwork(uri: String?, description: String) {
-    val context = LocalContext.current
-    var bitmap by remember(uri) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(uri) {
-        bitmap = if (uri == null) null else withContext(Dispatchers.IO) {
-            runCatching {
-                context.contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
-            }.getOrNull()
-        }
-    }
-    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-        if (bitmap != null) Image(bitmap = bitmap!!, contentDescription = description, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else Text("♪", style = MaterialTheme.typography.headlineSmall)
     }
 }
 
