@@ -14,10 +14,12 @@ import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
+import dev.behradhz.meowzix.data.telegram.TdLibTelegramRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.playback.AndroidPlaybackController
 import javax.inject.Singleton
 
@@ -39,6 +41,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindQueueRepository(impl: AndroidPlaybackController): QueueRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindTelegramRepository(impl: TdLibTelegramRepository): TelegramRepository
 
     @Binds
     @Singleton
