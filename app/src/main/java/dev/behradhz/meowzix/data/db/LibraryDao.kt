@@ -1,10 +1,8 @@
 package dev.behradhz.meowzix.data.db
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Transaction
+import androidx.room.Upsert
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import kotlinx.coroutines.flow.Flow
 
@@ -22,13 +20,13 @@ interface LibraryDao {
     @Query("SELECT * FROM track_sources WHERE type = 'LOCAL_MEDIASTORE'")
     suspend fun allLocalSources(): List<TrackSourceEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertTrack(track: TrackEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertSource(source: TrackSourceEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertLocalMediaSource(source: LocalMediaSourceEntity)
 
     @Query("UPDATE track_sources SET availability = :availability, lastVerifiedAtEpochMs = :verifiedAt WHERE id = :sourceId")
