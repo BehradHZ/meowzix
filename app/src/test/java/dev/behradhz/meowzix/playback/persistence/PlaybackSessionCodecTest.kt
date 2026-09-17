@@ -62,4 +62,20 @@ class PlaybackSessionCodecTest {
         assertNull(PlaybackSessionCodec.decode("not-a-session"))
         assertNull(PlaybackSessionCodec.decode("v1|x|0|ORDERED|OFF"))
     }
+
+    @Test
+    fun `round trip preserves pure shuffle cycle and repeat policy`() {
+        val session = PersistedPlaybackSession(
+            items = listOf(
+                PersistedPlaybackItem("second", "content://2", "Second", null, null, 2),
+                PersistedPlaybackItem("first", "content://1", "First", null, null, 1),
+            ),
+            currentIndex = 1,
+            positionMs = 250,
+            playbackMode = PlaybackMode.PURE_SHUFFLE,
+            repeatMode = RepeatMode.ALL,
+        )
+
+        assertEquals(session, PlaybackSessionCodec.decode(PlaybackSessionCodec.encode(session)))
+    }
 }

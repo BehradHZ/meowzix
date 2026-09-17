@@ -9,6 +9,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
@@ -31,9 +32,16 @@ class PlaybackService : MediaSessionService() {
     private lateinit var mediaSession: MediaSession
     private var persistJob: Job? = null
     private var isRestoring = true
+    private var isChangingShuffleCycle = false
 
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            if (
+                events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
+                player.playbackState == Player.STATE_ENDED
+            ) {
+                startNextPureShuffleCycle()
+            }
             if (
                 events.containsAny(
                     Player.EVENT_MEDIA_ITEM_TRANSITION,
@@ -41,6 +49,7 @@ class PlaybackService : MediaSessionService() {
                     Player.EVENT_POSITION_DISCONTINUITY,
                     Player.EVENT_REPEAT_MODE_CHANGED,
                     Player.EVENT_TIMELINE_CHANGED,
+                    Player.EVENT_PLAYBACK_STATE_CHANGED,
                 )
             ) {
                 schedulePersist()
@@ -97,8 +106,12 @@ class PlaybackService : MediaSessionService() {
     private suspend fun restoreSession() {
         val saved = stateStore.load()
         if (player.mediaItemCount == 0 && saved.items.isNotEmpty()) {
-            player.repeatMode = saved.repeatMode.toPlayerRepeatMode()
-            player.setMediaItems(saved.items.map { it.toMediaItem() }, saved.currentIndex, saved.positionMs)
+            player.repeatMode = saved.repeatMode.toPlayerRepeatMode(saved.playbackMode)
+            player.setMediaItems(
+                saved.items.map { it.toMediaItem(saved.playbackMode, saved.repeatMode) },
+                saved.currentIndex,
+                saved.positionMs,
+            )
             player.prepare()
         }
         isRestoring = false
@@ -116,16 +129,42 @@ class PlaybackService : MediaSessionService() {
     private suspend fun persistNow() {
         val items = (0 until player.mediaItemCount)
             .mapNotNull { index -> player.getMediaItemAt(index).toPersistedPlaybackItem() }
-        if (items.isEmpty()) return
+        val firstItem = player.takeIf { it.mediaItemCount > 0 }?.getMediaItemAt(0)
         stateStore.save(
             PersistedPlaybackSession(
                 items = items,
                 currentIndex = player.currentMediaItemIndex.coerceAtLeast(0),
                 positionMs = player.currentPosition.coerceAtLeast(0),
-                playbackMode = PlaybackMode.ORDERED,
-                repeatMode = player.repeatMode.toDomainRepeatMode(),
+                playbackMode = firstItem?.playbackMode() ?: PlaybackMode.ORDERED,
+                repeatMode = firstItem?.repeatMode() ?: RepeatMode.OFF,
             ),
         )
+    }
+
+    private fun startNextPureShuffleCycle() {
+        if (isChangingShuffleCycle || player.mediaItemCount == 0) return
+        val currentItems = (0 until player.mediaItemCount).map(player::getMediaItemAt)
+        val playbackMode = currentItems.first().playbackMode()
+        if (playbackMode != PlaybackMode.PURE_SHUFFLE) return
+
+        isChangingShuffleCycle = true
+        try {
+            val repeatMode = currentItems.first().repeatMode()
+            val previousLastItem = player.currentMediaItem
+            val shouldContinue = repeatMode == RepeatMode.ALL && player.playWhenReady
+            val nextCycle = PureShuffleEngine.newCycle(
+                eligibleItems = currentItems,
+                previousLastItem = previousLastItem,
+            ).order
+            player.pause()
+            player.repeatMode = repeatMode.toPlayerRepeatMode(playbackMode)
+            player.setMediaItems(nextCycle, 0, 0)
+            player.prepare()
+            if (shouldContinue) player.play()
+            schedulePersist()
+        } finally {
+            isChangingShuffleCycle = false
+        }
     }
 
     private companion object {
@@ -134,14 +173,8 @@ class PlaybackService : MediaSessionService() {
     }
 }
 
-private fun RepeatMode.toPlayerRepeatMode(): Int = when (this) {
-    RepeatMode.OFF -> Player.REPEAT_MODE_OFF
-    RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-    RepeatMode.ALL -> Player.REPEAT_MODE_ALL
-}
-
-private fun Int.toDomainRepeatMode(): RepeatMode = when (this) {
-    Player.REPEAT_MODE_ONE -> RepeatMode.ONE
-    Player.REPEAT_MODE_ALL -> RepeatMode.ALL
-    else -> RepeatMode.OFF
+private fun RepeatMode.toPlayerRepeatMode(playbackMode: PlaybackMode): Int = when {
+    this == RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+    this == RepeatMode.ALL && playbackMode == PlaybackMode.ORDERED -> Player.REPEAT_MODE_ALL
+    else -> Player.REPEAT_MODE_OFF
 }
