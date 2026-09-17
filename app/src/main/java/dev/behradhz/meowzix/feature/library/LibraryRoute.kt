@@ -42,9 +42,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -334,7 +337,7 @@ private fun TracksSection(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(tracks, key = { it.id.toString() }) { track ->
-            TrackRow(
+            SwipeableTrackRow(
                 track = track,
                 isCurrent = track.id == currentTrackId,
                 onClick = { onPlayTrack(track) },
@@ -342,6 +345,77 @@ private fun TracksSection(
                 onAddToQueue = { onAddToQueue(track) },
             )
         }
+    }
+}
+
+@Composable
+private fun SwipeableTrackRow(
+    track: Track,
+    isCurrent: Boolean,
+    onClick: () -> Unit,
+    onPlayNext: () -> Unit,
+    onAddToQueue: () -> Unit,
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    onPlayNext()
+                    false
+                }
+
+                SwipeToDismissBoxValue.EndToStart -> {
+                    onAddToQueue()
+                    false
+                }
+
+                SwipeToDismissBoxValue.Settled -> true
+            }
+        },
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = true,
+        enableDismissFromEndToStart = true,
+        backgroundContent = {
+            val playNext = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                shape = MaterialTheme.shapes.large,
+                color = if (playNext) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.tertiaryContainer
+                },
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 20.dp),
+                    horizontalArrangement = if (playNext) Arrangement.Start else Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (playNext) {
+                        Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
+                        Spacer(Modifier.size(8.dp))
+                        Text("Play next", style = MaterialTheme.typography.labelLarge)
+                    } else {
+                        Text("Add to queue", style = MaterialTheme.typography.labelLarge)
+                        Spacer(Modifier.size(8.dp))
+                        Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
+                    }
+                }
+            }
+        },
+    ) {
+        TrackRow(
+            track = track,
+            isCurrent = isCurrent,
+            onClick = onClick,
+            onPlayNext = onPlayNext,
+            onAddToQueue = onAddToQueue,
+        )
     }
 }
 
