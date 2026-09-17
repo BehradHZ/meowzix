@@ -1,8 +1,7 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("org.jetbrains.kotlin.kapt")
+    id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
 }
 
@@ -29,10 +28,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
@@ -57,10 +52,10 @@ dependencies {
 
     implementation("androidx.room:room-runtime:2.8.5")
     implementation("androidx.room:room-ktx:2.8.5")
-    kapt("androidx.room:room-compiler:2.8.5")
+    ksp("androidx.room:room-compiler:2.8.5")
 
-    implementation("com.google.dagger:hilt-android:2.57.1")
-    kapt("com.google.dagger:hilt-android-compiler:2.57.1")
+    implementation("com.google.dagger:hilt-android:2.60.1")
+    ksp("com.google.dagger:hilt-compiler:2.60.1")
 
     implementation("androidx.datastore:datastore-preferences:1.2.0")
     implementation("androidx.media3:media3-exoplayer:1.11.1")
@@ -72,8 +67,4 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-}
-
-kapt {
-    correctErrorTypes = true
 }
