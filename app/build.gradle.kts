@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "dev.behradhz.meowzix"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.behradhz.meowzix"
