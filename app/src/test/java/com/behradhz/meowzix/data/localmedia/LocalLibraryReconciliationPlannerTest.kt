@@ -46,6 +46,25 @@ class LocalLibraryReconciliationPlannerTest {
         assertEquals(1, second.discovered.size)
     }
 
+    @Test
+    fun planner_handlesOneThousandUniqueTracksWithoutDroppingItems() {
+        val snapshot = (1L..1_000L).map { id ->
+            scanned(
+                uri = "content://audio/$id",
+                title = "Song $id",
+            )
+        }
+
+        val plan = LocalLibraryReconciliationPlanner.plan(
+            scanned = snapshot,
+            existing = emptyList(),
+        )
+
+        assertEquals(1_000, plan.discovered.size)
+        assertEquals(0, plan.staleSources.size)
+        assertEquals(1_000, plan.discovered.map { it.contentUri }.toSet().size)
+    }
+
     private fun existing(sourceId: String, uri: String) = LocalMediaSourceEntity(
         trackSourceId = sourceId,
         mediaStoreId = uri.substringAfterLast('/').toLong(),
