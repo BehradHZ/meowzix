@@ -10,11 +10,15 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+interface LocalMediaScanner {
+    suspend fun scan(): List<ScannedLocalTrack>
+}
+
 @Singleton
 class MediaStoreScanner @Inject constructor(
-    @ApplicationContext private val context: Context,
-) {
-    suspend fun scan(): List<ScannedLocalTrack> = withContext(Dispatchers.IO) {
+    @param:ApplicationContext private val context: Context,
+) : LocalMediaScanner {
+    override suspend fun scan(): List<ScannedLocalTrack> = withContext(Dispatchers.IO) {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = buildList {
             add(MediaStore.Audio.Media._ID)
@@ -33,19 +37,21 @@ class MediaStoreScanner @Inject constructor(
         }.toTypedArray()
 
         val result = mutableListOf<ScannedLocalTrack>()
-        context.contentResolver.query(
+        val cursor = context.contentResolver.query(
             collection,
             projection,
             "${MediaStore.Audio.Media.IS_MUSIC} != 0",
             null,
             "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC",
-        )?.use { cursor ->
+        ) ?: error("MediaStore audio query returned no cursor")
+
+        cursor.use {
             fun index(column: String) = cursor.getColumnIndex(column)
             fun string(column: String): String? = index(column).takeIf { it >= 0 && !cursor.isNull(it) }?.let(cursor::getString)
             fun long(column: String): Long? = index(column).takeIf { it >= 0 && !cursor.isNull(it) }?.let(cursor::getLong)
             fun int(column: String): Int? = index(column).takeIf { it >= 0 && !cursor.isNull(it) }?.let(cursor::getInt)
 
-            while (cursor.moveToNext()) {
+            while (it.moveToNext()) {
                 val id = long(MediaStore.Audio.Media._ID) ?: continue
                 val duration = long(MediaStore.Audio.Media.DURATION) ?: 0L
                 if (duration <= 0L) continue

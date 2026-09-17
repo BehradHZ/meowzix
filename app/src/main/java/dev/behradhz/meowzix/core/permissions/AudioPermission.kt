@@ -13,3 +13,18 @@ object AudioPermission {
             Manifest.permission.READ_EXTERNAL_STORAGE
         }
 }
+
+enum class AudioPermissionStatus {
+    GRANTED,
+    REQUIRED,
+    DENIED,
+}
+
+fun audioPermissionStatus(
+    granted: Boolean,
+    requestAttempted: Boolean,
+): AudioPermissionStatus = when {
+    granted -> AudioPermissionStatus.GRANTED
+    requestAttempted -> AudioPermissionStatus.DENIED
+    else -> AudioPermissionStatus.REQUIRED
+}

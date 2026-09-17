@@ -11,6 +11,8 @@ import dagger.hilt.components.SingletonComponent
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.MIGRATION_1_2
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
+import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
+import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import javax.inject.Singleton
@@ -21,6 +23,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindMusicLibraryRepository(impl: LocalMusicLibraryRepository): MusicLibraryRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindLocalMediaScanner(impl: MediaStoreScanner): LocalMediaScanner
 }
 
 @Module

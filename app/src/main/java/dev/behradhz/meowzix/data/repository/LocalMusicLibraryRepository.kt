@@ -10,7 +10,7 @@ import dev.behradhz.meowzix.data.db.LocalMediaSourceEntity
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
-import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
+import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.ScannedLocalTrack
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.map
 class LocalMusicLibraryRepository @Inject constructor(
     private val database: MeowzixDatabase,
     private val dao: LibraryDao,
-    private val scanner: MediaStoreScanner,
+    private val scanner: LocalMediaScanner,
 ) : MusicLibraryRepository {
 
     override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableLocalTracks().map { rows ->

@@ -28,4 +28,20 @@ class AudioPermissionTest {
             AudioPermission.requiredPermissionForSdk(26),
         )
     }
+
+    @Test
+    fun `permission state distinguishes first request denial and grant`() {
+        assertEquals(
+            AudioPermissionStatus.REQUIRED,
+            audioPermissionStatus(granted = false, requestAttempted = false),
+        )
+        assertEquals(
+            AudioPermissionStatus.DENIED,
+            audioPermissionStatus(granted = false, requestAttempted = true),
+        )
+        assertEquals(
+            AudioPermissionStatus.GRANTED,
+            audioPermissionStatus(granted = true, requestAttempted = true),
+        )
+    }
 }

@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.core.permissions.AudioPermission
+import dev.behradhz.meowzix.core.permissions.AudioPermissionStatus
+import dev.behradhz.meowzix.core.permissions.audioPermissionStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -59,15 +62,20 @@ fun LibraryRoute(viewModel: LibraryViewModel = hiltViewModel()) {
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
     var permissionGranted by remember { mutableStateOf(hasPermission()) }
+    var permissionRequestAttempted by rememberSaveable { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        permissionRequestAttempted = true
         permissionGranted = granted
-        if (granted) viewModel.refresh()
     }
 
     DisposableEffect(lifecycleOwner, permission) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                permissionGranted = hasPermission()
+                val currentlyGranted = hasPermission()
+                if (permissionGranted && !currentlyGranted) {
+                    permissionRequestAttempted = true
+                }
+                permissionGranted = currentlyGranted
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -80,7 +88,7 @@ fun LibraryRoute(viewModel: LibraryViewModel = hiltViewModel()) {
 
     LibraryScreen(
         state = state,
-        permissionGranted = permissionGranted,
+        permissionStatus = audioPermissionStatus(permissionGranted, permissionRequestAttempted),
         onRequestPermission = { permissionLauncher.launch(permission) },
         onRefresh = viewModel::refresh,
     )
@@ -89,7 +97,7 @@ fun LibraryRoute(viewModel: LibraryViewModel = hiltViewModel()) {
 @Composable
 private fun LibraryScreen(
     state: LibraryUiState,
-    permissionGranted: Boolean,
+    permissionStatus: AudioPermissionStatus,
     onRequestPermission: () -> Unit,
     onRefresh: () -> Unit,
 ) {
@@ -106,14 +114,22 @@ private fun LibraryScreen(
                     Text("Meowzix", style = MaterialTheme.typography.headlineLarge)
                     Text("Local music", style = MaterialTheme.typography.bodyMedium)
                 }
-                if (permissionGranted) Button(onClick = onRefresh, enabled = !state.isRefreshing) { Text("Rescan") }
+                if (permissionStatus == AudioPermissionStatus.GRANTED) {
+                    Button(onClick = onRefresh, enabled = !state.isRefreshing) { Text("Rescan") }
+                }
             }
 
             when {
-                !permissionGranted -> MessageState(
+                permissionStatus == AudioPermissionStatus.REQUIRED -> MessageState(
                     title = "Music access needed",
                     message = "Allow access to audio files so Meowzix can build your local library.",
                     action = "Allow access",
+                    onAction = onRequestPermission,
+                )
+                permissionStatus == AudioPermissionStatus.DENIED -> MessageState(
+                    title = "Music access denied",
+                    message = "Your local library is unavailable until audio access is allowed.",
+                    action = "Try again",
                     onAction = onRequestPermission,
                 )
                 state.isRefreshing && state.tracks.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
