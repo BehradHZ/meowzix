@@ -52,6 +52,7 @@ import dev.behradhz.meowzix.ui.components.TrackArtwork
 @Composable
 fun LibraryRoute(
     onOpenNowPlaying: () -> Unit,
+    onOpenTelegram: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -107,6 +108,7 @@ fun LibraryRoute(
         onOpenNowPlaying = onOpenNowPlaying,
         onPlayNext = viewModel::playNext,
         onAddToQueue = viewModel::addToQueue,
+        onOpenTelegram = onOpenTelegram,
     )
 }
 
@@ -121,6 +123,7 @@ private fun LibraryScreen(
     onOpenNowPlaying: () -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
+    onOpenTelegram: () -> Unit,
 ) {
     Scaffold { padding ->
         Column(
@@ -136,6 +139,7 @@ private fun LibraryScreen(
                     Text("Local music", style = MaterialTheme.typography.bodyMedium)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onOpenTelegram) { Text("Telegram") }
                     if (state.playback.currentTrack != null) {
                         Button(onClick = onOpenNowPlaying) { Text("Now playing") }
                     }
