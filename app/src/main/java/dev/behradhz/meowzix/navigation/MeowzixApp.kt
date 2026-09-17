@@ -2,13 +2,18 @@ package dev.behradhz.meowzix.navigation
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -17,11 +22,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ShortNavigationBar
-import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,9 +32,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -50,7 +53,10 @@ import dev.behradhz.meowzix.feature.nowplaying.NowPlayingRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.queue.QueueRoute
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
+import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TrackArtwork
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 private const val LIBRARY_ROUTE = "library"
 private const val NOW_PLAYING_ROUTE = "now-playing"
@@ -68,70 +74,39 @@ fun MeowzixApp(
     playerViewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
+    val hazeState = rememberHazeState()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
 
-    val destinations = listOf(
-        TopLevelDestination(
-            route = LIBRARY_ROUTE,
-            label = "Library",
-            icon = { Icon(Icons.Rounded.LibraryMusic, contentDescription = null) },
-        ),
-        TopLevelDestination(
-            route = QUEUE_ROUTE,
-            label = "Queue",
-            icon = { Icon(Icons.Rounded.QueueMusic, contentDescription = null) },
-        ),
-        TopLevelDestination(
-            route = TELEGRAM_AUTH_ROUTE,
-            label = "Telegram",
-            icon = { Icon(Icons.Rounded.Cloud, contentDescription = null) },
-        ),
-    )
+    val destinations = remember {
+        listOf(
+            TopLevelDestination(
+                route = LIBRARY_ROUTE,
+                label = "Library",
+                icon = { Icon(Icons.Rounded.LibraryMusic, contentDescription = null) },
+            ),
+            TopLevelDestination(
+                route = QUEUE_ROUTE,
+                label = "Queue",
+                icon = { Icon(Icons.Rounded.QueueMusic, contentDescription = null) },
+            ),
+            TopLevelDestination(
+                route = TELEGRAM_AUTH_ROUTE,
+                label = "Telegram",
+                icon = { Icon(Icons.Rounded.Cloud, contentDescription = null) },
+            ),
+        )
+    }
     val isTopLevelDestination = destinations.any { it.route == currentRoute }
 
-    Scaffold(
-        bottomBar = {
-            if (isTopLevelDestination) {
-                Column {
-                    if (playbackState.currentTrack != null) {
-                        MiniPlayer(
-                            state = playbackState,
-                            onOpenNowPlaying = {
-                                navController.navigate(NOW_PLAYING_ROUTE) { launchSingleTop = true }
-                            },
-                            onTogglePlayPause = playerViewModel::togglePlayPause,
-                            onPrevious = playerViewModel::previous,
-                            onNext = playerViewModel::next,
-                        )
-                    }
-                    ShortNavigationBar {
-                        destinations.forEach { destination ->
-                            ShortNavigationBarItem(
-                                selected = currentRoute == destination.route,
-                                onClick = {
-                                    navController.navigate(destination.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
-                                icon = destination.icon,
-                                label = { Text(destination.label) },
-                            )
-                        }
-                    }
-                }
-            }
-        },
-    ) { outerPadding ->
+    Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
             startDestination = LIBRARY_ROUTE,
-            modifier = Modifier.padding(outerPadding),
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(hazeState),
         ) {
             composable(LIBRARY_ROUTE) {
                 LibraryRoute(
@@ -146,7 +121,9 @@ fun MeowzixApp(
             composable(NOW_PLAYING_ROUTE) {
                 NowPlayingRoute(
                     onBack = navController::popBackStack,
-                    onOpenQueue = { navController.navigate(QUEUE_ROUTE) { launchSingleTop = true } },
+                    onOpenQueue = {
+                        navController.navigate(QUEUE_ROUTE) { launchSingleTop = true }
+                    },
                 )
             }
             composable(QUEUE_ROUTE) {
@@ -156,11 +133,113 @@ fun MeowzixApp(
                 TelegramAuthRoute(onBack = navController::popBackStack)
             }
         }
+
+        if (isTopLevelDestination) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (playbackState.currentTrack != null) {
+                    GlassMiniPlayer(
+                        hazeState = hazeState,
+                        state = playbackState,
+                        onOpenNowPlaying = {
+                            navController.navigate(NOW_PLAYING_ROUTE) { launchSingleTop = true }
+                        },
+                        onTogglePlayPause = playerViewModel::togglePlayPause,
+                        onPrevious = playerViewModel::previous,
+                        onNext = playerViewModel::next,
+                    )
+                }
+
+                FloatingDock(
+                    hazeState = hazeState,
+                    destinations = destinations,
+                    currentRoute = currentRoute,
+                    onSelect = { route ->
+                        navController.navigate(route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun MiniPlayer(
+private fun FloatingDock(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    destinations: List<TopLevelDestination>,
+    currentRoute: String?,
+    onSelect: (String) -> Unit,
+) {
+    GlassSurface(
+        hazeState = hazeState,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(72.dp),
+        shape = RoundedCornerShape(36.dp),
+        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+        tint = Color.White.copy(alpha = 0.09f),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            destinations.forEach { destination ->
+                val selected = currentRoute == destination.route
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(58.dp)
+                        .clickable { onSelect(destination.route) },
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                    } else {
+                        Color.Transparent
+                    },
+                    contentColor = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+                    },
+                    shape = RoundedCornerShape(28.dp),
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                            destination.icon()
+                        }
+                        Text(
+                            text = destination.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlassMiniPlayer(
+    hazeState: dev.chrisbanes.haze.HazeState,
     state: PlaybackState,
     onOpenNowPlaying: () -> Unit,
     onTogglePlayPause: () -> Unit,
@@ -178,10 +257,11 @@ private fun MiniPlayer(
     val visualLimit = with(density) { 24.dp.toPx() }
     var dragDistance by remember(track.id) { mutableFloatStateOf(0f) }
 
-    Surface(
+    GlassSurface(
+        hazeState = hazeState,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .height(72.dp)
             .graphicsLayer { translationX = dragDistance.coerceIn(-visualLimit, visualLimit) }
             .pointerInput(track.id, state.canSkipPrevious, state.canSkipNext) {
                 detectHorizontalDragGestures(
@@ -198,51 +278,69 @@ private fun MiniPlayer(
                 )
             }
             .clickable(onClick = onOpenNowPlaying),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        tonalElevation = 6.dp,
+        shape = RoundedCornerShape(28.dp),
+        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
+        tint = Color.White.copy(alpha = 0.10f),
     ) {
-        Column {
+        Column(Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(start = 10.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TrackArtwork(
                     artworkRef = track.artworkRef,
                     description = track.title,
-                    size = 48.dp,
+                    size = 50.dp,
                 )
                 Spacer(Modifier.size(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         text = track.title,
                         style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = track.artist ?: "Unknown artist",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
                 IconButton(onClick = onTogglePlayPause) {
                     Icon(
-                        imageVector = if (state.status == PlaybackStatus.PLAYING) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        imageVector = if (state.status == PlaybackStatus.PLAYING) {
+                            Icons.Rounded.Pause
+                        } else {
+                            Icons.Rounded.PlayArrow
+                        },
                         contentDescription = if (state.status == PlaybackStatus.PLAYING) "Pause" else "Play",
                     )
                 }
             }
-            LinearProgressIndicator(
-                progress = { progress },
+
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(3.dp),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.secondaryContainer,
-            )
+                    .height(2.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress)
+                        .height(2.dp)
+                        .align(Alignment.CenterStart),
+                ) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.88f),
+                    ) {}
+                }
+            }
         }
     }
 }
