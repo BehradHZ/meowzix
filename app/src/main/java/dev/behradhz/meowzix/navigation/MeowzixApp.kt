@@ -6,9 +6,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import dev.behradhz.meowzix.feature.library.LibraryRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingRoute
+import dev.behradhz.meowzix.feature.queue.QueueRoute
 
 private const val LIBRARY_ROUTE = "library"
 private const val NOW_PLAYING_ROUTE = "now-playing"
+private const val QUEUE_ROUTE = "queue"
 
 @Composable
 fun MeowzixApp() {
@@ -26,7 +28,13 @@ fun MeowzixApp() {
             )
         }
         composable(NOW_PLAYING_ROUTE) {
-            NowPlayingRoute(onBack = navController::popBackStack)
+            NowPlayingRoute(
+                onBack = navController::popBackStack,
+                onOpenQueue = { navController.navigate(QUEUE_ROUTE) { launchSingleTop = true } },
+            )
+        }
+        composable(QUEUE_ROUTE) {
+            QueueRoute(onBack = navController::popBackStack)
         }
     }
 }

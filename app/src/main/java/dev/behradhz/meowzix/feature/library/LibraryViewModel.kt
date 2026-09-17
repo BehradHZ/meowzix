@@ -8,6 +8,7 @@ import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackState
+import dev.behradhz.meowzix.domain.playback.QueueRepository
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +29,7 @@ data class LibraryUiState(
 class LibraryViewModel @Inject constructor(
     private val repository: MusicLibraryRepository,
     private val playbackController: PlaybackController,
+    private val queueRepository: QueueRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
@@ -58,4 +60,7 @@ class LibraryViewModel @Inject constructor(
     fun playTrack(track: Track) {
         playbackController.playTrack(track.id)
     }
+
+    fun playNext(track: Track) = queueRepository.playNext(track.id)
+    fun addToQueue(track: Track) = queueRepository.addToQueue(track.id)
 }

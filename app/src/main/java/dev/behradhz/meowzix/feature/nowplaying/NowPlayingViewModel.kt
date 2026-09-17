@@ -3,11 +3,15 @@ package dev.behradhz.meowzix.feature.nowplaying
 import androidx.lifecycle.ViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.domain.playback.PlaybackController
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.playback.RepeatMode
 import javax.inject.Inject
 
 @HiltViewModel
 class NowPlayingViewModel @Inject constructor(
     private val playbackController: PlaybackController,
+    private val queueRepository: QueueRepository,
 ) : ViewModel() {
     val state = playbackController.state
 
@@ -15,4 +19,16 @@ class NowPlayingViewModel @Inject constructor(
     fun seekTo(positionMs: Long) = playbackController.seekTo(positionMs)
     fun previous() = playbackController.skipToPrevious()
     fun next() = playbackController.skipToNext()
+    fun togglePlaybackMode() = queueRepository.setPlaybackMode(
+        if (state.value.playbackMode == PlaybackMode.ORDERED) PlaybackMode.PURE_SHUFFLE
+        else PlaybackMode.ORDERED,
+    )
+
+    fun cycleRepeatMode() = queueRepository.setRepeatMode(
+        when (state.value.repeatMode) {
+            RepeatMode.OFF -> RepeatMode.ONE
+            RepeatMode.ONE -> RepeatMode.ALL
+            RepeatMode.ALL -> RepeatMode.OFF
+        },
+    )
 }

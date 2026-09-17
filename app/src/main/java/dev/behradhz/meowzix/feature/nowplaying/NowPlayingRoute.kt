@@ -31,6 +31,7 @@ import dev.behradhz.meowzix.ui.components.TrackArtwork
 @Composable
 fun NowPlayingRoute(
     onBack: () -> Unit,
+    onOpenQueue: () -> Unit,
     viewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -41,6 +42,9 @@ fun NowPlayingRoute(
         onSeek = viewModel::seekTo,
         onPrevious = viewModel::previous,
         onNext = viewModel::next,
+        onTogglePlaybackMode = viewModel::togglePlaybackMode,
+        onCycleRepeatMode = viewModel::cycleRepeatMode,
+        onOpenQueue = onOpenQueue,
     )
 }
 
@@ -52,6 +56,9 @@ private fun NowPlayingScreen(
     onSeek: (Long) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onTogglePlaybackMode: () -> Unit,
+    onCycleRepeatMode: () -> Unit,
+    onOpenQueue: () -> Unit,
 ) {
     val track = state.currentTrack
     var pendingSeek by remember(track?.id) { mutableStateOf<Float?>(null) }
@@ -65,6 +72,8 @@ private fun NowPlayingScreen(
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
                 Button(onClick = onBack) { Text("Back") }
+                Spacer(Modifier.weight(1f))
+                Button(onClick = onOpenQueue) { Text("Queue") }
             }
             Spacer(Modifier.height(32.dp))
             if (track == null) {
@@ -110,6 +119,15 @@ private fun NowPlayingScreen(
                     Text(if (state.status == PlaybackStatus.PLAYING) "Pause" else "Play")
                 }
                 Button(onClick = onNext, enabled = state.canSkipNext) { Text("Next") }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                Button(onClick = onTogglePlaybackMode) {
+                    Text(if (state.playbackMode.name == "PURE_SHUFFLE") "Pure Shuffle" else "Ordered")
+                }
+                Button(onClick = onCycleRepeatMode) { Text("Repeat ${state.repeatMode.name}") }
             }
             Text(
                 "${state.queueIndex + 1} of ${state.queueSize}",

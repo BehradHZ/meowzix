@@ -24,6 +24,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -104,6 +105,8 @@ fun LibraryRoute(
             onOpenNowPlaying()
         },
         onOpenNowPlaying = onOpenNowPlaying,
+        onPlayNext = viewModel::playNext,
+        onAddToQueue = viewModel::addToQueue,
     )
 }
 
@@ -116,6 +119,8 @@ private fun LibraryScreen(
     onRefresh: () -> Unit,
     onPlayTrack: (Track) -> Unit,
     onOpenNowPlaying: () -> Unit,
+    onPlayNext: (Track) -> Unit,
+    onAddToQueue: (Track) -> Unit,
 ) {
     Scaffold { padding ->
         Column(
@@ -158,7 +163,12 @@ private fun LibraryScreen(
                 state.tracks.isEmpty() -> MessageState("No music found", "Add music to your device, then rescan.", "Rescan", onRefresh)
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(state.tracks, key = { it.id.toString() }) { track ->
-                        TrackRow(track, onClick = { onPlayTrack(track) })
+                        TrackRow(
+                            track = track,
+                            onClick = { onPlayTrack(track) },
+                            onPlayNext = { onPlayNext(track) },
+                            onAddToQueue = { onAddToQueue(track) },
+                        )
                         HorizontalDivider()
                     }
                 }
@@ -168,7 +178,12 @@ private fun LibraryScreen(
 }
 
 @Composable
-private fun TrackRow(track: Track, onClick: () -> Unit) {
+private fun TrackRow(
+    track: Track,
+    onClick: () -> Unit,
+    onPlayNext: () -> Unit,
+    onAddToQueue: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -179,7 +194,13 @@ private fun TrackRow(track: Track, onClick: () -> Unit) {
             Text(track.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
             Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodyMedium, maxLines = 1)
         }
-        Text(formatDuration(track.durationMs), style = MaterialTheme.typography.bodySmall)
+        Column(horizontalAlignment = Alignment.End) {
+            Text(formatDuration(track.durationMs), style = MaterialTheme.typography.bodySmall)
+            Row {
+                TextButton(onClick = onPlayNext) { Text("Next") }
+                TextButton(onClick = onAddToQueue) { Text("Add") }
+            }
+        }
     }
 }
 
