@@ -5,6 +5,16 @@ plugins {
     id("com.google.dagger.hilt.android")
 }
 
+fun String.asBuildConfigString(): String =
+    "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val telegramApiId = providers.gradleProperty("MEOWZIX_TELEGRAM_API_ID")
+    .orElse(providers.environmentVariable("MEOWZIX_TELEGRAM_API_ID"))
+    .getOrElse("")
+val telegramApiHash = providers.gradleProperty("MEOWZIX_TELEGRAM_API_HASH")
+    .orElse(providers.environmentVariable("MEOWZIX_TELEGRAM_API_HASH"))
+    .getOrElse("")
+
 android {
     namespace = "dev.behradhz.meowzix"
     compileSdk {
@@ -20,6 +30,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "TELEGRAM_API_ID", telegramApiId.asBuildConfigString())
+        buildConfigField("String", "TELEGRAM_API_HASH", telegramApiHash.asBuildConfigString())
     }
 
     buildFeatures {
