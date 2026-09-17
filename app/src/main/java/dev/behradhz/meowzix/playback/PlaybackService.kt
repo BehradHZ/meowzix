@@ -9,6 +9,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
@@ -26,6 +27,7 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
     @Inject lateinit var stateStore: PlaybackStateStore
+    @Inject lateinit var playbackCatalog: PlaybackCatalog
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
@@ -148,12 +150,26 @@ class PlaybackService : MediaSessionService() {
         if (playbackMode != PlaybackMode.PURE_SHUFFLE) return
 
         isChangingShuffleCycle = true
-        try {
+        serviceScope.launch {
+            try {
             val repeatMode = currentItems.first().repeatMode()
-            val previousLastItem = player.currentMediaItem
+            val previousLastId = player.currentMediaItem?.mediaId
             val shouldContinue = repeatMode == RepeatMode.ALL && player.playWhenReady
+            val catalogItems = runCatching { playbackCatalog.availableLocalTracks() }
+                .getOrNull()
+                ?.map { it.toMediaItem(playbackMode, repeatMode) }
+            val isLocalLibraryCycle = currentItems.any {
+                it.localConfiguration?.uri?.scheme == "content"
+            }
+            val eligibleItems = if (isLocalLibraryCycle && catalogItems != null) catalogItems else currentItems
+            if (eligibleItems.isEmpty()) {
+                player.clearMediaItems()
+                schedulePersist()
+                return@launch
+            }
+            val previousLastItem = eligibleItems.firstOrNull { it.mediaId == previousLastId }
             val nextCycle = PureShuffleEngine.newCycle(
-                eligibleItems = currentItems,
+                eligibleItems = eligibleItems,
                 previousLastItem = previousLastItem,
             ).order
             player.pause()
@@ -162,8 +178,9 @@ class PlaybackService : MediaSessionService() {
             player.prepare()
             if (shouldContinue) player.play()
             schedulePersist()
-        } finally {
-            isChangingShuffleCycle = false
+            } finally {
+                isChangingShuffleCycle = false
+            }
         }
     }
 
