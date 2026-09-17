@@ -4,12 +4,14 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
-import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
@@ -24,10 +26,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+@OptIn(UnstableApi::class)
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
     @Inject lateinit var stateStore: PlaybackStateStore
     @Inject lateinit var playbackCatalog: PlaybackCatalog
+    @Inject lateinit var audioVisualizer: AudioVisualizerRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
@@ -37,6 +41,11 @@ class PlaybackService : MediaSessionService() {
     private var isChangingShuffleCycle = false
 
     private val playerListener = object : Player.Listener {
+        override fun onAudioSessionIdChanged(audioSessionId: Int) {
+            // Never use session 0: Android treats that as the global output mix.
+            audioVisualizer.attachToSession(audioSessionId)
+        }
+
         override fun onEvents(player: Player, events: Player.Events) {
             if (
                 events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
@@ -99,6 +108,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         player.removeListener(playerListener)
+        audioVisualizer.release()
         mediaSession.release()
         player.release()
         serviceScope.cancel()
@@ -152,32 +162,36 @@ class PlaybackService : MediaSessionService() {
         isChangingShuffleCycle = true
         serviceScope.launch {
             try {
-            val repeatMode = currentItems.first().repeatMode()
-            val previousLastId = player.currentMediaItem?.mediaId
-            val shouldContinue = repeatMode == RepeatMode.ALL && player.playWhenReady
-            val catalogItems = runCatching { playbackCatalog.availableLocalTracks() }
-                .getOrNull()
-                ?.map { it.toMediaItem(playbackMode, repeatMode) }
-            val isLocalLibraryCycle = currentItems.any {
-                it.localConfiguration?.uri?.scheme == "content"
-            }
-            val eligibleItems = if (isLocalLibraryCycle && catalogItems != null) catalogItems else currentItems
-            if (eligibleItems.isEmpty()) {
-                player.clearMediaItems()
+                val repeatMode = currentItems.first().repeatMode()
+                val previousLastId = player.currentMediaItem?.mediaId
+                val shouldContinue = repeatMode == RepeatMode.ALL && player.playWhenReady
+                val catalogItems = runCatching { playbackCatalog.availableLocalTracks() }
+                    .getOrNull()
+                    ?.map { it.toMediaItem(playbackMode, repeatMode) }
+                val isLocalLibraryCycle = currentItems.any {
+                    it.localConfiguration?.uri?.scheme == "content"
+                }
+                val eligibleItems = if (isLocalLibraryCycle && catalogItems != null) {
+                    catalogItems
+                } else {
+                    currentItems
+                }
+                if (eligibleItems.isEmpty()) {
+                    player.clearMediaItems()
+                    schedulePersist()
+                    return@launch
+                }
+                val previousLastItem = eligibleItems.firstOrNull { it.mediaId == previousLastId }
+                val nextCycle = PureShuffleEngine.newCycle(
+                    eligibleItems = eligibleItems,
+                    previousLastItem = previousLastItem,
+                ).order
+                player.pause()
+                player.repeatMode = repeatMode.toPlayerRepeatMode(playbackMode)
+                player.setMediaItems(nextCycle, 0, 0)
+                player.prepare()
+                if (shouldContinue) player.play()
                 schedulePersist()
-                return@launch
-            }
-            val previousLastItem = eligibleItems.firstOrNull { it.mediaId == previousLastId }
-            val nextCycle = PureShuffleEngine.newCycle(
-                eligibleItems = eligibleItems,
-                previousLastItem = previousLastItem,
-            ).order
-            player.pause()
-            player.repeatMode = repeatMode.toPlayerRepeatMode(playbackMode)
-            player.setMediaItems(nextCycle, 0, 0)
-            player.prepare()
-            if (shouldContinue) player.play()
-            schedulePersist()
             } finally {
                 isChangingShuffleCycle = false
             }
