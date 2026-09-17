@@ -11,14 +11,14 @@ interface LibraryDao {
     @Query("SELECT DISTINCT t.* FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL' AND t.hidden = 0 ORDER BY t.normalizedTitle")
     fun observeAvailableLocalTracks(): Flow<List<TrackEntity>>
 
-    @Query("SELECT * FROM track_sources WHERE contentUri = :contentUri LIMIT 1")
-    suspend fun sourceByUri(contentUri: String): TrackSourceEntity?
-
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
     suspend fun trackById(id: String): TrackEntity?
 
     @Query("SELECT * FROM track_sources WHERE type = 'LOCAL_MEDIASTORE'")
     suspend fun allLocalSources(): List<TrackSourceEntity>
+
+    @Query("SELECT DISTINCT t.* FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.type = 'LOCAL_MEDIASTORE'")
+    suspend fun allTracksWithLocalSources(): List<TrackEntity>
 
     @Upsert
     suspend fun upsertTrack(track: TrackEntity)
