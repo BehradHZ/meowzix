@@ -98,7 +98,7 @@ class MediaStoreLocalMusicScanner @Inject constructor(
                     fileSizeBytes = cursor.getLongOrNull(sizeColumn)?.takeIf { it >= 0L },
                     relativePath = relativePathColumn
                         .takeIf { it >= 0 }
-                        ?.let(cursor::getStringOrNull),
+                        ?.let { cursor.getStringOrNull(it) },
                     dateModifiedEpochSeconds = cursor.getLongOrNull(modifiedColumn),
                 )
             }
