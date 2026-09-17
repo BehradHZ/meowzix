@@ -21,6 +21,8 @@ import java.nio.ByteOrder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.RepeatMode
 import kotlin.math.PI
 import kotlin.math.sin
 import org.junit.After
@@ -101,6 +103,30 @@ class PlaybackServiceTest {
 
         waitUntil { onMain { controller.currentMediaItemIndex == 1 && controller.isPlaying } }
         assertTrue(onMain { controller.playerError == null })
+    }
+
+    @Test
+    fun pureShuffleRepeatAllStartsANewCycleWithoutBoundaryDuplicate() {
+        val items = listOf(
+            playableItem("First", createWaveFile("cycle-first.wav", 400)),
+            playableItem("Second", createWaveFile("cycle-second.wav", 400)),
+            playableItem("Third", createWaveFile("cycle-third.wav", 400)),
+        ).map { it.withQueuePolicy(PlaybackMode.PURE_SHUFFLE, RepeatMode.ALL) }
+        onMain {
+            controller.repeatMode = Player.REPEAT_MODE_OFF
+            controller.setMediaItems(items)
+            controller.prepare()
+            controller.play()
+        }
+        waitUntil(timeoutMs = 15_000) { onMain { controller.currentMediaItemIndex == 2 } }
+        waitUntil(timeoutMs = 15_000) { onMain { controller.currentMediaItemIndex == 0 } }
+
+        val nextCycleIds = onMain {
+            (0 until controller.mediaItemCount).map { controller.getMediaItemAt(it).mediaId }
+        }
+        assertEquals(items.map(MediaItem::mediaId).toSet(), nextCycleIds.toSet())
+        assertTrue(nextCycleIds.first() != items.last().mediaId)
+        assertTrue(onMain { controller.playWhenReady })
     }
 
     private fun playableItem(title: String, file: File): MediaItem = MediaItem.Builder()

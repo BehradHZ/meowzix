@@ -113,6 +113,10 @@ class AndroidPlaybackController @Inject constructor(
         scope.launch {
             val track = findTrack(trackId) ?: return@launch
             withController { connected ->
+                if (
+                    connected.queuePlaybackMode() == PlaybackMode.PURE_SHUFFLE &&
+                    connected.containsTrack(trackId)
+                ) return@withController
                 val insertionIndex = (connected.currentMediaItemIndex + 1)
                     .coerceIn(0, connected.mediaItemCount)
                 connected.addMediaItem(
@@ -127,6 +131,10 @@ class AndroidPlaybackController @Inject constructor(
         scope.launch {
             val track = findTrack(trackId) ?: return@launch
             withController { connected ->
+                if (
+                    connected.queuePlaybackMode() == PlaybackMode.PURE_SHUFFLE &&
+                    connected.containsTrack(trackId)
+                ) return@withController
                 connected.addMediaItem(
                     track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
                 )
@@ -302,6 +310,9 @@ private fun Player.queuePlaybackMode(): PlaybackMode =
 
 private fun Player.queueRepeatMode(): RepeatMode =
     if (mediaItemCount == 0) RepeatMode.OFF else getMediaItemAt(0).repeatMode()
+
+private fun Player.containsTrack(trackId: UUID): Boolean =
+    (0 until mediaItemCount).any { index -> getMediaItemAt(index).mediaId == trackId.toString() }
 
 private fun replaceQueuePolicy(player: MediaController, playbackMode: PlaybackMode, repeatMode: RepeatMode) {
     if (player.mediaItemCount == 0) return
