@@ -1,490 +1,285 @@
-# Meowzix UI/UX — Material 3 Expressive Redesign Backlog
+# Meowzix UI/UX — Glass Music Redesign Backlog
 
 Status: active design and implementation plan  
 Target branch: `ui`  
 Scope baseline: current product implementation through Increment 4  
-Design language: Material 3 Expressive  
-Brand palette: calico-inspired black, white, warm gray, and orange
+Design direction: Apple Music-inspired floating glass music interface, implemented natively for Android/Compose  
+Brand accent: Meowzix orange over black, white, graphite, warm gray, and artwork-derived ambient color
 
-## 1. Design direction
+## 1. Direction
 
-Meowzix should feel playful, tactile, musical, and unmistakably Android-native without becoming visually noisy.
+The previous Material 3 Expressive visual direction is superseded by this document.
 
-The redesign should use Material 3 Expressive as the system foundation rather than merely copying its appearance. That means the app should use:
+Meowzix should feel immersive, calm, musical, and content-first. Album artwork and audio activity are the visual center. Navigation and controls sit on a separate floating glass layer rather than looking like ordinary Android bars or cards.
 
-- `MaterialExpressiveTheme`.
-- expressive motion via `MotionScheme.expressive()`.
-- large, varied, high-character shapes.
-- prominent typography hierarchy.
-- large touch targets and icon-first controls.
-- responsive component transformations instead of static rectangular UI.
-- clear tonal surfaces and high contrast.
-- motion that communicates state and hierarchy.
-- accessible alternatives for every gesture.
+The reference behavior is the modern Apple Music / Liquid Glass interaction model, not a pixel-for-pixel clone. Meowzix keeps its own branding, information architecture, Android behavior, and accessibility semantics.
 
-The calico palette should be recognizable without making every component orange. Orange is the accent; black, white, charcoal, graphite, stone, and warm off-white are the visual foundation.
+Core principles:
 
-## 2. Brand color system
+- content extends edge-to-edge underneath navigation and player chrome;
+- glass surfaces float above content and reveal/blur what is behind them;
+- the bottom dock is detached from screen edges;
+- the mini-player is a floating glass accessory above/attached to the dock;
+- Now Playing is artwork-led and immersive;
+- background ambience may derive from the current artwork;
+- motion should be fluid and restrained rather than bouncy;
+- every critical gesture has a visible control alternative;
+- audio-reactive visuals must use real playback audio data, never random animation.
 
-### Core colors
+## 2. Glass system
 
-- Calico Orange — primary expressive accent.
-- Burnt Orange — pressed/strong accent states.
-- Warm Cream — light-theme background.
-- Pure White — elevated/high-priority surfaces.
-- Ink Black — dark-theme background and primary text.
-- Charcoal — dark containers.
-- Warm Gray — secondary containers and separators.
-- Soft Gray — low-emphasis surfaces.
+- [ ] Shared Haze state for screen backdrop capture.
+- [ ] Real backdrop blur where the Android/device renderer supports it.
+- [ ] Graceful translucent fallback on devices where full blur/refraction is unavailable.
+- [ ] Clear glass style for compact controls.
+- [ ] Regular/frosted glass style for dock, mini-player, sheets, and large control surfaces.
+- [ ] Thin bright rim/specular highlight.
+- [ ] Soft dark edge shadow for separation on bright artwork.
+- [ ] Press interaction that subtly compresses/scales the material.
+- [ ] No opaque rectangular navigation bars.
+- [ ] Avoid stacking multiple heavy blur layers when one shared surface is sufficient.
 
-### Rules
+## 3. Color and ambience
 
-- Orange should emphasize primary actions, active playback, selected tabs, and key progress states.
-- Avoid orange-on-orange low-contrast combinations.
-- Do not use arbitrary colors for common states when Material semantic roles exist.
-- Error, warning, success, and info states retain semantic differentiation.
-- The default Meowzix appearance should preserve the brand palette instead of replacing it with wallpaper dynamic colors.
-- Dynamic color may be an optional future setting.
+- Meowzix orange remains the brand accent.
+- Library surfaces remain mostly neutral: black, white, graphite, warm gray.
+- Now Playing may use artwork-derived ambience behind the content.
+- Glass tint adapts between light and dark content.
+- Selected dock items may use a restrained orange highlight.
+- Playback progress may use white/orange depending on contrast.
+- Semantic error/success colors remain independent of the brand palette.
 
-## 3. Global design-system features
+## 4. Global foundation
 
-- [ ] Material 3 Expressive theme root.
-- [ ] Expressive motion scheme.
-- [ ] Complete branded light color scheme.
-- [ ] Complete branded dark color scheme.
-- [ ] Custom expressive typography scale.
-- [ ] Custom expressive shape scale.
 - [ ] Edge-to-edge system bars.
-- [ ] Transparent/tonal system navigation handling.
-- [ ] Predictive back support where navigation supports it.
-- [ ] Shared spacing tokens.
-- [ ] Shared elevation/tone rules.
-- [ ] Shared icon sizing rules.
-- [ ] Shared minimum touch target rules.
-- [ ] Reduced-motion compatibility.
+- [ ] Standard Material theme only as the Android component/semantics foundation; no Material Expressive visual language.
+- [ ] Shared glass modifiers/components.
+- [ ] Shared spacing and corner-radius tokens.
+- [ ] Shared floating-surface elevation/shadow rules.
+- [ ] Shared icon sizing.
+- [ ] Reduced-motion support.
 - [ ] High-contrast accessibility review.
-- [ ] TalkBack descriptions for icon-only actions.
+- [ ] TalkBack descriptions for icon-only controls.
 - [ ] Large-font resilience.
-- [ ] RTL-safe layout behavior.
-- [ ] Consistent loading, empty, error, and permission states.
-
-## 4. App shell and navigation
-
-- [ ] Persistent expressive bottom navigation for top-level destinations.
-- [ ] Library destination.
-- [ ] Queue destination.
-- [ ] Telegram destination.
-- [ ] Settings destination when settings are implemented.
-- [ ] Selected destination represented by tonal pill/shape treatment.
-- [ ] Compact mini-player above bottom navigation whenever a track exists.
-- [ ] Mini-player artwork, title, artist, play/pause, and progress.
-- [ ] Tap mini-player to open Now Playing.
-- [ ] Swipe mini-player horizontally for previous/next as an optional shortcut.
-- [ ] Bottom navigation automatically hides or transforms on immersive Now Playing.
-- [ ] Correct back-stack preservation between top-level tabs.
-- [ ] Deep-link-ready route definitions.
-- [ ] Smooth shared transition from mini-player to Now Playing when platform/API support is appropriate.
-
-## 5. Library — top-level experience
-
-- [ ] Expressive large header with Meowzix identity.
-- [ ] Search affordance integrated into header.
-- [ ] Expandable search field.
-- [ ] Search title, artist, and album locally.
-- [ ] Pull-to-refresh/rescan gesture.
-- [ ] Explicit rescan action as accessible fallback.
-- [ ] Library count and lightweight status information.
-- [ ] Permission state shown as a branded card rather than a generic text screen.
-- [ ] Empty-state illustration/icon treatment.
-- [ ] Error card with retry action.
-- [ ] Refresh progress integrated without blocking the entire screen.
-
-## 6. Library tabs
-
-Tabs should only expose data the current product can truthfully support. Additional tabs become active as later increments land.
-
-### Available from current Track data
-
-- [ ] Tracks.
-- [ ] Artists.
-- [ ] Albums.
-
-### Activate in later increments
-
-- [ ] Playlists.
-- [ ] Favorites.
-- [ ] Recently Played.
-- [ ] Downloads / Offline.
-- [ ] Smart Mixes.
-
-### Tab interaction
-
-- [ ] Swipe horizontally between tabs.
-- [ ] Tap tab labels/icons.
-- [ ] Remember selected tab.
-- [ ] Preserve scroll position per tab.
-- [ ] Animate indicator and content using expressive motion.
-
-## 7. Track rows and gestures
-
-- [ ] Larger artwork with expressive rounded shape.
-- [ ] Clear title/artist hierarchy.
-- [ ] Duration rendered with low visual priority.
-- [ ] Overflow menu instead of permanent text buttons.
-- [ ] Swipe right: Play Next.
-- [ ] Swipe left: Add to Queue.
-- [ ] Gesture confirmation feedback.
-- [ ] Haptic feedback for completed swipe action where appropriate.
-- [ ] Tap row: Play Now.
-- [ ] Long press: open contextual action sheet.
-- [ ] Animated currently-playing indicator.
-- [ ] Selected/current-track tonal surface.
-- [ ] Cloud/offline/downloading/unavailable badges when source features exist.
-- [ ] Favorite indicator when favorites exist.
-- [ ] Explicit menu fallback for every swipe action.
-
-## 8. Artist view
-
-- [ ] Artist list generated from canonical Track metadata.
-- [ ] Track count per artist.
-- [ ] Artist detail screen.
-- [ ] Play artist.
-- [ ] Pure Shuffle artist.
-- [ ] Smart Shuffle artist when Smart mode exists.
-- [ ] Artist track list.
-- [ ] Artist album grouping.
-- [ ] Unknown Artist grouping handled cleanly.
-
-## 9. Album view
-
-- [ ] Album grid/list generated from canonical Track metadata.
-- [ ] Artwork-first album cards.
-- [ ] Artist + year metadata when available.
-- [ ] Album detail screen.
-- [ ] Ordered album playback.
-- [ ] Pure Shuffle album.
-- [ ] Add album to queue.
-- [ ] Unknown Album grouping handled cleanly.
-
-## 10. Now Playing — hero screen
-
-- [ ] Immersive expressive composition.
-- [ ] Large album artwork.
-- [ ] Artwork shape adapts/morphs subtly with player state where practical.
-- [ ] Track title and artist hierarchy.
-- [ ] Favorite action when implemented.
-- [ ] More-actions menu.
-- [ ] Expressive seek/progress control.
-- [ ] Elapsed and remaining time.
-- [ ] Large central play/pause control.
-- [ ] Previous and next controls.
-- [ ] Pure Shuffle control.
-- [ ] Smart Shuffle control when implemented.
-- [ ] Repeat control.
-- [ ] Queue shortcut.
-- [ ] Offline/download shortcut when implemented.
-- [ ] Playback status and recoverable error UI.
-- [ ] Buffering/preparing indicator integrated into playback control.
-- [ ] Queue position indicator.
-
-### Now Playing gestures
-
-- [ ] Swipe artwork left: next track.
-- [ ] Swipe artwork right: previous track.
-- [ ] Swipe down: return to previous surface when navigation behavior is unambiguous.
-- [ ] Drag seek control normally.
-- [ ] Long press previous/next reserved for future seek behavior only if platform-consistent.
-- [ ] Gesture alternatives remain visible as buttons.
-
-## 11. Queue
-
-- [ ] Modern queue header.
-- [ ] Current playback mode shown as a chip.
-- [ ] Repeat mode shown as a chip.
-- [ ] Current item highlighted.
-- [ ] Artwork in queue rows.
-- [ ] Drag handle and drag-to-reorder.
-- [ ] Swipe to remove.
-- [ ] Undo snackbar after removal.
-- [ ] Clear queue confirmation.
-- [ ] Jump to currently playing item.
-- [ ] Save queue as playlist when playlists exist.
-- [ ] Queue empty state.
-- [ ] Accessible move-up/move-down fallback for drag behavior.
-
-## 12. Telegram connection experience
-
-- [ ] Branded Telegram integration landing surface.
-- [ ] Step-specific expressive iconography.
-- [ ] Phone input with clear country-code guidance.
-- [ ] Code entry optimized for numeric/security flow.
-- [ ] 2FA password state.
-- [ ] Email state.
-- [ ] Registration state.
-- [ ] Other-device confirmation state.
-- [ ] Connected account card.
-- [ ] Logout action with confirmation.
-- [ ] Error message cards instead of floating raw text.
-- [ ] Configuration-required developer state.
-- [ ] Loading indicator that explains what is happening.
-- [ ] Sensitive fields maintain secure visual transformation.
-
-## 13. Telegram source selection — later Increment 5 UI
-
-- [ ] Saved Messages card.
-- [ ] Private channels.
-- [ ] Private groups.
-- [ ] Search chats.
-- [ ] Selected-source chips.
-- [ ] Sync status per source.
-- [ ] Last sync time.
-- [ ] Import progress.
-- [ ] Source empty/error states.
-- [ ] Enable/disable source without deleting indexed metadata immediately.
-
-## 14. Downloads and cloud state — later Increments 7–8 UI
-
-- [ ] Cloud badge.
-- [ ] Offline badge.
-- [ ] Downloading badge/progress.
-- [ ] Unavailable badge.
-- [ ] Pin Offline action.
-- [ ] Remove offline copy action.
-- [ ] Global Downloads screen.
-- [ ] Active downloads section.
-- [ ] Completed offline section.
-- [ ] Failed downloads section.
-- [ ] Retry/cancel controls.
-- [ ] Storage usage card.
-- [ ] Cache size visualization.
-- [ ] Clear cache action.
-- [ ] Wi-Fi-only indicator.
-- [ ] Download-on-play preparing state.
-
-## 15. Search — later full-library version
-
-- [ ] Instant local search.
-- [ ] Search title.
-- [ ] Search artist.
-- [ ] Search album.
-- [ ] Search filename as lower-priority metadata.
-- [ ] Recent searches.
-- [ ] Clear search history.
-- [ ] Search result sections.
-- [ ] Search actions: Play, Play Next, Add to Queue.
-- [ ] Search filters: local/cloud/offline when source data exists.
-- [ ] Search keyboard actions.
-- [ ] Empty query suggestions.
-
-## 16. Playlists — later Increment 9 UI
-
-- [ ] Playlist collection.
-- [ ] Create playlist sheet.
-- [ ] Rename playlist.
-- [ ] Delete playlist confirmation.
-- [ ] Add track to playlist sheet.
-- [ ] Multi-select tracks.
-- [ ] Reorder playlist tracks.
-- [ ] Swipe remove with undo.
-- [ ] Playlist cover collage.
-- [ ] Play in order.
-- [ ] Pure Shuffle.
-- [ ] Smart Shuffle.
-- [ ] Save current queue as playlist.
-
-## 17. Favorites and history — later Increments 9–10 UI
-
-- [ ] Favorite toggle in track rows/menu.
-- [ ] Favorite toggle in Now Playing.
-- [ ] Favorites collection.
-- [ ] Recently Played collection.
-- [ ] Listening-history timeline.
-- [ ] Clear-history confirmation.
-- [ ] Privacy explanation.
-- [ ] History disabled state.
-
-## 18. Smart Shuffle — later Increments 11–12 UI
-
-- [ ] Separate Smart Shuffle identity; never reuse ordinary shuffle semantics.
-- [ ] Smart mode icon/label distinct from Pure Shuffle.
-- [ ] Smart mode quick start from library/artist/album/playlist.
-- [ ] Optional "Why this track?" sheet.
-- [ ] Lightweight learning-state explanation.
-- [ ] Cold-start explanation without technical jargon.
-- [ ] Reset personalization action.
-- [ ] Disable Smart Shuffle action.
-- [ ] Exploration preference control if exposed.
-- [ ] Model rebuild/reset developer diagnostics kept out of normal UI.
-
-## 19. Settings architecture
-
-### Appearance
-
-- [ ] System / Light / Dark.
-- [ ] Meowzix branded palette default.
-- [ ] Optional dynamic color.
-- [ ] Reduced motion / follow system.
-
-### Playback
-
-- [ ] Resume previous queue.
-- [ ] Default playback mode.
-- [ ] Default repeat behavior.
-- [ ] Future crossfade/gapless controls only when implemented.
-
-### Telegram
-
-- [ ] Connected account.
-- [ ] Source chats.
-- [ ] Sync now.
-- [ ] Wi-Fi-only cloud download.
-- [ ] Disconnect.
-
-### Offline
-
-- [ ] Cache size limit.
-- [ ] Clear temporary cache.
-- [ ] Offline downloads.
-- [ ] Prefetch toggle.
-- [ ] Metered-network behavior.
-
-### Privacy
-
-- [ ] Listening history toggle.
-- [ ] Smart Shuffle toggle.
-- [ ] Clear history.
-- [ ] Reset personalization.
-- [ ] Diagnostics opt-in only if diagnostics ever exist.
-
-### About
-
-- [ ] Version.
-- [ ] Open-source licenses.
-- [ ] GitHub repository.
-- [ ] Privacy policy when release-ready.
-
-## 20. Sheets, menus, and feedback
-
-- [ ] Expressive modal bottom sheets for track actions.
-- [ ] Menus use icon + concise label.
-- [ ] Snackbar undo for reversible destructive actions.
-- [ ] Confirmation dialogs only for meaningful irreversible actions.
-- [ ] Haptics for completed gestures and major player transitions where appropriate.
-- [ ] Loading feedback should not block unrelated playback controls.
-
-## 21. Motion
-
-- [ ] Expressive Material motion scheme globally.
-- [ ] Animated content transitions between empty/loading/content states.
-- [ ] Animated selected tab shape.
-- [ ] Play/pause icon transition.
-- [ ] Mini-player enter/exit animation.
-- [ ] Now Playing artwork/content transition.
-- [ ] Swipe action shape/color morphing.
-- [ ] Queue reorder motion.
-- [ ] Reduce or disable nonessential motion when system requests reduced motion.
-
-## 22. Icons
-
-Use a consistent Material icon family and avoid text-only controls when a well-known icon is clearer.
-
-Required icon concepts include:
-
-- play / pause;
-- previous / next;
-- shuffle;
-- smart shuffle;
-- repeat / repeat one;
-- queue music;
-- playlist add;
-- library music;
-- person/artist;
-- album;
-- search;
-- refresh;
-- more vertical;
-- favorite;
-- download;
-- cloud;
-- offline;
-- Telegram/link account;
-- settings;
-- back;
-- close;
-- delete/remove;
-- drag handle;
-- error/info/check.
-
-Every icon-only control must have a content description unless it is purely decorative.
-
-## 23. Accessibility and ergonomics
-
-- [ ] 48dp minimum touch targets unless Material component handles it automatically.
-- [ ] Contrast checked in both themes.
-- [ ] Orange not used as the sole carrier of state.
-- [ ] Screen-reader descriptions for playback state and gestures.
-- [ ] Do not require gestures for any critical action.
-- [ ] Text remains usable at large font scales.
-- [ ] Important controls reachable one-handed on common phone sizes.
-- [ ] Landscape behavior remains usable.
-- [ ] Tablet layouts can expand into two-pane library/player later without domain rewrites.
-
-## 24. Responsive layouts
-
-### Phone compact
-
-- bottom navigation;
-- single-pane library;
-- full-screen Now Playing;
-- modal/sheet contextual actions.
-
-### Phone landscape / medium width
-
-- wider artwork/content balance;
-- avoid excessively stretched lists;
-- optional navigation rail when width is sufficient.
-
-### Tablet / foldable future-ready
-
-- navigation rail;
-- two-pane library + Now Playing/queue;
-- adaptive grid for albums/artists;
-- hinge/fold-safe layout.
-
-## 25. Visual assets and identity
-
-- [ ] Final Meowzix app icon.
-- [ ] Adaptive Android icon.
-- [ ] Monochrome Android icon.
-- [ ] Splash screen treatment.
-- [ ] Calico-inspired subtle brand motif.
-- [ ] Default artwork placeholder that looks intentional.
-- [ ] Avoid literal cat graphics everywhere; keep the identity sophisticated.
-
-## 26. Immediate implementation sequence on `ui`
-
-The following sequence is designed to keep every commit independently understandable and keep the app buildable as much as possible:
-
-1. **Design backlog and UI contract** — this document.
-2. **Expressive design system** — Material 3 Expressive dependency/theme, colors, shapes, typography, edge-to-edge foundation.
-3. **Expressive app shell** — bottom navigation, icon system, mini-player foundation, top-level navigation behavior.
-4. **Library redesign** — search, Tracks/Artists/Albums tabs, expressive rows/cards, rescan interaction.
-5. **Track gestures** — swipe Play Next / Add to Queue with explicit action fallbacks.
-6. **Now Playing redesign** — artwork-led hero layout, icon controls, expressive mode controls, artwork swipe previous/next.
-7. **Queue redesign** — artwork rows, current-track state, swipe/remove/reorder affordances using current queue capabilities.
-8. **Telegram auth redesign** — expressive authentication flow and connected/error/progress states.
-9. **Accessibility and polish pass** — content descriptions, touch targets, dark/light contrast, motion and layout cleanup.
-10. **Build/test pass** — compile/test fixes and final documentation of what is implemented versus deferred.
-
-## 27. Scope rule
-
-The UI branch must not fake product capabilities that the current domain layer does not have.
-
-For example:
-
-- Artists and Albums can be derived from the current `Track` model and are valid now.
-- Playlists, Favorites, Downloads, Recently Played, and Smart Shuffle should be designed in this backlog but only made interactive when their corresponding domain increments exist.
-- Pure Shuffle must retain its exact non-personalized semantics.
-- Telegram authentication may be redesigned now, while Telegram source-selection UI waits for Increment 5.
-
-This keeps the redesign ambitious without turning the UI into a collection of non-functional placeholders.
+- [ ] RTL-safe layouts.
+- [ ] Consistent loading, empty, permission, and error states.
+
+## 5. Floating dock
+
+Top-level destinations currently supported:
+
+- Library
+- Queue
+- Telegram
+- Settings when the product domain is implemented
+
+Dock behavior:
+
+- [ ] detached pill/capsule floating above the bottom safe area;
+- [ ] glass/refraction effect over scrolling content;
+- [ ] icon-first tabs;
+- [ ] selected destination receives a soft highlighted capsule rather than a full opaque tab;
+- [ ] optional labels when useful for accessibility and first-time discoverability;
+- [ ] dock can compact while scrolling down and expand when the user reverses direction;
+- [ ] dock hides/recedes on immersive Now Playing;
+- [ ] correct state restoration per destination;
+- [ ] tablet/foldable upgrade path to floating side rail.
+
+## 6. Floating mini-player
+
+- [ ] glass capsule above the dock;
+- [ ] current artwork;
+- [ ] title and artist;
+- [ ] play/pause;
+- [ ] next action when width permits;
+- [ ] subtle progress track;
+- [ ] tap opens Now Playing;
+- [ ] swipe left/right changes track;
+- [ ] compact state can merge visually with the dock;
+- [ ] optional low-amplitude audio-reactive spectrum/glow once visualization permission is granted.
+
+## 7. Library
+
+- [ ] large clean title area;
+- [ ] floating/glass search affordance;
+- [ ] Tracks / Artists / Albums tabs;
+- [ ] Playlists / Favorites / Recently Played / Downloads tabs activate only when their domains exist;
+- [ ] content scrolls under floating chrome;
+- [ ] artwork-led rows rather than container-heavy cards;
+- [ ] current-playing state is visible without turning the row into an opaque block;
+- [ ] swipe right: Play Next;
+- [ ] swipe left: Add to Queue;
+- [ ] overflow menu remains available for all gesture actions;
+- [ ] search title, artist, and album locally;
+- [ ] permission/error/empty states use centered glass panels;
+- [ ] rescan action remains explicit and accessible.
+
+## 8. Albums and artists
+
+- [ ] artwork-forward album grid/list;
+- [ ] artist list with track counts;
+- [ ] artist detail screen;
+- [ ] album detail screen;
+- [ ] play in order;
+- [ ] Pure Shuffle;
+- [ ] queue actions;
+- [ ] later Smart Shuffle actions;
+- [ ] Unknown Artist / Unknown Album handled intentionally.
+
+## 9. Now Playing
+
+Now Playing should be the visual signature of Meowzix.
+
+- [ ] full-screen artwork-derived ambient background;
+- [ ] blurred/softened artwork field behind content;
+- [ ] large crisp album cover centered in the upper/middle area;
+- [ ] floating glass top controls for back, queue, and overflow;
+- [ ] title and artist with strong hierarchy;
+- [ ] thin playback scrubber;
+- [ ] elapsed/remaining time;
+- [ ] large previous / play-pause / next controls;
+- [ ] Pure Shuffle and Repeat controls;
+- [ ] queue shortcut;
+- [ ] current queue position;
+- [ ] buffering/error states integrated without replacing the entire screen;
+- [ ] swipe artwork left/right for next/previous;
+- [ ] swipe down to dismiss when navigation state permits;
+- [ ] future lyrics layer can slide over the ambient background without changing playback architecture.
+
+## 10. Real audio-reactive spectrum / “equalizer” visualization
+
+The visualizer must react to the actual currently playing audio output.
+
+Implementation contract:
+
+- [ ] use the playback audio session ID from ExoPlayer;
+- [ ] attach Android `Visualizer` to the non-zero Meowzix playback session;
+- [ ] capture FFT frequency data rather than generating random bars;
+- [ ] use the maximum practical capture rate exposed by the platform;
+- [ ] use `SCALING_MODE_AS_PLAYED` so playback level affects the visualization;
+- [ ] collapse FFT bins into visual frequency bands;
+- [ ] normalize and lightly smooth magnitudes to avoid unusable jitter while preserving actual musical movement;
+- [ ] release the platform Visualizer when playback/session is destroyed;
+- [ ] recover when ExoPlayer creates a new audio session;
+- [ ] no global-output capture; only Meowzix’s own playback session;
+- [ ] expose spectrum data as a `StateFlow` so any Compose surface can render it.
+
+UI:
+
+- [ ] full-width live spectrum below artwork / around playback information;
+- [ ] optional compact spectrum in the mini-player;
+- [ ] rounded vertical bars or continuous waveform mode;
+- [ ] bars use glass/white/orange based on contrast;
+- [ ] paused state settles naturally instead of continuing fake movement;
+- [ ] permission-denied state shows a static, intentional placeholder.
+
+Android privacy behavior:
+
+- Android’s platform `Visualizer` API requires `RECORD_AUDIO` permission even when attached to the app’s own audio session.
+- Meowzix should ask for this only from the live-spectrum UI, explain why, and not imply that microphone audio is being used as the visualization source.
+- Playback itself must remain fully functional without this permission.
+
+## 11. Actual DSP equalizer controls — later audio feature
+
+Keep this distinct from the moving spectrum visualization.
+
+- [ ] Equalizer enable/disable;
+- [ ] device-supported band count and center frequencies;
+- [ ] per-band gain sliders;
+- [ ] Flat preset;
+- [ ] additional presets only when exposed reliably by the platform;
+- [ ] reset action;
+- [ ] attach to Meowzix playback audio session only;
+- [ ] persist settings;
+- [ ] visual spectrum continues to show output activity independently of slider state.
+
+## 12. Queue
+
+- [ ] floating glass header/actions;
+- [ ] current item highlighted subtly;
+- [ ] artwork in rows;
+- [ ] swipe to remove;
+- [ ] accessible move up/down actions;
+- [ ] future drag-to-reorder;
+- [ ] clear queue confirmation;
+- [ ] mode and repeat indicators;
+- [ ] later save queue as playlist.
+
+## 13. Telegram
+
+- [ ] glass landing/auth surfaces;
+- [ ] phone/code/2FA/email/registration steps keep current TDLib behavior;
+- [ ] configuration-required state remains developer-readable;
+- [ ] connected account state becomes a clean floating card;
+- [ ] error states do not obscure navigation;
+- [ ] future chat/source selection uses floating sheets and search.
+
+## 14. Future music features
+
+### Search
+- instant local search;
+- title/artist/album/filename matching;
+- recent searches;
+- source filters when Telegram/cloud data exists.
+
+### Playlists
+- create/rename/delete;
+- add/remove/reorder tracks;
+- cover collage;
+- ordered/Pure Shuffle/Smart Shuffle starts;
+- save current queue.
+
+### Favorites/history
+- favorite toggle;
+- Favorites collection;
+- Recently Played;
+- listening-history timeline;
+- privacy/clear-history controls.
+
+### Offline/downloads
+- cloud/offline/downloading/unavailable states;
+- pin offline;
+- active/completed/failed downloads;
+- storage usage;
+- cache management;
+- metered/Wi-Fi policies.
+
+### Smart Shuffle
+- separate from Pure Shuffle;
+- distinct visual identity;
+- “Why this track?” explanation;
+- reset/disable personalization controls.
+
+### Settings
+- appearance;
+- playback defaults;
+- Telegram account/sources;
+- offline/cache;
+- privacy/history/personalization;
+- about/licenses/version.
+
+## 15. Accessibility and performance
+
+- [ ] critical actions are never gesture-only;
+- [ ] minimum practical touch targets;
+- [ ] screen-reader playback state descriptions;
+- [ ] no information encoded by translucency/color alone;
+- [ ] glass tint remains readable over extreme bright/dark artwork;
+- [ ] spectrum rendering avoids unnecessary allocations per frame;
+- [ ] FFT processing happens outside Compose drawing;
+- [ ] shared backdrop capture is preferred over multiple independent captures;
+- [ ] test glass performance on API 26 fallback and modern Android devices;
+- [ ] reduced-motion mode disables nonessential scale/morph effects while preserving playback feedback.
+
+## 16. Immediate implementation sequence on `ui`
+
+1. **Direction reset** — replace the previous Material Expressive backlog with this glass music contract.
+2. **Glass foundation** — Haze-backed backdrop/glass dependency, standard theme, shared glass surfaces.
+3. **Floating shell** — detached glass dock and glass mini-player over content.
+4. **Immersive Now Playing** — artwork ambience, floating controls, Apple Music-inspired spacing/hierarchy.
+5. **Real audio spectrum pipeline** — ExoPlayer session -> Android Visualizer -> FFT bands -> `StateFlow`.
+6. **Spectrum UI + permission flow** — live spectrum in Now Playing and compact mini-player treatment.
+7. **Library/Queue/Telegram glass polish** — remove remaining heavy Material-Expressive-looking containers.
+8. **CI and performance pass** — unit tests + debug build, then tune blur/spectrum cost if needed.
+
+Every meaningful implementation step should remain an independent commit on the `ui` branch.
