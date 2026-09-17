@@ -17,6 +17,7 @@ import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
+import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.playback.AndroidPlaybackController
 import javax.inject.Singleton
 
@@ -34,6 +35,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindPlaybackController(impl: AndroidPlaybackController): PlaybackController
+
+    @Binds
+    @Singleton
+    abstract fun bindQueueRepository(impl: AndroidPlaybackController): QueueRepository
 
     @Binds
     @Singleton

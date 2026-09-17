@@ -11,8 +11,13 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
+import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
+import dev.behradhz.meowzix.domain.playback.QueueItem
+import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import java.util.UUID
 import javax.inject.Inject
@@ -32,10 +37,12 @@ import kotlinx.coroutines.flow.asStateFlow
 class AndroidPlaybackController @Inject constructor(
     @ApplicationContext context: Context,
     private val catalog: PlaybackCatalog,
-) : PlaybackController {
+) : PlaybackController, QueueRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(PlaybackState(status = PlaybackStatus.PREPARING))
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
+    private val _queueState = MutableStateFlow(QueueState())
+    override val queueState: StateFlow<QueueState> = _queueState.asStateFlow()
     private val controllerFuture = MediaController.Builder(
         context,
         SessionToken(context, ComponentName(context, PlaybackService::class.java)),
@@ -75,7 +82,9 @@ class AndroidPlaybackController @Inject constructor(
         }
     }
 
-    override fun playTrack(trackId: UUID) {
+    override fun playTrack(trackId: UUID) = playNow(trackId)
+
+    override fun playNow(trackId: UUID) {
         scope.launch {
             val tracks = runCatching { catalog.availableLocalTracks() }
                 .getOrElse { error ->
@@ -88,11 +97,104 @@ class AndroidPlaybackController @Inject constructor(
                 return@launch
             }
             withController { connected ->
-                connected.setMediaItems(tracks.map { it.toMediaItem() }, startIndex, 0)
+                connected.repeatMode = Player.REPEAT_MODE_OFF
+                connected.setMediaItems(
+                    tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
+                    startIndex,
+                    0,
+                )
                 connected.prepare()
                 connected.play()
             }
         }
+    }
+
+    override fun playNext(trackId: UUID) {
+        scope.launch {
+            val track = findTrack(trackId) ?: return@launch
+            withController { connected ->
+                val insertionIndex = (connected.currentMediaItemIndex + 1)
+                    .coerceIn(0, connected.mediaItemCount)
+                connected.addMediaItem(
+                    insertionIndex,
+                    track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
+                )
+            }
+        }
+    }
+
+    override fun addToQueue(trackId: UUID) {
+        scope.launch {
+            val track = findTrack(trackId) ?: return@launch
+            withController { connected ->
+                connected.addMediaItem(
+                    track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
+                )
+            }
+        }
+    }
+
+    override fun removeAt(index: Int) = withController { connected ->
+        if (index in 0 until connected.mediaItemCount) connected.removeMediaItem(index)
+    }
+
+    override fun move(fromIndex: Int, toIndex: Int) = withController { connected ->
+        if (fromIndex in 0 until connected.mediaItemCount && toIndex in 0 until connected.mediaItemCount) {
+            connected.moveMediaItem(fromIndex, toIndex)
+        }
+    }
+
+    override fun clear() = withController(MediaController::clearMediaItems)
+
+    override fun setPlaybackMode(mode: PlaybackMode) {
+        scope.launch {
+            val tracks = runCatching { catalog.availableLocalTracks() }
+                .getOrElse { error ->
+                    showError(error.message ?: "Unable to load the playback queue")
+                    return@launch
+                }
+            withController { connected ->
+                val repeatMode = connected.queueRepeatMode()
+                val currentId = connected.currentMediaItem?.mediaId
+                val position = connected.currentPosition.coerceAtLeast(0)
+                val wasPlaying = connected.isPlaying
+                val orderedTracks = when (mode) {
+                    PlaybackMode.ORDERED -> tracks
+                    PlaybackMode.PURE_SHUFFLE -> {
+                        val shuffled = PureShuffleEngine.newCycle(tracks).order
+                        val currentIndex = shuffled.indexOfFirst { it.id.toString() == currentId }
+                        if (currentIndex > 0) {
+                            shuffled.drop(currentIndex) + shuffled.take(currentIndex)
+                        } else {
+                            shuffled
+                        }
+                    }
+                }
+                if (orderedTracks.isEmpty()) {
+                    connected.clearMediaItems()
+                    return@withController
+                }
+                val startIndex = when (mode) {
+                    PlaybackMode.PURE_SHUFFLE -> 0
+                    PlaybackMode.ORDERED -> orderedTracks.indexOfFirst { it.id.toString() == currentId }
+                        .coerceAtLeast(0)
+                }
+                connected.repeatMode = repeatMode.toPlayerRepeatMode(mode)
+                connected.setMediaItems(
+                    orderedTracks.map { it.toMediaItem(mode, repeatMode) },
+                    startIndex,
+                    position,
+                )
+                connected.prepare()
+                if (wasPlaying) connected.play()
+            }
+        }
+    }
+
+    override fun setRepeatMode(mode: RepeatMode) = withController { connected ->
+        val playbackMode = connected.queuePlaybackMode()
+        replaceQueuePolicy(connected, playbackMode, mode)
+        connected.repeatMode = mode.toPlayerRepeatMode(playbackMode)
     }
 
     override fun resume() = withController { connected ->
@@ -156,12 +258,35 @@ class AndroidPlaybackController @Inject constructor(
             queueSize = player.mediaItemCount,
             positionMs = player.currentPosition.coerceAtLeast(0),
             durationMs = duration,
-            repeatMode = player.repeatMode.toDomainRepeatMode(),
+            playbackMode = player.queuePlaybackMode(),
+            repeatMode = player.queueRepeatMode(),
             canSkipPrevious = player.hasPreviousMediaItem(),
             canSkipNext = player.hasNextMediaItem(),
             errorMessage = errorMessage,
         )
+        _queueState.value = QueueState(
+            items = (0 until player.mediaItemCount).mapNotNull { index ->
+                val item = player.getMediaItemAt(index)
+                runCatching { UUID.fromString(item.mediaId) }.getOrNull()?.let { id ->
+                    QueueItem(
+                        id = id,
+                        title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { "Unknown Track" },
+                        artist = item.mediaMetadata.artist?.toString(),
+                        artworkRef = item.mediaMetadata.artworkUri?.toString(),
+                    )
+                }
+            },
+            currentIndex = player.currentMediaItemIndex,
+            playbackMode = player.queuePlaybackMode(),
+            repeatMode = player.queueRepeatMode(),
+        )
     }
+
+    private suspend fun findTrack(trackId: UUID) = runCatching { catalog.availableLocalTracks() }
+        .onFailure { error -> showError(error.message ?: "Unable to load the playback queue") }
+        .getOrNull()
+        ?.firstOrNull { it.id == trackId }
+        .also { if (it == null) showError("This track is no longer available") }
 
     private fun showError(message: String) {
         _state.value = _state.value.copy(status = PlaybackStatus.ERROR, errorMessage = message)
@@ -172,8 +297,26 @@ class AndroidPlaybackController @Inject constructor(
     }
 }
 
-private fun Int.toDomainRepeatMode(): RepeatMode = when (this) {
-    Player.REPEAT_MODE_ONE -> RepeatMode.ONE
-    Player.REPEAT_MODE_ALL -> RepeatMode.ALL
-    else -> RepeatMode.OFF
+private fun Player.queuePlaybackMode(): PlaybackMode =
+    if (mediaItemCount == 0) PlaybackMode.ORDERED else getMediaItemAt(0).playbackMode()
+
+private fun Player.queueRepeatMode(): RepeatMode =
+    if (mediaItemCount == 0) RepeatMode.OFF else getMediaItemAt(0).repeatMode()
+
+private fun replaceQueuePolicy(player: MediaController, playbackMode: PlaybackMode, repeatMode: RepeatMode) {
+    if (player.mediaItemCount == 0) return
+    val currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
+    val position = player.currentPosition.coerceAtLeast(0)
+    val wasPlaying = player.isPlaying
+    val items = (0 until player.mediaItemCount)
+        .map { index -> player.getMediaItemAt(index).withQueuePolicy(playbackMode, repeatMode) }
+    player.setMediaItems(items, currentIndex.coerceIn(items.indices), position)
+    player.prepare()
+    if (wasPlaying) player.play()
+}
+
+private fun RepeatMode.toPlayerRepeatMode(playbackMode: PlaybackMode): Int = when {
+    this == RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+    this == RepeatMode.ALL && playbackMode == PlaybackMode.ORDERED -> Player.REPEAT_MODE_ALL
+    else -> Player.REPEAT_MODE_OFF
 }

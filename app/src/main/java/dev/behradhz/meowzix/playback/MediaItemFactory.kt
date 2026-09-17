@@ -1,12 +1,21 @@
 package dev.behradhz.meowzix.playback
 
 import android.net.Uri
+import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackItem
 
-fun PlayableTrack.toMediaItem(): MediaItem = MediaItem.Builder()
+private const val PLAYBACK_MODE_KEY = "meowzix.playback_mode"
+private const val REPEAT_MODE_KEY = "meowzix.repeat_mode"
+
+fun PlayableTrack.toMediaItem(
+    playbackMode: PlaybackMode = PlaybackMode.ORDERED,
+    repeatMode: RepeatMode = RepeatMode.OFF,
+): MediaItem = MediaItem.Builder()
     .setMediaId(id.toString())
     .setUri(contentUri)
     .setMediaMetadata(
@@ -17,11 +26,15 @@ fun PlayableTrack.toMediaItem(): MediaItem = MediaItem.Builder()
             .setArtworkUri(artworkRef?.let(Uri::parse))
             .setDurationMs(durationMs)
             .setIsPlayable(true)
+            .setExtras(queuePolicyBundle(playbackMode, repeatMode))
             .build(),
     )
     .build()
 
-fun PersistedPlaybackItem.toMediaItem(): MediaItem = MediaItem.Builder()
+fun PersistedPlaybackItem.toMediaItem(
+    playbackMode: PlaybackMode = PlaybackMode.ORDERED,
+    repeatMode: RepeatMode = RepeatMode.OFF,
+): MediaItem = MediaItem.Builder()
     .setMediaId(mediaId)
     .setUri(uri)
     .setMediaMetadata(
@@ -31,6 +44,7 @@ fun PersistedPlaybackItem.toMediaItem(): MediaItem = MediaItem.Builder()
             .setArtworkUri(artworkUri?.let(Uri::parse))
             .setDurationMs(durationMs)
             .setIsPlayable(true)
+            .setExtras(queuePolicyBundle(playbackMode, repeatMode))
             .build(),
     )
     .build()
@@ -46,3 +60,28 @@ fun MediaItem.toPersistedPlaybackItem(): PersistedPlaybackItem? {
         durationMs = mediaMetadata.durationMs?.coerceAtLeast(0) ?: 0,
     )
 }
+
+fun MediaItem.withQueuePolicy(playbackMode: PlaybackMode, repeatMode: RepeatMode): MediaItem =
+    buildUpon()
+        .setMediaMetadata(
+            mediaMetadata.buildUpon()
+                .setExtras(queuePolicyBundle(playbackMode, repeatMode))
+                .build(),
+        )
+        .build()
+
+fun MediaItem.playbackMode(): PlaybackMode = mediaMetadata.extras
+    ?.getString(PLAYBACK_MODE_KEY)
+    ?.let { runCatching { PlaybackMode.valueOf(it) }.getOrNull() }
+    ?: PlaybackMode.ORDERED
+
+fun MediaItem.repeatMode(): RepeatMode = mediaMetadata.extras
+    ?.getString(REPEAT_MODE_KEY)
+    ?.let { runCatching { RepeatMode.valueOf(it) }.getOrNull() }
+    ?: RepeatMode.OFF
+
+private fun queuePolicyBundle(playbackMode: PlaybackMode, repeatMode: RepeatMode): Bundle =
+    Bundle().apply {
+        putString(PLAYBACK_MODE_KEY, playbackMode.name)
+        putString(REPEAT_MODE_KEY, repeatMode.name)
+    }
