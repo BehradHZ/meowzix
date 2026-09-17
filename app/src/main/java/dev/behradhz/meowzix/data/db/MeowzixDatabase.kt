@@ -6,7 +6,7 @@ import androidx.room.TypeConverters
 
 @Database(
     entities = [TrackEntity::class, TrackSourceEntity::class, LocalMediaSourceEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(DbConverters::class)

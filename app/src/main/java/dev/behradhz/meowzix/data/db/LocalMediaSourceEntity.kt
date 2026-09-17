@@ -13,7 +13,11 @@ import androidx.room.PrimaryKey
         childColumns = ["trackSourceId"],
         onDelete = ForeignKey.CASCADE,
     )],
-    indices = [Index(value = ["trackSourceId"], unique = true), Index(value = ["mediaStoreId"], unique = true)],
+    indices = [
+        Index(value = ["trackSourceId"], unique = true),
+        Index(value = ["mediaStoreId"], unique = true),
+        Index(value = ["contentUri"], unique = true),
+    ],
 )
 data class LocalMediaSourceEntity(
     @PrimaryKey val trackSourceId: String,
