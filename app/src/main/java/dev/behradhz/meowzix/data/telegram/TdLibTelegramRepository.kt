@@ -44,8 +44,12 @@ class TdLibTelegramRepository @Inject constructor(
         TdApi.CheckAuthenticationCode(it)
     }
 
-    override fun submitPassword(password: String) = submit(password, "Enter your two-step verification password.") {
-        TdApi.CheckAuthenticationPassword(it)
+    override fun submitPassword(password: String) {
+        if (password.isEmpty()) {
+            showError("Enter your two-step verification password.")
+            return
+        }
+        submitRequest { TdApi.CheckAuthenticationPassword(password) }
     }
 
     override fun submitEmailAddress(emailAddress: String) = submit(emailAddress, "Enter an email address.") {
