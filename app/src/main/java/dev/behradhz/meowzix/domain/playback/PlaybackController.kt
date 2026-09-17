@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 enum class PlaybackStatus { IDLE, PREPARING, BUFFERING, PLAYING, PAUSED, ERROR }
 
-enum class PlaybackMode { ORDERED }
+enum class PlaybackMode { ORDERED, PURE_SHUFFLE }
 
 enum class RepeatMode { OFF, ONE, ALL }
 
