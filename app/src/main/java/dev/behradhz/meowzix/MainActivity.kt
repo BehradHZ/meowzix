@@ -4,7 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import dagger.hilt.android.AndroidEntryPoint
-import dev.behradhz.meowzix.feature.library.LibraryRoute
+import dev.behradhz.meowzix.navigation.MeowzixApp
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 
 @AndroidEntryPoint
@@ -13,7 +13,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MeowzixTheme {
-                LibraryRoute()
+                MeowzixApp()
             }
         }
     }
