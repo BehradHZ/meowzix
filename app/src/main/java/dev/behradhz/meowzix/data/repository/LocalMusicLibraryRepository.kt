@@ -12,6 +12,8 @@ import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.ScannedLocalTrack
+import dev.behradhz.meowzix.domain.library.LibraryTrack
+import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
@@ -21,6 +23,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 @Singleton
@@ -30,9 +33,23 @@ class LocalMusicLibraryRepository @Inject constructor(
     private val scanner: LocalMediaScanner,
 ) : MusicLibraryRepository, PlaybackCatalog {
 
-    override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableLocalTracks().map { rows ->
+    override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableTracks().map { rows ->
         rows.map(TrackEntity::toDomain)
     }
+
+    override fun observeLibraryTracks(): Flow<List<LibraryTrack>> =
+        combine(dao.observeAvailableTracks(), dao.observeActiveSources()) { tracks, sources ->
+            val sourcesByTrack = sources.groupBy { it.trackId }
+            tracks.map { entity ->
+                val trackSources = sourcesByTrack[entity.id].orEmpty()
+                val availability = when {
+                    trackSources.any { it.availability == SourceAvailability.AVAILABLE_LOCAL } -> LibraryTrackAvailability.OFFLINE
+                    trackSources.any { it.type == TrackSourceType.TELEGRAM_REMOTE && it.availability == SourceAvailability.REMOTE_ONLY } -> LibraryTrackAvailability.CLOUD
+                    else -> LibraryTrackAvailability.UNAVAILABLE
+                }
+                LibraryTrack(entity.toDomain(), availability)
+            }
+        }
 
     override suspend fun refreshLocalMusic(): LocalLibraryRefreshResult {
         val scanned = scanner.scan()
@@ -44,54 +61,37 @@ class LocalMusicLibraryRepository @Inject constructor(
             val existingTracksById = dao.allTracksWithLocalSources().associateBy { it.id }
             val snapshots = existingSources.mapNotNull { source ->
                 source.contentUri?.let { uri ->
-                    ExistingLocalSourceSnapshot(
-                        sourceId = source.id,
-                        trackId = source.trackId,
-                        contentUri = uri,
-                    )
+                    ExistingLocalSourceSnapshot(source.id, source.trackId, uri)
                 }
             }
             val reconciliation = LocalLibraryReconciler.plan(scanned, snapshots)
 
-            for (item in reconciliation.toCreate) {
-                persistScannedItem(item, existingSource = null, existingTrack = null, now = now)
-            }
-
+            for (item in reconciliation.toCreate) persistScannedItem(item, null, null, now)
             for (match in reconciliation.toUpdate) {
                 val existingSource = existingSourcesById[match.existing.sourceId] ?: continue
-                val existingTrack = existingTracksById[match.existing.trackId]
-                persistScannedItem(match.scanned, existingSource, existingTrack, now)
+                persistScannedItem(match.scanned, existingSource, existingTracksById[match.existing.trackId], now)
             }
-
             for (sourceId in reconciliation.missingSourceIds) {
                 dao.updateAvailability(sourceId, SourceAvailability.MISSING, now)
             }
-
             reconciliation
         }
 
-        return LocalLibraryRefreshResult(
-            discovered = plan.discovered,
-            created = plan.toCreate.size,
-            updated = plan.toUpdate.size,
-            markedMissing = plan.missingSourceIds.size,
-        )
+        return LocalLibraryRefreshResult(plan.discovered, plan.toCreate.size, plan.toUpdate.size, plan.missingSourceIds.size)
     }
 
     override suspend fun availableLocalTracks(): List<PlayableTrack> =
-        dao.availableLocalPlaybackRows()
-            .distinctBy { it.id }
-            .map { row ->
-                PlayableTrack(
-                    id = UUID.fromString(row.id),
-                    title = row.title,
-                    artist = row.artist,
-                    album = row.album,
-                    durationMs = row.durationMs,
-                    artworkRef = row.artworkRef,
-                    contentUri = row.contentUri,
-                )
-            }
+        dao.availableLocalPlaybackRows().distinctBy { it.id }.map { row ->
+            PlayableTrack(
+                id = UUID.fromString(row.id),
+                title = row.title,
+                artist = row.artist,
+                album = row.album,
+                durationMs = row.durationMs,
+                artworkRef = row.artworkRef,
+                contentUri = row.contentUri,
+            )
+        }
 
     private suspend fun persistScannedItem(
         item: ScannedLocalTrack,

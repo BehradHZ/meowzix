@@ -8,9 +8,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -31,6 +36,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthState
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
+import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
+import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
 
 @Composable
 fun TelegramAuthRoute(
@@ -38,8 +45,10 @@ fun TelegramAuthRoute(
     viewModel: TelegramAuthViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val musicSourceState by viewModel.musicSourceState.collectAsStateWithLifecycle()
     TelegramAuthScreen(
         state = state,
+        musicSourceState = musicSourceState,
         onBack = onBack,
         onPhoneNumber = viewModel::submitPhoneNumber,
         onCode = viewModel::submitCode,
@@ -49,12 +58,17 @@ fun TelegramAuthRoute(
         onRegister = viewModel::register,
         onLogout = viewModel::logout,
         onClearError = viewModel::clearError,
+        onRefreshChats = viewModel::refreshChats,
+        onToggleSource = viewModel::setSourceSelected,
+        onSync = viewModel::syncSelectedSources,
+        onClearMusicSourceError = viewModel::clearMusicSourceError,
     )
 }
 
 @Composable
 private fun TelegramAuthScreen(
     state: TelegramAuthState,
+    musicSourceState: TelegramMusicSourceState,
     onBack: () -> Unit,
     onPhoneNumber: (String) -> Unit,
     onCode: (String) -> Unit,
@@ -64,6 +78,10 @@ private fun TelegramAuthScreen(
     onRegister: (String, String) -> Unit,
     onLogout: () -> Unit,
     onClearError: () -> Unit,
+    onRefreshChats: () -> Unit,
+    onToggleSource: (Long, Boolean) -> Unit,
+    onSync: () -> Unit,
+    onClearMusicSourceError: () -> Unit,
 ) {
     Scaffold { padding ->
         Column(
@@ -79,7 +97,7 @@ private fun TelegramAuthScreen(
                 Text("Telegram", style = MaterialTheme.typography.headlineSmall)
                 Spacer(Modifier.height(1.dp))
             }
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(24.dp))
 
             state.errorMessage?.let { message ->
                 Text(message, color = MaterialTheme.colorScheme.error)
@@ -141,14 +159,19 @@ private fun TelegramAuthScreen(
                     onSubmit = onRegister,
                 )
                 is TelegramAuthStep.WaitOtherDeviceConfirmation -> OtherDeviceConfirmation(step.link)
-                TelegramAuthStep.Ready -> ReadyState(enabled = !state.isSubmitting, onLogout = onLogout)
+                TelegramAuthStep.Ready -> ReadyState(
+                    enabled = !state.isSubmitting,
+                    sourceState = musicSourceState,
+                    onRefreshChats = onRefreshChats,
+                    onToggleSource = onToggleSource,
+                    onSync = onSync,
+                    onClearSourceError = onClearMusicSourceError,
+                    onLogout = onLogout,
+                )
                 TelegramAuthStep.LoggingOut -> ProgressState("Logging out…")
                 TelegramAuthStep.Closing -> ProgressState("Closing Telegram session…")
                 TelegramAuthStep.Closed -> ProgressState("Telegram session closed")
-                is TelegramAuthStep.Unsupported -> Text(
-                    step.reason,
-                    color = MaterialTheme.colorScheme.error,
-                )
+                is TelegramAuthStep.Unsupported -> Text(step.reason, color = MaterialTheme.colorScheme.error)
             }
             if (state.isSubmitting) CircularProgressIndicator(Modifier.padding(top = 20.dp))
         }
@@ -240,10 +263,95 @@ private fun OtherDeviceConfirmation(link: String) {
 }
 
 @Composable
-private fun ReadyState(enabled: Boolean, onLogout: () -> Unit) {
+private fun ReadyState(
+    enabled: Boolean,
+    sourceState: TelegramMusicSourceState,
+    onRefreshChats: () -> Unit,
+    onToggleSource: (Long, Boolean) -> Unit,
+    onSync: () -> Unit,
+    onClearSourceError: () -> Unit,
+    onLogout: () -> Unit,
+) {
     Text("Telegram connected", style = MaterialTheme.typography.headlineSmall)
-    Text("Your TDLib session is authorized and ready.", modifier = Modifier.padding(vertical = 12.dp))
-    Button(onClick = onLogout, enabled = enabled) { Text("Log out") }
+    Text(
+        "Choose the chats Meowzix should treat as music sources. Only selected chats are indexed.",
+        modifier = Modifier.padding(vertical = 10.dp),
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Button(
+            onClick = onRefreshChats,
+            enabled = enabled && !sourceState.isLoadingChats && !sourceState.isSyncing,
+        ) { Text("Refresh chats") }
+        Button(
+            onClick = onSync,
+            enabled = enabled && sourceState.selectedChatIds.isNotEmpty() && !sourceState.isSyncing,
+        ) { Text(if (sourceState.isSyncing) "Syncing…" else "Sync music") }
+        TextButton(onClick = onLogout, enabled = enabled && !sourceState.isSyncing) { Text("Log out") }
+    }
+
+    sourceState.errorMessage?.let { error ->
+        Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+        TextButton(onClick = onClearSourceError) { Text("Dismiss") }
+    }
+
+    sourceState.lastSyncResult?.let { result ->
+        Text(
+            "Last sync: ${result.tracksImported} imported, ${result.tracksUpdated} updated, ${result.sourcesMarkedMissing} missing.",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        )
+    }
+
+    when {
+        sourceState.isLoadingChats -> {
+            CircularProgressIndicator(Modifier.padding(top = 24.dp))
+            Text("Loading chats…", modifier = Modifier.padding(top = 8.dp))
+        }
+        sourceState.chats.isEmpty() -> {
+            Text(
+                "No chats loaded yet. Refresh the list after Telegram finishes loading your chat list.",
+                modifier = Modifier.padding(top = 24.dp),
+            )
+        }
+        else -> {
+            Text(
+                "Music sources",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 6.dp),
+            )
+            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+                items(sourceState.chats, key = { it.chatId }) { chat ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(chat.title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                            Text(chat.kind.displayName(), style = MaterialTheme.typography.bodySmall)
+                        }
+                        Checkbox(
+                            checked = chat.chatId in sourceState.selectedChatIds,
+                            onCheckedChange = { checked -> onToggleSource(chat.chatId, checked) },
+                            enabled = enabled && !sourceState.isSyncing,
+                        )
+                    }
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+
+private fun TelegramChatKind.displayName(): String = when (this) {
+    TelegramChatKind.SAVED_MESSAGES -> "Saved Messages"
+    TelegramChatKind.PRIVATE -> "Private chat"
+    TelegramChatKind.BASIC_GROUP -> "Group"
+    TelegramChatKind.SUPERGROUP_OR_CHANNEL -> "Channel or supergroup"
+    TelegramChatKind.SECRET -> "Secret chat"
 }
 
 @Composable

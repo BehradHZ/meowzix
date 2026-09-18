@@ -1,7 +1,7 @@
 package dev.behradhz.meowzix.feature.library
 
-import android.content.pm.PackageManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -43,10 +43,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.core.permissions.AudioPermission
 import dev.behradhz.meowzix.core.permissions.AudioPermissionStatus
 import dev.behradhz.meowzix.core.permissions.audioPermissionStatus
+import dev.behradhz.meowzix.domain.library.LibraryTrack
+import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 
 @Composable
@@ -60,8 +61,7 @@ fun LibraryRoute(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permission = AudioPermission.requiredPermission()
 
-    fun hasPermission(): Boolean =
-        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+    fun hasPermission(): Boolean = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
     var permissionGranted by remember { mutableStateOf(hasPermission()) }
     var permissionRequestAttempted by rememberSaveable { mutableStateOf(false) }
@@ -74,9 +74,7 @@ fun LibraryRoute(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 val currentlyGranted = hasPermission()
-                if (permissionGranted && !currentlyGranted) {
-                    permissionRequestAttempted = true
-                }
+                if (permissionGranted && !currentlyGranted) permissionRequestAttempted = true
                 permissionGranted = currentlyGranted
             }
         }
@@ -93,16 +91,11 @@ fun LibraryRoute(
         permissionStatus = audioPermissionStatus(permissionGranted, permissionRequestAttempted),
         onRequestPermission = { permissionLauncher.launch(permission) },
         onOpenSettings = {
-            context.startActivity(
-                Intent(
-                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.fromParts("package", context.packageName, null),
-                ),
-            )
+            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
         },
         onRefresh = viewModel::refresh,
-        onPlayTrack = { track ->
-            viewModel.playTrack(track)
+        onPlayTrack = { item ->
+            viewModel.playTrack(item)
             onOpenNowPlaying()
         },
         onOpenNowPlaying = onOpenNowPlaying,
@@ -119,16 +112,14 @@ private fun LibraryScreen(
     onRequestPermission: () -> Unit,
     onOpenSettings: () -> Unit,
     onRefresh: () -> Unit,
-    onPlayTrack: (Track) -> Unit,
+    onPlayTrack: (LibraryTrack) -> Unit,
     onOpenNowPlaying: () -> Unit,
-    onPlayNext: (Track) -> Unit,
-    onAddToQueue: (Track) -> Unit,
+    onPlayNext: (LibraryTrack) -> Unit,
+    onAddToQueue: (LibraryTrack) -> Unit,
     onOpenTelegram: () -> Unit,
 ) {
     Scaffold { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-        ) {
+        Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -136,42 +127,53 @@ private fun LibraryScreen(
             ) {
                 Column {
                     Text("Meowzix", style = MaterialTheme.typography.headlineLarge)
-                    Text("Local music", style = MaterialTheme.typography.bodyMedium)
+                    Text("Unified library", style = MaterialTheme.typography.bodyMedium)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onOpenTelegram) { Text("Telegram") }
-                    if (state.playback.currentTrack != null) {
-                        Button(onClick = onOpenNowPlaying) { Text("Now playing") }
-                    }
+                    if (state.playback.currentTrack != null) Button(onClick = onOpenNowPlaying) { Text("Now playing") }
                     if (permissionStatus == AudioPermissionStatus.GRANTED) {
                         Button(onClick = onRefresh, enabled = !state.isRefreshing) { Text("Rescan") }
                     }
                 }
             }
 
+            if (state.tracks.isNotEmpty() && permissionStatus != AudioPermissionStatus.GRANTED) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("Device music access is off. Telegram tracks are still available in the library.", modifier = Modifier.weight(1f))
+                    TextButton(onClick = if (permissionStatus == AudioPermissionStatus.REQUIRED) onRequestPermission else onOpenSettings) {
+                        Text(if (permissionStatus == AudioPermissionStatus.REQUIRED) "Allow" else "Settings")
+                    }
+                }
+            }
+
             when {
-                permissionStatus == AudioPermissionStatus.REQUIRED -> MessageState(
-                    title = "Music access needed",
-                    message = "Allow access to audio files so Meowzix can build your local library.",
-                    action = "Allow access",
-                    onAction = onRequestPermission,
-                )
-                permissionStatus == AudioPermissionStatus.DENIED -> MessageState(
-                    title = "Music access denied",
-                    message = "Allow audio access in app settings to restore your local library.",
-                    action = "Open settings",
-                    onAction = onOpenSettings,
-                )
                 state.isRefreshing && state.tracks.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                state.errorMessage != null && state.tracks.isEmpty() -> MessageState("Couldn't scan music", state.errorMessage, "Try again", onRefresh)
-                state.tracks.isEmpty() -> MessageState("No music found", "Add music to your device, then rescan.", "Rescan", onRefresh)
+                state.errorMessage != null && state.tracks.isEmpty() -> MessageState("Couldn't load music", state.errorMessage, "Try again", onRefresh)
+                state.tracks.isEmpty() && permissionStatus == AudioPermissionStatus.REQUIRED -> MessageState(
+                    "Music access needed",
+                    "Allow device audio access, or connect Telegram to import cloud music.",
+                    "Allow access",
+                    onRequestPermission,
+                )
+                state.tracks.isEmpty() && permissionStatus == AudioPermissionStatus.DENIED -> MessageState(
+                    "No music indexed yet",
+                    "Device audio access is disabled. You can enable it in settings or import a Telegram music source.",
+                    "Open settings",
+                    onOpenSettings,
+                )
+                state.tracks.isEmpty() -> MessageState("No music found", "Add device music or choose a Telegram music source.", "Telegram", onOpenTelegram)
                 else -> LazyColumn(Modifier.fillMaxSize()) {
-                    items(state.tracks, key = { it.id.toString() }) { track ->
+                    items(state.tracks, key = { it.track.id.toString() }) { item ->
                         TrackRow(
-                            track = track,
-                            onClick = { onPlayTrack(track) },
-                            onPlayNext = { onPlayNext(track) },
-                            onAddToQueue = { onAddToQueue(track) },
+                            item = item,
+                            onClick = { onPlayTrack(item) },
+                            onPlayNext = { onPlayNext(item) },
+                            onAddToQueue = { onAddToQueue(item) },
                         )
                         HorizontalDivider()
                     }
@@ -183,13 +185,15 @@ private fun LibraryScreen(
 
 @Composable
 private fun TrackRow(
-    track: Track,
+    item: LibraryTrack,
     onClick: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
 ) {
+    val playableNow = item.availability == LibraryTrackAvailability.OFFLINE
+    val track = item.track
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().clickable(enabled = playableNow, onClick = onClick).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TrackArtwork(track.artworkRef, track.title)
@@ -197,12 +201,17 @@ private fun TrackRow(
         Column(Modifier.weight(1f)) {
             Text(track.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
             Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+            if (item.availability == LibraryTrackAvailability.CLOUD) {
+                Text("Cloud", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(formatDuration(track.durationMs), style = MaterialTheme.typography.bodySmall)
-            Row {
-                TextButton(onClick = onPlayNext) { Text("Next") }
-                TextButton(onClick = onAddToQueue) { Text("Add") }
+            if (playableNow) {
+                Row {
+                    TextButton(onClick = onPlayNext) { Text("Next") }
+                    TextButton(onClick = onAddToQueue) { Text("Add") }
+                }
             }
         }
     }
@@ -222,6 +231,7 @@ private fun MessageState(title: String, message: String, action: String, onActio
 }
 
 private fun formatDuration(durationMs: Long): String {
+    if (durationMs <= 0L) return "—"
     val totalSeconds = durationMs / 1000
     return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }

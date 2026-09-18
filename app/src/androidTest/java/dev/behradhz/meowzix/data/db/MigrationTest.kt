@@ -20,11 +20,18 @@ class MigrationTest {
 
     @Test
     fun migrateOneToTwoAddsContentUriUniqueness() {
-        helper.createDatabase(TEST_DATABASE, 1).close()
-        helper.runMigrationsAndValidate(TEST_DATABASE, 2, true, MIGRATION_1_2).close()
+        helper.createDatabase(TEST_DATABASE_1_2, 1).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_1_2, 2, true, MIGRATION_1_2).close()
+    }
+
+    @Test
+    fun migrateTwoToThreeAddsTelegramSourceStorage() {
+        helper.createDatabase(TEST_DATABASE_2_3, 2).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_2_3, 3, true, MIGRATION_2_3).close()
     }
 
     private companion object {
-        const val TEST_DATABASE = "migration-test"
+        const val TEST_DATABASE_1_2 = "migration-test-1-2"
+        const val TEST_DATABASE_2_3 = "migration-test-2-3"
     }
 }
