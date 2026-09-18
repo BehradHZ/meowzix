@@ -6,18 +6,24 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Clear
@@ -34,18 +40,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -59,7 +61,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -170,124 +175,99 @@ private fun LibraryScreen(
         }
     }
 
-    Scaffold { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            LibraryHeader(
-                trackCount = state.tracks.size,
-                isRefreshing = state.isRefreshing,
-                onRefresh = onRefresh,
-                onOpenTelegram = onOpenTelegram,
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
+    ) {
+        LibraryHeader(
+            trackCount = state.tracks.size,
+            isRefreshing = state.isRefreshing,
+            onRefresh = onRefresh,
+            onOpenTelegram = onOpenTelegram,
+        )
+
+        if (permissionStatus == AudioPermissionStatus.GRANTED) {
+            FrostedSearchField(
+                query = query,
+                onQueryChange = { query = it },
+                onClear = { query = "" },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
             )
 
-            if (permissionStatus == AudioPermissionStatus.GRANTED) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.extraLarge,
-                    placeholder = { Text("Search tracks, artists, albums") },
-                    leadingIcon = {
-                        Icon(Icons.Rounded.Search, contentDescription = null)
-                    },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }) {
-                                Icon(Icons.Rounded.Clear, contentDescription = "Clear search")
-                            }
-                        }
-                    },
-                )
+            LibrarySectionSwitcher(
+                selectedIndex = selectedSectionIndex,
+                onSelected = { selectedSectionIndex = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            )
+        }
 
-                TabRow(
-                    selectedTabIndex = selectedSectionIndex,
-                    modifier = Modifier.padding(top = 12.dp),
-                ) {
-                    LibrarySection.entries.forEachIndexed { index, section ->
-                        Tab(
-                            selected = index == selectedSectionIndex,
-                            onClick = { selectedSectionIndex = index },
-                            text = { Text(section.label) },
-                            icon = {
-                                Icon(
-                                    imageVector = when (section) {
-                                        LibrarySection.TRACKS -> Icons.Rounded.MusicNote
-                                        LibrarySection.ARTISTS -> Icons.Rounded.Person
-                                        LibrarySection.ALBUMS -> Icons.Rounded.Album
-                                    },
-                                    contentDescription = null,
-                                )
-                            },
-                        )
-                    }
-                }
+        if (state.isRefreshing && state.tracks.isNotEmpty()) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+            )
+        }
+
+        when {
+            permissionStatus == AudioPermissionStatus.REQUIRED -> LibraryMessagePanel(
+                title = "Your music, in one place",
+                message = "Allow audio access so Meowzix can build the local side of your library.",
+                action = "Allow music access",
+                onAction = onRequestPermission,
+            )
+
+            permissionStatus == AudioPermissionStatus.DENIED -> LibraryMessagePanel(
+                title = "Music access is off",
+                message = "Turn audio access back on in Android settings. Telegram and app-owned music can still remain separate sources later.",
+                action = "Open settings",
+                onAction = onOpenSettings,
+            )
+
+            state.isRefreshing && state.tracks.isEmpty() -> Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
             }
 
-            if (state.isRefreshing && state.tracks.isNotEmpty()) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
+            state.errorMessage != null && state.tracks.isEmpty() -> LibraryMessagePanel(
+                title = "Couldn't scan your music",
+                message = state.errorMessage,
+                action = "Try again",
+                onAction = onRefresh,
+            )
 
-            when {
-                permissionStatus == AudioPermissionStatus.REQUIRED -> LibraryMessageCard(
-                    title = "Your music, in one place",
-                    message = "Allow audio access so Meowzix can build the local side of your library.",
-                    action = "Allow music access",
-                    onAction = onRequestPermission,
+            state.tracks.isEmpty() -> LibraryMessagePanel(
+                title = "No local music yet",
+                message = "Add audio to your device or connect Telegram. Meowzix keeps both sources in one library.",
+                action = "Scan again",
+                onAction = onRefresh,
+            )
+
+            filteredTracks.isEmpty() -> LibraryMessagePanel(
+                title = "No matches",
+                message = "Nothing in your local library matches “$query”.",
+                action = "Clear search",
+                onAction = { query = "" },
+            )
+
+            else -> when (selectedSection) {
+                LibrarySection.TRACKS -> TracksSection(
+                    tracks = filteredTracks,
+                    currentTrackId = state.playback.currentTrack?.id,
+                    onPlayTrack = onPlayTrack,
+                    onPlayNext = onPlayNext,
+                    onAddToQueue = onAddToQueue,
                 )
 
-                permissionStatus == AudioPermissionStatus.DENIED -> LibraryMessageCard(
-                    title = "Music access is off",
-                    message = "Turn audio access back on in Android settings. Telegram and app-owned music can still remain separate sources later.",
-                    action = "Open settings",
-                    onAction = onOpenSettings,
-                )
-
-                state.isRefreshing && state.tracks.isEmpty() -> Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
-
-                state.errorMessage != null && state.tracks.isEmpty() -> LibraryMessageCard(
-                    title = "Couldn't scan your music",
-                    message = state.errorMessage,
-                    action = "Try again",
-                    onAction = onRefresh,
-                )
-
-                state.tracks.isEmpty() -> LibraryMessageCard(
-                    title = "No local music yet",
-                    message = "Add audio to your device or connect Telegram. Meowzix keeps both sources in one library.",
-                    action = "Scan again",
-                    onAction = onRefresh,
-                )
-
-                filteredTracks.isEmpty() -> LibraryMessageCard(
-                    title = "No matches",
-                    message = "Nothing in your local library matches “$query”.",
-                    action = "Clear search",
-                    onAction = { query = "" },
-                )
-
-                else -> when (selectedSection) {
-                    LibrarySection.TRACKS -> TracksSection(
-                        tracks = filteredTracks,
-                        currentTrackId = state.playback.currentTrack?.id,
-                        onPlayTrack = onPlayTrack,
-                        onPlayNext = onPlayNext,
-                        onAddToQueue = onAddToQueue,
-                    )
-
-                    LibrarySection.ARTISTS -> ArtistsSection(filteredTracks)
-                    LibrarySection.ALBUMS -> AlbumsSection(filteredTracks)
-                }
+                LibrarySection.ARTISTS -> ArtistsSection(filteredTracks)
+                LibrarySection.ALBUMS -> AlbumsSection(filteredTracks)
             }
         }
     }
@@ -303,22 +283,185 @@ private fun LibraryHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(start = 20.dp, end = 12.dp, top = 18.dp, bottom = 14.dp),
+        verticalAlignment = Alignment.Bottom,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("Meowzix", style = MaterialTheme.typography.headlineLarge)
+            Text(
+                text = "Library",
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.Bold,
+            )
             Text(
                 text = if (trackCount == 1) "1 track" else "$trackCount tracks",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
+                modifier = Modifier.padding(top = 2.dp),
             )
         }
-        IconButton(onClick = onRefresh, enabled = !isRefreshing) {
+
+        HeaderAction(
+            onClick = onRefresh,
+            enabled = !isRefreshing,
+        ) {
             Icon(Icons.Rounded.Refresh, contentDescription = "Rescan local music")
         }
-        IconButton(onClick = onOpenTelegram) {
+        Spacer(Modifier.size(6.dp))
+        HeaderAction(onClick = onOpenTelegram) {
             Icon(Icons.Rounded.Cloud, contentDescription = "Open Telegram connection")
+        }
+    }
+}
+
+@Composable
+private fun HeaderAction(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(44.dp),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f),
+        ),
+    ) {
+        Box(contentAlignment = Alignment.Center) { content() }
+    }
+}
+
+@Composable
+private fun FrostedSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f),
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .padding(start = 14.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Rounded.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.size(10.dp))
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (query.isEmpty()) {
+                    Text(
+                        text = "Search songs, artists, albums",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
+                    )
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                )
+            }
+            if (query.isNotEmpty()) {
+                IconButton(onClick = onClear) {
+                    Icon(
+                        Icons.Rounded.Clear,
+                        contentDescription = "Clear search",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibrarySectionSwitcher(
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f),
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            LibrarySection.entries.forEachIndexed { index, section ->
+                val selected = index == selectedIndex
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .clickable { onSelected(index) },
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.86f)
+                    } else {
+                        Color.Transparent
+                    },
+                    contentColor = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
+                    },
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        Icon(
+                            imageVector = when (section) {
+                                LibrarySection.TRACKS -> Icons.Rounded.MusicNote
+                                LibrarySection.ARTISTS -> Icons.Rounded.Person
+                                LibrarySection.ALBUMS -> Icons.Rounded.Album
+                            },
+                            contentDescription = null,
+                            modifier = Modifier.size(17.dp),
+                        )
+                        Spacer(Modifier.size(6.dp))
+                        Text(
+                            text = section.label,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -333,8 +476,13 @@ private fun TracksSection(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(
+            start = 10.dp,
+            end = 10.dp,
+            top = 2.dp,
+            bottom = 182.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         items(tracks, key = { it.id.toString() }) { track ->
             SwipeableTrackRow(
@@ -382,17 +530,17 @@ private fun SwipeableTrackRow(
             val playNext = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                shape = MaterialTheme.shapes.large,
+                shape = RoundedCornerShape(16.dp),
                 color = if (playNext) {
-                    MaterialTheme.colorScheme.primaryContainer
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
                 } else {
-                    MaterialTheme.colorScheme.tertiaryContainer
+                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
                 },
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 20.dp),
+                        .padding(horizontal = 18.dp),
                     horizontalArrangement = if (playNext) Arrangement.Start else Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -428,19 +576,23 @@ private fun TrackRow(
     onAddToQueue: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.large,
-        color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = if (isCurrent) 3.dp else 0.dp,
+        shape = RoundedCornerShape(16.dp),
+        color = if (isCurrent) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        } else {
+            Color.Transparent
+        },
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TrackArtwork(track.artworkRef, track.title, size = 58.dp)
+            TrackArtwork(track.artworkRef, track.title, size = 52.dp)
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -449,35 +601,40 @@ private fun TrackRow(
                             Icons.Rounded.GraphicEq,
                             contentDescription = "Currently playing",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .size(18.dp)
-                                .padding(end = 4.dp),
+                            modifier = Modifier.size(17.dp),
                         )
+                        Spacer(Modifier.size(5.dp))
                     }
                     Text(
-                        track.title,
-                        style = MaterialTheme.typography.titleMedium,
+                        text = track.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Text(
-                    track.artist ?: "Unknown artist",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = track.artist ?: "Unknown artist",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
             Text(
-                formatDuration(track.durationMs),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
+                text = formatDuration(track.durationMs),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
             )
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
+                    Icon(
+                        Icons.Rounded.MoreVert,
+                        contentDescription = "Track actions",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                    )
                 }
                 DropdownMenu(
                     expanded = menuExpanded,
@@ -513,16 +670,25 @@ private fun ArtistsSection(tracks: List<Track>) {
             .map { (name, artistTracks) -> name to artistTracks.size }
             .sortedBy { it.first.lowercase() }
     }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(
+            start = 12.dp,
+            end = 12.dp,
+            top = 2.dp,
+            bottom = 182.dp,
+        ),
     ) {
         items(artists, key = { it.first }) { (artist, count) ->
-            LibraryGroupCard(
+            LibraryGroupRow(
                 title = artist,
                 subtitle = if (count == 1) "1 track" else "$count tracks",
                 icon = { Icon(Icons.Rounded.Person, contentDescription = null) },
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 68.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f),
             )
         }
     }
@@ -538,59 +704,73 @@ private fun AlbumsSection(tracks: List<Track>) {
             }
             .sortedBy { it.first.lowercase() }
     }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(
+            start = 12.dp,
+            end = 12.dp,
+            top = 2.dp,
+            bottom = 182.dp,
+        ),
     ) {
         items(albums, key = { it.first }) { (album, artist, count) ->
-            LibraryGroupCard(
+            LibraryGroupRow(
                 title = album,
                 subtitle = "$artist · ${if (count == 1) "1 track" else "$count tracks"}",
                 icon = { Icon(Icons.Rounded.Album, contentDescription = null) },
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 68.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f),
             )
         }
     }
 }
 
 @Composable
-private fun LibraryGroupCard(
+private fun LibraryGroupRow(
     title: String,
     subtitle: String,
     icon: @Composable () -> Unit,
 ) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+            contentColor = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(48.dp),
         ) {
-            Surface(
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(52.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) { icon() }
-            }
-            Spacer(Modifier.size(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Box(contentAlignment = Alignment.Center) { icon() }
+        }
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun LibraryMessageCard(
+private fun LibraryMessagePanel(
     title: String,
     message: String,
     action: String,
@@ -599,28 +779,42 @@ private fun LibraryMessageCard(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(20.dp),
+            .padding(start = 20.dp, end = 20.dp, bottom = 150.dp),
         contentAlignment = Alignment.Center,
     ) {
-        ElevatedCard(
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.extraLarge,
+            shape = RoundedCornerShape(30.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.56f),
+            border = BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f),
+            ),
         ) {
             Column(
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.Start,
             ) {
-                Icon(
-                    Icons.Rounded.MusicNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(36.dp),
-                )
-                Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 14.dp))
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    contentColor = MaterialTheme.colorScheme.primary,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.MusicNote, contentDescription = null)
+                    }
+                }
                 Text(
-                    message,
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 18.dp),
+                )
+                Text(
+                    text = message,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
                     modifier = Modifier.padding(top = 8.dp, bottom = 18.dp),
                 )
                 Button(onClick = onAction) { Text(action) }
