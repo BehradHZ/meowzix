@@ -201,8 +201,22 @@ private fun TrackRow(
         Column(Modifier.weight(1f)) {
             Text(track.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
             Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-            if (item.availability == LibraryTrackAvailability.CLOUD) {
-                Text("Cloud", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            when (item.availability) {
+                LibraryTrackAvailability.OFFLINE -> Text(
+                    "Offline",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                LibraryTrackAvailability.CLOUD -> Text(
+                    "Cloud",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                LibraryTrackAvailability.UNAVAILABLE -> Text(
+                    "Unavailable",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
         Column(horizontalAlignment = Alignment.End) {
