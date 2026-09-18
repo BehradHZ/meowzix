@@ -269,10 +269,16 @@ private fun GlassMiniPlayer(
         0f
     }
     val compactBands = remember(spectrum.bands) {
-        spectrum.bands
-            .chunked(4)
-            .map { chunk -> chunk.maxOrNull() ?: 0f }
-            .take(8)
+        val source = spectrum.bands
+        FloatArray(8) { compactIndex ->
+            val start = compactIndex * 4
+            val endExclusive = minOf(start + 4, source.size)
+            var peak = 0f
+            for (index in start until endExclusive) {
+                if (source[index] > peak) peak = source[index]
+            }
+            peak
+        }
     }
     val density = LocalDensity.current
     val swipeThreshold = with(density) { 64.dp.toPx() }
