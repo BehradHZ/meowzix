@@ -10,7 +10,4 @@ internal val MeowzixShapes = Shapes(
     medium = RoundedCornerShape(18.dp),
     large = RoundedCornerShape(24.dp),
     extraLarge = RoundedCornerShape(32.dp),
-    largeIncreased = RoundedCornerShape(30.dp),
-    extraLargeIncreased = RoundedCornerShape(40.dp),
-    extraExtraLarge = RoundedCornerShape(52.dp),
 )

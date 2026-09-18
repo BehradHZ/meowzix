@@ -8,7 +8,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.ExperimentalHazeApi
 import dev.chrisbanes.haze.HazeInput
@@ -27,7 +26,7 @@ import dev.chrisbanes.haze.glass.hazeGlass
 fun GlassSurface(
     hazeState: HazeState,
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(30.dp),
+    shape: RoundedCornerShape = RoundedCornerShape(30.dp),
     fallbackColor: Color = Color.Black.copy(alpha = 0.38f),
     tint: Color = Color.White.copy(alpha = 0.10f),
     interactive: Boolean = false,
