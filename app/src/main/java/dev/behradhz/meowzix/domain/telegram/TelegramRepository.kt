@@ -29,9 +29,37 @@ data class TelegramAuthState(
     val errorMessage: String? = null,
 )
 
+enum class TelegramChatKind { SAVED_MESSAGES, PRIVATE, BASIC_GROUP, SUPERGROUP_OR_CHANNEL, SECRET }
+
+data class TelegramChatSummary(
+    val chatId: Long,
+    val title: String,
+    val kind: TelegramChatKind,
+    val selected: Boolean,
+)
+
+data class TelegramSyncResult(
+    val chatsSynced: Int,
+    val messagesScanned: Int,
+    val tracksImported: Int,
+    val tracksUpdated: Int,
+    val sourcesMarkedMissing: Int,
+)
+
+data class TelegramMusicSourceState(
+    val accountId: String? = null,
+    val chats: List<TelegramChatSummary> = emptyList(),
+    val selectedChatIds: Set<Long> = emptySet(),
+    val isLoadingChats: Boolean = false,
+    val isSyncing: Boolean = false,
+    val lastSyncResult: TelegramSyncResult? = null,
+    val errorMessage: String? = null,
+)
+
 /** Domain boundary that keeps TDLib types and threading out of UI consumers. */
 interface TelegramRepository {
     val authState: StateFlow<TelegramAuthState>
+    val musicSourceState: StateFlow<TelegramMusicSourceState>
 
     fun submitPhoneNumber(phoneNumber: String)
     fun submitCode(code: String)
@@ -41,4 +69,9 @@ interface TelegramRepository {
     fun register(firstName: String, lastName: String)
     fun logout()
     fun clearError()
+
+    fun refreshSelectableChats()
+    fun setMusicSourceSelected(chatId: Long, selected: Boolean)
+    fun syncSelectedSources()
+    fun clearMusicSourceError()
 }
