@@ -1,6 +1,5 @@
 package dev.behradhz.meowzix.feature.telegramauth
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,9 +7,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -27,13 +29,10 @@ import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,7 +43,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -54,6 +55,10 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthState
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
+import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 @Composable
 fun TelegramAuthRoute(
@@ -61,8 +66,10 @@ fun TelegramAuthRoute(
     viewModel: TelegramAuthViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val hazeState = rememberHazeState()
     TelegramAuthScreen(
         state = state,
+        hazeState = hazeState,
         onBack = onBack,
         onPhoneNumber = viewModel::submitPhoneNumber,
         onCode = viewModel::submitCode,
@@ -78,6 +85,7 @@ fun TelegramAuthRoute(
 @Composable
 private fun TelegramAuthScreen(
     state: TelegramAuthState,
+    hazeState: HazeState,
     onBack: () -> Unit,
     onPhoneNumber: (String) -> Unit,
     onCode: (String) -> Unit,
@@ -88,156 +96,196 @@ private fun TelegramAuthScreen(
     onLogout: () -> Unit,
     onClearError: () -> Unit,
 ) {
-    Scaffold { padding ->
-        Column(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .hazeSource(hazeState)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 176.dp),
+    ) {
+        GlassSurface(
+            hazeState = hazeState,
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .fillMaxWidth()
+                .height(72.dp),
+            shape = RoundedCornerShape(32.dp),
+            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+            tint = Color.White.copy(alpha = 0.08f),
         ) {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
+                Surface(
+                    onClick = onBack,
+                    modifier = Modifier.size(48.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.White.copy(alpha = 0.07f),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
+                    }
                 }
-                Column(Modifier.weight(1f)) {
-                    Text("Telegram", style = MaterialTheme.typography.headlineSmall)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp),
+                ) {
                     Text(
-                        "Personal cloud music source",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = "Telegram",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "Personal cloud music source",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f),
                     )
                 }
                 Surface(
-                    modifier = Modifier.size(48.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(46.dp),
+                    shape = RoundedCornerShape(23.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    contentColor = MaterialTheme.colorScheme.primary,
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.Cloud, contentDescription = null)
                     }
                 }
             }
+        }
 
-            state.errorMessage?.let { message ->
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 4.dp),
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.errorContainer,
+        state.errorMessage?.let { message ->
+            Spacer(Modifier.height(10.dp))
+            GlassSurface(
+                hazeState = hazeState,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                fallbackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.22f),
+                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.08f),
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Rounded.ErrorOutline, contentDescription = null)
-                        Text(
-                            message,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 10.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        TextButton(onClick = onClearError) { Text("Dismiss") }
-                    }
+                    Icon(
+                        Icons.Rounded.ErrorOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Text(
+                        text = message,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 10.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    TextButton(onClick = onClearError) { Text("Dismiss") }
                 }
             }
+        }
 
-            ElevatedCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 12.dp),
-                shape = MaterialTheme.shapes.extraLarge,
+        Spacer(Modifier.height(14.dp))
+
+        GlassSurface(
+            hazeState = hazeState,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(34.dp),
+            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.68f),
+            tint = Color.White.copy(alpha = 0.09f),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 22.dp, vertical = 26.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    when (val step = state.step) {
-                        TelegramAuthStep.Initializing -> ProgressState("Starting Telegram…")
-                        TelegramAuthStep.ConfigurationRequired -> MessageState(
-                            icon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
-                            title = "Telegram setup required",
-                            message = "This development build needs its Telegram API configuration before sign-in can start.",
-                        )
-                        TelegramAuthStep.WaitPhoneNumber -> SingleValueForm(
-                            icon = { Icon(Icons.Rounded.Phone, contentDescription = null) },
-                            title = "Connect Telegram",
-                            guidance = "Enter the phone number attached to your Telegram account, including the country code.",
-                            label = "Phone number",
-                            submitLabel = "Continue",
-                            enabled = !state.isSubmitting,
-                            keyboardType = KeyboardType.Phone,
-                            onSubmit = onPhoneNumber,
-                        )
-                        is TelegramAuthStep.WaitCode -> SingleValueForm(
-                            icon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
-                            title = "Authentication code",
-                            guidance = "Enter the code Telegram sent for ${step.phoneNumber}.",
-                            label = "Code",
-                            submitLabel = "Verify",
-                            enabled = !state.isSubmitting,
-                            keyboardType = KeyboardType.Number,
-                            onSubmit = onCode,
-                        )
-                        is TelegramAuthStep.WaitPassword -> SingleValueForm(
-                            icon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
-                            title = "Two-step verification",
-                            guidance = buildString {
-                                append("Enter your Telegram password.")
-                                if (step.hint.isNotBlank()) append(" Hint: ${step.hint}")
-                            },
-                            label = "Password",
-                            submitLabel = "Verify",
-                            enabled = !state.isSubmitting,
-                            isPassword = true,
-                            onSubmit = onPassword,
-                        )
-                        TelegramAuthStep.WaitEmailAddress -> SingleValueForm(
-                            icon = { Icon(Icons.Rounded.Email, contentDescription = null) },
-                            title = "Email confirmation",
-                            guidance = "Telegram requires an email address for this sign-in.",
-                            label = "Email address",
-                            submitLabel = "Continue",
-                            enabled = !state.isSubmitting,
-                            keyboardType = KeyboardType.Email,
-                            onSubmit = onEmailAddress,
-                        )
-                        is TelegramAuthStep.WaitEmailCode -> SingleValueForm(
-                            icon = { Icon(Icons.Rounded.Email, contentDescription = null) },
-                            title = "Email code",
-                            guidance = "Enter the ${step.codeLength}-character code sent to ${step.emailPattern}.",
-                            label = "Email code",
-                            submitLabel = "Verify",
-                            enabled = !state.isSubmitting,
-                            onSubmit = onEmailCode,
-                        )
-                        TelegramAuthStep.WaitRegistration -> RegistrationForm(
-                            enabled = !state.isSubmitting,
-                            onSubmit = onRegister,
-                        )
-                        is TelegramAuthStep.WaitOtherDeviceConfirmation -> OtherDeviceConfirmation(step.link)
-                        TelegramAuthStep.Ready -> ReadyState(
-                            enabled = !state.isSubmitting,
-                            onLogout = onLogout,
-                        )
-                        TelegramAuthStep.LoggingOut -> ProgressState("Logging out…")
-                        TelegramAuthStep.Closing -> ProgressState("Closing Telegram session…")
-                        TelegramAuthStep.Closed -> ProgressState("Telegram session closed")
-                        is TelegramAuthStep.Unsupported -> MessageState(
-                            icon = { Icon(Icons.Rounded.ErrorOutline, contentDescription = null) },
-                            title = "Telegram needs attention",
-                            message = step.reason,
-                        )
-                    }
-                    if (state.isSubmitting) {
-                        CircularProgressIndicator(Modifier.padding(top = 20.dp))
-                    }
+                when (val step = state.step) {
+                    TelegramAuthStep.Initializing -> ProgressState("Starting Telegram…")
+                    TelegramAuthStep.ConfigurationRequired -> MessageState(
+                        icon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
+                        title = "Telegram setup required",
+                        message = "This development build needs its Telegram API configuration before sign-in can start.",
+                    )
+                    TelegramAuthStep.WaitPhoneNumber -> SingleValueForm(
+                        icon = { Icon(Icons.Rounded.Phone, contentDescription = null) },
+                        title = "Connect Telegram",
+                        guidance = "Enter the phone number attached to your Telegram account, including the country code.",
+                        label = "Phone number",
+                        submitLabel = "Continue",
+                        enabled = !state.isSubmitting,
+                        keyboardType = KeyboardType.Phone,
+                        onSubmit = onPhoneNumber,
+                    )
+                    is TelegramAuthStep.WaitCode -> SingleValueForm(
+                        icon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
+                        title = "Authentication code",
+                        guidance = "Enter the code Telegram sent for ${step.phoneNumber}.",
+                        label = "Code",
+                        submitLabel = "Verify",
+                        enabled = !state.isSubmitting,
+                        keyboardType = KeyboardType.Number,
+                        onSubmit = onCode,
+                    )
+                    is TelegramAuthStep.WaitPassword -> SingleValueForm(
+                        icon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
+                        title = "Two-step verification",
+                        guidance = buildString {
+                            append("Enter your Telegram password.")
+                            if (step.hint.isNotBlank()) append(" Hint: ${step.hint}")
+                        },
+                        label = "Password",
+                        submitLabel = "Verify",
+                        enabled = !state.isSubmitting,
+                        isPassword = true,
+                        onSubmit = onPassword,
+                    )
+                    TelegramAuthStep.WaitEmailAddress -> SingleValueForm(
+                        icon = { Icon(Icons.Rounded.Email, contentDescription = null) },
+                        title = "Email confirmation",
+                        guidance = "Telegram requires an email address for this sign-in.",
+                        label = "Email address",
+                        submitLabel = "Continue",
+                        enabled = !state.isSubmitting,
+                        keyboardType = KeyboardType.Email,
+                        onSubmit = onEmailAddress,
+                    )
+                    is TelegramAuthStep.WaitEmailCode -> SingleValueForm(
+                        icon = { Icon(Icons.Rounded.Email, contentDescription = null) },
+                        title = "Email code",
+                        guidance = "Enter the ${step.codeLength}-character code sent to ${step.emailPattern}.",
+                        label = "Email code",
+                        submitLabel = "Verify",
+                        enabled = !state.isSubmitting,
+                        onSubmit = onEmailCode,
+                    )
+                    TelegramAuthStep.WaitRegistration -> RegistrationForm(
+                        enabled = !state.isSubmitting,
+                        onSubmit = onRegister,
+                    )
+                    is TelegramAuthStep.WaitOtherDeviceConfirmation -> OtherDeviceConfirmation(step.link)
+                    TelegramAuthStep.Ready -> ReadyState(
+                        enabled = !state.isSubmitting,
+                        onLogout = onLogout,
+                    )
+                    TelegramAuthStep.LoggingOut -> ProgressState("Logging out…")
+                    TelegramAuthStep.Closing -> ProgressState("Closing Telegram session…")
+                    TelegramAuthStep.Closed -> ProgressState("Telegram session closed")
+                    is TelegramAuthStep.Unsupported -> MessageState(
+                        icon = { Icon(Icons.Rounded.ErrorOutline, contentDescription = null) },
+                        title = "Telegram needs attention",
+                        message = step.reason,
+                    )
+                }
+
+                if (state.isSubmitting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.padding(top = 20.dp),
+                        strokeWidth = 3.dp,
+                    )
                 }
             }
         }
@@ -266,7 +314,7 @@ private fun SingleValueForm(
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(22.dp),
         modifier = Modifier.fillMaxWidth(),
     )
     Button(
@@ -276,11 +324,12 @@ private fun SingleValueForm(
             onSubmit(submitted)
         },
         enabled = enabled && value.isNotBlank(),
+        shape = RoundedCornerShape(22.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 16.dp),
+            .padding(top = 14.dp),
     ) {
-        Text(submitLabel)
+        Text(submitLabel, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -298,7 +347,7 @@ private fun RegistrationForm(enabled: Boolean, onSubmit: (String, String) -> Uni
         onValueChange = { firstName = it },
         label = { Text("First name") },
         enabled = enabled,
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(22.dp),
         modifier = Modifier.fillMaxWidth(),
     )
     OutlinedTextField(
@@ -306,7 +355,7 @@ private fun RegistrationForm(enabled: Boolean, onSubmit: (String, String) -> Uni
         onValueChange = { lastName = it },
         label = { Text("Last name") },
         enabled = enabled,
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(22.dp),
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 10.dp),
@@ -320,11 +369,12 @@ private fun RegistrationForm(enabled: Boolean, onSubmit: (String, String) -> Uni
             onSubmit(first, last)
         },
         enabled = enabled && firstName.isNotBlank(),
+        shape = RoundedCornerShape(22.dp),
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 16.dp),
     ) {
-        Text("Register")
+        Text("Register", fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -338,9 +388,10 @@ private fun OtherDeviceConfirmation(link: String) {
     )
     Button(
         onClick = { uriHandler.openUri(link) },
+        shape = RoundedCornerShape(22.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Text("Open confirmation")
+        Text("Open confirmation", fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -354,6 +405,7 @@ private fun ReadyState(enabled: Boolean, onLogout: () -> Unit) {
     OutlinedButton(
         onClick = onLogout,
         enabled = enabled,
+        shape = RoundedCornerShape(22.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Icon(Icons.Rounded.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -369,22 +421,24 @@ private fun MessageState(
     message: String,
 ) {
     Surface(
-        modifier = Modifier.size(64.dp),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.primaryContainer,
+        modifier = Modifier.size(66.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        contentColor = MaterialTheme.colorScheme.primary,
     ) {
         Box(contentAlignment = Alignment.Center) { icon() }
     }
     Text(
-        title,
+        text = title,
         style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.Bold,
         textAlign = TextAlign.Center,
         modifier = Modifier.padding(top = 18.dp),
     )
     Text(
-        message,
+        text = message,
         style = MaterialTheme.typography.bodyLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
         textAlign = TextAlign.Center,
         modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
     )
@@ -392,7 +446,11 @@ private fun MessageState(
 
 @Composable
 private fun ProgressState(message: String) {
-    CircularProgressIndicator()
+    CircularProgressIndicator(strokeWidth = 3.dp)
     Spacer(Modifier.height(18.dp))
-    Text(message, textAlign = TextAlign.Center)
+    Text(
+        text = message,
+        textAlign = TextAlign.Center,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+    )
 }
