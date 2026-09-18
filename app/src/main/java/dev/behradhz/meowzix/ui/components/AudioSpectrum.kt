@@ -15,23 +15,52 @@ import kotlin.math.pow
  */
 @Composable
 fun AudioSpectrum(
+    bands: FloatArray,
+    modifier: Modifier = Modifier,
+    color: Color = Color.White,
+) {
+    SpectrumCanvas(
+        bandCount = bands.size,
+        levelAt = bands::get,
+        modifier = modifier,
+        color = color,
+    )
+}
+
+/** Compact derived spectra can stay list-backed without forcing callers to copy again. */
+@Composable
+fun AudioSpectrum(
     bands: List<Float>,
     modifier: Modifier = Modifier,
     color: Color = Color.White,
 ) {
+    SpectrumCanvas(
+        bandCount = bands.size,
+        levelAt = bands::get,
+        modifier = modifier,
+        color = color,
+    )
+}
+
+@Composable
+private fun SpectrumCanvas(
+    bandCount: Int,
+    levelAt: (Int) -> Float,
+    modifier: Modifier,
+    color: Color,
+) {
     Canvas(modifier = modifier) {
-        if (bands.isEmpty()) return@Canvas
+        if (bandCount == 0) return@Canvas
 
         val gap = 3.5f
-        val totalGap = gap * (bands.size - 1)
-        val barWidth = ((size.width - totalGap) / bands.size).coerceAtLeast(1f)
+        val totalGap = gap * (bandCount - 1)
+        val barWidth = ((size.width - totalGap) / bandCount).coerceAtLeast(1f)
         val centerY = size.height / 2f
         val minimumHeight = 4f
 
-        bands.forEachIndexed { index, level ->
-            val normalized = level.coerceIn(0f, 1f).pow(0.72f)
-            val barHeight = minimumHeight +
-                normalized * (size.height - minimumHeight)
+        for (index in 0 until bandCount) {
+            val normalized = levelAt(index).coerceIn(0f, 1f).pow(0.72f)
+            val barHeight = minimumHeight + normalized * (size.height - minimumHeight)
             val x = index * (barWidth + gap)
             val top = centerY - barHeight / 2f
 

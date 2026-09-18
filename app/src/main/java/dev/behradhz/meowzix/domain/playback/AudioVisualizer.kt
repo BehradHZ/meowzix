@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 const val AUDIO_SPECTRUM_BAND_COUNT = 32
 
 data class AudioSpectrumState(
-    val bands: List<Float> = List(AUDIO_SPECTRUM_BAND_COUNT) { 0f },
+    val bands: FloatArray = FloatArray(AUDIO_SPECTRUM_BAND_COUNT),
     val sessionId: Int = 0,
     val isCapturing: Boolean = false,
     val errorMessage: String? = null,

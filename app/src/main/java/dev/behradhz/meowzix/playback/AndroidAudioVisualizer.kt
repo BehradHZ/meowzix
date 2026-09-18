@@ -30,6 +30,8 @@ class AndroidAudioVisualizer @Inject constructor(
     private var sessionId: Int = 0
     private var captureRequested: Boolean = false
     private val smoothedBands = FloatArray(AUDIO_SPECTRUM_BAND_COUNT)
+    private var cachedFftSize = 0
+    private val bandRanges = IntArray(AUDIO_SPECTRUM_BAND_COUNT * 2)
 
     override fun attachToSession(audioSessionId: Int) {
         synchronized(lock) {
@@ -105,7 +107,7 @@ class AndroidAudioVisualizer @Inject constructor(
         }.onSuccess { activeVisualizer ->
             visualizer = activeVisualizer
             _spectrum.value = AudioSpectrumState(
-                bands = smoothedBands.toList(),
+                bands = smoothedBands.copyOf(),
                 sessionId = sessionId,
                 isCapturing = true,
             )
@@ -123,22 +125,12 @@ class AndroidAudioVisualizer @Inject constructor(
 
         synchronized(lock) {
             if (!captureRequested || visualizer == null) return
-
-            val availableBins = fft.size / 2
-            val maxBin = (availableBins - 1).coerceAtLeast(1)
-            val maxByteMagnitude = hypot(128.0, 128.0)
-            val normalizer = ln1p(maxByteMagnitude)
+            ensureBandRanges(fft.size)
 
             for (band in 0 until AUDIO_SPECTRUM_BAND_COUNT) {
-                // Power-distributed boundaries give low/mid frequencies more visual resolution.
-                val startFraction = band.toDouble() / AUDIO_SPECTRUM_BAND_COUNT
-                val endFraction = (band + 1).toDouble() / AUDIO_SPECTRUM_BAND_COUNT
-                val startBin = (1 + (maxBin - 1) * startFraction.pow(2.15))
-                    .toInt()
-                    .coerceIn(1, maxBin)
-                val endBin = (1 + (maxBin - 1) * endFraction.pow(2.15))
-                    .toInt()
-                    .coerceIn(startBin, maxBin)
+                val rangeIndex = band * 2
+                val startBin = bandRanges[rangeIndex]
+                val endBin = bandRanges[rangeIndex + 1]
 
                 var peak = 0.0
                 for (bin in startBin..endBin) {
@@ -152,19 +144,42 @@ class AndroidAudioVisualizer @Inject constructor(
                     if (magnitude > peak) peak = magnitude
                 }
 
-                val normalized = (ln1p(peak) / normalizer)
+                val normalized = (ln1p(peak) / MAX_FFT_NORMALIZER)
                     .toFloat()
                     .coerceIn(0f, 1f)
                 val previous = smoothedBands[band]
-                val response = if (normalized >= previous) 0.64f else 0.24f
+                val response = if (normalized >= previous) ATTACK else DECAY
                 smoothedBands[band] = previous + (normalized - previous) * response
             }
 
+            // One primitive-array copy per visual frame avoids boxing 32 Float objects
+            // while still giving StateFlow an immutable snapshot for Compose.
             _spectrum.value = AudioSpectrumState(
-                bands = smoothedBands.toList(),
+                bands = smoothedBands.copyOf(),
                 sessionId = sessionId,
                 isCapturing = true,
             )
+        }
+    }
+
+    private fun ensureBandRanges(fftSize: Int) {
+        if (cachedFftSize == fftSize) return
+        cachedFftSize = fftSize
+
+        val availableBins = fftSize / 2
+        val maxBin = (availableBins - 1).coerceAtLeast(1)
+        for (band in 0 until AUDIO_SPECTRUM_BAND_COUNT) {
+            val startFraction = band.toDouble() / AUDIO_SPECTRUM_BAND_COUNT
+            val endFraction = (band + 1).toDouble() / AUDIO_SPECTRUM_BAND_COUNT
+            val startBin = (1 + (maxBin - 1) * startFraction.pow(FREQUENCY_DISTRIBUTION_POWER))
+                .toInt()
+                .coerceIn(1, maxBin)
+            val endBin = (1 + (maxBin - 1) * endFraction.pow(FREQUENCY_DISTRIBUTION_POWER))
+                .toInt()
+                .coerceIn(startBin, maxBin)
+            val rangeIndex = band * 2
+            bandRanges[rangeIndex] = startBin
+            bandRanges[rangeIndex + 1] = endBin
         }
     }
 
@@ -175,11 +190,19 @@ class AndroidAudioVisualizer @Inject constructor(
         }
         visualizer = null
         smoothedBands.fill(0f)
+        cachedFftSize = 0
         if (clearSession) sessionId = 0
     }
 
     private fun clearSpectrumLocked() {
         smoothedBands.fill(0f)
         _spectrum.value = AudioSpectrumState(sessionId = sessionId)
+    }
+
+    private companion object {
+        const val ATTACK = 0.64f
+        const val DECAY = 0.24f
+        const val FREQUENCY_DISTRIBUTION_POWER = 2.15
+        val MAX_FFT_NORMALIZER: Double = ln1p(hypot(128.0, 128.0))
     }
 }
