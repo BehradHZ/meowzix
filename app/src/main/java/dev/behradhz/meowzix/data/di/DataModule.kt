@@ -10,7 +10,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.MIGRATION_1_2
+import dev.behradhz.meowzix.data.db.MIGRATION_2_3
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
+import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
@@ -58,9 +60,12 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MeowzixDatabase =
         Room.databaseBuilder(context, MeowzixDatabase::class.java, "meowzix.db")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
 
     @Provides
     fun provideLibraryDao(database: MeowzixDatabase): LibraryDao = database.libraryDao()
+
+    @Provides
+    fun provideTelegramDao(database: MeowzixDatabase): TelegramDao = database.telegramDao()
 }

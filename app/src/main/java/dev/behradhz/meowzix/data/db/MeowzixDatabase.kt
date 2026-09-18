@@ -5,11 +5,18 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
 @Database(
-    entities = [TrackEntity::class, TrackSourceEntity::class, LocalMediaSourceEntity::class],
-    version = 2,
+    entities = [
+        TrackEntity::class,
+        TrackSourceEntity::class,
+        LocalMediaSourceEntity::class,
+        TelegramTrackSourceEntity::class,
+        TelegramSelectedSourceEntity::class,
+    ],
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(DbConverters::class)
 abstract class MeowzixDatabase : RoomDatabase() {
     abstract fun libraryDao(): LibraryDao
+    abstract fun telegramDao(): TelegramDao
 }
