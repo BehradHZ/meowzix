@@ -113,6 +113,7 @@ class TdLibTelegramRepository @Inject constructor(
             runCatching {
                 val selectedIds = telegramDao.selectedSources(userId.toString()).mapTo(mutableSetOf()) { it.chatId }
                 val chatIds = activeClient.send(TdApi.GetChats(null, 100)).chatIds.toMutableSet()
+                chatIds += selectedIds
                 runCatching { activeClient.send(TdApi.CreatePrivateChat(userId, false)) }
                     .getOrNull()?.let { chatIds += it.id }
                 chatIds.mapNotNull { chatId ->
@@ -120,7 +121,7 @@ class TdLibTelegramRepository @Inject constructor(
                 }.map { chat -> chat.toSummary(userId, chat.id in selectedIds) }
                     .sortedWith(compareByDescending<TelegramChatSummary> { it.kind == TelegramChatKind.SAVED_MESSAGES }.thenBy { it.title.lowercase(Locale.ROOT) })
             }.onSuccess { chats ->
-                _musicSourceState.update { it.copy(chats = chats, selectedChatIds = chats.filter { chat -> chat.selected }.mapTo(mutableSetOf()) { chat -> chat.chatId }, isLoadingChats = false) }
+                _musicSourceState.update { it.copy(chats = chats, isLoadingChats = false) }
             }.onFailure { error ->
                 _musicSourceState.update { it.copy(isLoadingChats = false, errorMessage = safeMessage(error)) }
             }
