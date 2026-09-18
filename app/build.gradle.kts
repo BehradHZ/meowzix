@@ -18,11 +18,7 @@ val telegramApiHash = providers.gradleProperty("MEOWZIX_TELEGRAM_API_HASH")
 
 android {
     namespace = "dev.behradhz.meowzix"
-    compileSdk {
-        version = release(37) {
-            minorApiLevel = 2
-        }
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.behradhz.meowzix"
@@ -71,9 +67,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // Backdrop capture + refraction-driven floating glass surfaces.
-    implementation("dev.chrisbanes.haze:haze:2.0.0-rc01")
-    implementation("dev.chrisbanes.haze:haze-glass:2.0.0-rc01")
+    // Stable Haze v1 keeps real backdrop blur while allowing an Android 16 / API 36 baseline.
+    implementation("dev.chrisbanes.haze:haze:1.6.10")
 
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
