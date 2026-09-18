@@ -18,7 +18,9 @@ val telegramApiHash = providers.gradleProperty("MEOWZIX_TELEGRAM_API_HASH")
 
 android {
     namespace = "dev.behradhz.meowzix"
-    compileSdk = 36
+    // Build against the standard API 37 SDK required by current AndroidX.
+    // Runtime behavior intentionally stays targeted to Android 16 / API 36.
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "dev.behradhz.meowzix"
@@ -67,7 +69,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // Stable Haze v1 keeps real backdrop blur while allowing an Android 16 / API 36 baseline.
+    // Stable Haze v1 preserves backdrop blur without requiring the Android 37.2 preview SDK.
     implementation("dev.chrisbanes.haze:haze:1.6.10")
 
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
