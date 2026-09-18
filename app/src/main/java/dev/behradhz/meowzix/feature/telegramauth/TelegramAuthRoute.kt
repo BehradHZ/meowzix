@@ -322,7 +322,7 @@ private fun ReadyState(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 6.dp),
             )
-            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+            LazyColumn(Modifier.fillMaxWidth()) {
                 items(sourceState.chats, key = { it.chatId }) { chat ->
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
