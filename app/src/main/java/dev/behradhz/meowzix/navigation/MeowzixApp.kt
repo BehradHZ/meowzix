@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cloud
@@ -26,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +48,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.feature.library.LibraryRoute
@@ -53,6 +56,7 @@ import dev.behradhz.meowzix.feature.nowplaying.NowPlayingRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.queue.QueueRoute
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
+import dev.behradhz.meowzix.ui.components.AudioSpectrum
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.chrisbanes.haze.hazeSource
@@ -78,6 +82,16 @@ fun MeowzixApp(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
+    val spectrum by playerViewModel.spectrum.collectAsStateWithLifecycle()
+
+    // Keep capture ownership at the app shell so the mini-player remains reactive
+    // after leaving Now Playing. AndroidAudioVisualizer still refuses capture until
+    // RECORD_AUDIO is granted and never attaches to session 0/global output.
+    LaunchedEffect(playbackState.status, currentRoute) {
+        playerViewModel.setSpectrumCaptureEnabled(
+            playbackState.status == PlaybackStatus.PLAYING,
+        )
+    }
 
     val destinations = remember {
         listOf(
@@ -147,6 +161,7 @@ fun MeowzixApp(
                     GlassMiniPlayer(
                         hazeState = hazeState,
                         state = playbackState,
+                        spectrum = spectrum,
                         onOpenNowPlaying = {
                             navController.navigate(NOW_PLAYING_ROUTE) { launchSingleTop = true }
                         },
@@ -241,6 +256,7 @@ private fun FloatingDock(
 private fun GlassMiniPlayer(
     hazeState: dev.chrisbanes.haze.HazeState,
     state: PlaybackState,
+    spectrum: AudioSpectrumState,
     onOpenNowPlaying: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onPrevious: () -> Unit,
@@ -251,6 +267,12 @@ private fun GlassMiniPlayer(
         (state.positionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
     } else {
         0f
+    }
+    val compactBands = remember(spectrum.bands) {
+        spectrum.bands
+            .chunked(4)
+            .map { chunk -> chunk.maxOrNull() ?: 0f }
+            .take(8)
     }
     val density = LocalDensity.current
     val swipeThreshold = with(density) { 64.dp.toPx() }
@@ -312,6 +334,19 @@ private fun GlassMiniPlayer(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+
+                if (spectrum.isCapturing && state.status == PlaybackStatus.PLAYING) {
+                    AudioSpectrum(
+                        bands = compactBands,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .width(44.dp)
+                            .height(22.dp)
+                            .padding(horizontal = 2.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
+
                 IconButton(onClick = onTogglePlayPause) {
                     Icon(
                         imageVector = if (state.status == PlaybackStatus.PLAYING) {
