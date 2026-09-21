@@ -18,8 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.DownloadForOffline
-import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
@@ -29,7 +29,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -53,9 +52,9 @@ import androidx.navigation.compose.rememberNavController
 import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
-import dev.behradhz.meowzix.feature.library.LibraryRoute
 import dev.behradhz.meowzix.feature.downloads.DownloadsRoute
 import dev.behradhz.meowzix.feature.history.HistoryRoute
+import dev.behradhz.meowzix.feature.library.LibraryRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.queue.QueueRoute
@@ -89,15 +88,6 @@ fun MeowzixApp(
     val currentRoute = navBackStackEntry?.destination?.route
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
     val spectrum by playerViewModel.spectrum.collectAsStateWithLifecycle()
-
-    // Keep capture ownership at the app shell so the mini-player remains reactive
-    // after leaving Now Playing. AndroidAudioVisualizer still refuses capture until
-    // RECORD_AUDIO is granted and never attaches to session 0/global output.
-    LaunchedEffect(playbackState.status, currentRoute) {
-        playerViewModel.setSpectrumCaptureEnabled(
-            playbackState.status == PlaybackStatus.PLAYING,
-        )
-    }
 
     val destinations = remember {
         listOf(
@@ -293,8 +283,10 @@ private fun GlassMiniPlayer(
     val compactBands = remember(spectrum.bands) {
         val source = spectrum.bands
         FloatArray(8) { compactIndex ->
-            val start = compactIndex * 4
-            val endExclusive = minOf(start + 4, source.size)
+            val start = compactIndex * source.size / 8
+            val endExclusive = ((compactIndex + 1) * source.size / 8)
+                .coerceAtLeast(start + 1)
+                .coerceAtMost(source.size)
             var peak = 0f
             for (index in start until endExclusive) {
                 if (source[index] > peak) peak = source[index]
@@ -302,6 +294,7 @@ private fun GlassMiniPlayer(
             peak
         }
     }
+    val hasWaveform = remember(compactBands) { compactBands.any { it > 0.001f } }
     val density = LocalDensity.current
     val swipeThreshold = with(density) { 64.dp.toPx() }
     val visualLimit = with(density) { 24.dp.toPx() }
@@ -363,7 +356,7 @@ private fun GlassMiniPlayer(
                     )
                 }
 
-                if (spectrum.isCapturing && state.status == PlaybackStatus.PLAYING) {
+                if (hasWaveform && state.status == PlaybackStatus.PLAYING) {
                     AudioSpectrum(
                         bands = compactBands,
                         color = MaterialTheme.colorScheme.primary,
