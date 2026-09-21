@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.ui.components
 
+import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.Image
@@ -36,32 +37,67 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
+import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-private fun rememberArtworkBitmap(artworkRef: String?): ImageBitmap? {
+private fun rememberArtworkBitmap(
+    artworkRef: String?,
+    targetPixels: Int,
+): ImageBitmap? {
     val context = LocalContext.current
-    var bitmap by remember(artworkRef) { mutableStateOf<ImageBitmap?>(null) }
+    var bitmap by remember(artworkRef, targetPixels) {
+        mutableStateOf<ImageBitmap?>(null)
+    }
 
-    LaunchedEffect(artworkRef) {
-        bitmap = if (artworkRef == null) {
+    LaunchedEffect(artworkRef, targetPixels) {
+        bitmap = if (artworkRef.isNullOrBlank()) {
             null
         } else {
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openInputStream(Uri.parse(artworkRef))?.use { stream ->
-                        BitmapFactory.decodeStream(stream)?.asImageBitmap()
-                    }
-                }.getOrNull()
-            }
+            decodeSampledArtwork(
+                context = context,
+                uri = Uri.parse(artworkRef),
+                targetPixels = targetPixels.coerceAtLeast(64),
+            )
         }
     }
     return bitmap
+}
+
+private suspend fun decodeSampledArtwork(
+    context: Context,
+    uri: Uri,
+    targetPixels: Int,
+): ImageBitmap? = withContext(Dispatchers.IO) {
+    runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, bounds)
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            return@runCatching null
+        }
+
+        var sampleSize = 1
+        val longestEdge = max(bounds.outWidth, bounds.outHeight)
+        while (longestEdge / (sampleSize * 2) >= targetPixels) {
+            sampleSize *= 2
+        }
+
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+        }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, options)?.asImageBitmap()
+        }
+    }.getOrNull()
 }
 
 @Composable
@@ -71,7 +107,9 @@ fun TrackArtwork(
     size: Dp = 48.dp,
     modifier: Modifier = Modifier,
 ) {
-    val bitmap = rememberArtworkBitmap(artworkRef)
+    val density = LocalDensity.current
+    val targetPixels = with(density) { (size * 2f).roundToPx() }
+    val bitmap = rememberArtworkBitmap(artworkRef, targetPixels)
 
     Box(
         modifier = modifier
@@ -105,16 +143,31 @@ fun ChatAvatar(
     size: Dp = 48.dp,
     modifier: Modifier = Modifier,
 ) {
-    val bitmap = rememberArtworkBitmap(artworkRef)
+    val density = LocalDensity.current
+    val targetPixels = with(density) { (size * 2f).roundToPx() }
+    val bitmap = rememberArtworkBitmap(artworkRef, targetPixels)
+
     Box(
-        modifier = modifier.size(size).clip(MaterialTheme.shapes.extraLarge)
+        modifier = modifier
+            .size(size)
+            .clip(MaterialTheme.shapes.extraLarge)
             .background(MaterialTheme.colorScheme.secondaryContainer),
         contentAlignment = Alignment.Center,
     ) {
         if (bitmap != null) {
-            Image(bitmap = bitmap, contentDescription = description, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Image(
+                bitmap = bitmap,
+                contentDescription = description,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
         } else {
-            Icon(Icons.Rounded.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size * 0.46f))
+            Icon(
+                Icons.Rounded.Person,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(size * 0.46f),
+            )
         }
     }
 }
@@ -132,7 +185,8 @@ fun DownloadableTrackArtwork(
     Box(modifier = modifier.size(size)) {
         TrackArtwork(artworkRef, description, size = size)
         if (!isOffline) {
-            val active = download?.status == DownloadStatus.DOWNLOADING || download?.status == DownloadStatus.QUEUED
+            val active = download?.status == DownloadStatus.DOWNLOADING ||
+                download?.status == DownloadStatus.QUEUED
             if (active) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -143,13 +197,19 @@ fun DownloadableTrackArtwork(
                         val total = download?.totalBytes?.takeIf { it > 0L }
                         if (total != null) {
                             CircularProgressIndicator(
-                                progress = { (download.downloadedBytes.toFloat() / total).coerceIn(0f, 1f) },
-                                modifier = Modifier.size(size * 0.60f), strokeWidth = 3.dp, color = Color.White,
+                                progress = {
+                                    (download.downloadedBytes.toFloat() / total).coerceIn(0f, 1f)
+                                },
+                                modifier = Modifier.size(size * 0.60f),
+                                strokeWidth = 3.dp,
+                                color = Color.White,
                                 trackColor = Color.White.copy(alpha = 0.24f),
                             )
                         } else {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(size * 0.60f), strokeWidth = 3.dp, color = Color.White,
+                                modifier = Modifier.size(size * 0.60f),
+                                strokeWidth = 3.dp,
+                                color = Color.White,
                                 trackColor = Color.White.copy(alpha = 0.24f),
                             )
                         }
@@ -157,11 +217,20 @@ fun DownloadableTrackArtwork(
                 }
             } else {
                 Surface(
-                    modifier = Modifier.align(Alignment.BottomEnd).size(27.dp).clickable(onClick = onDownload),
-                    shape = MaterialTheme.shapes.extraLarge, color = Color.Black.copy(alpha = 0.70f), contentColor = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(27.dp)
+                        .clickable(onClick = onDownload),
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = Color.Black.copy(alpha = 0.70f),
+                    contentColor = Color.White,
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Download, contentDescription = "Download", modifier = Modifier.size(17.dp))
+                        Icon(
+                            Icons.Rounded.Download,
+                            contentDescription = "Download",
+                            modifier = Modifier.size(17.dp),
+                        )
                     }
                 }
             }
@@ -170,16 +239,15 @@ fun DownloadableTrackArtwork(
 }
 
 /**
- * Full-bleed artwork field used by Now Playing. The upper image stays sharp while the lower portion
- * is re-rendered with a heavy blur and dark gradient so controls remain readable, matching the
- * full-screen artwork / matte-bottom treatment used by modern music players.
+ * Full-bleed artwork used by Now Playing. The source remains high quality on disk while decoding
+ * is bounded to a display-sized bitmap so an oversized album cover cannot exhaust the app heap.
  */
 @Composable
 fun TrackArtworkBackdrop(
     artworkRef: String?,
     modifier: Modifier = Modifier,
 ) {
-    val bitmap = rememberArtworkBitmap(artworkRef)
+    val bitmap = rememberArtworkBitmap(artworkRef, BACKDROP_TARGET_PIXELS)
 
     Box(modifier = modifier.background(Color(0xFF101010))) {
         if (bitmap != null) {
@@ -262,3 +330,5 @@ fun TrackArtworkBackdrop(
         }
     }
 }
+
+private const val BACKDROP_TARGET_PIXELS = 1600
