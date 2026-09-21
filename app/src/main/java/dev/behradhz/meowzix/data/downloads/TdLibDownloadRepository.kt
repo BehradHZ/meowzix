@@ -12,10 +12,13 @@ import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
+import dev.behradhz.meowzix.data.network.NetworkPolicy
+import dev.behradhz.meowzix.data.network.NetworkUse
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.io.File
 import java.security.DigestOutputStream
 import java.security.MessageDigest
@@ -32,6 +35,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
@@ -44,6 +48,8 @@ class TdLibDownloadRepository @Inject constructor(
     private val libraryDao: LibraryDao,
     private val telegramDao: TelegramDao,
     private val telegramRepository: TelegramRepository,
+    private val settingsRepository: SettingsRepository,
+    private val networkPolicy: NetworkPolicy,
 ) : DownloadRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<UUID, Job>()
@@ -113,6 +119,8 @@ class TdLibDownloadRepository @Inject constructor(
     }
 
     private suspend fun download(trackId: UUID) {
+        val settings = settingsRepository.networkPlaybackSettings.first()
+        networkPolicy.blockReason(settings, NetworkUse.USER_REQUEST)?.let(::error)
         val accountId = telegramRepository.musicSourceState.value.accountId
             ?: error("Connect Telegram before downloading.")
         val telegramSource = telegramDao.telegramSourceForTrack(accountId, trackId.toString())

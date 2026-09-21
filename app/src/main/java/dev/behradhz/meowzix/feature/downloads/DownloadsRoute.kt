@@ -13,6 +13,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,6 +27,7 @@ import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 @Composable
 fun DownloadsRoute(viewModel: DownloadsViewModel = hiltViewModel()) {
     val rows by viewModel.rows.collectAsStateWithLifecycle()
+    val settings by viewModel.networkSettings.collectAsStateWithLifecycle()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -33,6 +35,15 @@ fun DownloadsRoute(viewModel: DownloadsViewModel = hiltViewModel()) {
             .padding(horizontal = 18.dp),
     ) {
         Text("Offline", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(vertical = 20.dp))
+        SettingToggle("Offline mode", settings.offlineMode, viewModel::setOfflineMode)
+        SettingToggle("Wi-Fi only downloads", settings.wifiOnlyDownloads, viewModel::setWifiOnly)
+        SettingToggle("Prefetch next track", settings.prefetchEnabled, viewModel::setPrefetch)
+        SettingToggle(
+            "Prefetch on metered networks",
+            settings.prefetchOnMetered,
+            viewModel::setPrefetchOnMetered,
+            enabled = settings.prefetchEnabled && !settings.wifiOnlyDownloads,
+        )
         if (rows.isEmpty()) {
             Text("Pin a Telegram track from its menu to keep an app-managed offline copy.")
         } else {
@@ -60,6 +71,23 @@ fun DownloadsRoute(viewModel: DownloadsViewModel = hiltViewModel()) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingToggle(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

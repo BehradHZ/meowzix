@@ -6,14 +6,23 @@ import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
+import dev.behradhz.meowzix.data.network.NetworkPolicy
+import dev.behradhz.meowzix.data.network.NetworkUse
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.io.File
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
 
 @Singleton
@@ -21,9 +30,44 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     private val telegramRepository: TelegramRepository,
     private val telegramDao: TelegramDao,
     private val libraryDao: LibraryDao,
+    private val settingsRepository: SettingsRepository,
+    private val networkPolicy: NetworkPolicy,
 ) : RemoteTrackPlaybackResolver {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var prefetchJob: Job? = null
+    private var prefetchedFileId: Int? = null
 
     override suspend fun prepareForPlayback(trackId: UUID): PlayableTrack? {
+        cancelPrefetch()
+        val settings = settingsRepository.networkPlaybackSettings.first()
+        networkPolicy.blockReason(settings, NetworkUse.USER_REQUEST)?.let(::error)
+        return downloadAndPersist(trackId, DOWNLOAD_PRIORITY)
+    }
+
+    override fun prefetch(trackId: UUID) {
+        cancelPrefetch()
+        prefetchJob = scope.launch {
+            runCatching {
+                val settings = settingsRepository.networkPlaybackSettings.first()
+                if (!settings.prefetchEnabled) return@runCatching
+                if (networkPolicy.blockReason(settings, NetworkUse.PREFETCH) != null) return@runCatching
+                downloadAndPersist(trackId, PREFETCH_PRIORITY)
+            }
+        }
+    }
+
+    override fun cancelPrefetch() {
+        prefetchJob?.cancel()
+        prefetchJob = null
+        prefetchedFileId?.let { fileId ->
+            scope.launch {
+                runCatching { TdLibClientAdapter.activeOrNull()?.send(TdApi.CancelDownloadFile(fileId, false)) }
+            }
+        }
+        prefetchedFileId = null
+    }
+
+    private suspend fun downloadAndPersist(trackId: UUID, priority: Int): PlayableTrack? {
         val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
         val telegramSource = telegramDao.telegramSourceForTrack(accountId, trackId.toString()) ?: return null
         val remoteSource = libraryDao.sourceById(telegramSource.trackSourceId) ?: return null
@@ -40,11 +84,12 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             )
             return null
         }
+        if (priority == PREFETCH_PRIORITY) prefetchedFileId = candidate.fileId
 
         val downloaded = client.send(
             TdApi.DownloadFile(
                 candidate.fileId,
-                DOWNLOAD_PRIORITY,
+                priority,
                 0L,
                 0L,
                 true,
@@ -53,6 +98,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         val path = downloaded.local.path.takeIf {
             downloaded.local.isDownloadingCompleted && it.isNotBlank()
         } ?: error("Telegram finished without a playable local file.")
+        if (priority == PREFETCH_PRIORITY) prefetchedFileId = null
         val file = File(path)
         if (!file.isFile) error("Telegram's downloaded file is no longer available.")
 
@@ -103,5 +149,6 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
 
     private companion object {
         const val DOWNLOAD_PRIORITY = 32
+        const val PREFETCH_PRIORITY = 1
     }
 }

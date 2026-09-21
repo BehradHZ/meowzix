@@ -18,6 +18,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @Singleton
@@ -39,6 +41,20 @@ class ResolvingPlaybackController @Inject constructor(
             delegate.state.collect { playback ->
                 if (!resolvingRemote) _state.value = playback
             }
+        }
+        scope.launch {
+            delegate.queueState
+                .map { queue -> queue.items.getOrNull(queue.currentIndex + 1)?.id }
+                .distinctUntilChanged()
+                .collect { nextTrackId ->
+                    remoteResolver.cancelPrefetch()
+                    if (nextTrackId != null) {
+                        val local = runCatching {
+                            catalog.availableLocalTracks().any { it.id == nextTrackId }
+                        }.getOrDefault(false)
+                        if (!local) remoteResolver.prefetch(nextTrackId)
+                    }
+                }
         }
     }
 

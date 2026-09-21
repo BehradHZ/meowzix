@@ -19,6 +19,7 @@ import dev.behradhz.meowzix.data.downloads.TdLibDownloadRepository
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
+import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
 import dev.behradhz.meowzix.data.telegram.TdLibRemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.data.telegram.TdLibTelegramRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
@@ -29,6 +30,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.playback.AndroidAudioVisualizer
 import dev.behradhz.meowzix.playback.ResolvingPlaybackController
 import javax.inject.Singleton
@@ -67,6 +69,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindDownloadRepository(impl: TdLibDownloadRepository): DownloadRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSettingsRepository(impl: DataStoreSettingsRepository): SettingsRepository
 
     @Binds
     @Singleton

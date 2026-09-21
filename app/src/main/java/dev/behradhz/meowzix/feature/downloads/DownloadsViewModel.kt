@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +27,7 @@ data class DownloadRow(
 class DownloadsViewModel @Inject constructor(
     private val downloads: DownloadRepository,
     library: MusicLibraryRepository,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
     val rows = combine(downloads.observeDownloads(), library.observeTracks()) { records, tracks ->
         val titles = tracks.associate { it.id to it.title }
@@ -42,8 +44,14 @@ class DownloadsViewModel @Inject constructor(
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val networkSettings = settings.networkPlaybackSettings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings())
 
     fun retry(trackId: UUID) = downloads.retry(trackId)
     fun cancel(trackId: UUID) = downloads.cancel(trackId)
     fun remove(trackId: UUID) = viewModelScope.launch { downloads.removeOfflineCopy(trackId) }
+    fun setOfflineMode(enabled: Boolean) = viewModelScope.launch { settings.setOfflineMode(enabled) }
+    fun setWifiOnly(enabled: Boolean) = viewModelScope.launch { settings.setWifiOnlyDownloads(enabled) }
+    fun setPrefetch(enabled: Boolean) = viewModelScope.launch { settings.setPrefetchEnabled(enabled) }
+    fun setPrefetchOnMetered(enabled: Boolean) = viewModelScope.launch { settings.setPrefetchOnMetered(enabled) }
 }
