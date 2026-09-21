@@ -125,17 +125,33 @@ class TdLibTelegramRepository @Inject constructor(
                 chatIds += selectedIds
                 runCatching { activeClient.send(TdApi.CreatePrivateChat(userId, false)) }
                     .getOrNull()?.let { chatIds += it.id }
-                chatIds.mapNotNull { chatId ->
+                val loadedChats = chatIds.mapNotNull { chatId ->
                     runCatching { activeClient.send(TdApi.GetChat(chatId)) }.getOrNull()
-                }.map { chat ->
+                }
+                val summaries = loadedChats.map { chat ->
                     chat.toSummary(
                         currentUserId = userId,
                         selected = chat.id in selectedIds,
-                        profilePhotoRef = resolveChatPhotoRef(activeClient, chat),
+                        profilePhotoRef = localChatPhotoRef(chat),
                     )
                 }.sortedWith(compareByDescending<TelegramChatSummary> { it.kind == TelegramChatKind.SAVED_MESSAGES }.thenBy { it.title.lowercase(Locale.ROOT) })
-            }.onSuccess { chats ->
-                _musicSourceState.update { it.copy(chats = chats, isLoadingChats = false) }
+                LoadedSelectableChats(loadedChats, summaries)
+            }.onSuccess { loaded ->
+                _musicSourceState.update { it.copy(chats = loaded.summaries, isLoadingChats = false) }
+                // Avatars are cosmetic. They must never block Telegram chat discovery.
+                scope.launch {
+                    loaded.rawChats.forEach { chat ->
+                        if (localChatPhotoRef(chat) != null) return@forEach
+                        val ref = resolveChatPhotoRef(activeClient, chat) ?: return@forEach
+                        _musicSourceState.update { state ->
+                            state.copy(
+                                chats = state.chats.map { row ->
+                                    if (row.chatId == chat.id) row.copy(profilePhotoRef = ref) else row
+                                },
+                            )
+                        }
+                    }
+                }
             }.onFailure { error ->
                 _musicSourceState.update { it.copy(isLoadingChats = false, errorMessage = safeMessage(error)) }
             }
@@ -493,14 +509,21 @@ class TdLibTelegramRepository @Inject constructor(
         }
     }
 
-    private suspend fun resolveChatPhotoRef(activeClient: TdLibClientAdapter, chat: TdApi.Chat): String? {
+    private fun localChatPhotoRef(chat: TdApi.Chat): String? {
         val photo = chat.photo?.small ?: return null
-        val resolved = if (photo.local.isDownloadingCompleted && photo.local.path.isNotBlank()) {
-            photo
-        } else {
-            runCatching { activeClient.send(TdApi.DownloadFile(photo.id, CHAT_PHOTO_PRIORITY, 0L, 0L, true)) }.getOrNull()
+        if (!photo.local.isDownloadingCompleted || photo.local.path.isBlank()) return null
+        return File(photo.local.path).takeIf(File::isFile)?.let { Uri.fromFile(it).toString() }
+    }
+
+    private suspend fun resolveChatPhotoRef(activeClient: TdLibClientAdapter, chat: TdApi.Chat): String? {
+        localChatPhotoRef(chat)?.let { return it }
+        val photo = chat.photo?.small ?: return null
+        val resolved = runCatching {
+            activeClient.send(TdApi.DownloadFile(photo.id, CHAT_PHOTO_PRIORITY, 0L, 0L, true))
+        }.getOrNull() ?: return null
+        val path = resolved.local.path.takeIf {
+            resolved.local.isDownloadingCompleted && it.isNotBlank()
         } ?: return null
-        val path = resolved.local.path.takeIf(String::isNotBlank) ?: return null
         return File(path).takeIf(File::isFile)?.let { Uri.fromFile(it).toString() }
     }
 
@@ -587,6 +610,11 @@ class TdLibTelegramRepository @Inject constructor(
         const val CHAT_PHOTO_PRIORITY = 2
     }
 }
+
+private data class LoadedSelectableChats(
+    val rawChats: List<TdApi.Chat>,
+    val summaries: List<TelegramChatSummary>,
+)
 
 private data class MutableSyncResult(
     var chatsSynced: Int = 0,
