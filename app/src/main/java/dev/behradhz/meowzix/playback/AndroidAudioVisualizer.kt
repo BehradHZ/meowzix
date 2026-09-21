@@ -94,7 +94,17 @@ class AndroidAudioVisualizer @Inject constructor(
         if (uri.scheme != TDLIB_SCHEME) return uri
         val fileId = uri.lastPathSegment?.toIntOrNull() ?: return uri
         val client = TdLibClientAdapter.activeOrNull() ?: return uri
-        val file = client.send(TdApi.GetFile(fileId))
+        val file = runCatching {
+            client.send(
+                TdApi.DownloadFile(
+                    fileId,
+                    VISUALIZER_PRIORITY,
+                    0L,
+                    VISUALIZER_PREVIEW_BYTES,
+                    true,
+                ),
+            )
+        }.getOrNull() ?: runCatching { client.send(TdApi.GetFile(fileId)) }.getOrNull() ?: return uri
         val path = file.local.path
         return if (path.isNotBlank() && File(path).isFile) Uri.fromFile(File(path)) else uri
     }
@@ -274,6 +284,8 @@ class AndroidAudioVisualizer @Inject constructor(
 
     private companion object {
         const val TDLIB_SCHEME = "meowzix-tdlib"
+        const val VISUALIZER_PRIORITY = 12
+        const val VISUALIZER_PREVIEW_BYTES = 2L * 1024L * 1024L
         const val CODEC_TIMEOUT_US = 8_000L
         const val MAX_DECODE_US = 45_000_000L
         const val MAX_ENERGY_POINTS = 512

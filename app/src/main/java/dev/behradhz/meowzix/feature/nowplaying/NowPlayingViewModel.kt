@@ -22,7 +22,21 @@ class NowPlayingViewModel @Inject constructor(
     private val audioVisualizerRepository: AudioVisualizerRepository,
     private val libraryRepository: MusicLibraryRepository,
 ) : ViewModel() {
-    val state = playbackController.state
+    val state = combine(playbackController.state, libraryRepository.observeTracks()) { playback, tracks ->
+        val current = playback.currentTrack ?: return@combine playback
+        val liveTrack = tracks.firstOrNull { it.id == current.id } ?: return@combine playback
+        playback.copy(
+            currentTrack = current.copy(
+                title = liveTrack.title,
+                artist = liveTrack.artist,
+                artworkRef = liveTrack.artworkRef ?: current.artworkRef,
+            ),
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        playbackController.state.value,
+    )
     val queueState = queueRepository.queueState
     val spectrum = audioVisualizerRepository.spectrum
     val isFavorite = combine(state, libraryRepository.observeTracks()) { playback, tracks ->

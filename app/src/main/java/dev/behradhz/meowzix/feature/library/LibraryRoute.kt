@@ -755,31 +755,34 @@ private fun SwipeableTrackRow(
         enableDismissFromStartToEnd = true,
         enableDismissFromEndToStart = true,
         backgroundContent = {
-            val playNext = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                shape = RoundedCornerShape(16.dp),
-                color = if (playNext) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-                } else {
-                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
-                },
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 18.dp),
-                    horizontalArrangement = if (playNext) Arrangement.Start else Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (playNext) {
-                        Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
-                        Spacer(Modifier.size(8.dp))
-                        Text("Play next", style = MaterialTheme.typography.labelLarge)
+            val direction = dismissState.dismissDirection
+            if (direction != SwipeToDismissBoxValue.Settled) {
+                val playNext = direction == SwipeToDismissBoxValue.StartToEnd
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (playNext) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
                     } else {
-                        Text("Add to queue", style = MaterialTheme.typography.labelLarge)
-                        Spacer(Modifier.size(8.dp))
-                        Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
+                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
+                    },
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 18.dp),
+                        horizontalArrangement = if (playNext) Arrangement.Start else Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (playNext) {
+                            Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
+                            Spacer(Modifier.size(8.dp))
+                            Text("Play next", style = MaterialTheme.typography.labelLarge)
+                        } else {
+                            Text("Add to queue", style = MaterialTheme.typography.labelLarge)
+                            Spacer(Modifier.size(8.dp))
+                            Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
+                        }
                     }
                 }
             }
@@ -817,16 +820,15 @@ private fun TrackRow(
     onAddToPlaylist: (UUID) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-    Surface(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = { menuExpanded = true }),
-        shape = RoundedCornerShape(16.dp),
-        color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
-        shadowElevation = 1.dp,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             DownloadableTrackArtwork(

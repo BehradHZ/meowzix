@@ -151,7 +151,14 @@ class ResolvingPlaybackController @Inject constructor(
 
     override fun skipToNext() {
         intentionalSkip = true
-        delegate.skipToNext()
+        scope.launch {
+            val queue = delegate.queueState.value
+            val nextTrackId = queue.items.getOrNull(queue.currentIndex + 1)?.id
+            if (nextTrackId != null && !isLocal(nextTrackId)) {
+                runCatching { remoteResolver.prepareForPlayback(nextTrackId) }
+            }
+            delegate.skipToNext()
+        }
     }
 
     private suspend fun recordHistoryTransition(playback: PlaybackState) {

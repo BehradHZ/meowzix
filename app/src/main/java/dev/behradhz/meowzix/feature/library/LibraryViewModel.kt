@@ -66,11 +66,7 @@ class LibraryViewModel @Inject constructor(
                         )
                     }
                     repository.prefetchArtwork(
-                        tracks.asSequence()
-                            .map { it.track }
-                            .filter { it.artworkRef.isNullOrBlank() }
-                            .map { it.id }
-                            .toList(),
+                        tracks.map { it.track.id },
                     )
                 }
         }

@@ -50,6 +50,7 @@ class LocalMusicLibraryRepository @Inject constructor(
     private val artworkScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val artworkAttempts = ConcurrentHashMap.newKeySet<String>()
     private val previewDirectory = File(context.cacheDir, "artwork-preview")
+    private val artworkDirectory = File(context.filesDir, "artwork")
 
     override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableTracks().map { rows ->
         rows.map(TrackEntity::toDomain)
@@ -126,7 +127,11 @@ class LocalMusicLibraryRepository @Inject constructor(
         val requested = trackIds.map(UUID::toString).filter(artworkAttempts::add)
         if (requested.isEmpty()) return
         artworkScope.launch {
-            val client = TdLibClientAdapter.activeOrNull() ?: return@launch
+            val client = TdLibClientAdapter.activeOrNull()
+            if (client == null) {
+                requested.forEach(artworkAttempts::remove)
+                return@launch
+            }
             val wanted = requested.toSet()
             val tracksById = dao.allTracks().filter { it.id in wanted }.associateBy { it.id }
             val sources = dao.allSources().filter {
@@ -136,22 +141,51 @@ class LocalMusicLibraryRepository @Inject constructor(
             }
             val telegramBySource = telegramDao.allTelegramTrackSources().associateBy { it.trackSourceId }
             previewDirectory.mkdirs()
+            artworkDirectory.mkdirs()
 
             for (source in sources) {
                 val track = tracksById[source.trackId] ?: continue
-                if (!track.artworkRef.isNullOrBlank()) continue
+                val existingArtwork = track.artworkRef
+                val needsUpgrade = existingArtwork.isNullOrBlank() || existingArtwork.contains("/artwork-preview/")
+                if (!needsUpgrade) continue
                 val telegram = telegramBySource[source.id] ?: continue
                 val message = runCatching {
                     client.send(TdApi.GetMessage(telegram.chatId, telegram.messageId))
                 }.getOrNull() ?: continue
-                val bytes = message.toAudioCandidate()?.artworkMinithumbnail ?: continue
-                if (bytes.isEmpty()) continue
-                val file = File(previewDirectory, "${track.id}.jpg")
+                val candidate = message.toAudioCandidate() ?: continue
+
+                if (existingArtwork.isNullOrBlank()) {
+                    candidate.artworkMinithumbnail
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { bytes ->
+                            val previewFile = File(previewDirectory, "${track.id}.jpg")
+                            runCatching {
+                                previewFile.writeBytes(bytes)
+                                dao.setArtworkRef(
+                                    trackId = track.id,
+                                    artworkRef = Uri.fromFile(previewFile).toString(),
+                                    updatedAt = Instant.now().toEpochMilli(),
+                                )
+                            }
+                        }
+                }
+
+                val artworkFileId = candidate.artworkFileId ?: continue
+                val downloaded = runCatching {
+                    client.send(TdApi.DownloadFile(artworkFileId, ARTWORK_PRIORITY, 0L, 0L, true))
+                }.getOrNull() ?: continue
+                val downloadedPath = downloaded.local.path.takeIf {
+                    downloaded.local.isDownloadingCompleted && it.isNotBlank()
+                } ?: continue
+                val sourceFile = File(downloadedPath).takeIf(File::isFile) ?: continue
+                val finalArtwork = File(artworkDirectory, "${track.id}.jpg")
                 runCatching {
-                    file.writeBytes(bytes)
+                    sourceFile.inputStream().buffered().use { input ->
+                        finalArtwork.outputStream().buffered().use(input::copyTo)
+                    }
                     dao.setArtworkRef(
                         trackId = track.id,
-                        artworkRef = Uri.fromFile(file).toString(),
+                        artworkRef = Uri.fromFile(finalArtwork).toString(),
                         updatedAt = Instant.now().toEpochMilli(),
                     )
                 }
@@ -296,6 +330,8 @@ class LocalMusicLibraryRepository @Inject constructor(
         )
     }
 }
+
+private const val ARTWORK_PRIORITY = 3
 
 private fun localSourcePriority(source: TrackSourceEntity): Int = when (source.type) {
     TrackSourceType.LOCAL_MEDIASTORE -> 0

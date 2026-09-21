@@ -1,5 +1,9 @@
 package dev.behradhz.meowzix.navigation
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -179,7 +183,27 @@ fun MeowzixApp(
                     },
                 )
             }
-            composable(NOW_PLAYING_ROUTE) {
+            composable(
+                route = NOW_PLAYING_ROUTE,
+                enterTransition = {
+                    slideInVertically(
+                        initialOffsetY = { fullHeight -> fullHeight },
+                        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+                    )
+                },
+                exitTransition = {
+                    slideOutVertically(
+                        targetOffsetY = { fullHeight -> fullHeight },
+                        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
+                    )
+                },
+                popExitTransition = {
+                    slideOutVertically(
+                        targetOffsetY = { fullHeight -> fullHeight },
+                        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
+                    )
+                },
+            ) {
                 NowPlayingRoute(
                     onBack = navController::popBackStack,
                     onOpenQueue = {

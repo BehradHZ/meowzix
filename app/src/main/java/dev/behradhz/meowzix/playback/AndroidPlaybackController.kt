@@ -279,9 +279,21 @@ class AndroidPlaybackController @Inject constructor(
         connected.seekTo(positionMs.coerceIn(0, upperBound))
     }
 
-    override fun skipToPrevious() = withController(MediaController::seekToPrevious)
+    override fun skipToPrevious() = withController { connected ->
+        if (connected.hasPreviousMediaItem()) {
+            connected.seekToPrevious()
+            if (connected.playbackState == Player.STATE_IDLE) connected.prepare()
+            connected.play()
+        }
+    }
 
-    override fun skipToNext() = withController(MediaController::seekToNext)
+    override fun skipToNext() = withController { connected ->
+        if (connected.hasNextMediaItem()) {
+            connected.seekToNext()
+            if (connected.playbackState == Player.STATE_IDLE) connected.prepare()
+            connected.play()
+        }
+    }
 
     private fun withController(action: (MediaController) -> Unit) {
         scope.launch {
