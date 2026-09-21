@@ -11,13 +11,13 @@ interface LibraryDao {
     @Query("SELECT DISTINCT t.* FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL' AND t.hidden = 0 ORDER BY t.normalizedTitle")
     fun observeAvailableLocalTracks(): Flow<List<TrackEntity>>
 
-    @Query("SELECT DISTINCT t.* FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.availability != 'MISSING' AND t.hidden = 0 ORDER BY t.normalizedTitle")
+    @Query("SELECT DISTINCT t.* FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.type IN ('TELEGRAM_REMOTE', 'TDLIB_LOCAL') AND s.availability != 'MISSING' AND t.hidden = 0 ORDER BY t.normalizedTitle")
     fun observeAvailableTracks(): Flow<List<TrackEntity>>
 
-    @Query("SELECT * FROM track_sources WHERE availability != 'MISSING'")
+    @Query("SELECT * FROM track_sources WHERE type IN ('TELEGRAM_REMOTE', 'TDLIB_LOCAL') AND availability != 'MISSING'")
     fun observeActiveSources(): Flow<List<TrackSourceEntity>>
 
-    @Query("SELECT t.id, t.title, t.artist, t.album, t.durationMs, t.artworkRef, CASE WHEN s.contentUri IS NOT NULL THEN s.contentUri ELSE 'file://' || s.localPath END AS contentUri FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.availability = 'AVAILABLE_LOCAL' AND (s.contentUri IS NOT NULL OR s.localPath IS NOT NULL) AND t.hidden = 0 ORDER BY t.normalizedTitle, CASE s.type WHEN 'LOCAL_MEDIASTORE' THEN 0 WHEN 'APP_OFFLINE_COPY' THEN 1 WHEN 'TDLIB_LOCAL' THEN 2 ELSE 3 END, s.createdAtEpochMs")
+    @Query("SELECT t.id, t.title, t.artist, t.album, t.durationMs, t.artworkRef, CASE WHEN s.contentUri IS NOT NULL THEN s.contentUri ELSE 'file://' || s.localPath END AS contentUri FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.type = 'TDLIB_LOCAL' AND s.availability = 'AVAILABLE_LOCAL' AND (s.contentUri IS NOT NULL OR s.localPath IS NOT NULL) AND t.hidden = 0 ORDER BY t.normalizedTitle, s.createdAtEpochMs")
     suspend fun availableLocalPlaybackRows(): List<LocalPlaybackRow>
 
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
