@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,27 +22,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.PlaylistAddCircle
-import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.PlaylistAddCircle
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -87,8 +88,10 @@ import dev.behradhz.meowzix.core.permissions.AudioPermission
 import dev.behradhz.meowzix.core.permissions.AudioPermissionStatus
 import dev.behradhz.meowzix.core.permissions.audioPermissionStatus
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
+import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.ui.components.TrackArtwork
+import java.util.UUID
 
 private enum class LibrarySection(val label: String) {
     TRACKS("Tracks"),
@@ -98,7 +101,13 @@ private enum class LibrarySection(val label: String) {
     PLAYLISTS("Playlists"),
 }
 
-private enum class AvailabilityFilter(val label: String) { ALL("All"), OFFLINE("Offline"), CLOUD("Cloud") }
+private enum class AvailabilityFilter(val label: String) {
+    ALL("All"),
+    OFFLINE("Offline"),
+    CLOUD("Cloud"),
+}
+
+private data class AlbumKey(val name: String, val artist: String)
 
 @Composable
 fun LibraryRoute(
@@ -116,7 +125,9 @@ fun LibraryRoute(
 
     var permissionGranted by remember { mutableStateOf(hasPermission()) }
     var permissionRequestAttempted by rememberSaveable { mutableStateOf(false) }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
         permissionRequestAttempted = true
         permissionGranted = granted
     }
@@ -125,9 +136,7 @@ fun LibraryRoute(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 val currentlyGranted = hasPermission()
-                if (permissionGranted && !currentlyGranted) {
-                    permissionRequestAttempted = true
-                }
+                if (permissionGranted && !currentlyGranted) permissionRequestAttempted = true
                 permissionGranted = currentlyGranted
             }
         }
@@ -152,8 +161,8 @@ fun LibraryRoute(
             )
         },
         onRefresh = viewModel::refresh,
-        onPlayTrack = { track ->
-            viewModel.playTrack(track)
+        onPlayTrack = { track, queue ->
+            viewModel.playTrack(track, queue)
             onOpenNowPlaying()
         },
         onPlayNext = viewModel::playNext,
@@ -178,14 +187,14 @@ private fun LibraryScreen(
     onRequestPermission: () -> Unit,
     onOpenSettings: () -> Unit,
     onRefresh: () -> Unit,
-    onPlayTrack: (Track) -> Unit,
+    onPlayTrack: (Track, List<Track>) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
     onPinOffline: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
-    onAddToPlaylist: (Track, java.util.UUID) -> Unit,
+    onAddToPlaylist: (Track, UUID) -> Unit,
     onCreatePlaylist: () -> Unit,
-    onSelectPlaylist: (java.util.UUID) -> Unit,
+    onSelectPlaylist: (UUID) -> Unit,
     onMovePlaylistTrack: (Int, Int) -> Unit,
     onRemovePlaylistTrack: (Track) -> Unit,
     onPlayPlaylist: (PlaybackMode) -> Unit,
@@ -195,9 +204,13 @@ private fun LibraryScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var selectedSectionIndex by rememberSaveable { mutableIntStateOf(0) }
     var availabilityFilterIndex by rememberSaveable { mutableIntStateOf(0) }
+    var selectedArtist by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedAlbumName by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedAlbumArtist by rememberSaveable { mutableStateOf<String?>(null) }
+
     val selectedSection = LibrarySection.entries[selectedSectionIndex]
     val availabilityFilter = AvailabilityFilter.entries[availabilityFilterIndex]
-    val filteredTracks = remember(state.tracks, state.availability, query, availabilityFilter) {
+    val searchedTracks = remember(state.tracks, query, availabilityFilter) {
         val normalizedQuery = query.trim()
         val searched = if (normalizedQuery.isEmpty()) {
             state.tracks
@@ -208,13 +221,22 @@ private fun LibraryScreen(
                     track.album?.contains(normalizedQuery, ignoreCase = true) == true
             }
         }
-        searched.filter { track ->
-            when (availabilityFilter) {
-                AvailabilityFilter.ALL -> true
-                AvailabilityFilter.OFFLINE -> state.availability[track.id] == LibraryTrackAvailability.OFFLINE
-                AvailabilityFilter.CLOUD -> state.availability[track.id] == LibraryTrackAvailability.CLOUD
-            }
+        searched.filter { track -> matchesAvailability(track, state.availability, availabilityFilter) }
+    }
+
+    val artistDetailTracks = selectedArtist?.let { artist ->
+        state.tracks.filter {
+            artistName(it) == artist && matchesAvailability(it, state.availability, availabilityFilter)
         }
+    }.orEmpty()
+    val albumDetailTracks = if (selectedAlbumName != null && selectedAlbumArtist != null) {
+        state.tracks.filter {
+            albumName(it) == selectedAlbumName &&
+                artistName(it) == selectedAlbumArtist &&
+                matchesAvailability(it, state.availability, availabilityFilter)
+        }
+    } else {
+        emptyList()
     }
 
     Column(
@@ -222,6 +244,55 @@ private fun LibraryScreen(
             .fillMaxSize()
             .statusBarsPadding(),
     ) {
+        if (selectedArtist != null) {
+            GroupDetailHeader(
+                title = selectedArtist.orEmpty(),
+                subtitle = trackCountLabel(artistDetailTracks.size),
+                icon = { Icon(Icons.Rounded.Person, contentDescription = null) },
+                onBack = { selectedArtist = null },
+            )
+            TracksSection(
+                tracks = artistDetailTracks,
+                queueTracks = artistDetailTracks,
+                currentTrackId = state.playback.currentTrack?.id,
+                onPlayTrack = onPlayTrack,
+                onPlayNext = onPlayNext,
+                onAddToQueue = onAddToQueue,
+                onPinOffline = onPinOffline,
+                availability = state.availability,
+                playlists = state.playlists,
+                onFavorite = onFavorite,
+                onAddToPlaylist = onAddToPlaylist,
+            )
+            return@Column
+        }
+
+        if (selectedAlbumName != null && selectedAlbumArtist != null) {
+            GroupDetailHeader(
+                title = selectedAlbumName.orEmpty(),
+                subtitle = "${selectedAlbumArtist.orEmpty()} · ${trackCountLabel(albumDetailTracks.size)}",
+                icon = { Icon(Icons.Rounded.Album, contentDescription = null) },
+                onBack = {
+                    selectedAlbumName = null
+                    selectedAlbumArtist = null
+                },
+            )
+            TracksSection(
+                tracks = albumDetailTracks,
+                queueTracks = albumDetailTracks,
+                currentTrackId = state.playback.currentTrack?.id,
+                onPlayTrack = onPlayTrack,
+                onPlayNext = onPlayNext,
+                onAddToQueue = onAddToQueue,
+                onPinOffline = onPinOffline,
+                availability = state.availability,
+                playlists = state.playlists,
+                onFavorite = onFavorite,
+                onAddToPlaylist = onAddToPlaylist,
+            )
+            return@Column
+        }
+
         LibraryHeader(
             trackCount = state.tracks.size,
             isRefreshing = state.isRefreshing,
@@ -246,6 +317,7 @@ private fun LibraryScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             )
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -256,7 +328,11 @@ private fun LibraryScreen(
                 AvailabilityFilter.entries.forEachIndexed { index, filter ->
                     Surface(
                         modifier = Modifier.clickable { availabilityFilterIndex = index },
-                        color = if (availabilityFilterIndex == index) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        color = if (availabilityFilterIndex == index) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
                         shape = RoundedCornerShape(14.dp),
                     ) {
                         Text(filter.label, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp))
@@ -283,7 +359,7 @@ private fun LibraryScreen(
 
             permissionStatus == AudioPermissionStatus.DENIED && state.tracks.isEmpty() -> LibraryMessagePanel(
                 title = "Music access is off",
-                message = "Turn audio access back on in Android settings. Telegram and app-owned music can still remain separate sources later.",
+                message = "Turn audio access back on in Android settings. Telegram music remains available separately.",
                 action = "Open settings",
                 onAction = onOpenSettings,
             )
@@ -291,9 +367,7 @@ private fun LibraryScreen(
             state.isRefreshing && state.tracks.isEmpty() -> Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator()
-            }
+            ) { CircularProgressIndicator() }
 
             state.errorMessage != null && state.tracks.isEmpty() -> LibraryMessagePanel(
                 title = "Couldn't scan your music",
@@ -303,22 +377,25 @@ private fun LibraryScreen(
             )
 
             state.tracks.isEmpty() -> LibraryMessagePanel(
-                title = "No local music yet",
-                message = "Add audio to your device or connect Telegram. Meowzix keeps both sources in one library.",
+                title = "No music yet",
+                message = "Add audio to your device or connect Telegram.",
                 action = "Scan again",
                 onAction = onRefresh,
             )
 
-            filteredTracks.isEmpty() -> LibraryMessagePanel(
+            searchedTracks.isEmpty() && selectedSection != LibrarySection.PLAYLISTS -> LibraryMessagePanel(
                 title = "No matches",
-                message = "Nothing in your local library matches “$query”.",
+                message = "Nothing in your library matches “$query”.",
                 action = "Clear search",
                 onAction = { query = "" },
             )
 
             else -> when (selectedSection) {
                 LibrarySection.TRACKS -> TracksSection(
-                    tracks = filteredTracks,
+                    tracks = searchedTracks,
+                    // Requirement: tapping a normal track creates a queue from the whole library,
+                    // not only the currently visible search/filter subset.
+                    queueTracks = state.tracks,
                     currentTrackId = state.playback.currentTrack?.id,
                     onPlayTrack = onPlayTrack,
                     onPlayNext = onPlayNext,
@@ -330,20 +407,36 @@ private fun LibraryScreen(
                     onAddToPlaylist = onAddToPlaylist,
                 )
 
-                LibrarySection.ARTISTS -> ArtistsSection(filteredTracks)
-                LibrarySection.ALBUMS -> AlbumsSection(filteredTracks)
-                LibrarySection.FAVORITES -> TracksSection(
-                    tracks = filteredTracks.filter(Track::favorite),
-                    currentTrackId = state.playback.currentTrack?.id,
-                    onPlayTrack = onPlayTrack,
-                    onPlayNext = onPlayNext,
-                    onAddToQueue = onAddToQueue,
-                    onPinOffline = onPinOffline,
-                    availability = state.availability,
-                    playlists = state.playlists,
-                    onFavorite = onFavorite,
-                    onAddToPlaylist = onAddToPlaylist,
+                LibrarySection.ARTISTS -> ArtistsSection(
+                    tracks = searchedTracks,
+                    onOpenArtist = { selectedArtist = it },
                 )
+
+                LibrarySection.ALBUMS -> AlbumsSection(
+                    tracks = searchedTracks,
+                    onOpenAlbum = { album ->
+                        selectedAlbumName = album.name
+                        selectedAlbumArtist = album.artist
+                    },
+                )
+
+                LibrarySection.FAVORITES -> {
+                    val favorites = searchedTracks.filter(Track::favorite)
+                    TracksSection(
+                        tracks = favorites,
+                        queueTracks = state.tracks.filter(Track::favorite),
+                        currentTrackId = state.playback.currentTrack?.id,
+                        onPlayTrack = onPlayTrack,
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onPinOffline = onPinOffline,
+                        availability = state.availability,
+                        playlists = state.playlists,
+                        onFavorite = onFavorite,
+                        onAddToPlaylist = onAddToPlaylist,
+                    )
+                }
+
                 LibrarySection.PLAYLISTS -> PlaylistsSection(
                     playlists = state.playlists,
                     selectedPlaylistId = state.selectedPlaylistId,
@@ -374,28 +467,64 @@ private fun LibraryHeader(
         verticalAlignment = Alignment.Bottom,
     ) {
         Column(Modifier.weight(1f)) {
+            Text("Library", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
             Text(
-                text = "Library",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = if (trackCount == 1) "1 track" else "$trackCount tracks",
+                trackCountLabel(trackCount),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
-
-        HeaderAction(
-            onClick = onRefresh,
-            enabled = !isRefreshing,
-        ) {
+        HeaderAction(onClick = onRefresh, enabled = !isRefreshing) {
             Icon(Icons.Rounded.Refresh, contentDescription = "Rescan local music")
         }
         Spacer(Modifier.size(6.dp))
         HeaderAction(onClick = onOpenTelegram) {
             Icon(Icons.Rounded.Cloud, contentDescription = "Open Telegram connection")
+        }
+    }
+}
+
+@Composable
+private fun GroupDetailHeader(
+    title: String,
+    subtitle: String,
+    icon: @Composable () -> Unit,
+    onBack: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to library")
+        }
+        Surface(
+            modifier = Modifier.size(52.dp),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            contentColor = MaterialTheme.colorScheme.primary,
+        ) {
+            Box(contentAlignment = Alignment.Center) { icon() }
+        }
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -412,10 +541,7 @@ private fun HeaderAction(
         modifier = Modifier.size(44.dp),
         shape = RoundedCornerShape(22.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f),
-        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)),
     ) {
         Box(contentAlignment = Alignment.Center) { content() }
     }
@@ -432,10 +558,7 @@ private fun FrostedSearchField(
         modifier = modifier,
         shape = RoundedCornerShape(22.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f),
-        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)),
     ) {
         Row(
             modifier = Modifier
@@ -451,13 +574,10 @@ private fun FrostedSearchField(
                 modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.size(10.dp))
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.CenterStart,
-            ) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                 if (query.isEmpty()) {
                     Text(
-                        text = "Search songs, artists, albums",
+                        "Search songs, artists, albums",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
                     )
@@ -467,19 +587,13 @@ private fun FrostedSearchField(
                     onValueChange = onQueryChange,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 )
             }
             if (query.isNotEmpty()) {
                 IconButton(onClick = onClear) {
-                    Icon(
-                        Icons.Rounded.Clear,
-                        contentDescription = "Clear search",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
-                    )
+                    Icon(Icons.Rounded.Clear, contentDescription = "Clear search")
                 }
             }
         }
@@ -496,10 +610,7 @@ private fun LibrarySectionSwitcher(
         modifier = modifier,
         shape = RoundedCornerShape(22.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f),
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f),
-        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)),
     ) {
         Row(
             modifier = Modifier
@@ -516,16 +627,8 @@ private fun LibrarySectionSwitcher(
                         .height(38.dp)
                         .clickable { onSelected(index) },
                     shape = RoundedCornerShape(18.dp),
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.surface.copy(alpha = 0.86f)
-                    } else {
-                        Color.Transparent
-                    },
-                    contentColor = if (selected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
-                    },
+                    color = if (selected) MaterialTheme.colorScheme.surface.copy(alpha = 0.86f) else Color.Transparent,
+                    contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxSize(),
@@ -545,7 +648,7 @@ private fun LibrarySectionSwitcher(
                         )
                         Spacer(Modifier.size(6.dp))
                         Text(
-                            text = section.label,
+                            section.label,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                         )
@@ -559,31 +662,27 @@ private fun LibrarySectionSwitcher(
 @Composable
 private fun TracksSection(
     tracks: List<Track>,
-    currentTrackId: java.util.UUID?,
-    onPlayTrack: (Track) -> Unit,
+    queueTracks: List<Track>,
+    currentTrackId: UUID?,
+    onPlayTrack: (Track, List<Track>) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
     onPinOffline: (Track) -> Unit,
-    availability: Map<java.util.UUID, LibraryTrackAvailability>,
-    playlists: List<dev.behradhz.meowzix.domain.library.PlaylistSummary>,
+    availability: Map<UUID, LibraryTrackAvailability>,
+    playlists: List<PlaylistSummary>,
     onFavorite: (Track) -> Unit,
-    onAddToPlaylist: (Track, java.util.UUID) -> Unit,
+    onAddToPlaylist: (Track, UUID) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 10.dp,
-            end = 10.dp,
-            top = 2.dp,
-            bottom = 182.dp,
-        ),
+        contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 182.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         items(tracks, key = { it.id.toString() }) { track ->
             SwipeableTrackRow(
                 track = track,
                 isCurrent = track.id == currentTrackId,
-                onClick = { onPlayTrack(track) },
+                onClick = { onPlayTrack(track, queueTracks) },
                 onPlayNext = { onPlayNext(track) },
                 onAddToQueue = { onAddToQueue(track) },
                 onPinOffline = { onPinOffline(track) },
@@ -605,9 +704,9 @@ private fun SwipeableTrackRow(
     onAddToQueue: () -> Unit,
     onPinOffline: () -> Unit,
     availability: LibraryTrackAvailability,
-    playlists: List<dev.behradhz.meowzix.domain.library.PlaylistSummary>,
+    playlists: List<PlaylistSummary>,
     onFavorite: () -> Unit,
-    onAddToPlaylist: (java.util.UUID) -> Unit,
+    onAddToPlaylist: (UUID) -> Unit,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -616,12 +715,10 @@ private fun SwipeableTrackRow(
                     onPlayNext()
                     false
                 }
-
                 SwipeToDismissBoxValue.EndToStart -> {
                     onAddToQueue()
                     false
                 }
-
                 SwipeToDismissBoxValue.Settled -> true
             }
         },
@@ -686,22 +783,17 @@ private fun TrackRow(
     onAddToQueue: () -> Unit,
     onPinOffline: () -> Unit,
     availability: LibraryTrackAvailability,
-    playlists: List<dev.behradhz.meowzix.domain.library.PlaylistSummary>,
+    playlists: List<PlaylistSummary>,
     onFavorite: () -> Unit,
-    onAddToPlaylist: (java.util.UUID) -> Unit,
+    onAddToPlaylist: (UUID) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
-        color = if (isCurrent) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-        } else {
-            Color.Transparent
-        },
+        color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
@@ -721,7 +813,7 @@ private fun TrackRow(
                         Spacer(Modifier.size(5.dp))
                     }
                     Text(
-                        text = track.title,
+                        track.title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
                         color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
@@ -730,7 +822,7 @@ private fun TrackRow(
                     )
                 }
                 Text(
-                    text = "${track.artist ?: "Unknown artist"} · ${availability.label}",
+                    "${track.artist ?: "Unknown artist"} · ${availability.label}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
                     maxLines = 1,
@@ -739,17 +831,13 @@ private fun TrackRow(
                 )
             }
             Text(
-                text = formatDuration(track.durationMs),
+                formatDuration(track.durationMs),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
             )
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
-                    Icon(
-                        Icons.Rounded.MoreVert,
-                        contentDescription = "Track actions",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
-                    )
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
                 }
                 DropdownMenu(
                     expanded = menuExpanded,
@@ -758,65 +846,151 @@ private fun TrackRow(
                     DropdownMenuItem(
                         text = { Text("Play next") },
                         leadingIcon = { Icon(Icons.Rounded.PlaylistPlay, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onPlayNext()
-                        },
+                        onClick = { menuExpanded = false; onPlayNext() },
                     )
                     DropdownMenuItem(
                         text = { Text("Add to queue") },
                         leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onAddToQueue()
-                        },
+                        onClick = { menuExpanded = false; onAddToQueue() },
                     )
                     DropdownMenuItem(
                         text = { Text(if (track.favorite) "Remove favorite" else "Favorite") },
-                        leadingIcon = { Icon(if (track.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onFavorite()
+                        leadingIcon = {
+                            Icon(
+                                if (track.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                contentDescription = null,
+                            )
                         },
+                        onClick = { menuExpanded = false; onFavorite() },
                     )
                     playlists.forEach { playlist ->
                         DropdownMenuItem(
                             text = { Text("Add to ${playlist.title}") },
                             leadingIcon = { Icon(Icons.Rounded.PlaylistAddCircle, contentDescription = null) },
-                            onClick = {
-                                menuExpanded = false
-                                onAddToPlaylist(playlist.id)
-                            },
+                            onClick = { menuExpanded = false; onAddToPlaylist(playlist.id) },
                         )
                     }
-                    DropdownMenuItem(
-                        text = { Text("Pin offline") },
-                        leadingIcon = { Icon(Icons.Rounded.DownloadForOffline, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onPinOffline()
-                        },
-                    )
+                    if (availability != LibraryTrackAvailability.OFFLINE) {
+                        DropdownMenuItem(
+                            text = { Text("Pin offline") },
+                            leadingIcon = { Icon(Icons.Rounded.DownloadForOffline, contentDescription = null) },
+                            onClick = { menuExpanded = false; onPinOffline() },
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-private val LibraryTrackAvailability.label: String
-    get() = when (this) {
-        LibraryTrackAvailability.OFFLINE -> "Offline"
-        LibraryTrackAvailability.CLOUD -> "Cloud"
-        LibraryTrackAvailability.UNAVAILABLE -> "Unavailable"
+@Composable
+private fun ArtistsSection(
+    tracks: List<Track>,
+    onOpenArtist: (String) -> Unit,
+) {
+    val artists = remember(tracks) {
+        tracks.groupBy(::artistName)
+            .map { (name, artistTracks) -> name to artistTracks.size }
+            .sortedBy { it.first.lowercase() }
     }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 182.dp),
+    ) {
+        items(artists, key = { it.first }) { (artist, count) ->
+            LibraryGroupRow(
+                title = artist,
+                subtitle = trackCountLabel(count),
+                icon = { Icon(Icons.Rounded.Person, contentDescription = null) },
+                onClick = { onOpenArtist(artist) },
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 68.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AlbumsSection(
+    tracks: List<Track>,
+    onOpenAlbum: (AlbumKey) -> Unit,
+) {
+    val albums = remember(tracks) {
+        tracks.groupBy { AlbumKey(albumName(it), artistName(it)) }
+            .map { (key, albumTracks) -> key to albumTracks.size }
+            .sortedWith(compareBy({ it.first.name.lowercase() }, { it.first.artist.lowercase() }))
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 182.dp),
+    ) {
+        items(albums, key = { "${it.first.artist}:${it.first.name}" }) { (album, count) ->
+            LibraryGroupRow(
+                title = album.name,
+                subtitle = "${album.artist} · ${trackCountLabel(count)}",
+                icon = { Icon(Icons.Rounded.Album, contentDescription = null) },
+                onClick = { onOpenAlbum(album) },
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 68.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun LibraryGroupRow(
+    title: String,
+    subtitle: String,
+    icon: @Composable () -> Unit,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+            contentColor = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(48.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) { icon() }
+        }
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+    }
+}
 
 @Composable
 private fun PlaylistsSection(
-    playlists: List<dev.behradhz.meowzix.domain.library.PlaylistSummary>,
-    selectedPlaylistId: java.util.UUID?,
+    playlists: List<PlaylistSummary>,
+    selectedPlaylistId: UUID?,
     tracks: List<Track>,
     onCreate: () -> Unit,
-    onSelect: (java.util.UUID) -> Unit,
+    onSelect: (UUID) -> Unit,
     onMove: (Int, Int) -> Unit,
     onRemove: (Track) -> Unit,
     onPlay: (PlaybackMode) -> Unit,
@@ -835,16 +1009,21 @@ private fun PlaylistsSection(
         }
         items(playlists, key = { it.id }) { playlist ->
             Surface(
-                modifier = Modifier.fillMaxWidth().clickable { onSelect(playlist.id) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(playlist.id) },
                 color = if (selectedPlaylistId == playlist.id) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                 shape = RoundedCornerShape(12.dp),
             ) {
-                Text("${playlist.title} · ${playlist.trackCount} tracks", modifier = Modifier.padding(12.dp))
+                Text("${playlist.title} · ${trackCountLabel(playlist.trackCount)}", modifier = Modifier.padding(12.dp))
             }
         }
         if (selectedPlaylistId != null && tracks.isNotEmpty()) {
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Button(onClick = { onPlay(PlaybackMode.ORDERED) }) { Text("Play ordered") }
                     Button(onClick = { onPlay(PlaybackMode.PURE_SHUFFLE) }) { Text("Pure shuffle") }
                     Button(onClick = { onPlay(PlaybackMode.SMART_SHUFFLE) }) { Text("Smart shuffle") }
@@ -868,113 +1047,6 @@ private fun PlaylistsSection(
 }
 
 @Composable
-private fun ArtistsSection(tracks: List<Track>) {
-    val artists = remember(tracks) {
-        tracks
-            .groupBy { it.artist?.takeIf(String::isNotBlank) ?: "Unknown artist" }
-            .map { (name, artistTracks) -> name to artistTracks.size }
-            .sortedBy { it.first.lowercase() }
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 12.dp,
-            end = 12.dp,
-            top = 2.dp,
-            bottom = 182.dp,
-        ),
-    ) {
-        items(artists, key = { it.first }) { (artist, count) ->
-            LibraryGroupRow(
-                title = artist,
-                subtitle = if (count == 1) "1 track" else "$count tracks",
-                icon = { Icon(Icons.Rounded.Person, contentDescription = null) },
-            )
-            HorizontalDivider(
-                modifier = Modifier.padding(start = 68.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun AlbumsSection(tracks: List<Track>) {
-    val albums = remember(tracks) {
-        tracks
-            .groupBy { it.album?.takeIf(String::isNotBlank) ?: "Unknown album" }
-            .map { (name, albumTracks) ->
-                Triple(name, albumTracks.firstOrNull()?.artist ?: "Unknown artist", albumTracks.size)
-            }
-            .sortedBy { it.first.lowercase() }
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 12.dp,
-            end = 12.dp,
-            top = 2.dp,
-            bottom = 182.dp,
-        ),
-    ) {
-        items(albums, key = { it.first }) { (album, artist, count) ->
-            LibraryGroupRow(
-                title = album,
-                subtitle = "$artist · ${if (count == 1) "1 track" else "$count tracks"}",
-                icon = { Icon(Icons.Rounded.Album, contentDescription = null) },
-            )
-            HorizontalDivider(
-                modifier = Modifier.padding(start = 68.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun LibraryGroupRow(
-    title: String,
-    subtitle: String,
-    icon: @Composable () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 6.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-            contentColor = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(48.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) { icon() }
-        }
-        Spacer(Modifier.size(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-    }
-}
-
-@Composable
 private fun LibraryMessagePanel(
     title: String,
     message: String,
@@ -991,15 +1063,9 @@ private fun LibraryMessagePanel(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(30.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.56f),
-            border = BorderStroke(
-                1.dp,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f),
-            ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)),
         ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.Start,
-            ) {
+            Column(modifier = Modifier.padding(24.dp)) {
                 Surface(
                     modifier = Modifier.size(48.dp),
                     shape = RoundedCornerShape(24.dp),
@@ -1011,13 +1077,13 @@ private fun LibraryMessagePanel(
                     }
                 }
                 Text(
-                    text = title,
+                    title,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(top = 18.dp),
                 )
                 Text(
-                    text = message,
+                    message,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
                     modifier = Modifier.padding(top = 8.dp, bottom = 18.dp),
@@ -1028,7 +1094,32 @@ private fun LibraryMessagePanel(
     }
 }
 
+private fun matchesAvailability(
+    track: Track,
+    availability: Map<UUID, LibraryTrackAvailability>,
+    filter: AvailabilityFilter,
+): Boolean = when (filter) {
+    AvailabilityFilter.ALL -> true
+    AvailabilityFilter.OFFLINE -> availability[track.id] == LibraryTrackAvailability.OFFLINE
+    AvailabilityFilter.CLOUD -> availability[track.id] == LibraryTrackAvailability.CLOUD
+}
+
+private fun artistName(track: Track): String =
+    track.artist?.takeIf(String::isNotBlank) ?: "Unknown artist"
+
+private fun albumName(track: Track): String =
+    track.album?.takeIf(String::isNotBlank) ?: "Unknown album"
+
+private val LibraryTrackAvailability.label: String
+    get() = when (this) {
+        LibraryTrackAvailability.OFFLINE -> "Offline"
+        LibraryTrackAvailability.CLOUD -> "Cloud"
+        LibraryTrackAvailability.UNAVAILABLE -> "Unavailable"
+    }
+
+private fun trackCountLabel(count: Int): String = if (count == 1) "1 track" else "$count tracks"
+
 private fun formatDuration(durationMs: Long): String {
-    val totalSeconds = durationMs / 1000
-    return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
+    val totalSeconds = durationMs / 1_000L
+    return "%d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
 }
