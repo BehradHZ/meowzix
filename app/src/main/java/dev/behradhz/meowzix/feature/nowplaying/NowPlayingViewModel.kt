@@ -16,6 +16,7 @@ class NowPlayingViewModel @Inject constructor(
     private val audioVisualizerRepository: AudioVisualizerRepository,
 ) : ViewModel() {
     val state = playbackController.state
+    val queueState = queueRepository.queueState
     val spectrum = audioVisualizerRepository.spectrum
 
     fun togglePlayPause() = playbackController.togglePlayPause()
