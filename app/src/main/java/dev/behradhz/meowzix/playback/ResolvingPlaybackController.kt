@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import java.util.UUID
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +25,7 @@ import kotlinx.coroutines.launch
 class ResolvingPlaybackController @Inject constructor(
     private val delegate: AndroidPlaybackController,
     private val catalog: PlaybackCatalog,
-    private val remoteResolver: RemoteTrackPlaybackResolver,
+    private val remoteResolverProvider: Provider<RemoteTrackPlaybackResolver>,
 ) : PlaybackController, QueueRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _state = MutableStateFlow(delegate.state.value)
@@ -88,7 +89,7 @@ class ResolvingPlaybackController @Inject constructor(
                 status = PlaybackStatus.DOWNLOADING,
                 errorMessage = null,
             )
-            runCatching { remoteResolver.prepareForPlayback(trackId) }
+            runCatching { remoteResolverProvider.get().prepareForPlayback(trackId) }
                 .onSuccess { prepared ->
                     resolvingRemote = false
                     if (prepared == null) {

@@ -20,5 +20,6 @@ data class LibraryTrack(
 interface MusicLibraryRepository {
     fun observeTracks(): Flow<List<Track>>
     fun observeLibraryTracks(): Flow<List<LibraryTrack>>
+    suspend fun shouldRefreshLocalMusic(): Boolean
     suspend fun refreshLocalMusic(): LocalLibraryRefreshResult
 }

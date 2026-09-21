@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,6 +56,27 @@ class LocalMusicLibraryRepositoryTest {
     }
 
     @Test
+    fun unchangedRefreshAvoidsRewritingTracks() = runTest {
+        scanner.tracks = (0 until 1_000).map(::track)
+
+        val firstResult = repository.refreshLocalMusic()
+        val secondResult = repository.refreshLocalMusic()
+
+        assertEquals(1_000, firstResult.created)
+        assertEquals(0, secondResult.created)
+        assertEquals(0, secondResult.updated)
+        assertEquals(1_000, repository.observeTracks().first().size)
+    }
+
+    @Test
+    fun successfulRefreshMakesAutomaticRefreshFresh() = runTest {
+        assertTrue(repository.shouldRefreshLocalMusic())
+        scanner.tracks = listOf(track(1))
+        repository.refreshLocalMusic()
+        assertFalse(repository.shouldRefreshLocalMusic())
+    }
+
+    @Test
     fun removedSourceIsMarkedMissingWhileLogicalTrackIsRetained() = runTest {
         scanner.tracks = listOf(track(1))
         repository.refreshLocalMusic()
@@ -66,19 +89,6 @@ class LocalMusicLibraryRepositoryTest {
         assertEquals(SourceAvailability.MISSING, database.libraryDao().allLocalSources().single().availability)
         assertNotNull(database.libraryDao().trackById(trackId))
         assertEquals(0, repository.observeTracks().first().size)
-    }
-
-    @Test
-    fun refreshPersistsOneThousandTracksWithoutDuplication() = runTest {
-        scanner.tracks = (0 until 1_000).map(::track)
-
-        val firstResult = repository.refreshLocalMusic()
-        val secondResult = repository.refreshLocalMusic()
-
-        assertEquals(1_000, firstResult.created)
-        assertEquals(0, secondResult.created)
-        assertEquals(1_000, secondResult.updated)
-        assertEquals(1_000, repository.observeTracks().first().size)
     }
 
     private fun track(index: Int, title: String = "Track $index") = ScannedLocalTrack(

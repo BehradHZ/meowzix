@@ -14,6 +14,8 @@ import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.TdApi
 
 @Singleton
@@ -24,8 +26,13 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
 ) : RemoteTrackPlaybackResolver {
 
     override suspend fun prepareForPlayback(trackId: UUID): PlayableTrack? {
-        val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
-        val telegramSource = telegramDao.telegramSourceForTrack(accountId, trackId.toString()) ?: return null
+        val telegramSource = telegramDao.telegramSourceForAnyAccountTrack(trackId.toString()) ?: return null
+        val accountId = awaitConnectedAccountId()
+            ?: error("Telegram is not connected. Open Telegram settings and reconnect first.")
+        if (accountId != telegramSource.accountId) {
+            error("Reconnect the Telegram account that owns this track.")
+        }
+
         val remoteSource = libraryDao.sourceById(telegramSource.trackSourceId) ?: return null
         if (remoteSource.availability == SourceAvailability.MISSING) return null
 
@@ -101,7 +108,17 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         )
     }
 
+    private suspend fun awaitConnectedAccountId(): String? {
+        telegramRepository.musicSourceState.value.accountId?.let { return it }
+        return withTimeoutOrNull(TELEGRAM_READY_TIMEOUT_MS) {
+            telegramRepository.musicSourceState
+                .first { state -> state.accountId != null }
+                .accountId
+        }
+    }
+
     private companion object {
         const val DOWNLOAD_PRIORITY = 32
+        const val TELEGRAM_READY_TIMEOUT_MS = 5_000L
     }
 }

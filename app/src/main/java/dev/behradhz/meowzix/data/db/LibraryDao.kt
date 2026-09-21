@@ -29,8 +29,14 @@ interface LibraryDao {
     @Query("SELECT * FROM track_sources WHERE type = 'LOCAL_MEDIASTORE'")
     suspend fun allLocalSources(): List<TrackSourceEntity>
 
+    @Query("SELECT * FROM local_media_sources")
+    suspend fun allLocalMediaSources(): List<LocalMediaSourceEntity>
+
     @Query("SELECT DISTINCT t.* FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.type = 'LOCAL_MEDIASTORE'")
     suspend fun allTracksWithLocalSources(): List<TrackEntity>
+
+    @Query("SELECT MAX(lastVerifiedAtEpochMs) FROM track_sources WHERE type = 'LOCAL_MEDIASTORE'")
+    suspend fun latestLocalVerificationEpochMs(): Long?
 
     @Upsert
     suspend fun upsertTrack(track: TrackEntity)

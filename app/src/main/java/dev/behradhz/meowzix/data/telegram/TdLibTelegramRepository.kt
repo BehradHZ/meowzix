@@ -31,6 +31,9 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -116,10 +119,20 @@ class TdLibTelegramRepository @Inject constructor(
                 chatIds += selectedIds
                 runCatching { activeClient.send(TdApi.CreatePrivateChat(userId, false)) }
                     .getOrNull()?.let { chatIds += it.id }
-                chatIds.mapNotNull { chatId ->
-                    runCatching { activeClient.send(TdApi.GetChat(chatId)) }.getOrNull()
-                }.map { chat -> chat.toSummary(userId, chat.id in selectedIds) }
-                    .sortedWith(compareByDescending<TelegramChatSummary> { it.kind == TelegramChatKind.SAVED_MESSAGES }.thenBy { it.title.lowercase(Locale.ROOT) })
+                chatIds.toList()
+                    .chunked(CHAT_LOOKUP_CONCURRENCY)
+                    .flatMap { chunk ->
+                        coroutineScope {
+                            chunk.map { chatId ->
+                                async { runCatching { activeClient.send(TdApi.GetChat(chatId)) }.getOrNull() }
+                            }.awaitAll().filterNotNull()
+                        }
+                    }
+                    .map { chat -> chat.toSummary(userId, chat.id in selectedIds) }
+                    .sortedWith(
+                        compareByDescending<TelegramChatSummary> { it.kind == TelegramChatKind.SAVED_MESSAGES }
+                            .thenBy { it.title.lowercase(Locale.ROOT) },
+                    )
             }.onSuccess { chats ->
                 _musicSourceState.update { it.copy(chats = chats, isLoadingChats = false) }
             }.onFailure { error ->
@@ -236,7 +249,6 @@ class TdLibTelegramRepository @Inject constructor(
             .onSuccess { me ->
                 currentUserId = me.id
                 reloadPersistedSelection(me.id.toString())
-                refreshSelectableChats()
             }
             .onFailure { showMusicSourceError(safeMessage(it)) }
     }
@@ -257,10 +269,9 @@ class TdLibTelegramRepository @Inject constructor(
         if (message.chatId !in _musicSourceState.value.selectedChatIds) return
         scope.launch {
             val selected = telegramDao.selectedSource(accountId, message.chatId) ?: return@launch
-            val imported = persistTelegramMessage(accountId, message)
+            persistTelegramMessage(accountId, message)
             val newest = maxOf(selected.newestMessageId ?: 0L, message.id)
             telegramDao.updateSyncCheckpoint(accountId, message.chatId, newest, selected.initialScanComplete, Instant.now().toEpochMilli())
-            if (imported != null) reloadPersistedSelection(accountId)
         }
     }
 
@@ -307,9 +318,11 @@ class TdLibTelegramRepository @Inject constructor(
         var reachedCheckpoint = false
 
         while (!reachedCheckpoint) {
-            val page = activeClient.send(TdApi.GetChatHistory(selected.chatId, fromMessageId, 0, 100, false))
+            val page = activeClient.send(TdApi.GetChatHistory(selected.chatId, fromMessageId, 0, SYNC_PAGE_SIZE, false))
             if (page.messages.isEmpty()) break
             var lastMessageId = fromMessageId
+            val messagesToPersist = mutableListOf<TdApi.Message>()
+
             for (message in page.messages) {
                 result.messagesScanned++
                 newestScanned = maxOf(newestScanned, message.id)
@@ -317,13 +330,15 @@ class TdLibTelegramRepository @Inject constructor(
                     reachedCheckpoint = true
                     break
                 }
-                val persisted = persistTelegramMessage(accountId, message)
-                if (persisted != null) {
-                    seenEligibleIds += message.id
-                    if (persisted) result.tracksImported++ else result.tracksUpdated++
-                }
+                messagesToPersist += message
                 lastMessageId = message.id
             }
+
+            persistTelegramMessages(accountId, messagesToPersist).forEach { persisted ->
+                seenEligibleIds += persisted.messageId
+                if (persisted.created) result.tracksImported++ else result.tracksUpdated++
+            }
+
             if (reachedCheckpoint || lastMessageId == 0L || lastMessageId == fromMessageId) break
             fromMessageId = lastMessageId
         }
@@ -349,66 +364,75 @@ class TdLibTelegramRepository @Inject constructor(
     }
 
     /** Returns true for a new Track, false for an existing message update, and null for non-music. */
-    private suspend fun persistTelegramMessage(accountId: String, message: TdApi.Message): Boolean? {
-        val candidate = message.toAudioCandidate() ?: return null
+    private suspend fun persistTelegramMessage(accountId: String, message: TdApi.Message): Boolean? =
+        persistTelegramMessages(accountId, listOf(message)).firstOrNull()?.created
+
+    private suspend fun persistTelegramMessages(
+        accountId: String,
+        messages: List<TdApi.Message>,
+    ): List<PersistedTelegramMessage> {
+        if (messages.isEmpty()) return emptyList()
         val now = Instant.now().toEpochMilli()
         return database.withTransaction {
-            val existingTelegram = telegramDao.telegramSourceForMessage(accountId, message.chatId, message.id)
-            val existingSource = existingTelegram?.let { libraryDao.sourceById(it.trackSourceId) }
-            val existingTrack = existingSource?.let { libraryDao.trackById(it.trackId) }
-            val created = existingSource == null
-            val trackId = existingTrack?.id ?: existingSource?.trackId ?: UUID.randomUUID().toString()
-            val sourceId = existingSource?.id ?: UUID.randomUUID().toString()
+            messages.mapNotNull { message ->
+                val candidate = message.toAudioCandidate() ?: return@mapNotNull null
+                val existingTelegram = telegramDao.telegramSourceForMessage(accountId, message.chatId, message.id)
+                val existingSource = existingTelegram?.let { libraryDao.sourceById(it.trackSourceId) }
+                val existingTrack = existingSource?.let { libraryDao.trackById(it.trackId) }
+                val created = existingSource == null
+                val trackId = existingTrack?.id ?: existingSource?.trackId ?: UUID.randomUUID().toString()
+                val sourceId = existingSource?.id ?: UUID.randomUUID().toString()
 
-            libraryDao.upsertTrack(
-                TrackEntity(
-                    id = trackId,
-                    title = candidate.title,
-                    normalizedTitle = TextNormalizer.normalize(candidate.title) ?: "unknown track",
-                    artist = candidate.artist,
-                    normalizedArtist = TextNormalizer.normalize(candidate.artist),
-                    album = existingTrack?.album,
-                    durationMs = candidate.durationMs.takeIf { it > 0L } ?: existingTrack?.durationMs ?: 0L,
-                    trackNumber = existingTrack?.trackNumber,
-                    year = existingTrack?.year,
-                    artworkRef = existingTrack?.artworkRef,
-                    favorite = existingTrack?.favorite ?: false,
-                    hidden = existingTrack?.hidden ?: false,
-                    createdAtEpochMs = existingTrack?.createdAtEpochMs ?: now,
-                    updatedAtEpochMs = now,
-                ),
-            )
-            libraryDao.upsertSource(
-                TrackSourceEntity(
-                    id = sourceId,
-                    trackId = trackId,
-                    type = TrackSourceType.TELEGRAM_REMOTE,
-                    availability = SourceAvailability.REMOTE_ONLY,
-                    contentUri = null,
-                    localPath = null,
-                    mimeType = candidate.mimeType,
-                    fileSizeBytes = candidate.fileSizeBytes,
-                    contentHashSha256 = existingSource?.contentHashSha256,
-                    trainingEligible = existingSource?.trainingEligible ?: true,
-                    createdAtEpochMs = existingSource?.createdAtEpochMs ?: now,
-                    lastVerifiedAtEpochMs = now,
-                ),
-            )
-            telegramDao.upsertTelegramTrackSource(
-                TelegramTrackSourceEntity(
-                    trackSourceId = sourceId,
-                    accountId = accountId,
-                    chatId = message.chatId,
-                    messageId = message.id,
-                    tdFileId = candidate.fileId,
-                    tdPersistentFileId = candidate.persistentFileId,
-                    fileName = candidate.fileName,
-                    telegramTitle = candidate.title,
-                    telegramPerformer = candidate.artist,
-                    remoteRevisionKey = null,
-                ),
-            )
-            created
+                libraryDao.upsertTrack(
+                    TrackEntity(
+                        id = trackId,
+                        title = candidate.title,
+                        normalizedTitle = TextNormalizer.normalize(candidate.title) ?: "unknown track",
+                        artist = candidate.artist,
+                        normalizedArtist = TextNormalizer.normalize(candidate.artist),
+                        album = existingTrack?.album,
+                        durationMs = candidate.durationMs.takeIf { it > 0L } ?: existingTrack?.durationMs ?: 0L,
+                        trackNumber = existingTrack?.trackNumber,
+                        year = existingTrack?.year,
+                        artworkRef = existingTrack?.artworkRef,
+                        favorite = existingTrack?.favorite ?: false,
+                        hidden = existingTrack?.hidden ?: false,
+                        createdAtEpochMs = existingTrack?.createdAtEpochMs ?: now,
+                        updatedAtEpochMs = now,
+                    ),
+                )
+                libraryDao.upsertSource(
+                    TrackSourceEntity(
+                        id = sourceId,
+                        trackId = trackId,
+                        type = TrackSourceType.TELEGRAM_REMOTE,
+                        availability = SourceAvailability.REMOTE_ONLY,
+                        contentUri = null,
+                        localPath = null,
+                        mimeType = candidate.mimeType,
+                        fileSizeBytes = candidate.fileSizeBytes,
+                        contentHashSha256 = existingSource?.contentHashSha256,
+                        trainingEligible = existingSource?.trainingEligible ?: true,
+                        createdAtEpochMs = existingSource?.createdAtEpochMs ?: now,
+                        lastVerifiedAtEpochMs = now,
+                    ),
+                )
+                telegramDao.upsertTelegramTrackSource(
+                    TelegramTrackSourceEntity(
+                        trackSourceId = sourceId,
+                        accountId = accountId,
+                        chatId = message.chatId,
+                        messageId = message.id,
+                        tdFileId = candidate.fileId,
+                        tdPersistentFileId = candidate.persistentFileId,
+                        fileName = candidate.fileName,
+                        telegramTitle = candidate.title,
+                        telegramPerformer = candidate.artist,
+                        remoteRevisionKey = null,
+                    ),
+                )
+                PersistedTelegramMessage(message.id, created)
+            }
         }
     }
 
@@ -475,7 +499,17 @@ class TdLibTelegramRepository @Inject constructor(
     }
 
     private fun safeMessage(error: Throwable): String = error.message?.takeIf(String::isNotBlank) ?: "Telegram request failed."
+
+    private companion object {
+        const val CHAT_LOOKUP_CONCURRENCY = 8
+        const val SYNC_PAGE_SIZE = 100
+    }
 }
+
+private data class PersistedTelegramMessage(
+    val messageId: Long,
+    val created: Boolean,
+)
 
 private data class MutableSyncResult(
     var chatsSynced: Int = 0,

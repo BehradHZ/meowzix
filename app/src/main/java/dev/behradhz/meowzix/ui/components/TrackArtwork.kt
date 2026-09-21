@@ -1,7 +1,10 @@
 package dev.behradhz.meowzix.ui.components
 
+import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -28,30 +31,42 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-@Composable
-private fun rememberArtworkBitmap(artworkRef: String?): ImageBitmap? {
-    val context = LocalContext.current
-    var bitmap by remember(artworkRef) { mutableStateOf<ImageBitmap?>(null) }
+private val artworkCache = object : LruCache<String, Bitmap>(ARTWORK_CACHE_KB) {
+    override fun sizeOf(key: String, value: Bitmap): Int =
+        (value.allocationByteCount / 1024).coerceAtLeast(1)
+}
 
-    LaunchedEffect(artworkRef) {
-        bitmap = if (artworkRef == null) {
-            null
-        } else {
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openInputStream(Uri.parse(artworkRef))?.use { stream ->
-                        BitmapFactory.decodeStream(stream)?.asImageBitmap()
-                    }
-                }.getOrNull()
-            }
+@Composable
+private fun rememberArtworkBitmap(
+    artworkRef: String?,
+    targetSizePx: Int,
+): ImageBitmap? {
+    val context = LocalContext.current
+    val cacheKey = artworkRef?.let { "$it@$targetSizePx" }
+    var bitmap by remember(cacheKey) { mutableStateOf<Bitmap?>(cacheKey?.let(artworkCache::get)) }
+
+    LaunchedEffect(cacheKey) {
+        if (cacheKey == null || artworkRef == null) {
+            bitmap = null
+            return@LaunchedEffect
+        }
+        artworkCache.get(cacheKey)?.let {
+            bitmap = it
+            return@LaunchedEffect
+        }
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching { decodeSampledBitmap(context, Uri.parse(artworkRef), targetSizePx) }
+                .getOrNull()
+                ?.also { decoded -> artworkCache.put(cacheKey, decoded) }
         }
     }
-    return bitmap
+    return bitmap?.asImageBitmap()
 }
 
 @Composable
@@ -61,7 +76,9 @@ fun TrackArtwork(
     size: Dp = 48.dp,
     modifier: Modifier = Modifier,
 ) {
-    val bitmap = rememberArtworkBitmap(artworkRef)
+    val density = LocalDensity.current
+    val targetSizePx = with(density) { size.roundToPx().coerceAtLeast(1) }
+    val bitmap = rememberArtworkBitmap(artworkRef, targetSizePx)
 
     Box(
         modifier = modifier
@@ -99,7 +116,7 @@ fun TrackArtworkBackdrop(
     artworkRef: String?,
     modifier: Modifier = Modifier,
 ) {
-    val bitmap = rememberArtworkBitmap(artworkRef)
+    val bitmap = rememberArtworkBitmap(artworkRef, BACKDROP_TARGET_PX)
 
     Box(
         modifier = modifier.background(Color(0xFF121212)),
@@ -146,3 +163,27 @@ fun TrackArtworkBackdrop(
         )
     }
 }
+
+private fun decodeSampledBitmap(context: Context, uri: Uri, targetSizePx: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { stream ->
+        BitmapFactory.decodeStream(stream, null, bounds)
+    }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sampleSize = 1
+    while (
+        bounds.outWidth / (sampleSize * 2) >= targetSizePx &&
+        bounds.outHeight / (sampleSize * 2) >= targetSizePx
+    ) {
+        sampleSize *= 2
+    }
+
+    val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+    return context.contentResolver.openInputStream(uri)?.use { stream ->
+        BitmapFactory.decodeStream(stream, null, options)
+    }
+}
+
+private const val ARTWORK_CACHE_KB = 24 * 1024
+private const val BACKDROP_TARGET_PX = 1024

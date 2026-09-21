@@ -26,12 +26,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.guava.await
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 @Singleton
 class AndroidPlaybackController @Inject constructor(
@@ -51,11 +51,20 @@ class AndroidPlaybackController @Inject constructor(
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
-            updateState(player)
+            updatePlaybackState(player)
+            if (
+                events.containsAny(
+                    Player.EVENT_TIMELINE_CHANGED,
+                    Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    Player.EVENT_REPEAT_MODE_CHANGED,
+                )
+            ) {
+                updateQueueState(player)
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            updateState(controller, error.message ?: "Unable to play this track")
+            updatePlaybackState(controller, error.message ?: "Unable to play this track")
         }
     }
 
@@ -65,7 +74,8 @@ class AndroidPlaybackController @Inject constructor(
                 .onSuccess { connected ->
                     controller = connected
                     connected.addListener(listener)
-                    updateState(connected)
+                    updatePlaybackState(connected)
+                    updateQueueState(connected)
                 }
                 .onFailure { error ->
                     _state.value = PlaybackState(
@@ -77,7 +87,7 @@ class AndroidPlaybackController @Inject constructor(
         scope.launch {
             while (isActive) {
                 delay(POSITION_UPDATE_INTERVAL_MS)
-                controller?.let(::updateState)
+                controller?.let(::updatePlaybackState)
             }
         }
     }
@@ -236,7 +246,7 @@ class AndroidPlaybackController @Inject constructor(
         }
     }
 
-    private fun updateState(player: Player?, errorMessage: String? = player?.playerError?.message) {
+    private fun updatePlaybackState(player: Player?, errorMessage: String? = player?.playerError?.message) {
         if (player == null) return
         val mediaItem = player.currentMediaItem
         val trackId = mediaItem?.mediaId?.let { mediaId ->
@@ -272,6 +282,9 @@ class AndroidPlaybackController @Inject constructor(
             canSkipNext = player.hasNextMediaItem(),
             errorMessage = errorMessage,
         )
+    }
+
+    private fun updateQueueState(player: Player) {
         _queueState.value = QueueState(
             items = (0 until player.mediaItemCount).mapNotNull { index ->
                 val item = player.getMediaItemAt(index)

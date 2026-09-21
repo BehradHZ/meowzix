@@ -26,7 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-@UnstableApi
+@OptIn(UnstableApi::class)
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
     @Inject lateinit var stateStore: PlaybackStateStore
@@ -36,7 +36,8 @@ class PlaybackService : MediaSessionService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
-    private var persistJob: Job? = null
+    private var sessionPersistJob: Job? = null
+    private var positionPersistJob: Job? = null
     private var isRestoring = true
     private var isChangingShuffleCycle = false
 
@@ -53,17 +54,22 @@ class PlaybackService : MediaSessionService() {
             ) {
                 startNextPureShuffleCycle()
             }
-            if (
+
+            val queueChanged = events.containsAny(
+                Player.EVENT_TIMELINE_CHANGED,
+                Player.EVENT_REPEAT_MODE_CHANGED,
+            )
+            if (queueChanged) {
+                scheduleSessionPersist()
+            } else if (
                 events.containsAny(
                     Player.EVENT_MEDIA_ITEM_TRANSITION,
                     Player.EVENT_PLAY_WHEN_READY_CHANGED,
                     Player.EVENT_POSITION_DISCONTINUITY,
-                    Player.EVENT_REPEAT_MODE_CHANGED,
-                    Player.EVENT_TIMELINE_CHANGED,
                     Player.EVENT_PLAYBACK_STATE_CHANGED,
                 )
             ) {
-                schedulePersist()
+                schedulePositionPersist()
             }
         }
 
@@ -77,7 +83,7 @@ class PlaybackService : MediaSessionService() {
                 player.pause()
                 player.stop()
             }
-            schedulePersist()
+            schedulePositionPersist()
         }
     }
 
@@ -99,7 +105,7 @@ class PlaybackService : MediaSessionService() {
             restoreSession()
             while (isActive) {
                 delay(POSITION_SAVE_INTERVAL_MS)
-                if (player.isPlaying) persistNow()
+                if (player.isPlaying) persistPositionNow()
             }
         }
     }
@@ -129,20 +135,29 @@ class PlaybackService : MediaSessionService() {
         isRestoring = false
     }
 
-    private fun schedulePersist() {
+    private fun scheduleSessionPersist() {
         if (isRestoring) return
-        persistJob?.cancel()
-        persistJob = serviceScope.launch {
-            delay(PERSIST_DEBOUNCE_MS)
-            persistNow()
+        sessionPersistJob?.cancel()
+        sessionPersistJob = serviceScope.launch {
+            delay(SESSION_PERSIST_DEBOUNCE_MS)
+            persistSessionNow()
         }
     }
 
-    private suspend fun persistNow() {
+    private fun schedulePositionPersist() {
+        if (isRestoring) return
+        positionPersistJob?.cancel()
+        positionPersistJob = serviceScope.launch {
+            delay(POSITION_PERSIST_DEBOUNCE_MS)
+            persistPositionNow()
+        }
+    }
+
+    private suspend fun persistSessionNow() {
         val items = (0 until player.mediaItemCount)
             .mapNotNull { index -> player.getMediaItemAt(index).toPersistedPlaybackItem() }
         val firstItem = player.takeIf { it.mediaItemCount > 0 }?.getMediaItemAt(0)
-        stateStore.save(
+        stateStore.saveSession(
             PersistedPlaybackSession(
                 items = items,
                 currentIndex = player.currentMediaItemIndex.coerceAtLeast(0),
@@ -150,6 +165,13 @@ class PlaybackService : MediaSessionService() {
                 playbackMode = firstItem?.playbackMode() ?: PlaybackMode.ORDERED,
                 repeatMode = firstItem?.repeatMode() ?: RepeatMode.OFF,
             ),
+        )
+    }
+
+    private suspend fun persistPositionNow() {
+        stateStore.savePosition(
+            currentIndex = player.currentMediaItemIndex.coerceAtLeast(0),
+            positionMs = player.currentPosition.coerceAtLeast(0),
         )
     }
 
@@ -178,7 +200,7 @@ class PlaybackService : MediaSessionService() {
                 }
                 if (eligibleItems.isEmpty()) {
                     player.clearMediaItems()
-                    schedulePersist()
+                    scheduleSessionPersist()
                     return@launch
                 }
                 val previousLastItem = eligibleItems.firstOrNull { it.mediaId == previousLastId }
@@ -191,7 +213,7 @@ class PlaybackService : MediaSessionService() {
                 player.setMediaItems(nextCycle, 0, 0)
                 player.prepare()
                 if (shouldContinue) player.play()
-                schedulePersist()
+                scheduleSessionPersist()
             } finally {
                 isChangingShuffleCycle = false
             }
@@ -199,8 +221,9 @@ class PlaybackService : MediaSessionService() {
     }
 
     private companion object {
-        const val PERSIST_DEBOUNCE_MS = 250L
-        const val POSITION_SAVE_INTERVAL_MS = 1_000L
+        const val SESSION_PERSIST_DEBOUNCE_MS = 250L
+        const val POSITION_PERSIST_DEBOUNCE_MS = 500L
+        const val POSITION_SAVE_INTERVAL_MS = 10_000L
     }
 }
 
