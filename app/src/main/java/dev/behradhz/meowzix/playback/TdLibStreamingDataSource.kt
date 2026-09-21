@@ -164,13 +164,29 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         repeat(MAX_WAIT_POLLS) {
             val file = client.send(TdApi.GetFile(fileId))
             val local = file.local
-            val physicalLength = local.path.takeIf(String::isNotBlank)?.let(::File)?.length() ?: 0L
-            if (local.isDownloadingCompleted) {
-                return maxOf(physicalLength, file.size.toLong().coerceAtLeast(0L))
+            val physicalLength = local.path
+                .takeIf(String::isNotBlank)
+                ?.let(::File)
+                ?.takeIf(File::isFile)
+                ?.length()
+                ?: 0L
+
+            if (local.isDownloadingCompleted && physicalLength > position) {
+                return physicalLength
             }
+
             val rangeStart = local.downloadOffset.toLong()
             val rangeEnd = rangeStart + local.downloadedPrefixSize.toLong().coerceAtLeast(0L)
-            if (position in rangeStart until rangeEnd) return min(rangeEnd, physicalLength.coerceAtLeast(rangeEnd))
+            val usableEnd = min(rangeEnd, physicalLength)
+            if (position >= rangeStart && position < usableEnd) return usableEnd
+
+            if (local.isDownloadingCompleted) {
+                // TDLib says the transfer is done but the filesystem has not exposed the final
+                // bytes yet. Give it a few polls instead of reporting a false readable range.
+                delay(POLL_INTERVAL_MS)
+                return@repeat
+            }
+
             if (!rangeRequested) {
                 requestRange(client, position)
                 rangeRequested = true
