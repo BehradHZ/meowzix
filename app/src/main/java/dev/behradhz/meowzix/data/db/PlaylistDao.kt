@@ -21,6 +21,9 @@ interface PlaylistDao {
     @Upsert
     suspend fun upsertPlaylist(playlist: PlaylistEntity)
 
+    @Query("UPDATE playlists SET title = :title, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
+    suspend fun renamePlaylist(playlistId: String, title: String, updatedAt: Long)
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTrack(entry: PlaylistTrackEntity): Long
 
