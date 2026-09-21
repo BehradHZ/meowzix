@@ -1,6 +1,9 @@
 package dev.behradhz.meowzix.data.repository
 
+import android.content.Context
+import android.net.Uri
 import androidx.room.withTransaction
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.core.common.TextNormalizer
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.Track
@@ -13,27 +16,40 @@ import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.ScannedLocalTrack
+import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
+import dev.behradhz.meowzix.data.telegram.toAudioCandidate
 import dev.behradhz.meowzix.domain.library.LibraryTrack
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
+import java.io.File
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import org.drinkless.tdlib.TdApi
 
 @Singleton
 class LocalMusicLibraryRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val database: MeowzixDatabase,
     private val dao: LibraryDao,
     private val telegramDao: TelegramDao,
     private val scanner: LocalMediaScanner,
 ) : MusicLibraryRepository, PlaybackCatalog {
+    private val artworkScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val artworkAttempts = ConcurrentHashMap.newKeySet<String>()
+    private val previewDirectory = File(context.cacheDir, "artwork-preview")
 
     override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableTracks().map { rows ->
         rows.map(TrackEntity::toDomain)
@@ -104,6 +120,43 @@ class LocalMusicLibraryRepository @Inject constructor(
 
     override suspend fun setFavorite(trackId: UUID, favorite: Boolean) {
         dao.setFavorite(trackId.toString(), favorite, Instant.now().toEpochMilli())
+    }
+
+    override fun prefetchArtwork(trackIds: List<UUID>) {
+        val requested = trackIds.map(UUID::toString).filter(artworkAttempts::add)
+        if (requested.isEmpty()) return
+        artworkScope.launch {
+            val client = TdLibClientAdapter.activeOrNull() ?: return@launch
+            val wanted = requested.toSet()
+            val tracksById = dao.allTracks().filter { it.id in wanted }.associateBy { it.id }
+            val sources = dao.allSources().filter {
+                it.trackId in wanted &&
+                    it.type == TrackSourceType.TELEGRAM_REMOTE &&
+                    it.availability != SourceAvailability.MISSING
+            }
+            val telegramBySource = telegramDao.allTelegramTrackSources().associateBy { it.trackSourceId }
+            previewDirectory.mkdirs()
+
+            for (source in sources) {
+                val track = tracksById[source.trackId] ?: continue
+                if (!track.artworkRef.isNullOrBlank()) continue
+                val telegram = telegramBySource[source.id] ?: continue
+                val message = runCatching {
+                    client.send(TdApi.GetMessage(telegram.chatId, telegram.messageId))
+                }.getOrNull() ?: continue
+                val bytes = message.toAudioCandidate()?.artworkMinithumbnail ?: continue
+                if (bytes.isEmpty()) continue
+                val file = File(previewDirectory, "${track.id}.jpg")
+                runCatching {
+                    file.writeBytes(bytes)
+                    dao.setArtworkRef(
+                        trackId = track.id,
+                        artworkRef = Uri.fromFile(file).toString(),
+                        updatedAt = Instant.now().toEpochMilli(),
+                    )
+                }
+            }
+        }
     }
 
     override suspend fun availableLocalTracks(): List<PlayableTrack> =
