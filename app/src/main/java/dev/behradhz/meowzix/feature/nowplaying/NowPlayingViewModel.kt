@@ -28,8 +28,11 @@ class NowPlayingViewModel @Inject constructor(
         audioVisualizerRepository.setCaptureEnabled(enabled)
 
     fun togglePlaybackMode() = queueRepository.setPlaybackMode(
-        if (state.value.playbackMode == PlaybackMode.ORDERED) PlaybackMode.PURE_SHUFFLE
-        else PlaybackMode.ORDERED,
+        when (state.value.playbackMode) {
+            PlaybackMode.ORDERED -> PlaybackMode.PURE_SHUFFLE
+            PlaybackMode.PURE_SHUFFLE -> PlaybackMode.SMART_SHUFFLE
+            PlaybackMode.SMART_SHUFFLE -> PlaybackMode.ORDERED
+        },
     )
 
     fun cycleRepeatMode() = queueRepository.setRepeatMode(

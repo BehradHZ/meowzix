@@ -158,6 +158,7 @@ class ResolvingPlaybackController @Inject constructor(
             if (newTrackId != null) {
                 val initiator = nextInitiator ?: when (playback.playbackMode) {
                     PlaybackMode.PURE_SHUFFLE -> PlaybackInitiator.PURE_SHUFFLE
+                    PlaybackMode.SMART_SHUFFLE -> PlaybackInitiator.SMART_SHUFFLE
                     PlaybackMode.ORDERED -> PlaybackInitiator.QUEUE
                 }
                 if (settingsRepository.networkPlaybackSettings.first().listeningHistoryEnabled) {

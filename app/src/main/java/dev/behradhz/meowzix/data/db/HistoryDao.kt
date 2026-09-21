@@ -28,6 +28,11 @@ interface HistoryDao {
     @Query("SELECT * FROM track_time_preferences WHERE trackId = :trackId AND timeBucket = :bucket LIMIT 1")
     suspend fun timeStats(trackId: String, bucket: String): TrackTimePreferenceEntity?
 
+    @Query("SELECT * FROM track_preference_stats") suspend fun allTrackStats(): List<TrackPreferenceStatsEntity>
+    @Query("SELECT * FROM track_time_preferences WHERE timeBucket = :bucket") suspend fun timeStatsForBucket(bucket: String): List<TrackTimePreferenceEntity>
+    @Query("SELECT * FROM listening_events WHERE type IN ('PLAY_STARTED', 'SKIPPED_EARLY') ORDER BY occurredAtEpochMs DESC LIMIT :limit")
+    suspend fun recentSelectionEvents(limit: Int): List<ListeningEventEntity>
+
     @Query("DELETE FROM listening_events") suspend fun clearEvents()
     @Query("DELETE FROM listening_sessions") suspend fun clearSessions()
     @Query("DELETE FROM track_preference_stats") suspend fun clearTrackStats()

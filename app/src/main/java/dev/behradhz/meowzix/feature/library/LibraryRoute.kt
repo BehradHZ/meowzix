@@ -847,6 +847,7 @@ private fun PlaylistsSection(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { onPlay(PlaybackMode.ORDERED) }) { Text("Play ordered") }
                     Button(onClick = { onPlay(PlaybackMode.PURE_SHUFFLE) }) { Text("Pure shuffle") }
+                    Button(onClick = { onPlay(PlaybackMode.SMART_SHUFFLE) }) { Text("Smart shuffle") }
                 }
             }
             items(tracks.size, key = { tracks[it].id }) { index ->

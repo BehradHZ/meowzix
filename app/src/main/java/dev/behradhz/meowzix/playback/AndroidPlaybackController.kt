@@ -19,6 +19,10 @@ import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
+import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
+import java.time.Instant
+import java.time.ZoneId
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -37,6 +41,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class AndroidPlaybackController @Inject constructor(
     @ApplicationContext context: Context,
     private val catalog: PlaybackCatalog,
+    private val recommendationEngine: RecommendationEngine,
 ) : PlaybackController, QueueRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(PlaybackState(status = PlaybackStatus.PREPARING))
@@ -96,7 +101,12 @@ class AndroidPlaybackController @Inject constructor(
                 showError("This track is no longer available")
                 return@launch
             }
-            withController { connected ->
+            val connected = runCatching { controller ?: controllerFuture.await().also { controller = it } }
+                .getOrElse { error ->
+                    showError(error.message ?: "Playback is unavailable")
+                    return@launch
+                }
+            run {
                 connected.repeatMode = Player.REPEAT_MODE_OFF
                 connected.setMediaItems(
                     tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
@@ -153,6 +163,14 @@ class AndroidPlaybackController @Inject constructor(
             val tracks = when (mode) {
                 PlaybackMode.ORDERED -> requested
                 PlaybackMode.PURE_SHUFFLE -> PureShuffleEngine.newCycle(requested).order
+                PlaybackMode.SMART_SHUFFLE -> {
+                    val ids = recommendationEngine.generate(
+                        allowedTrackIds = requested.map { it.id },
+                        timeBucket = currentTimeBucket(),
+                    ).trackIds
+                    val requestedById = requested.associateBy { it.id }
+                    ids.mapNotNull(requestedById::get)
+                }
             }
             if (tracks.isEmpty()) return@launch showError("No playlist tracks are available")
             withController { connected ->
@@ -183,7 +201,12 @@ class AndroidPlaybackController @Inject constructor(
                     showError(error.message ?: "Unable to load the playback queue")
                     return@launch
                 }
-            withController { connected ->
+            val connected = runCatching { controller ?: controllerFuture.await().also { controller = it } }
+                .getOrElse { error ->
+                    showError(error.message ?: "Playback is unavailable")
+                    return@launch
+                }
+            run {
                 val repeatMode = connected.queueRepeatMode()
                 val currentId = connected.currentMediaItem?.mediaId
                 val position = connected.currentPosition.coerceAtLeast(0)
@@ -199,13 +222,25 @@ class AndroidPlaybackController @Inject constructor(
                             shuffled
                         }
                     }
+                    PlaybackMode.SMART_SHUFFLE -> {
+                        val currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                        val ids = recommendationEngine.generate(
+                            allowedTrackIds = tracks.map { it.id },
+                            currentTrackId = currentTrackId,
+                            timeBucket = currentTimeBucket(),
+                        ).trackIds
+                        val tracksById = tracks.associateBy { it.id }
+                        val recommended = ids.mapNotNull(tracksById::get)
+                        val current = currentTrackId?.let(tracksById::get)
+                        if (current != null) listOf(current) + recommended.filterNot { it.id == current.id } else recommended
+                    }
                 }
                 if (orderedTracks.isEmpty()) {
                     connected.clearMediaItems()
-                    return@withController
+                    return@run
                 }
                 val startIndex = when (mode) {
-                    PlaybackMode.PURE_SHUFFLE -> 0
+                    PlaybackMode.PURE_SHUFFLE, PlaybackMode.SMART_SHUFFLE -> 0
                     PlaybackMode.ORDERED -> orderedTracks.indexOfFirst { it.id.toString() == currentId }
                         .coerceAtLeast(0)
                 }
@@ -350,6 +385,8 @@ private fun replaceQueuePolicy(player: MediaController, playbackMode: PlaybackMo
 
 private fun RepeatMode.toPlayerRepeatMode(playbackMode: PlaybackMode): Int = when {
     this == RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-    this == RepeatMode.ALL && playbackMode == PlaybackMode.ORDERED -> Player.REPEAT_MODE_ALL
+    this == RepeatMode.ALL && playbackMode != PlaybackMode.PURE_SHUFFLE -> Player.REPEAT_MODE_ALL
     else -> Player.REPEAT_MODE_OFF
 }
+
+private fun currentTimeBucket() = ListeningEventSemantics.timeContext(Instant.now(), ZoneId.systemDefault()).bucket

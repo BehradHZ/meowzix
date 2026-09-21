@@ -470,12 +470,12 @@ private fun PlaybackControls(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ModeIconButton(
-            selected = state.playbackMode == PlaybackMode.PURE_SHUFFLE,
+            selected = state.playbackMode != PlaybackMode.ORDERED,
             onClick = onTogglePlaybackMode,
-            contentDescription = if (state.playbackMode == PlaybackMode.PURE_SHUFFLE) {
-                "Pure shuffle on"
-            } else {
-                "Ordered playback"
+            contentDescription = when (state.playbackMode) {
+                PlaybackMode.ORDERED -> "Ordered playback"
+                PlaybackMode.PURE_SHUFFLE -> "Pure shuffle on"
+                PlaybackMode.SMART_SHUFFLE -> "Smart shuffle on"
             },
         ) {
             Icon(Icons.Rounded.Shuffle, contentDescription = null)

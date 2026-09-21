@@ -207,6 +207,6 @@ class PlaybackService : MediaSessionService() {
 
 private fun RepeatMode.toPlayerRepeatMode(playbackMode: PlaybackMode): Int = when {
     this == RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-    this == RepeatMode.ALL && playbackMode == PlaybackMode.ORDERED -> Player.REPEAT_MODE_ALL
+    this == RepeatMode.ALL && playbackMode != PlaybackMode.PURE_SHUFFLE -> Player.REPEAT_MODE_ALL
     else -> Player.REPEAT_MODE_OFF
 }
