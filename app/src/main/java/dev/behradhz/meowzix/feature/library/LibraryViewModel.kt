@@ -8,7 +8,9 @@ import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackState
+import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +25,7 @@ data class LibraryUiState(
     val lastRefresh: LocalLibraryRefreshResult? = null,
     val errorMessage: String? = null,
     val playback: PlaybackState = PlaybackState(),
+    val preparingTrackId: UUID? = null,
 )
 
 @HiltViewModel
@@ -41,7 +44,19 @@ class LibraryViewModel @Inject constructor(
                 .collect { tracks -> _state.update { it.copy(tracks = tracks, errorMessage = null) } }
         }
         viewModelScope.launch {
-            playbackController.state.collect { playback -> _state.update { it.copy(playback = playback) } }
+            playbackController.state.collect { playback ->
+                _state.update { current ->
+                    val preparing = current.preparingTrackId
+                    val finishedPreparing = preparing != null && (
+                        playback.status == PlaybackStatus.ERROR ||
+                            playback.currentTrack?.id == preparing
+                        )
+                    current.copy(
+                        playback = playback,
+                        preparingTrackId = if (finishedPreparing) null else preparing,
+                    )
+                }
+            }
         }
     }
 
@@ -55,7 +70,11 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun playTrack(item: LibraryTrack) = playbackController.playTrack(item.track.id)
+    fun playTrack(item: LibraryTrack) {
+        _state.update { it.copy(preparingTrackId = item.track.id) }
+        playbackController.playTrack(item.track.id)
+    }
+
     fun playNext(item: LibraryTrack) = queueRepository.playNext(item.track.id)
     fun addToQueue(item: LibraryTrack) = queueRepository.addToQueue(item.track.id)
 }
