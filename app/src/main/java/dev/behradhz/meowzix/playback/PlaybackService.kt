@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.playback
 
+import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
@@ -26,7 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-@UnstableApi
+@OptIn(markerClass = [UnstableApi::class])
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
     @Inject lateinit var stateStore: PlaybackStateStore
