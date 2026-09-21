@@ -1,5 +1,9 @@
 package dev.behradhz.meowzix.playback
 
+import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
+import dev.behradhz.meowzix.domain.history.ListeningEventType
+import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
+import dev.behradhz.meowzix.domain.history.PlaybackInitiator
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -9,10 +13,6 @@ import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.playback.RepeatMode
-import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
-import dev.behradhz.meowzix.domain.history.PlaybackInitiator
-import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
-import dev.behradhz.meowzix.domain.history.ListeningEventType
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.util.UUID
 import javax.inject.Inject
@@ -24,8 +24,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @Singleton
@@ -41,8 +41,7 @@ class ResolvingPlaybackController @Inject constructor(
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
     override val queueState: StateFlow<QueueState> = delegate.queueState
 
-    @Volatile
-    private var resolvingRemote = false
+    @Volatile private var resolvingRemote = false
     @Volatile private var activeHistoryId: UUID? = null
     @Volatile private var historyTrackId: UUID? = null
     @Volatile private var lastPlaybackState = PlaybackState()
@@ -62,11 +61,20 @@ class ResolvingPlaybackController @Inject constructor(
                 .distinctUntilChanged()
                 .collect { nextTrackId ->
                     remoteResolver.cancelPrefetch()
-                    if (nextTrackId != null) {
-                        val local = runCatching {
-                            catalog.availableLocalTracks().any { it.id == nextTrackId }
-                        }.getOrDefault(false)
-                        if (!local) remoteResolver.prefetch(nextTrackId)
+                    if (nextTrackId != null && !isLocal(nextTrackId)) {
+                        remoteResolver.prefetch(nextTrackId)
+                    }
+                }
+        }
+        scope.launch {
+            delegate.state
+                .map { it.currentTrack?.id }
+                .distinctUntilChanged()
+                .collect { currentTrackId ->
+                    if (currentTrackId != null && !isLocal(currentTrackId)) {
+                        // Automatic queue transitions bypass playTrack(). Warm the current remote
+                        // item too so its full download is promoted to permanent app storage.
+                        runCatching { remoteResolver.prepareForPlayback(currentTrackId) }
                     }
                 }
         }
@@ -89,19 +97,24 @@ class ResolvingPlaybackController @Inject constructor(
     override fun addToQueue(trackId: UUID) = delegate.addToQueue(trackId)
 
     override fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode) {
+        val start = trackIds.firstOrNull()
+        if (start == null) return
+        replaceAndPlay(trackIds, start, mode)
+    }
+
+    override fun replaceAndPlay(trackIds: List<UUID>, startTrackId: UUID, mode: PlaybackMode) {
         nextInitiator = PlaybackInitiator.USER
         intentionalSkip = historyTrackId != null
         scope.launch {
             resolvingRemote = true
             _state.value = delegate.state.value.copy(status = PlaybackStatus.PREPARING, errorMessage = null)
             runCatching {
-                val localIds = catalog.availableLocalTracks().mapTo(mutableSetOf()) { it.id }
-                trackIds.filterNot(localIds::contains).forEach { remoteResolver.prepareForPlayback(it) }
-                delegate.replaceAndPlay(trackIds, mode)
+                if (!isLocal(startTrackId)) remoteResolver.prepareForPlayback(startTrackId)
+                delegate.replaceAndPlay(trackIds, startTrackId, mode)
             }.onFailure { error ->
                 _state.value = delegate.state.value.copy(
                     status = PlaybackStatus.ERROR,
-                    errorMessage = error.message ?: "Unable to prepare playlist.",
+                    errorMessage = error.message ?: "Unable to prepare queue.",
                 )
             }
             resolvingRemote = false
@@ -168,8 +181,13 @@ class ResolvingPlaybackController @Inject constructor(
             }
         }
         val playbackId = activeHistoryId
-        if (playbackId != null && playback.durationMs > 0L &&
-            ListeningEventSemantics.outcome(playback.positionMs, playback.durationMs, false) == ListeningEventType.PLAY_COMPLETED
+        if (
+            playbackId != null && playback.durationMs > 0L &&
+            ListeningEventSemantics.outcome(
+                playback.positionMs,
+                playback.durationMs,
+                false,
+            ) == ListeningEventType.PLAY_COMPLETED
         ) {
             history.finalizePlayback(playbackId, playback.positionMs, playback.durationMs, false)
             activeHistoryId = null
@@ -180,10 +198,7 @@ class ResolvingPlaybackController @Inject constructor(
     private fun resolveAndPlayNow(trackId: UUID) {
         scope.launch {
             if (resolvingRemote) return@launch
-            val isAlreadyLocal = runCatching {
-                catalog.availableLocalTracks().any { it.id == trackId }
-            }.getOrDefault(false)
-            if (isAlreadyLocal) {
+            if (isLocal(trackId)) {
                 delegate.playNow(trackId)
                 return@launch
             }
@@ -210,9 +225,13 @@ class ResolvingPlaybackController @Inject constructor(
                     _state.value = delegate.state.value.copy(
                         status = PlaybackStatus.ERROR,
                         errorMessage = error.message?.takeIf(String::isNotBlank)
-                            ?: "Unable to download this Telegram track.",
+                            ?: "Unable to buffer this Telegram track.",
                     )
                 }
         }
     }
+
+    private suspend fun isLocal(trackId: UUID): Boolean = runCatching {
+        catalog.availableLocalTracks().any { it.id == trackId }
+    }.getOrDefault(false)
 }
