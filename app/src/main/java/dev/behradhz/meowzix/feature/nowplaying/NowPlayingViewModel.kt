@@ -12,6 +12,8 @@ import dev.behradhz.meowzix.domain.playback.RepeatMode
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -22,7 +24,10 @@ class NowPlayingViewModel @Inject constructor(
     private val audioVisualizerRepository: AudioVisualizerRepository,
     private val libraryRepository: MusicLibraryRepository,
 ) : ViewModel() {
-    val state = combine(playbackController.state, libraryRepository.observeTracks()) { playback, tracks ->
+    val state = combine(
+        playbackController.state,
+        libraryRepository.observeTracks(),
+    ) { playback, tracks ->
         val current = playback.currentTrack ?: return@combine playback
         val liveTrack = tracks.firstOrNull { it.id == current.id } ?: return@combine playback
         playback.copy(
@@ -37,21 +42,48 @@ class NowPlayingViewModel @Inject constructor(
         SharingStarted.WhileSubscribed(5_000),
         playbackController.state.value,
     )
+
     val queueState = queueRepository.queueState
     val spectrum = audioVisualizerRepository.spectrum
-    val isFavorite = combine(state, libraryRepository.observeTracks()) { playback, tracks ->
+
+    val isFavorite = combine(
+        state,
+        libraryRepository.observeTracks(),
+    ) { playback, tracks ->
         val id = playback.currentTrack?.id
         id != null && tracks.firstOrNull { it.id == id }?.favorite == true
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        false,
+    )
+
+    init {
+        viewModelScope.launch {
+            playbackController.state
+                .map { it.currentTrack?.id }
+                .distinctUntilChanged()
+                .collect { trackId ->
+                    if (trackId != null) {
+                        libraryRepository.prefetchArtwork(listOf(trackId))
+                    }
+                }
+        }
+    }
 
     fun togglePlayPause() = playbackController.togglePlayPause()
+
     fun seekTo(positionMs: Long) = playbackController.seekTo(positionMs)
+
     fun previous() = playbackController.skipToPrevious()
+
     fun next() = playbackController.skipToNext()
 
     fun toggleFavorite() {
         val id = state.value.currentTrack?.id ?: return
-        viewModelScope.launch { libraryRepository.setFavorite(id, !isFavorite.value) }
+        viewModelScope.launch {
+            libraryRepository.setFavorite(id, !isFavorite.value)
+        }
     }
 
     fun togglePlaybackMode() = queueRepository.setPlaybackMode(
