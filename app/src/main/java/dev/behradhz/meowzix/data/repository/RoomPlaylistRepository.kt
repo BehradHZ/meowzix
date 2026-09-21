@@ -36,6 +36,15 @@ class RoomPlaylistRepository @Inject constructor(
         return id
     }
 
+    override suspend fun rename(playlistId: UUID, title: String) {
+        val normalized = title.trim().takeIf(String::isNotEmpty) ?: return
+        dao.renamePlaylist(
+            playlistId = playlistId.toString(),
+            title = normalized,
+            updatedAt = Instant.now().toEpochMilli(),
+        )
+    }
+
     override suspend fun delete(playlistId: UUID) = dao.deletePlaylist(playlistId.toString())
 
     override suspend fun addTrack(playlistId: UUID, trackId: UUID) {
@@ -69,9 +78,11 @@ class RoomPlaylistRepository @Inject constructor(
     private suspend fun rewrite(playlistId: UUID, trackIds: List<UUID>) {
         dao.clearTracks(playlistId.toString())
         val now = Instant.now().toEpochMilli()
-        dao.upsertTracks(trackIds.mapIndexed { index, trackId ->
-            PlaylistTrackEntity(playlistId.toString(), trackId.toString(), index, now)
-        })
+        dao.upsertTracks(
+            trackIds.mapIndexed { index, trackId ->
+                PlaylistTrackEntity(playlistId.toString(), trackId.toString(), index, now)
+            },
+        )
     }
 }
 
