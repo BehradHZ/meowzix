@@ -26,7 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-@OptIn(UnstableApi::class)
+@UnstableApi
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
     @Inject lateinit var stateStore: PlaybackStateStore
