@@ -100,6 +100,10 @@ class LocalMusicLibraryRepository @Inject constructor(
         UUID.fromString(newTrackId)
     }
 
+    override suspend fun setFavorite(trackId: UUID, favorite: Boolean) {
+        dao.setFavorite(trackId.toString(), favorite, Instant.now().toEpochMilli())
+    }
+
     override suspend fun availableLocalTracks(): List<PlayableTrack> =
         dao.availableLocalPlaybackRows().distinctBy { it.id }.map { row ->
             PlayableTrack(

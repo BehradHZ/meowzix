@@ -36,9 +36,16 @@ class MigrationTest {
         helper.runMigrationsAndValidate(TEST_DATABASE_3_4, 4, true, MIGRATION_3_4).close()
     }
 
+    @Test
+    fun migrateFourToFiveAddsPlaylistStorage() {
+        helper.createDatabase(TEST_DATABASE_4_5, 4).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_4_5, 5, true, MIGRATION_4_5).close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"
         const val TEST_DATABASE_3_4 = "migration-test-3-4"
+        const val TEST_DATABASE_4_5 = "migration-test-4-5"
     }
 }

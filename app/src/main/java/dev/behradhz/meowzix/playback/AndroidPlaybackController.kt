@@ -142,6 +142,28 @@ class AndroidPlaybackController @Inject constructor(
         }
     }
 
+    override fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode) {
+        scope.launch {
+            val byId = runCatching { catalog.availableLocalTracks().associateBy { it.id } }
+                .getOrElse { error ->
+                    showError(error.message ?: "Unable to load playlist")
+                    return@launch
+                }
+            val requested = trackIds.distinct().mapNotNull(byId::get)
+            val tracks = when (mode) {
+                PlaybackMode.ORDERED -> requested
+                PlaybackMode.PURE_SHUFFLE -> PureShuffleEngine.newCycle(requested).order
+            }
+            if (tracks.isEmpty()) return@launch showError("No playlist tracks are available")
+            withController { connected ->
+                connected.setMediaItems(tracks.map { it.toMediaItem(mode, RepeatMode.OFF) }, 0, 0)
+                connected.repeatMode = RepeatMode.OFF.toPlayerRepeatMode(mode)
+                connected.prepare()
+                connected.play()
+            }
+        }
+    }
+
     override fun removeAt(index: Int) = withController { connected ->
         if (index in 0 until connected.mediaItemCount) connected.removeMediaItem(index)
     }

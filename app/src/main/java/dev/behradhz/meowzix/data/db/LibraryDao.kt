@@ -64,6 +64,9 @@ interface LibraryDao {
 
     @Query("DELETE FROM track_sources WHERE id = :sourceId AND type = 'APP_OFFLINE_COPY'")
     suspend fun deleteOfflineSource(sourceId: String)
+
+    @Query("UPDATE tracks SET favorite = :favorite, updatedAtEpochMs = :updatedAt WHERE id = :trackId")
+    suspend fun setFavorite(trackId: String, favorite: Boolean, updatedAt: Long)
 }
 
 data class LocalPlaybackRow(

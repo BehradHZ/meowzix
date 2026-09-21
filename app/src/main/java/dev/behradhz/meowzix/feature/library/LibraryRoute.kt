@@ -20,6 +20,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +32,11 @@ import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.DownloadForOffline
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.PlaylistAddCircle
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
@@ -78,13 +86,19 @@ import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.core.permissions.AudioPermission
 import dev.behradhz.meowzix.core.permissions.AudioPermissionStatus
 import dev.behradhz.meowzix.core.permissions.audioPermissionStatus
+import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 
 private enum class LibrarySection(val label: String) {
     TRACKS("Tracks"),
     ARTISTS("Artists"),
     ALBUMS("Albums"),
+    FAVORITES("Favorites"),
+    PLAYLISTS("Playlists"),
 }
+
+private enum class AvailabilityFilter(val label: String) { ALL("All"), OFFLINE("Offline"), CLOUD("Cloud") }
 
 @Composable
 fun LibraryRoute(
@@ -145,6 +159,14 @@ fun LibraryRoute(
         onPlayNext = viewModel::playNext,
         onAddToQueue = viewModel::addToQueue,
         onPinOffline = viewModel::pinOffline,
+        onFavorite = viewModel::setFavorite,
+        onAddToPlaylist = viewModel::addToPlaylist,
+        onCreatePlaylist = viewModel::createPlaylist,
+        onSelectPlaylist = viewModel::selectPlaylist,
+        onMovePlaylistTrack = viewModel::movePlaylistTrack,
+        onRemovePlaylistTrack = viewModel::removePlaylistTrack,
+        onPlayPlaylist = viewModel::playSelectedPlaylist,
+        onSaveQueue = viewModel::saveQueueToPlaylist,
         onOpenTelegram = onOpenTelegram,
     )
 }
@@ -160,20 +182,37 @@ private fun LibraryScreen(
     onPlayNext: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
     onPinOffline: (Track) -> Unit,
+    onFavorite: (Track) -> Unit,
+    onAddToPlaylist: (Track, java.util.UUID) -> Unit,
+    onCreatePlaylist: () -> Unit,
+    onSelectPlaylist: (java.util.UUID) -> Unit,
+    onMovePlaylistTrack: (Int, Int) -> Unit,
+    onRemovePlaylistTrack: (Track) -> Unit,
+    onPlayPlaylist: (PlaybackMode) -> Unit,
+    onSaveQueue: () -> Unit,
     onOpenTelegram: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var selectedSectionIndex by rememberSaveable { mutableIntStateOf(0) }
+    var availabilityFilterIndex by rememberSaveable { mutableIntStateOf(0) }
     val selectedSection = LibrarySection.entries[selectedSectionIndex]
-    val filteredTracks = remember(state.tracks, query) {
+    val availabilityFilter = AvailabilityFilter.entries[availabilityFilterIndex]
+    val filteredTracks = remember(state.tracks, state.availability, query, availabilityFilter) {
         val normalizedQuery = query.trim()
-        if (normalizedQuery.isEmpty()) {
+        val searched = if (normalizedQuery.isEmpty()) {
             state.tracks
         } else {
             state.tracks.filter { track ->
                 track.title.contains(normalizedQuery, ignoreCase = true) ||
                     track.artist?.contains(normalizedQuery, ignoreCase = true) == true ||
                     track.album?.contains(normalizedQuery, ignoreCase = true) == true
+            }
+        }
+        searched.filter { track ->
+            when (availabilityFilter) {
+                AvailabilityFilter.ALL -> true
+                AvailabilityFilter.OFFLINE -> state.availability[track.id] == LibraryTrackAvailability.OFFLINE
+                AvailabilityFilter.CLOUD -> state.availability[track.id] == LibraryTrackAvailability.CLOUD
             }
         }
     }
@@ -190,7 +229,7 @@ private fun LibraryScreen(
             onOpenTelegram = onOpenTelegram,
         )
 
-        if (permissionStatus == AudioPermissionStatus.GRANTED) {
+        if (permissionStatus == AudioPermissionStatus.GRANTED || state.tracks.isNotEmpty()) {
             FrostedSearchField(
                 query = query,
                 onQueryChange = { query = it },
@@ -207,6 +246,23 @@ private fun LibraryScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AvailabilityFilter.entries.forEachIndexed { index, filter ->
+                    Surface(
+                        modifier = Modifier.clickable { availabilityFilterIndex = index },
+                        color = if (availabilityFilterIndex == index) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(14.dp),
+                    ) {
+                        Text(filter.label, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp))
+                    }
+                }
+            }
         }
 
         if (state.isRefreshing && state.tracks.isNotEmpty()) {
@@ -218,14 +274,14 @@ private fun LibraryScreen(
         }
 
         when {
-            permissionStatus == AudioPermissionStatus.REQUIRED -> LibraryMessagePanel(
+            permissionStatus == AudioPermissionStatus.REQUIRED && state.tracks.isEmpty() -> LibraryMessagePanel(
                 title = "Your music, in one place",
                 message = "Allow audio access so Meowzix can build the local side of your library.",
                 action = "Allow music access",
                 onAction = onRequestPermission,
             )
 
-            permissionStatus == AudioPermissionStatus.DENIED -> LibraryMessagePanel(
+            permissionStatus == AudioPermissionStatus.DENIED && state.tracks.isEmpty() -> LibraryMessagePanel(
                 title = "Music access is off",
                 message = "Turn audio access back on in Android settings. Telegram and app-owned music can still remain separate sources later.",
                 action = "Open settings",
@@ -268,10 +324,37 @@ private fun LibraryScreen(
                     onPlayNext = onPlayNext,
                     onAddToQueue = onAddToQueue,
                     onPinOffline = onPinOffline,
+                    availability = state.availability,
+                    playlists = state.playlists,
+                    onFavorite = onFavorite,
+                    onAddToPlaylist = onAddToPlaylist,
                 )
 
                 LibrarySection.ARTISTS -> ArtistsSection(filteredTracks)
                 LibrarySection.ALBUMS -> AlbumsSection(filteredTracks)
+                LibrarySection.FAVORITES -> TracksSection(
+                    tracks = filteredTracks.filter(Track::favorite),
+                    currentTrackId = state.playback.currentTrack?.id,
+                    onPlayTrack = onPlayTrack,
+                    onPlayNext = onPlayNext,
+                    onAddToQueue = onAddToQueue,
+                    onPinOffline = onPinOffline,
+                    availability = state.availability,
+                    playlists = state.playlists,
+                    onFavorite = onFavorite,
+                    onAddToPlaylist = onAddToPlaylist,
+                )
+                LibrarySection.PLAYLISTS -> PlaylistsSection(
+                    playlists = state.playlists,
+                    selectedPlaylistId = state.selectedPlaylistId,
+                    tracks = state.selectedPlaylistTracks,
+                    onCreate = onCreatePlaylist,
+                    onSelect = onSelectPlaylist,
+                    onMove = onMovePlaylistTrack,
+                    onRemove = onRemovePlaylistTrack,
+                    onPlay = onPlayPlaylist,
+                    onSaveQueue = onSaveQueue,
+                )
             }
         }
     }
@@ -421,6 +504,7 @@ private fun LibrarySectionSwitcher(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -428,7 +512,7 @@ private fun LibrarySectionSwitcher(
                 val selected = index == selectedIndex
                 Surface(
                     modifier = Modifier
-                        .weight(1f)
+                        .width(104.dp)
                         .height(38.dp)
                         .clickable { onSelected(index) },
                     shape = RoundedCornerShape(18.dp),
@@ -453,6 +537,8 @@ private fun LibrarySectionSwitcher(
                                 LibrarySection.TRACKS -> Icons.Rounded.MusicNote
                                 LibrarySection.ARTISTS -> Icons.Rounded.Person
                                 LibrarySection.ALBUMS -> Icons.Rounded.Album
+                                LibrarySection.FAVORITES -> Icons.Rounded.Favorite
+                                LibrarySection.PLAYLISTS -> Icons.Rounded.PlaylistAddCircle
                             },
                             contentDescription = null,
                             modifier = Modifier.size(17.dp),
@@ -478,6 +564,10 @@ private fun TracksSection(
     onPlayNext: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
     onPinOffline: (Track) -> Unit,
+    availability: Map<java.util.UUID, LibraryTrackAvailability>,
+    playlists: List<dev.behradhz.meowzix.domain.library.PlaylistSummary>,
+    onFavorite: (Track) -> Unit,
+    onAddToPlaylist: (Track, java.util.UUID) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -497,6 +587,10 @@ private fun TracksSection(
                 onPlayNext = { onPlayNext(track) },
                 onAddToQueue = { onAddToQueue(track) },
                 onPinOffline = { onPinOffline(track) },
+                availability = availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
+                playlists = playlists,
+                onFavorite = { onFavorite(track) },
+                onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
             )
         }
     }
@@ -510,6 +604,10 @@ private fun SwipeableTrackRow(
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onPinOffline: () -> Unit,
+    availability: LibraryTrackAvailability,
+    playlists: List<dev.behradhz.meowzix.domain.library.PlaylistSummary>,
+    onFavorite: () -> Unit,
+    onAddToPlaylist: (java.util.UUID) -> Unit,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -571,6 +669,10 @@ private fun SwipeableTrackRow(
             onPlayNext = onPlayNext,
             onAddToQueue = onAddToQueue,
             onPinOffline = onPinOffline,
+            availability = availability,
+            playlists = playlists,
+            onFavorite = onFavorite,
+            onAddToPlaylist = onAddToPlaylist,
         )
     }
 }
@@ -583,6 +685,10 @@ private fun TrackRow(
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onPinOffline: () -> Unit,
+    availability: LibraryTrackAvailability,
+    playlists: List<dev.behradhz.meowzix.domain.library.PlaylistSummary>,
+    onFavorite: () -> Unit,
+    onAddToPlaylist: (java.util.UUID) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -624,7 +730,7 @@ private fun TrackRow(
                     )
                 }
                 Text(
-                    text = track.artist ?: "Unknown artist",
+                    text = "${track.artist ?: "Unknown artist"} · ${availability.label}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
                     maxLines = 1,
@@ -666,6 +772,24 @@ private fun TrackRow(
                         },
                     )
                     DropdownMenuItem(
+                        text = { Text(if (track.favorite) "Remove favorite" else "Favorite") },
+                        leadingIcon = { Icon(if (track.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onFavorite()
+                        },
+                    )
+                    playlists.forEach { playlist ->
+                        DropdownMenuItem(
+                            text = { Text("Add to ${playlist.title}") },
+                            leadingIcon = { Icon(Icons.Rounded.PlaylistAddCircle, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                onAddToPlaylist(playlist.id)
+                            },
+                        )
+                    }
+                    DropdownMenuItem(
                         text = { Text("Pin offline") },
                         leadingIcon = { Icon(Icons.Rounded.DownloadForOffline, contentDescription = null) },
                         onClick = {
@@ -673,6 +797,69 @@ private fun TrackRow(
                             onPinOffline()
                         },
                     )
+                }
+            }
+        }
+    }
+}
+
+private val LibraryTrackAvailability.label: String
+    get() = when (this) {
+        LibraryTrackAvailability.OFFLINE -> "Offline"
+        LibraryTrackAvailability.CLOUD -> "Cloud"
+        LibraryTrackAvailability.UNAVAILABLE -> "Unavailable"
+    }
+
+@Composable
+private fun PlaylistsSection(
+    playlists: List<dev.behradhz.meowzix.domain.library.PlaylistSummary>,
+    selectedPlaylistId: java.util.UUID?,
+    tracks: List<Track>,
+    onCreate: () -> Unit,
+    onSelect: (java.util.UUID) -> Unit,
+    onMove: (Int, Int) -> Unit,
+    onRemove: (Track) -> Unit,
+    onPlay: (PlaybackMode) -> Unit,
+    onSaveQueue: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 182.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onCreate) { Text("New playlist") }
+                Button(onClick = onSaveQueue) { Text("Save queue") }
+            }
+        }
+        items(playlists, key = { it.id }) { playlist ->
+            Surface(
+                modifier = Modifier.fillMaxWidth().clickable { onSelect(playlist.id) },
+                color = if (selectedPlaylistId == playlist.id) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text("${playlist.title} · ${playlist.trackCount} tracks", modifier = Modifier.padding(12.dp))
+            }
+        }
+        if (selectedPlaylistId != null && tracks.isNotEmpty()) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { onPlay(PlaybackMode.ORDERED) }) { Text("Play ordered") }
+                    Button(onClick = { onPlay(PlaybackMode.PURE_SHUFFLE) }) { Text("Pure shuffle") }
+                }
+            }
+            items(tracks.size, key = { tracks[it].id }) { index ->
+                val track = tracks[index]
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(track.title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    IconButton(onClick = { onMove(index, index - 1) }, enabled = index > 0) {
+                        Icon(Icons.Rounded.ArrowUpward, contentDescription = "Move up")
+                    }
+                    IconButton(onClick = { onMove(index, index + 1) }, enabled = index < tracks.lastIndex) {
+                        Icon(Icons.Rounded.ArrowDownward, contentDescription = "Move down")
+                    }
+                    Button(onClick = { onRemove(track) }) { Text("Remove") }
                 }
             }
         }

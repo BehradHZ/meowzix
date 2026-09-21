@@ -23,6 +23,7 @@ interface QueueRepository {
     fun playNow(trackId: UUID)
     fun playNext(trackId: UUID)
     fun addToQueue(trackId: UUID)
+    fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode)
     fun removeAt(index: Int)
     fun move(fromIndex: Int, toIndex: Int)
     fun clear()

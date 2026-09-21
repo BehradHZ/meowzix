@@ -23,4 +23,5 @@ interface MusicLibraryRepository {
     fun observeLibraryTracks(): Flow<List<LibraryTrack>>
     suspend fun refreshLocalMusic(): LocalLibraryRefreshResult
     suspend fun unmergeSource(sourceId: UUID): UUID
+    suspend fun setFavorite(trackId: UUID, favorite: Boolean)
 }

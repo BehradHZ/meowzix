@@ -66,6 +66,24 @@ class ResolvingPlaybackController @Inject constructor(
 
     override fun addToQueue(trackId: UUID) = delegate.addToQueue(trackId)
 
+    override fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode) {
+        scope.launch {
+            resolvingRemote = true
+            _state.value = delegate.state.value.copy(status = PlaybackStatus.PREPARING, errorMessage = null)
+            runCatching {
+                val localIds = catalog.availableLocalTracks().mapTo(mutableSetOf()) { it.id }
+                trackIds.filterNot(localIds::contains).forEach { remoteResolver.prepareForPlayback(it) }
+                delegate.replaceAndPlay(trackIds, mode)
+            }.onFailure { error ->
+                _state.value = delegate.state.value.copy(
+                    status = PlaybackStatus.ERROR,
+                    errorMessage = error.message ?: "Unable to prepare playlist.",
+                )
+            }
+            resolvingRemote = false
+        }
+    }
+
     override fun removeAt(index: Int) = delegate.removeAt(index)
 
     override fun move(fromIndex: Int, toIndex: Int) = delegate.move(fromIndex, toIndex)

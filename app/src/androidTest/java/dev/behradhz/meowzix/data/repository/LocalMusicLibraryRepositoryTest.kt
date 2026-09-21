@@ -131,6 +131,17 @@ class LocalMusicLibraryRepositoryTest {
         assertEquals(track(1).contentUri, repository.availableLocalTracks().single().contentUri)
     }
 
+    @Test
+    fun favoriteStatePersists() = runTest {
+        scanner.tracks = listOf(track(1))
+        repository.refreshLocalMusic()
+        val original = repository.observeTracks().first().single()
+
+        repository.setFavorite(original.id, true)
+
+        assertEquals(true, repository.observeTracks().first().single().favorite)
+    }
+
     private fun track(index: Int, title: String = "Track $index") = ScannedLocalTrack(
         mediaStoreId = index.toLong(),
         contentUri = "content://media/external/audio/media/$index",

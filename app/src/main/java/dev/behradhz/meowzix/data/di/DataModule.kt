@@ -12,17 +12,21 @@ import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.MIGRATION_1_2
 import dev.behradhz.meowzix.data.db.MIGRATION_2_3
 import dev.behradhz.meowzix.data.db.MIGRATION_3_4
+import dev.behradhz.meowzix.data.db.MIGRATION_4_5
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.DownloadDao
+import dev.behradhz.meowzix.data.db.PlaylistDao
 import dev.behradhz.meowzix.data.downloads.TdLibDownloadRepository
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
+import dev.behradhz.meowzix.data.repository.RoomPlaylistRepository
 import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
 import dev.behradhz.meowzix.data.telegram.TdLibRemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.data.telegram.TdLibTelegramRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
@@ -76,6 +80,10 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
+    abstract fun bindPlaylistRepository(impl: RoomPlaylistRepository): PlaylistRepository
+
+    @Binds
+    @Singleton
     abstract fun bindLocalMediaScanner(impl: MediaStoreScanner): LocalMediaScanner
 }
 
@@ -86,7 +94,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MeowzixDatabase =
         Room.databaseBuilder(context, MeowzixDatabase::class.java, "meowzix.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
 
     @Provides
@@ -97,4 +105,7 @@ object DatabaseModule {
 
     @Provides
     fun provideDownloadDao(database: MeowzixDatabase): DownloadDao = database.downloadDao()
+
+    @Provides
+    fun providePlaylistDao(database: MeowzixDatabase): PlaylistDao = database.playlistDao()
 }
