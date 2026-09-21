@@ -37,6 +37,9 @@ interface TelegramDao {
         messageId: Long,
     ): TelegramTrackSourceEntity?
 
+    @Query("SELECT tg.* FROM telegram_track_sources tg INNER JOIN track_sources s ON s.id = tg.trackSourceId WHERE tg.accountId = :accountId AND s.trackId = :trackId AND s.availability != 'MISSING' ORDER BY tg.messageId DESC LIMIT 1")
+    suspend fun telegramSourceForTrack(accountId: String, trackId: String): TelegramTrackSourceEntity?
+
     @Query("SELECT * FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId")
     suspend fun telegramSourcesForChat(accountId: String, chatId: Long): List<TelegramTrackSourceEntity>
 
