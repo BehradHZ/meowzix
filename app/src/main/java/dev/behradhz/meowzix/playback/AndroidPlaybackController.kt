@@ -217,68 +217,47 @@ class AndroidPlaybackController @Inject constructor(
 
     override fun setPlaybackMode(mode: PlaybackMode) {
         scope.launch {
-            val tracks = runCatching { catalog.availableTracks() }
-                .getOrElse { error ->
-                    showError(error.message ?: "Unable to load the playback queue")
-                    return@launch
-                }
             val connected = runCatching { controller ?: controllerFuture.await().also { controller = it } }
                 .getOrElse { error ->
                     showError(error.message ?: "Playback is unavailable")
                     return@launch
                 }
+            if (connected.mediaItemCount == 0) return@launch
             val repeatMode = connected.queueRepeatMode()
+            val currentIndex = connected.currentMediaItemIndex.coerceAtLeast(0)
             val currentId = connected.currentMediaItem?.mediaId
-            val position = connected.currentPosition.coerceAtLeast(0)
-            val wasPlaying = connected.isPlaying
-            val orderedTracks = when (mode) {
-                PlaybackMode.ORDERED -> tracks
-                PlaybackMode.PURE_SHUFFLE -> {
-                    val shuffled = PureShuffleEngine.newCycle(tracks).order
-                    val currentIndex = shuffled.indexOfFirst { it.id.toString() == currentId }
-                    if (currentIndex > 0) {
-                        shuffled.drop(currentIndex) + shuffled.take(currentIndex)
-                    } else {
-                        shuffled
-                    }
+            val existingIds = (0 until connected.mediaItemCount).map { connected.getMediaItemAt(it).mediaId }
+            val desiredFutureIds = when (mode) {
+                PlaybackMode.ORDERED -> {
+                    val order = runCatching { catalog.availableTracks().map { it.id.toString() } }.getOrDefault(emptyList())
+                    val rank = order.withIndex().associate { it.value to it.index }
+                    existingIds.drop(currentIndex + 1).sortedBy { rank[it] ?: Int.MAX_VALUE }
                 }
+                PlaybackMode.PURE_SHUFFLE -> existingIds.drop(currentIndex + 1).shuffled()
                 PlaybackMode.SMART_SHUFFLE -> {
-                    val currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() }
-                    val ids = recommendationEngine.generate(
-                        allowedTrackIds = tracks.map { it.id },
-                        currentTrackId = currentTrackId,
+                    val allowed = existingIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
+                    recommendationEngine.generate(
+                        allowedTrackIds = allowed,
+                        currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
                         timeBucket = currentTimeBucket(),
-                    ).trackIds
-                    val tracksById = tracks.associateBy { it.id }
-                    val recommended = ids.mapNotNull(tracksById::get)
-                    val current = currentTrackId?.let(tracksById::get)
-                    if (current != null) listOf(current) + recommended.filterNot { it.id == current.id } else recommended
+                    ).trackIds.map(UUID::toString).filterNot { it == currentId }
                 }
             }
-            if (orderedTracks.isEmpty()) {
-                connected.clearMediaItems()
-                return@launch
+            desiredFutureIds.forEachIndexed { offset, mediaId ->
+                val destination = currentIndex + 1 + offset
+                val sourceIndex = (destination until connected.mediaItemCount)
+                    .firstOrNull { connected.getMediaItemAt(it).mediaId == mediaId }
+                    ?: return@forEachIndexed
+                if (sourceIndex != destination) connected.moveMediaItem(sourceIndex, destination)
             }
-            val startIndex = when (mode) {
-                PlaybackMode.PURE_SHUFFLE, PlaybackMode.SMART_SHUFFLE -> 0
-                PlaybackMode.ORDERED -> orderedTracks.indexOfFirst { it.id.toString() == currentId }
-                    .coerceAtLeast(0)
-            }
-            connected.repeatMode = repeatMode.toPlayerRepeatMode(mode)
-            connected.setMediaItems(
-                orderedTracks.map { it.toMediaItem(mode, repeatMode) },
-                startIndex,
-                position,
-            )
-            connected.prepare()
-            if (wasPlaying) connected.play()
+            updateQueuePolicyMetadata(connected, mode, repeatMode)
         }
     }
 
     override fun setRepeatMode(mode: RepeatMode) = withController { connected ->
         val playbackMode = connected.queuePlaybackMode()
-        replaceQueuePolicy(connected, playbackMode, mode)
         connected.repeatMode = mode.toPlayerRepeatMode(playbackMode)
+        updateQueuePolicyMetadata(connected, playbackMode, mode)
     }
 
     override fun resume() = withController { connected ->
@@ -390,16 +369,11 @@ private fun Player.queueRepeatMode(): RepeatMode =
 private fun Player.containsTrack(trackId: UUID): Boolean =
     (0 until mediaItemCount).any { index -> getMediaItemAt(index).mediaId == trackId.toString() }
 
-private fun replaceQueuePolicy(player: MediaController, playbackMode: PlaybackMode, repeatMode: RepeatMode) {
-    if (player.mediaItemCount == 0) return
-    val currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
-    val position = player.currentPosition.coerceAtLeast(0)
-    val wasPlaying = player.isPlaying
-    val items = (0 until player.mediaItemCount)
-        .map { index -> player.getMediaItemAt(index).withQueuePolicy(playbackMode, repeatMode) }
-    player.setMediaItems(items, currentIndex.coerceIn(items.indices), position)
-    player.prepare()
-    if (wasPlaying) player.play()
+private fun updateQueuePolicyMetadata(player: MediaController, playbackMode: PlaybackMode, repeatMode: RepeatMode) {
+    for (index in 0 until player.mediaItemCount) {
+        val current = player.getMediaItemAt(index)
+        player.replaceMediaItem(index, current.withQueuePolicy(playbackMode, repeatMode))
+    }
 }
 
 private fun RepeatMode.toPlayerRepeatMode(playbackMode: PlaybackMode): Int = when {

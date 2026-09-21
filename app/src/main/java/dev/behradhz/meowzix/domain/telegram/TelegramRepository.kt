@@ -36,6 +36,7 @@ data class TelegramChatSummary(
     val title: String,
     val kind: TelegramChatKind,
     val selected: Boolean,
+    val profilePhotoRef: String? = null,
 )
 
 data class TelegramSyncResult(
@@ -73,5 +74,9 @@ interface TelegramRepository {
     fun refreshSelectableChats()
     fun setMusicSourceSelected(chatId: Long, selected: Boolean)
     fun syncSelectedSources()
+    suspend fun trackIdsForChat(chatId: Long): List<java.util.UUID>
     fun clearMusicSourceError()
 }
+
+fun telegramPlaylistId(accountId: String, chatId: Long): java.util.UUID =
+    java.util.UUID.nameUUIDFromBytes("telegram-playlist:$accountId:$chatId".toByteArray())

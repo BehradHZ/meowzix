@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
+import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
@@ -14,6 +15,8 @@ import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramRepository
+import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -27,7 +30,9 @@ import kotlinx.coroutines.launch
 data class LibraryUiState(
     val tracks: List<Track> = emptyList(),
     val availability: Map<UUID, LibraryTrackAvailability> = emptyMap(),
+    val downloads: Map<UUID, OfflineDownload> = emptyMap(),
     val playlists: List<PlaylistSummary> = emptyList(),
+    val playlistArtwork: Map<UUID, String?> = emptyMap(),
     val selectedPlaylistId: UUID? = null,
     val selectedPlaylistTracks: List<Track> = emptyList(),
     val isRefreshing: Boolean = false,
@@ -43,6 +48,7 @@ class LibraryViewModel @Inject constructor(
     private val queueRepository: QueueRepository,
     private val downloadRepository: DownloadRepository,
     private val playlistRepository: PlaylistRepository,
+    private val telegramRepository: TelegramRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
@@ -71,6 +77,20 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             playlistRepository.observePlaylists().collect { playlists ->
                 _state.update { it.copy(playlists = playlists) }
+            }
+        }
+        viewModelScope.launch {
+            downloadRepository.observeDownloads().collect { downloads ->
+                _state.update { it.copy(downloads = downloads.associateBy(OfflineDownload::trackId)) }
+            }
+        }
+        viewModelScope.launch {
+            telegramRepository.musicSourceState.collect { telegram ->
+                val accountId = telegram.accountId
+                val artwork = if (accountId == null) emptyMap() else telegram.chats.associate { chat ->
+                    telegramPlaylistId(accountId, chat.chatId) to chat.profilePhotoRef
+                }
+                _state.update { it.copy(playlistArtwork = artwork) }
             }
         }
         viewModelScope.launch {

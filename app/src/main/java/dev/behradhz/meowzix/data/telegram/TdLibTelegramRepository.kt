@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.data.telegram
 
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -10,6 +11,9 @@ import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
+import dev.behradhz.meowzix.data.db.PlaylistDao
+import dev.behradhz.meowzix.data.db.PlaylistEntity
+import dev.behradhz.meowzix.data.db.PlaylistTrackEntity
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramSelectedSourceEntity
 import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
@@ -25,6 +29,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramSyncResult
+import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.io.File
 import java.time.Instant
 import java.util.Locale
@@ -47,6 +52,7 @@ class TdLibTelegramRepository @Inject constructor(
     private val database: MeowzixDatabase,
     private val libraryDao: LibraryDao,
     private val telegramDao: TelegramDao,
+    private val playlistDao: PlaylistDao,
 ) : TelegramRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _authState = MutableStateFlow(TelegramAuthState())
@@ -121,8 +127,13 @@ class TdLibTelegramRepository @Inject constructor(
                     .getOrNull()?.let { chatIds += it.id }
                 chatIds.mapNotNull { chatId ->
                     runCatching { activeClient.send(TdApi.GetChat(chatId)) }.getOrNull()
-                }.map { chat -> chat.toSummary(userId, chat.id in selectedIds) }
-                    .sortedWith(compareByDescending<TelegramChatSummary> { it.kind == TelegramChatKind.SAVED_MESSAGES }.thenBy { it.title.lowercase(Locale.ROOT) })
+                }.map { chat ->
+                    chat.toSummary(
+                        currentUserId = userId,
+                        selected = chat.id in selectedIds,
+                        profilePhotoRef = resolveChatPhotoRef(activeClient, chat),
+                    )
+                }.sortedWith(compareByDescending<TelegramChatSummary> { it.kind == TelegramChatKind.SAVED_MESSAGES }.thenBy { it.title.lowercase(Locale.ROOT) })
             }.onSuccess { chats ->
                 _musicSourceState.update { it.copy(chats = chats, isLoadingChats = false) }
             }.onFailure { error ->
@@ -150,11 +161,11 @@ class TdLibTelegramRepository @Inject constructor(
                             lastSyncedAtEpochMs = existing?.lastSyncedAtEpochMs,
                         ),
                     )
+                    ensureChatPlaylist(accountId, chatId, chat.title)
                 } else {
+                    // Selection controls future syncing only. Imported tracks and their remote source
+                    // stay in the library and the generated chat playlist is intentionally retained.
                     telegramDao.deleteSelectedSource(accountId, chatId)
-                    val now = Instant.now().toEpochMilli()
-                    val sourceIds = telegramDao.telegramSourcesForChat(accountId, chatId).map { it.trackSourceId }
-                    if (sourceIds.isNotEmpty()) libraryDao.updateAvailability(sourceIds, SourceAvailability.MISSING, now)
                 }
             }.onSuccess {
                 reloadPersistedSelection(accountId)
@@ -263,7 +274,11 @@ class TdLibTelegramRepository @Inject constructor(
             val imported = persistTelegramMessage(accountId, message)
             val newest = maxOf(selected.newestMessageId ?: 0L, message.id)
             telegramDao.updateSyncCheckpoint(accountId, message.chatId, newest, selected.initialScanComplete, Instant.now().toEpochMilli())
-            if (imported != null) reloadPersistedSelection(accountId)
+            if (imported != null) {
+                val title = selected.title
+                syncChatPlaylist(accountId, message.chatId, title)
+                reloadPersistedSelection(accountId)
+            }
         }
     }
 
@@ -273,7 +288,12 @@ class TdLibTelegramRepository @Inject constructor(
         val activeClient = client ?: return
         scope.launch {
             runCatching { activeClient.send(TdApi.GetMessage(chatId, messageId)) }
-                .onSuccess { persistTelegramMessage(accountId, it) }
+                .onSuccess {
+                    persistTelegramMessage(accountId, it)
+                    telegramDao.selectedSource(accountId, chatId)?.let { selected ->
+                        syncChatPlaylist(accountId, chatId, selected.title)
+                    }
+                }
         }
     }
 
@@ -284,6 +304,9 @@ class TdLibTelegramRepository @Inject constructor(
         scope.launch {
             val ids = telegramDao.trackSourceIdsForMessages(accountId, update.chatId, update.messageIds.toList())
             if (ids.isNotEmpty()) libraryDao.updateAvailability(ids, SourceAvailability.MISSING, Instant.now().toEpochMilli())
+            telegramDao.selectedSource(accountId, update.chatId)?.let { selected ->
+                syncChatPlaylist(accountId, update.chatId, selected.title)
+            }
         }
     }
 
@@ -348,6 +371,7 @@ class TdLibTelegramRepository @Inject constructor(
             initialScanComplete = true,
             syncedAt = Instant.now().toEpochMilli(),
         )
+        syncChatPlaylist(accountId, selected.chatId, selected.title)
         return result
     }
 
@@ -422,6 +446,62 @@ class TdLibTelegramRepository @Inject constructor(
             )
             created
         }
+    }
+
+    override suspend fun trackIdsForChat(chatId: Long): List<UUID> {
+        val accountId = currentUserId?.toString() ?: _musicSourceState.value.accountId ?: return emptyList()
+        return telegramDao.telegramSourcesForChat(accountId, chatId)
+            .mapNotNull { source ->
+                libraryDao.sourceById(source.trackSourceId)
+                    ?.takeUnless { it.availability == SourceAvailability.MISSING }
+                    ?.trackId
+                    ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            }
+            .distinct()
+    }
+
+    private suspend fun ensureChatPlaylist(accountId: String, chatId: Long, title: String) {
+        val now = Instant.now().toEpochMilli()
+        playlistDao.upsertPlaylist(
+            PlaylistEntity(
+                id = telegramPlaylistId(accountId, chatId).toString(),
+                title = title.ifBlank { "Telegram" },
+                createdAtEpochMs = now,
+                updatedAtEpochMs = now,
+            ),
+        )
+    }
+
+    private suspend fun syncChatPlaylist(accountId: String, chatId: Long, title: String) {
+        ensureChatPlaylist(accountId, chatId, title)
+        val playlistId = telegramPlaylistId(accountId, chatId).toString()
+        val now = Instant.now().toEpochMilli()
+        val trackIds = telegramDao.telegramSourcesForChat(accountId, chatId)
+            .mapNotNull { source ->
+                libraryDao.sourceById(source.trackSourceId)
+                    ?.takeUnless { it.availability == SourceAvailability.MISSING }
+                    ?.trackId
+            }
+            .distinct()
+        playlistDao.clearTracks(playlistId)
+        if (trackIds.isNotEmpty()) {
+            playlistDao.upsertTracks(
+                trackIds.mapIndexed { index, trackId ->
+                    PlaylistTrackEntity(playlistId, trackId, index, now)
+                },
+            )
+        }
+    }
+
+    private suspend fun resolveChatPhotoRef(activeClient: TdLibClientAdapter, chat: TdApi.Chat): String? {
+        val photo = chat.photo?.small ?: return null
+        val resolved = if (photo.local.isDownloadingCompleted && photo.local.path.isNotBlank()) {
+            photo
+        } else {
+            runCatching { activeClient.send(TdApi.DownloadFile(photo.id, CHAT_PHOTO_PRIORITY, 0L, 0L, true)) }.getOrNull()
+        } ?: return null
+        val path = resolved.local.path.takeIf(String::isNotBlank) ?: return null
+        return File(path).takeIf(File::isFile)?.let { Uri.fromFile(it).toString() }
     }
 
     private suspend fun findMatchingTrack(incoming: IncomingTrackIdentity): String? {
@@ -502,6 +582,10 @@ class TdLibTelegramRepository @Inject constructor(
     }
 
     private fun safeMessage(error: Throwable): String = error.message?.takeIf(String::isNotBlank) ?: "Telegram request failed."
+
+    private companion object {
+        const val CHAT_PHOTO_PRIORITY = 2
+    }
 }
 
 private data class MutableSyncResult(
@@ -522,7 +606,11 @@ private data class MutableSyncResult(
     fun toDomain() = TelegramSyncResult(chatsSynced, messagesScanned, tracksImported, tracksUpdated, sourcesMarkedMissing)
 }
 
-private fun TdApi.Chat.toSummary(currentUserId: Long, selected: Boolean): TelegramChatSummary {
+private fun TdApi.Chat.toSummary(
+    currentUserId: Long,
+    selected: Boolean,
+    profilePhotoRef: String?,
+): TelegramChatSummary {
     val kind = when (val chatType = type) {
         is TdApi.ChatTypePrivate -> if (chatType.userId == currentUserId) TelegramChatKind.SAVED_MESSAGES else TelegramChatKind.PRIVATE
         is TdApi.ChatTypeBasicGroup -> TelegramChatKind.BASIC_GROUP
@@ -530,7 +618,13 @@ private fun TdApi.Chat.toSummary(currentUserId: Long, selected: Boolean): Telegr
         is TdApi.ChatTypeSecret -> TelegramChatKind.SECRET
         else -> TelegramChatKind.PRIVATE
     }
-    return TelegramChatSummary(id, title.ifBlank { "Untitled chat" }, kind, selected)
+    return TelegramChatSummary(
+        chatId = id,
+        title = title.ifBlank { "Untitled chat" },
+        kind = kind,
+        selected = selected,
+        profilePhotoRef = profilePhotoRef,
+    )
 }
 
 internal fun TdApi.AuthorizationState.toDomainStep(): TelegramAuthStep = when (this) {
