@@ -8,6 +8,7 @@ import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.LocalMediaSourceEntity
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
+import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.map
 class LocalMusicLibraryRepository @Inject constructor(
     private val database: MeowzixDatabase,
     private val dao: LibraryDao,
+    private val telegramDao: TelegramDao,
     private val scanner: LocalMediaScanner,
 ) : MusicLibraryRepository, PlaybackCatalog {
 
@@ -117,6 +119,46 @@ class LocalMusicLibraryRepository @Inject constructor(
             )
         }
 
+    override suspend fun availableTracks(): List<PlayableTrack> {
+        val tracks = dao.allTracks().filterNot { it.hidden }
+        val sourcesByTrack = dao.allSources()
+            .filter { it.availability != SourceAvailability.MISSING }
+            .groupBy { it.trackId }
+        val telegramBySource = telegramDao.allTelegramTrackSources().associateBy { it.trackSourceId }
+
+        return tracks.mapNotNull { track ->
+            val sources = sourcesByTrack[track.id].orEmpty()
+            val local = sources
+                .filter {
+                    it.availability == SourceAvailability.AVAILABLE_LOCAL &&
+                        (it.contentUri != null || it.localPath != null)
+                }
+                .minByOrNull(::localSourcePriority)
+            val contentUri = if (local != null) {
+                local.contentUri ?: local.localPath?.let { "file://$it" }
+            } else {
+                val remote = sources
+                    .asSequence()
+                    .filter { it.type == TrackSourceType.TELEGRAM_REMOTE && it.availability == SourceAvailability.REMOTE_ONLY }
+                    .mapNotNull { source -> telegramBySource[source.id] }
+                    .firstOrNull { it.tdFileId != null }
+                remote?.tdFileId?.let { fileId ->
+                    "meowzix-tdlib://audio/$fileId?trackId=${track.id}"
+                }
+            } ?: return@mapNotNull null
+
+            PlayableTrack(
+                id = UUID.fromString(track.id),
+                title = track.title,
+                artist = track.artist,
+                album = track.album,
+                durationMs = track.durationMs,
+                artworkRef = track.artworkRef,
+                contentUri = contentUri,
+            )
+        }.sortedBy { it.title.lowercase() }
+    }
+
     private suspend fun persistScannedItem(
         item: ScannedLocalTrack,
         existingSource: TrackSourceEntity?,
@@ -143,7 +185,7 @@ class LocalMusicLibraryRepository @Inject constructor(
                 durationMs = item.durationMs,
                 trackNumber = item.trackNumber,
                 year = item.year,
-                artworkRef = item.artworkRef,
+                artworkRef = item.artworkRef ?: canonicalTrack?.artworkRef,
                 favorite = canonicalTrack?.favorite ?: false,
                 hidden = canonicalTrack?.hidden ?: false,
                 createdAtEpochMs = canonicalTrack?.createdAtEpochMs ?: now,
@@ -200,6 +242,13 @@ class LocalMusicLibraryRepository @Inject constructor(
             candidates,
         )
     }
+}
+
+private fun localSourcePriority(source: TrackSourceEntity): Int = when (source.type) {
+    TrackSourceType.LOCAL_MEDIASTORE -> 0
+    TrackSourceType.APP_OFFLINE_COPY -> 1
+    TrackSourceType.TDLIB_LOCAL -> 2
+    else -> 3
 }
 
 private fun TrackEntity.toDomain() = Track(
