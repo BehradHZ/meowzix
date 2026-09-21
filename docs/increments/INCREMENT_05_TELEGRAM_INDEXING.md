@@ -1,8 +1,10 @@
 # Increment 5 — Telegram Music Source Selection and Indexing
 
+**Status:** implementation complete; live Telegram/account validation remains external.
+
 ## Objective
 
-Import music metadata from explicitly selected Telegram chats into Meowzix's canonical library without adding Telegram playback/download behavior or cross-source deduplication.
+Import music metadata from explicitly selected Telegram chats into Meowzix's canonical library without making playback/download behavior a requirement of this increment or adding cross-source deduplication.
 
 ## Implementation checklist
 
@@ -14,6 +16,7 @@ Import music metadata from explicitly selected Telegram chats into Meowzix's can
 - [x] Persist selected sources per Telegram account
 - [x] Keep Telegram source selection behind the domain `TelegramRepository`
 - [x] Provide source picker, refresh, sync, and deselection UI
+- [x] Wire the source picker into the current post-login Telegram `Ready` UI
 
 ### B. Telegram persistence
 
@@ -48,9 +51,11 @@ Import music metadata from explicitly selected Telegram chats into Meowzix's can
 ### E. Unified library UX
 
 - [x] Display indexed Telegram tracks in the same library as local tracks
-- [x] Display explicit `Cloud`, `Offline`, and `Unavailable` availability labels
+- [x] Display explicit source-aware library behavior for Telegram-imported tracks
 - [x] Keep local MediaStore scanning optional when Telegram tracks already exist
-- [x] Do not attempt to play/queue remote-only Telegram tracks yet; on-demand playback remains Increment 8
+- [x] Keep Telegram source selection and indexing independent from playback as an Increment 5 requirement
+
+> Note: on-demand Telegram download-on-play has since landed early on `main`. That work is beyond the original Increment 5 acceptance boundary and does not change the indexing requirements above.
 
 ### F. Automated verification
 
@@ -75,9 +80,10 @@ These checks must be performed without committing API credentials, authenticatio
 
 ## Phase boundary
 
-This increment intentionally does **not** implement:
+Increment 5 itself does **not require**:
 
 - local + Telegram cross-source deduplication (Increment 6)
-- Telegram offline downloads (Increment 7)
-- remote download-on-play or prefetch (Increment 8)
+- explicit Telegram offline pinning/download management (Increment 7)
 - Smart Shuffle / recommendation behavior
+
+On-demand download-on-play was implemented early after the original Increment 5 plan and is already present on `main`.
