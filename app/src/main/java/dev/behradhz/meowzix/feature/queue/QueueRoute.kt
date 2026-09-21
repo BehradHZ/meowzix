@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.feature.queue
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -20,9 +20,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.PlaylistAddCircle
+import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,18 +42,23 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.behradhz.meowzix.domain.downloads.OfflineDownload
+import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
+import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueState
-import dev.behradhz.meowzix.ui.components.TrackArtwork
+import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
+import java.util.UUID
 
 @Composable
 fun QueueRoute(
@@ -52,181 +66,97 @@ fun QueueRoute(
     viewModel: QueueViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val aux by viewModel.aux.collectAsStateWithLifecycle()
     QueueScreen(
         state = state,
+        aux = aux,
         onBack = onBack,
         onMoveUp = viewModel::moveUp,
         onMoveDown = viewModel::moveDown,
         onRemove = viewModel::remove,
         onClear = viewModel::clear,
+        onPlayNext = viewModel::playNext,
+        onAddToQueue = viewModel::addToQueue,
+        onPinOffline = viewModel::pinOffline,
+        onFavorite = viewModel::toggleFavorite,
+        onAddToPlaylist = viewModel::addToPlaylist,
     )
 }
 
 @Composable
 private fun QueueScreen(
     state: QueueState,
+    aux: QueueAuxState,
     onBack: () -> Unit,
     onMoveUp: (Int) -> Unit,
     onMoveDown: (Int) -> Unit,
     onRemove: (Int) -> Unit,
     onClear: () -> Unit,
+    onPlayNext: (UUID) -> Unit,
+    onAddToQueue: (UUID) -> Unit,
+    onPinOffline: (UUID) -> Unit,
+    onFavorite: (UUID) -> Unit,
+    onAddToPlaylist: (UUID, UUID) -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 182.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        QueueHeader(
-            state = state,
-            onBack = onBack,
-            onClear = onClear,
-        )
-
-        if (state.items.isEmpty()) {
-            EmptyQueue()
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = 10.dp,
-                    end = 10.dp,
-                    top = 4.dp,
-                    bottom = 182.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                itemsIndexed(
-                    items = state.items,
-                    key = { _, item -> item.id.toString() },
-                ) { index, item ->
-                    SwipeableQueueItem(
-                        item = item,
-                        isCurrent = index == state.currentIndex,
-                        canMoveUp = index > 0,
-                        canMoveDown = index < state.items.lastIndex,
-                        onMoveUp = { onMoveUp(index) },
-                        onMoveDown = { onMoveDown(index) },
-                        onRemove = { onRemove(index) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QueueHeader(
-    state: QueueState,
-    onBack: () -> Unit,
-    onClear: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, top = 14.dp, bottom = 10.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                onClick = onBack,
-                modifier = Modifier.size(44.dp),
-                shape = RoundedCornerShape(22.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f),
-                border = BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.26f),
-                ),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
+                IconButton(onClick = onBack) {
                     Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
                 }
-            }
-
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 14.dp),
-            ) {
-                Text(
-                    text = "Up Next",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = if (state.items.size == 1) "1 song" else "${state.items.size} songs",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-                    modifier = Modifier.padding(top = 1.dp),
-                )
-            }
-
-            Surface(
-                onClick = onClear,
-                enabled = state.items.isNotEmpty(),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f),
-                border = BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f),
-                ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Rounded.DeleteSweep,
-                        contentDescription = null,
-                        modifier = Modifier.size(17.dp),
-                    )
-                    Spacer(Modifier.size(6.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Queue", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        text = "Clear",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
+                        if (state.items.isEmpty()) "Nothing queued" else "${state.items.size} tracks",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
                     )
+                }
+                if (state.items.isNotEmpty()) {
+                    Button(onClick = onClear, shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(6.dp))
+                        Text("Clear")
+                    }
                 }
             }
         }
 
-        Row(
-            modifier = Modifier.padding(start = 58.dp, top = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            QueueStatusPill(
-                text = state.playbackMode.name
-                    .replace('_', ' ')
-                    .lowercase()
-                    .replaceFirstChar(Char::uppercase),
-            )
-            QueueStatusPill(
-                text = "Repeat ${state.repeatMode.name.lowercase()}",
-            )
+        if (state.items.isEmpty()) {
+            item { EmptyQueue() }
+        } else {
+            itemsIndexed(state.items, key = { index, item -> "${item.id}:$index" }) { index, item ->
+                SwipeableQueueItem(
+                    item = item,
+                    isCurrent = index == state.currentIndex,
+                    canMoveUp = index > 0,
+                    canMoveDown = index < state.items.lastIndex,
+                    onMoveUp = { onMoveUp(index) },
+                    onMoveDown = { onMoveDown(index) },
+                    onRemove = { onRemove(index) },
+                    onPlayNext = { onPlayNext(item.id) },
+                    onAddToQueue = { onAddToQueue(item.id) },
+                    onPinOffline = { onPinOffline(item.id) },
+                    availability = aux.availability[item.id] ?: LibraryTrackAvailability.UNAVAILABLE,
+                    download = aux.downloads[item.id],
+                    favorite = aux.tracks[item.id]?.favorite == true,
+                    playlists = aux.playlists,
+                    onFavorite = { onFavorite(item.id) },
+                    onAddToPlaylist = { playlistId -> onAddToPlaylist(item.id, playlistId) },
+                )
+            }
         }
     }
 }
 
-@Composable
-private fun QueueStatusPill(text: String) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f),
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f),
-        ),
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
-            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
-        )
-    }
-}
-
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SwipeableQueueItem(
     item: QueueItem,
@@ -236,73 +166,87 @@ private fun SwipeableQueueItem(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onRemove: () -> Unit,
+    onPlayNext: () -> Unit,
+    onAddToQueue: () -> Unit,
+    onPinOffline: () -> Unit,
+    availability: LibraryTrackAvailability,
+    download: OfflineDownload?,
+    favorite: Boolean,
+    playlists: List<PlaylistSummary>,
+    onFavorite: () -> Unit,
+    onAddToPlaylist: (UUID) -> Unit,
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
     val dismissState = rememberSwipeToDismissBoxState(
+        positionalThreshold = { distance -> distance * 0.22f },
         confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onRemove()
-                true
-            } else {
-                value == SwipeToDismissBoxValue.Settled
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    onPlayNext()
+                    false
+                }
+                SwipeToDismissBoxValue.EndToStart -> {
+                    onRemove()
+                    true
+                }
+                SwipeToDismissBoxValue.Settled -> true
             }
         },
     )
 
     SwipeToDismissBox(
         state = dismissState,
-        enableDismissFromStartToEnd = false,
+        enableDismissFromStartToEnd = true,
         enableDismissFromEndToStart = true,
         backgroundContent = {
+            val playNext = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.error.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(18.dp),
+                color = if (playNext) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+                else MaterialTheme.colorScheme.error.copy(alpha = 0.18f),
+                tonalElevation = 2.dp,
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 18.dp),
-                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
+                    horizontalArrangement = if (playNext) Arrangement.Start else Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = "Remove",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(Modifier.size(8.dp))
-                    Icon(
-                        Icons.Rounded.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
+                    if (playNext) {
+                        Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
+                        Spacer(Modifier.size(8.dp))
+                        Text("Play next", fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Text("Delete from queue", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.size(8.dp))
+                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         },
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            color = if (isCurrent) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-            } else {
-                Color.Transparent
-            },
+            modifier = Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { menuExpanded = true }),
+            shape = RoundedCornerShape(18.dp),
+            color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
+            shadowElevation = 1.dp,
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TrackArtwork(
+                DownloadableTrackArtwork(
                     artworkRef = item.artworkRef,
                     description = item.title,
                     size = 52.dp,
+                    isOffline = availability == LibraryTrackAvailability.OFFLINE,
+                    download = download,
+                    onDownload = onPinOffline,
                 )
                 Spacer(Modifier.size(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = item.title,
+                        item.title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
                         color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
@@ -310,58 +254,52 @@ private fun SwipeableQueueItem(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = if (isCurrent) {
-                            "Playing now · ${item.artist ?: "Unknown artist"}"
-                        } else {
-                            item.artist ?: "Unknown artist"
-                        },
+                        if (isCurrent) "Playing now · ${item.artist ?: "Unknown artist"}" else item.artist ?: "Unknown artist",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (isCurrent) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f)
-                        },
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
-
-                IconButton(
-                    onClick = onMoveUp,
-                    enabled = canMoveUp,
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        Icons.Rounded.KeyboardArrowUp,
-                        contentDescription = "Move up",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = if (canMoveUp) 0.54f else 0.20f,
-                        ),
-                    )
+                IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = "Move up")
                 }
-                IconButton(
-                    onClick = onMoveDown,
-                    enabled = canMoveDown,
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        Icons.Rounded.KeyboardArrowDown,
-                        contentDescription = "Move down",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = if (canMoveDown) 0.54f else 0.20f,
-                        ),
-                    )
+                IconButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Move down")
                 }
-                IconButton(
-                    onClick = onRemove,
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        Icons.Rounded.Delete,
-                        contentDescription = "Remove from queue",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
-                    )
+                Box {
+                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
+                    }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Add to queue") },
+                            leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, contentDescription = null) },
+                            onClick = { menuExpanded = false; onAddToQueue() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Play next") },
+                            leadingIcon = { Icon(Icons.Rounded.PlaylistPlay, contentDescription = null) },
+                            onClick = { menuExpanded = false; onPlayNext() },
+                        )
+                        playlists.forEach { playlist ->
+                            DropdownMenuItem(
+                                text = { Text("Add to playlist · ${playlist.title}") },
+                                leadingIcon = { Icon(Icons.Rounded.PlaylistAddCircle, contentDescription = null) },
+                                onClick = { menuExpanded = false; onAddToPlaylist(playlist.id) },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(if (favorite) "Remove favorite" else "Favorite") },
+                            leadingIcon = { Icon(if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, contentDescription = null) },
+                            onClick = { menuExpanded = false; onFavorite() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete from queue") },
+                            leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+                            onClick = { menuExpanded = false; onRemove() },
+                        )
+                    }
                 }
             }
         }
@@ -370,54 +308,19 @@ private fun SwipeableQueueItem(
 
 @Composable
 private fun EmptyQueue() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(start = 20.dp, end = 20.dp, bottom = 150.dp),
-        contentAlignment = Alignment.Center,
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f),
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(30.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.54f),
-            border = BorderStroke(
-                1.dp,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.26f),
-            ),
+        Column(
+            modifier = Modifier.padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Column(
-                modifier = Modifier.padding(28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Surface(
-                    modifier = Modifier.size(54.dp),
-                    shape = RoundedCornerShape(27.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                    contentColor = MaterialTheme.colorScheme.primary,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Rounded.QueueMusic,
-                            contentDescription = null,
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
-                }
-                Text(
-                    text = "Your queue is empty",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-                Text(
-                    text = "Use Play next or Add to queue from your library.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 7.dp),
-                )
-            }
+            Icon(Icons.Rounded.QueueMusic, contentDescription = null, modifier = Modifier.size(52.dp), tint = MaterialTheme.colorScheme.primary)
+            Text("Queue is empty", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Add tracks from your library. Swipe a queue card right for Play next or left to remove it.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f))
         }
     }
 }
