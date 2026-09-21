@@ -9,8 +9,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- Required by Android's Visualizer API even when attached only to Meowzix's audio session. -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:name=".MeowzixApplication"
