@@ -10,7 +10,6 @@ class TelegramAuthViewModel @Inject constructor(
     private val repository: TelegramRepository,
 ) : ViewModel() {
     val state = repository.authState
-    val musicSourceState = repository.musicSourceState
 
     fun submitPhoneNumber(value: String) = repository.submitPhoneNumber(value)
     fun submitCode(value: String) = repository.submitCode(value)
@@ -20,8 +19,4 @@ class TelegramAuthViewModel @Inject constructor(
     fun register(firstName: String, lastName: String) = repository.register(firstName, lastName)
     fun logout() = repository.logout()
     fun clearError() = repository.clearError()
-    fun refreshChats() = repository.refreshSelectableChats()
-    fun setSourceSelected(chatId: Long, selected: Boolean) = repository.setMusicSourceSelected(chatId, selected)
-    fun syncSelectedSources() = repository.syncSelectedSources()
-    fun clearMusicSourceError() = repository.clearMusicSourceError()
 }

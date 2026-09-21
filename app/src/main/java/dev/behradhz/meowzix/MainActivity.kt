@@ -3,6 +3,7 @@ package dev.behradhz.meowzix
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.navigation.MeowzixApp
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
@@ -11,6 +12,7 @@ import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             MeowzixTheme {
                 MeowzixApp()

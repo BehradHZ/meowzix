@@ -3,14 +3,12 @@ package dev.behradhz.meowzix.feature.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.behradhz.meowzix.domain.library.LibraryTrack
+import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackState
-import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueRepository
-import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,12 +18,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class LibraryUiState(
-    val tracks: List<LibraryTrack> = emptyList(),
+    val tracks: List<Track> = emptyList(),
     val isRefreshing: Boolean = false,
     val lastRefresh: LocalLibraryRefreshResult? = null,
     val errorMessage: String? = null,
     val playback: PlaybackState = PlaybackState(),
-    val preparingTrackId: UUID? = null,
 )
 
 @HiltViewModel
@@ -39,23 +36,13 @@ class LibraryViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            repository.observeLibraryTracks()
+            repository.observeTracks()
                 .catch { error -> _state.update { it.copy(errorMessage = error.message ?: "Unable to load music") } }
                 .collect { tracks -> _state.update { it.copy(tracks = tracks, errorMessage = null) } }
         }
         viewModelScope.launch {
             playbackController.state.collect { playback ->
-                _state.update { current ->
-                    val preparing = current.preparingTrackId
-                    val finishedPreparing = preparing != null && (
-                        playback.status == PlaybackStatus.ERROR ||
-                            playback.currentTrack?.id == preparing
-                        )
-                    current.copy(
-                        playback = playback,
-                        preparingTrackId = if (finishedPreparing) null else preparing,
-                    )
-                }
+                _state.update { it.copy(playback = playback) }
             }
         }
     }
@@ -70,11 +57,10 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun playTrack(item: LibraryTrack) {
-        _state.update { it.copy(preparingTrackId = item.track.id) }
-        playbackController.playTrack(item.track.id)
+    fun playTrack(track: Track) {
+        playbackController.playTrack(track.id)
     }
 
-    fun playNext(item: LibraryTrack) = queueRepository.playNext(item.track.id)
-    fun addToQueue(item: LibraryTrack) = queueRepository.addToQueue(item.track.id)
+    fun playNext(track: Track) = queueRepository.playNext(track.id)
+    fun addToQueue(track: Track) = queueRepository.addToQueue(track.id)
 }
