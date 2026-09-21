@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.media.AudioManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -33,9 +36,13 @@ import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.VolumeDown
+import androidx.compose.material.icons.rounded.VolumeOff
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -45,8 +52,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +79,8 @@ import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
+import dev.behradhz.meowzix.domain.playback.QueueItem
+import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.ui.components.AudioSpectrum
 import dev.behradhz.meowzix.ui.components.GlassSurface
@@ -79,10 +90,20 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val PlayerPrimaryContent = Color(0xFFF5F0EB)
 private val PlayerSecondaryContent = Color(0xFFC9C1BA)
 private val PlayerGlass = Color(0xFF181716)
+
+private enum class ArtworkGestureAxis {
+    UNDECIDED,
+    HORIZONTAL,
+    VERTICAL,
+}
 
 @Composable
 fun NowPlayingRoute(
@@ -92,6 +113,7 @@ fun NowPlayingRoute(
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val queueState by viewModel.queueState.collectAsStateWithLifecycle()
     val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -119,6 +141,7 @@ fun NowPlayingRoute(
 
     NowPlayingScreen(
         state = state,
+        queueState = queueState,
         spectrum = spectrum,
         spectrumPermissionGranted = spectrumPermissionGranted,
         onRequestSpectrumPermission = {
@@ -129,18 +152,17 @@ fun NowPlayingRoute(
         onSeek = viewModel::seekTo,
         onPrevious = viewModel::previous,
         onNext = viewModel::next,
-        onVolumeUp = {
-            audioManager.adjustStreamVolume(
-                AudioManager.STREAM_MUSIC,
-                AudioManager.ADJUST_RAISE,
-                AudioManager.FLAG_SHOW_UI,
-            )
+        getVolumeFraction = {
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max.toFloat()
         },
-        onVolumeDown = {
-            audioManager.adjustStreamVolume(
+        onVolumeFractionChange = { fraction ->
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            val target = (fraction.coerceIn(0f, 1f) * max).roundToInt()
+            audioManager.setStreamVolume(
                 AudioManager.STREAM_MUSIC,
-                AudioManager.ADJUST_LOWER,
-                AudioManager.FLAG_SHOW_UI,
+                target,
+                0,
             )
         },
         onTogglePlaybackMode = viewModel::togglePlaybackMode,
@@ -152,6 +174,7 @@ fun NowPlayingRoute(
 @Composable
 private fun NowPlayingScreen(
     state: PlaybackState,
+    queueState: QueueState,
     spectrum: AudioSpectrumState,
     spectrumPermissionGranted: Boolean,
     onRequestSpectrumPermission: () -> Unit,
@@ -160,8 +183,8 @@ private fun NowPlayingScreen(
     onSeek: (Long) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    onVolumeUp: () -> Unit,
-    onVolumeDown: () -> Unit,
+    getVolumeFraction: () -> Float,
+    onVolumeFractionChange: (Float) -> Unit,
     onTogglePlaybackMode: () -> Unit,
     onCycleRepeatMode: () -> Unit,
     onOpenQueue: () -> Unit,
@@ -176,6 +199,8 @@ private fun NowPlayingScreen(
     var pendingSeek by remember(track.id) { mutableStateOf<Float?>(null) }
     val duration = state.durationMs.coerceAtLeast(1)
     val shownPosition = pendingSeek?.toLong() ?: state.positionMs.coerceIn(0, duration)
+    val previousPreview = if (state.canSkipPrevious) queueState.previousPreview() else null
+    val nextPreview = if (state.canSkipNext) queueState.nextPreview() else null
 
     Box(modifier = Modifier.fillMaxSize()) {
         TrackArtworkBackdrop(
@@ -217,15 +242,15 @@ private fun NowPlayingScreen(
                 Spacer(Modifier.height(sectionGap))
 
                 GestureArtwork(
-                    artworkRef = track.artworkRef,
-                    title = track.title,
+                    currentArtworkRef = track.artworkRef,
+                    currentTitle = track.title,
+                    previousTrack = previousPreview,
+                    nextTrack = nextPreview,
                     artworkSize = artworkSize,
-                    canSkipPrevious = state.canSkipPrevious,
-                    canSkipNext = state.canSkipNext,
                     onPrevious = onPrevious,
                     onNext = onNext,
-                    onVolumeUp = onVolumeUp,
-                    onVolumeDown = onVolumeDown,
+                    getVolumeFraction = getVolumeFraction,
+                    onVolumeFractionChange = onVolumeFractionChange,
                     onTogglePlayPause = onTogglePlayPause,
                     isPreparing = state.status == PlaybackStatus.BUFFERING ||
                         state.status == PlaybackStatus.PREPARING,
@@ -568,53 +593,136 @@ private fun ModeIconButton(
 
 @Composable
 private fun GestureArtwork(
-    artworkRef: String?,
-    title: String,
+    currentArtworkRef: String?,
+    currentTitle: String,
+    previousTrack: QueueItem?,
+    nextTrack: QueueItem?,
     artworkSize: Dp,
-    canSkipPrevious: Boolean,
-    canSkipNext: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    onVolumeUp: () -> Unit,
-    onVolumeDown: () -> Unit,
+    getVolumeFraction: () -> Float,
+    onVolumeFractionChange: (Float) -> Unit,
     onTogglePlayPause: () -> Unit,
     isPreparing: Boolean,
 ) {
     val density = LocalDensity.current
-    val swipeThreshold = with(density) { 58.dp.toPx() }
-    val visualLimit = with(density) { 34.dp.toPx() }
-    var dragDistance by remember(title) { mutableStateOf(Offset.Zero) }
+    val coroutineScope = rememberCoroutineScope()
+    val artworkPx = with(density) { artworkSize.toPx() }
+    val axisLockThreshold = with(density) { 10.dp.toPx() }
+    val switchThreshold = artworkPx * 0.30f
+    var totalDrag by remember(currentTitle) { mutableStateOf(Offset.Zero) }
+    var gestureAxis by remember(currentTitle) { mutableStateOf(ArtworkGestureAxis.UNDECIDED) }
+    var horizontalOffsetPx by remember(currentTitle) { mutableFloatStateOf(0f) }
+    var startingVolume by remember(currentTitle) { mutableFloatStateOf(0f) }
+    var shownVolume by remember(currentTitle) { mutableFloatStateOf(0f) }
+    var showVolumeOverlay by remember(currentTitle) { mutableStateOf(false) }
+    var settleJob by remember(currentTitle) { mutableStateOf<Job?>(null) }
+    var hideVolumeJob by remember(currentTitle) { mutableStateOf<Job?>(null) }
+
+    fun animateArtworkTo(target: Float, finished: (() -> Unit)? = null) {
+        settleJob?.cancel()
+        settleJob = coroutineScope.launch {
+            animate(
+                initialValue = horizontalOffsetPx,
+                targetValue = target,
+                animationSpec = tween(durationMillis = 150),
+            ) { value, _ ->
+                horizontalOffsetPx = value
+            }
+            finished?.invoke()
+            horizontalOffsetPx = 0f
+        }
+    }
 
     Surface(
         modifier = Modifier
             .size(artworkSize)
-            .graphicsLayer {
-                translationX = dragDistance.x.coerceIn(-visualLimit, visualLimit)
-                translationY = dragDistance.y.coerceIn(-visualLimit, visualLimit) * 0.16f
-                rotationZ = (dragDistance.x / visualLimit).coerceIn(-1f, 1f) * 1.2f
-            }
-            .pointerInput(title, canSkipPrevious, canSkipNext) {
+            .pointerInput(currentTitle, previousTrack?.id, nextTrack?.id, artworkPx) {
                 detectDragGestures(
-                    onDragStart = { dragDistance = Offset.Zero },
+                    onDragStart = {
+                        settleJob?.cancel()
+                        hideVolumeJob?.cancel()
+                        totalDrag = Offset.Zero
+                        gestureAxis = ArtworkGestureAxis.UNDECIDED
+                        startingVolume = getVolumeFraction().coerceIn(0f, 1f)
+                        shownVolume = startingVolume
+                    },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        dragDistance += dragAmount
-                    },
-                    onDragCancel = { dragDistance = Offset.Zero },
-                    onDragEnd = {
-                        val horizontal = abs(dragDistance.x) >= abs(dragDistance.y)
-                        if (horizontal) {
-                            when {
-                                dragDistance.x <= -swipeThreshold && canSkipNext -> onNext()
-                                dragDistance.x >= swipeThreshold && canSkipPrevious -> onPrevious()
-                            }
-                        } else {
-                            when {
-                                dragDistance.y <= -swipeThreshold -> onVolumeUp()
-                                dragDistance.y >= swipeThreshold -> onVolumeDown()
+                        totalDrag += dragAmount
+
+                        if (gestureAxis == ArtworkGestureAxis.UNDECIDED &&
+                            maxOf(abs(totalDrag.x), abs(totalDrag.y)) >= axisLockThreshold
+                        ) {
+                            gestureAxis = if (abs(totalDrag.x) >= abs(totalDrag.y)) {
+                                ArtworkGestureAxis.HORIZONTAL
+                            } else {
+                                ArtworkGestureAxis.VERTICAL
                             }
                         }
-                        dragDistance = Offset.Zero
+
+                        when (gestureAxis) {
+                            ArtworkGestureAxis.HORIZONTAL -> {
+                                val requested = totalDrag.x.coerceIn(-artworkPx, artworkPx)
+                                horizontalOffsetPx = when {
+                                    requested < 0f && nextTrack == null -> requested * 0.18f
+                                    requested > 0f && previousTrack == null -> requested * 0.18f
+                                    else -> requested
+                                }
+                            }
+
+                            ArtworkGestureAxis.VERTICAL -> {
+                                val newVolume = (
+                                    startingVolume - totalDrag.y / (artworkPx * 0.82f)
+                                    ).coerceIn(0f, 1f)
+                                shownVolume = newVolume
+                                showVolumeOverlay = true
+                                onVolumeFractionChange(newVolume)
+                            }
+
+                            ArtworkGestureAxis.UNDECIDED -> Unit
+                        }
+                    },
+                    onDragCancel = {
+                        if (gestureAxis == ArtworkGestureAxis.HORIZONTAL) {
+                            animateArtworkTo(0f)
+                        }
+                        if (gestureAxis == ArtworkGestureAxis.VERTICAL) {
+                            hideVolumeJob = coroutineScope.launch {
+                                delay(450)
+                                showVolumeOverlay = false
+                            }
+                        }
+                        totalDrag = Offset.Zero
+                        gestureAxis = ArtworkGestureAxis.UNDECIDED
+                    },
+                    onDragEnd = {
+                        when (gestureAxis) {
+                            ArtworkGestureAxis.HORIZONTAL -> {
+                                when {
+                                    horizontalOffsetPx <= -switchThreshold && nextTrack != null -> {
+                                        animateArtworkTo(-artworkPx, onNext)
+                                    }
+
+                                    horizontalOffsetPx >= switchThreshold && previousTrack != null -> {
+                                        animateArtworkTo(artworkPx, onPrevious)
+                                    }
+
+                                    else -> animateArtworkTo(0f)
+                                }
+                            }
+
+                            ArtworkGestureAxis.VERTICAL -> {
+                                hideVolumeJob = coroutineScope.launch {
+                                    delay(550)
+                                    showVolumeOverlay = false
+                                }
+                            }
+
+                            ArtworkGestureAxis.UNDECIDED -> Unit
+                        }
+                        totalDrag = Offset.Zero
+                        gestureAxis = ArtworkGestureAxis.UNDECIDED
                     },
                 )
             }
@@ -623,12 +731,34 @@ private fun GestureArtwork(
         color = Color.Transparent,
         shadowElevation = 18.dp,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            TrackArtwork(
-                artworkRef = artworkRef,
-                description = title,
-                size = artworkSize,
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            previousTrack?.let { preview ->
+                ArtworkPage(
+                    artworkRef = preview.artworkRef,
+                    title = preview.title,
+                    artworkSize = artworkSize,
+                    translationXPx = horizontalOffsetPx - artworkPx,
+                )
+            }
+
+            ArtworkPage(
+                artworkRef = currentArtworkRef,
+                title = currentTitle,
+                artworkSize = artworkSize,
+                translationXPx = horizontalOffsetPx,
             )
+
+            nextTrack?.let { preview ->
+                ArtworkPage(
+                    artworkRef = preview.artworkRef,
+                    title = preview.title,
+                    artworkSize = artworkSize,
+                    translationXPx = horizontalOffsetPx + artworkPx,
+                )
+            }
 
             if (isPreparing) {
                 Surface(
@@ -640,7 +770,95 @@ private fun GestureArtwork(
                     }
                 }
             }
+
+            if (showVolumeOverlay) {
+                VolumeGestureOverlay(
+                    volume = shownVolume,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 14.dp),
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun ArtworkPage(
+    artworkRef: String?,
+    title: String,
+    artworkSize: Dp,
+    translationXPx: Float,
+) {
+    TrackArtwork(
+        artworkRef = artworkRef,
+        description = title,
+        size = artworkSize,
+        modifier = Modifier.graphicsLayer {
+            translationX = translationXPx
+        },
+    )
+}
+
+@Composable
+private fun VolumeGestureOverlay(
+    volume: Float,
+    modifier: Modifier = Modifier,
+) {
+    val normalized = volume.coerceIn(0f, 1f)
+    Surface(
+        modifier = modifier.width(76.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.Black.copy(alpha = 0.72f),
+        contentColor = PlayerPrimaryContent,
+        shadowElevation = 8.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 13.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                imageVector = when {
+                    normalized <= 0.001f -> Icons.Rounded.VolumeOff
+                    normalized < 0.45f -> Icons.Rounded.VolumeDown
+                    else -> Icons.Rounded.VolumeUp
+                },
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+            )
+            Text(
+                text = "${(normalized * 100f).roundToInt()}%",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
+            )
+            LinearProgressIndicator(
+                progress = { normalized },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = PlayerPrimaryContent.copy(alpha = 0.18f),
+            )
+        }
+    }
+}
+
+private fun QueueState.previousPreview(): QueueItem? {
+    if (items.size <= 1 || currentIndex !in items.indices) return null
+    return when {
+        currentIndex > 0 -> items[currentIndex - 1]
+        repeatMode == RepeatMode.ALL -> items.last()
+        else -> null
+    }
+}
+
+private fun QueueState.nextPreview(): QueueItem? {
+    if (items.size <= 1 || currentIndex !in items.indices) return null
+    return when {
+        currentIndex < items.lastIndex -> items[currentIndex + 1]
+        repeatMode == RepeatMode.ALL -> items.first()
+        else -> null
     }
 }
 
