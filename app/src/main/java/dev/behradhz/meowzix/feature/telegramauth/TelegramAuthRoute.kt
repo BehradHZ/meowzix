@@ -55,6 +55,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthState
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
+import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -66,9 +67,11 @@ fun TelegramAuthRoute(
     viewModel: TelegramAuthViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val musicSourceState by viewModel.musicSourceState.collectAsStateWithLifecycle()
     val hazeState = rememberHazeState()
     TelegramAuthScreen(
         state = state,
+        musicSourceState = musicSourceState,
         hazeState = hazeState,
         onBack = onBack,
         onPhoneNumber = viewModel::submitPhoneNumber,
@@ -79,12 +82,17 @@ fun TelegramAuthRoute(
         onRegister = viewModel::register,
         onLogout = viewModel::logout,
         onClearError = viewModel::clearError,
+        onRefreshSources = viewModel::refreshMusicSources,
+        onSetSourceSelected = viewModel::setMusicSourceSelected,
+        onSyncSources = viewModel::syncSelectedSources,
+        onClearMusicSourceError = viewModel::clearMusicSourceError,
     )
 }
 
 @Composable
 private fun TelegramAuthScreen(
     state: TelegramAuthState,
+    musicSourceState: TelegramMusicSourceState,
     hazeState: HazeState,
     onBack: () -> Unit,
     onPhoneNumber: (String) -> Unit,
@@ -95,6 +103,10 @@ private fun TelegramAuthScreen(
     onRegister: (String, String) -> Unit,
     onLogout: () -> Unit,
     onClearError: () -> Unit,
+    onRefreshSources: () -> Unit,
+    onSetSourceSelected: (Long, Boolean) -> Unit,
+    onSyncSources: () -> Unit,
+    onClearMusicSourceError: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -268,7 +280,12 @@ private fun TelegramAuthScreen(
                     )
                     is TelegramAuthStep.WaitOtherDeviceConfirmation -> OtherDeviceConfirmation(step.link)
                     TelegramAuthStep.Ready -> ReadyState(
+                        musicSourceState = musicSourceState,
                         enabled = !state.isSubmitting,
+                        onRefreshSources = onRefreshSources,
+                        onSetSourceSelected = onSetSourceSelected,
+                        onSyncSources = onSyncSources,
+                        onClearMusicSourceError = onClearMusicSourceError,
                         onLogout = onLogout,
                     )
                     TelegramAuthStep.LoggingOut -> ProgressState("Logging out…")
@@ -396,17 +413,35 @@ private fun OtherDeviceConfirmation(link: String) {
 }
 
 @Composable
-private fun ReadyState(enabled: Boolean, onLogout: () -> Unit) {
+private fun ReadyState(
+    musicSourceState: TelegramMusicSourceState,
+    enabled: Boolean,
+    onRefreshSources: () -> Unit,
+    onSetSourceSelected: (Long, Boolean) -> Unit,
+    onSyncSources: () -> Unit,
+    onClearMusicSourceError: () -> Unit,
+    onLogout: () -> Unit,
+) {
     MessageState(
         icon = { Icon(Icons.Rounded.CheckCircle, contentDescription = null) },
         title = "Telegram connected",
-        message = "Your TDLib session is ready. Music source selection arrives with the next Telegram library increment.",
+        message = "Choose the Telegram chats or channels that contain your music. Imported tracks appear in Library.",
+    )
+    TelegramMusicSourcePicker(
+        state = musicSourceState,
+        enabled = enabled,
+        onRefresh = onRefreshSources,
+        onSetSelected = onSetSourceSelected,
+        onSync = onSyncSources,
+        onClearError = onClearMusicSourceError,
     )
     OutlinedButton(
         onClick = onLogout,
-        enabled = enabled,
+        enabled = enabled && !musicSourceState.isSyncing,
         shape = RoundedCornerShape(22.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp),
     ) {
         Icon(Icons.Rounded.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(Modifier.size(8.dp))
