@@ -54,17 +54,15 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
 
         // Only wait for a small useful prefix. The Media3 TDLib data source consumes this prefix
         // immediately while a lower-priority full download continues in the background.
-        runCatching {
-            client.send(
-                TdApi.DownloadFile(
-                    source.candidate.fileId,
-                    PLAYBACK_PRIORITY,
-                    0L,
-                    INITIAL_PLAYBACK_BYTES,
-                    true,
-                ),
-            )
-        }.getOrElse { throw it }
+        client.send(
+            TdApi.DownloadFile(
+                source.candidate.fileId,
+                PLAYBACK_PRIORITY,
+                0L,
+                INITIAL_PLAYBACK_BYTES,
+                true,
+            ),
+        )
 
         startPermanentDownload(trackId, source)
         val track = libraryDao.trackById(trackId.toString()) ?: return null
@@ -209,9 +207,14 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
 
     private fun extractFullArtwork(trackId: UUID, audioFile: File): String? {
         val bytes = runCatching {
-            MediaMetadataRetriever().use { retriever ->
+            val retriever = MediaMetadataRetriever()
+            try {
                 retriever.setDataSource(audioFile.absolutePath)
                 retriever.embeddedPicture
+            } finally {
+                // MediaMetadataRetriever implements AutoCloseable only from API 29. release() is
+                // available on our minSdk (26), so use it directly for full compatibility.
+                retriever.release()
             }
         }.getOrNull() ?: return null
         if (bytes.isEmpty()) return null
