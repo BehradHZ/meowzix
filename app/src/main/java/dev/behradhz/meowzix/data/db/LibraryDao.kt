@@ -67,6 +67,9 @@ interface LibraryDao {
 
     @Query("UPDATE tracks SET favorite = :favorite, updatedAtEpochMs = :updatedAt WHERE id = :trackId")
     suspend fun setFavorite(trackId: String, favorite: Boolean, updatedAt: Long)
+
+    @Query("UPDATE tracks SET artworkRef = :artworkRef, updatedAtEpochMs = :updatedAt WHERE id = :trackId")
+    suspend fun setArtworkRef(trackId: String, artworkRef: String?, updatedAt: Long)
 }
 
 data class LocalPlaybackRow(
