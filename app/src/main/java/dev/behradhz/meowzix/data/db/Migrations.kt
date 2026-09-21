@@ -66,3 +66,23 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_playlist_tracks_playlistId_position` ON `playlist_tracks` (`playlistId`, `position`)")
     }
 }
+
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS `listening_sessions` (`id` TEXT NOT NULL, `startedAtEpochMs` INTEGER NOT NULL, `endedAtEpochMs` INTEGER, `initialMode` TEXT NOT NULL, PRIMARY KEY(`id`))")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `listening_events` (" +
+                "`id` TEXT NOT NULL, `playbackInstanceId` TEXT NOT NULL, `trackId` TEXT NOT NULL, `sessionId` TEXT NOT NULL, " +
+                "`type` TEXT NOT NULL, `occurredAtEpochMs` INTEGER NOT NULL, `localHour` INTEGER NOT NULL, `dayOfWeek` INTEGER NOT NULL, " +
+                "`timeBucket` TEXT NOT NULL, `isWeekend` INTEGER NOT NULL, `positionMs` INTEGER, `durationMs` INTEGER, " +
+                "`completionRatio` REAL, `initiatedBy` TEXT NOT NULL, `playbackMode` TEXT NOT NULL, PRIMARY KEY(`id`), " +
+                "FOREIGN KEY(`trackId`) REFERENCES `tracks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                "FOREIGN KEY(`sessionId`) REFERENCES `listening_sessions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_listening_events_trackId` ON `listening_events` (`trackId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_listening_events_sessionId` ON `listening_events` (`sessionId`)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_listening_events_playbackInstanceId_type` ON `listening_events` (`playbackInstanceId`, `type`)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `track_preference_stats` (`trackId` TEXT NOT NULL, `totalStarts` INTEGER NOT NULL, `totalCompletions` INTEGER NOT NULL, `earlySkips` INTEGER NOT NULL, `lateSkips` INTEGER NOT NULL, `manualSelections` INTEGER NOT NULL, `replays` INTEGER NOT NULL, `lastPlayedAtEpochMs` INTEGER, PRIMARY KEY(`trackId`))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `track_time_preferences` (`trackId` TEXT NOT NULL, `timeBucket` TEXT NOT NULL, `starts` INTEGER NOT NULL, `completions` INTEGER NOT NULL, `earlySkips` INTEGER NOT NULL, `manualSelections` INTEGER NOT NULL, `lastInteractionAtEpochMs` INTEGER, PRIMARY KEY(`trackId`, `timeBucket`))")
+    }
+}

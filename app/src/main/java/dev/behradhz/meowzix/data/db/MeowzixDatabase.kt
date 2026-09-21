@@ -14,8 +14,12 @@ import androidx.room.TypeConverters
         DownloadRecordEntity::class,
         PlaylistEntity::class,
         PlaylistTrackEntity::class,
+        ListeningSessionEntity::class,
+        ListeningEventEntity::class,
+        TrackPreferenceStatsEntity::class,
+        TrackTimePreferenceEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(DbConverters::class)
@@ -24,4 +28,5 @@ abstract class MeowzixDatabase : RoomDatabase() {
     abstract fun telegramDao(): TelegramDao
     abstract fun downloadDao(): DownloadDao
     abstract fun playlistDao(): PlaylistDao
+    abstract fun historyDao(): HistoryDao
 }

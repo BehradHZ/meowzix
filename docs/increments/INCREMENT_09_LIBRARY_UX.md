@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented on 2026-09-21, except Recently Played data is intentionally supplied by Increment 10's listening-history store.
+Implemented on 2026-09-21. Recently Played is supplied by Increment 10's listening-history store.
 
 ## Implementation
 

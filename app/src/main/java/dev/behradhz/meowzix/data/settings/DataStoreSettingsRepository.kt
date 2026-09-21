@@ -24,6 +24,7 @@ class DataStoreSettingsRepository @Inject constructor(
             wifiOnlyDownloads = values[WIFI_ONLY] ?: false,
             prefetchEnabled = values[PREFETCH] ?: true,
             prefetchOnMetered = values[PREFETCH_METERED] ?: false,
+            listeningHistoryEnabled = values[LISTENING_HISTORY] ?: true,
         )
     }
 
@@ -31,6 +32,7 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setWifiOnlyDownloads(enabled: Boolean) = set(WIFI_ONLY, enabled)
     override suspend fun setPrefetchEnabled(enabled: Boolean) = set(PREFETCH, enabled)
     override suspend fun setPrefetchOnMetered(enabled: Boolean) = set(PREFETCH_METERED, enabled)
+    override suspend fun setListeningHistoryEnabled(enabled: Boolean) = set(LISTENING_HISTORY, enabled)
 
     private suspend fun set(key: androidx.datastore.preferences.core.Preferences.Key<Boolean>, value: Boolean) {
         context.settingsDataStore.edit { it[key] = value }
@@ -41,5 +43,6 @@ class DataStoreSettingsRepository @Inject constructor(
         val WIFI_ONLY = booleanPreferencesKey("wifi_only_downloads")
         val PREFETCH = booleanPreferencesKey("prefetch_enabled")
         val PREFETCH_METERED = booleanPreferencesKey("prefetch_on_metered")
+        val LISTENING_HISTORY = booleanPreferencesKey("listening_history_enabled")
     }
 }

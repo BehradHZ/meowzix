@@ -42,10 +42,17 @@ class MigrationTest {
         helper.runMigrationsAndValidate(TEST_DATABASE_4_5, 5, true, MIGRATION_4_5).close()
     }
 
+    @Test
+    fun migrateFiveToSixAddsListeningHistoryStorage() {
+        helper.createDatabase(TEST_DATABASE_5_6, 5).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_5_6, 6, true, MIGRATION_5_6).close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"
         const val TEST_DATABASE_3_4 = "migration-test-3-4"
         const val TEST_DATABASE_4_5 = "migration-test-4-5"
+        const val TEST_DATABASE_5_6 = "migration-test-5-6"
     }
 }

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
@@ -54,6 +55,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.feature.library.LibraryRoute
 import dev.behradhz.meowzix.feature.downloads.DownloadsRoute
+import dev.behradhz.meowzix.feature.history.HistoryRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.queue.QueueRoute
@@ -69,6 +71,7 @@ private const val NOW_PLAYING_ROUTE = "now-playing"
 private const val QUEUE_ROUTE = "queue"
 private const val TELEGRAM_AUTH_ROUTE = "telegram-auth"
 private const val DOWNLOADS_ROUTE = "downloads"
+private const val HISTORY_ROUTE = "history"
 
 private data class TopLevelDestination(
     val route: String,
@@ -114,6 +117,11 @@ fun MeowzixApp(
                 icon = { Icon(Icons.Rounded.DownloadForOffline, contentDescription = null) },
             ),
             TopLevelDestination(
+                route = HISTORY_ROUTE,
+                label = "History",
+                icon = { Icon(Icons.Rounded.History, contentDescription = null) },
+            ),
+            TopLevelDestination(
                 route = TELEGRAM_AUTH_ROUTE,
                 label = "Telegram",
                 icon = { Icon(Icons.Rounded.Cloud, contentDescription = null) },
@@ -156,6 +164,9 @@ fun MeowzixApp(
             }
             composable(DOWNLOADS_ROUTE) {
                 DownloadsRoute()
+            }
+            composable(HISTORY_ROUTE) {
+                HistoryRoute()
             }
         }
 

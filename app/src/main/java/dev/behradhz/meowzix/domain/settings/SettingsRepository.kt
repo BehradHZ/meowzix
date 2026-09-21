@@ -7,6 +7,7 @@ data class NetworkPlaybackSettings(
     val wifiOnlyDownloads: Boolean = false,
     val prefetchEnabled: Boolean = true,
     val prefetchOnMetered: Boolean = false,
+    val listeningHistoryEnabled: Boolean = true,
 )
 
 interface SettingsRepository {
@@ -15,4 +16,5 @@ interface SettingsRepository {
     suspend fun setWifiOnlyDownloads(enabled: Boolean)
     suspend fun setPrefetchEnabled(enabled: Boolean)
     suspend fun setPrefetchOnMetered(enabled: Boolean)
+    suspend fun setListeningHistoryEnabled(enabled: Boolean)
 }
