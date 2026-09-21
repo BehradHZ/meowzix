@@ -4,25 +4,25 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.core.model.Track
+import dev.behradhz.meowzix.domain.downloads.DownloadRepository
+import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
-import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
-import dev.behradhz.meowzix.domain.playback.PlaybackMode
-import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackController
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Job
-import java.util.UUID
 
 data class LibraryUiState(
     val tracks: List<Track> = emptyList(),
@@ -59,6 +59,13 @@ class LibraryViewModel @Inject constructor(
                             errorMessage = null,
                         )
                     }
+                    repository.prefetchArtwork(
+                        tracks.asSequence()
+                            .map { it.track }
+                            .filter { it.artworkRef.isNullOrBlank() }
+                            .map { it.id }
+                            .toList(),
+                    )
                 }
         }
         viewModelScope.launch {
@@ -90,8 +97,14 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun playTrack(track: Track) {
-        playbackController.playTrack(track.id)
+    /** Starts the selected track inside the exact browsing context supplied by the UI. */
+    fun playTrack(track: Track, queueTracks: List<Track> = _state.value.tracks) {
+        val queue = queueTracks.distinctBy { it.id }
+        if (queue.isEmpty()) {
+            playbackController.playTrack(track.id)
+        } else {
+            queueRepository.replaceAndPlay(queue.map { it.id }, track.id, PlaybackMode.ORDERED)
+        }
     }
 
     fun playNext(track: Track) = queueRepository.playNext(track.id)
