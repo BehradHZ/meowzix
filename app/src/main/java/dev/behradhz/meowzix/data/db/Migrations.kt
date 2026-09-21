@@ -37,3 +37,18 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_telegram_selected_sources_accountId` ON `telegram_selected_sources` (`accountId`)")
     }
 }
+
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `download_records` (" +
+                "`id` TEXT NOT NULL, `trackId` TEXT NOT NULL, `trackSourceId` TEXT NOT NULL, `tdFileId` INTEGER, " +
+                "`status` TEXT NOT NULL, `downloadedBytes` INTEGER NOT NULL, `totalBytes` INTEGER, `localPath` TEXT, " +
+                "`pinned` INTEGER NOT NULL, `failureReason` TEXT, `createdAtEpochMs` INTEGER NOT NULL, " +
+                "`updatedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`id`), " +
+                "FOREIGN KEY(`trackId`) REFERENCES `tracks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        )
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_download_records_trackId` ON `download_records` (`trackId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_download_records_tdFileId` ON `download_records` (`tdFileId`)")
+    }
+}

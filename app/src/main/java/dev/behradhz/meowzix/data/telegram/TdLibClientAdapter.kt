@@ -1,8 +1,8 @@
 package dev.behradhz.meowzix.data.telegram
 
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
@@ -12,19 +12,19 @@ import kotlin.coroutines.resumeWithException
 internal class TdLibException(val errorCode: Int, message: String) : Exception(message)
 
 internal class TdLibClientAdapter {
-    private val updateChannel = Channel<TdApi.Object>(Channel.UNLIMITED)
-    private val failureChannel = Channel<Throwable>(Channel.UNLIMITED)
-    val updates: Flow<TdApi.Object> = updateChannel.receiveAsFlow()
-    val failures: Flow<Throwable> = failureChannel.receiveAsFlow()
+    private val updateChannel = MutableSharedFlow<TdApi.Object>(replay = 1, extraBufferCapacity = 64)
+    private val failureChannel = MutableSharedFlow<Throwable>(replay = 1, extraBufferCapacity = 8)
+    val updates: Flow<TdApi.Object> = updateChannel.asSharedFlow()
+    val failures: Flow<Throwable> = failureChannel.asSharedFlow()
 
     private val client: Client
 
     init {
         Client.setLogMessageHandler(0, null)
         client = Client.create(
-            { update -> updateChannel.trySend(update) },
-            { error -> failureChannel.trySend(error) },
-            { error -> failureChannel.trySend(error) },
+            { update -> updateChannel.tryEmit(update) },
+            { error -> failureChannel.tryEmit(error) },
+            { error -> failureChannel.tryEmit(error) },
         )
         activeInstance = this
     }

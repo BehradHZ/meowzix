@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
@@ -143,6 +144,7 @@ fun LibraryRoute(
         },
         onPlayNext = viewModel::playNext,
         onAddToQueue = viewModel::addToQueue,
+        onPinOffline = viewModel::pinOffline,
         onOpenTelegram = onOpenTelegram,
     )
 }
@@ -157,6 +159,7 @@ private fun LibraryScreen(
     onPlayTrack: (Track) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
+    onPinOffline: (Track) -> Unit,
     onOpenTelegram: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -264,6 +267,7 @@ private fun LibraryScreen(
                     onPlayTrack = onPlayTrack,
                     onPlayNext = onPlayNext,
                     onAddToQueue = onAddToQueue,
+                    onPinOffline = onPinOffline,
                 )
 
                 LibrarySection.ARTISTS -> ArtistsSection(filteredTracks)
@@ -473,6 +477,7 @@ private fun TracksSection(
     onPlayTrack: (Track) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
+    onPinOffline: (Track) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -491,6 +496,7 @@ private fun TracksSection(
                 onClick = { onPlayTrack(track) },
                 onPlayNext = { onPlayNext(track) },
                 onAddToQueue = { onAddToQueue(track) },
+                onPinOffline = { onPinOffline(track) },
             )
         }
     }
@@ -503,6 +509,7 @@ private fun SwipeableTrackRow(
     onClick: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
+    onPinOffline: () -> Unit,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -563,6 +570,7 @@ private fun SwipeableTrackRow(
             onClick = onClick,
             onPlayNext = onPlayNext,
             onAddToQueue = onAddToQueue,
+            onPinOffline = onPinOffline,
         )
     }
 }
@@ -574,6 +582,7 @@ private fun TrackRow(
     onClick: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
+    onPinOffline: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -654,6 +663,14 @@ private fun TrackRow(
                         onClick = {
                             menuExpanded = false
                             onAddToQueue()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Pin offline") },
+                        leadingIcon = { Icon(Icons.Rounded.DownloadForOffline, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onPinOffline()
                         },
                     )
                 }

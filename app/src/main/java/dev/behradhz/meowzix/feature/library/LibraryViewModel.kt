@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.QueueRepository
@@ -30,6 +31,7 @@ class LibraryViewModel @Inject constructor(
     private val repository: MusicLibraryRepository,
     private val playbackController: PlaybackController,
     private val queueRepository: QueueRepository,
+    private val downloadRepository: DownloadRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
@@ -70,4 +72,5 @@ class LibraryViewModel @Inject constructor(
 
     fun playNext(track: Track) = queueRepository.playNext(track.id)
     fun addToQueue(track: Track) = queueRepository.addToQueue(track.id)
+    fun pinOffline(track: Track) = downloadRepository.pinOffline(track.id)
 }

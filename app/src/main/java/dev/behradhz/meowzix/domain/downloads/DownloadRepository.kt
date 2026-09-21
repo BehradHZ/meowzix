@@ -1,4 +1,25 @@
 package dev.behradhz.meowzix.domain.downloads
 
-/** Domain boundary for app-managed downloads, implemented in Increment 7. */
-interface DownloadRepository
+import java.util.UUID
+import kotlinx.coroutines.flow.Flow
+
+enum class DownloadStatus { QUEUED, DOWNLOADING, COMPLETED, FAILED, CANCELED }
+
+data class OfflineDownload(
+    val trackId: UUID,
+    val status: DownloadStatus,
+    val downloadedBytes: Long,
+    val totalBytes: Long?,
+    val pinned: Boolean,
+    val failureReason: String?,
+)
+
+interface DownloadRepository {
+    fun observeDownloads(): Flow<List<OfflineDownload>>
+    fun pinOffline(trackId: UUID)
+    fun retry(trackId: UUID)
+    fun cancel(trackId: UUID)
+    suspend fun removeOfflineCopy(trackId: UUID)
+    suspend fun storageBytes(): Long
+    suspend fun clearTemporaryCache()
+}

@@ -30,8 +30,15 @@ class MigrationTest {
         helper.runMigrationsAndValidate(TEST_DATABASE_2_3, 3, true, MIGRATION_2_3).close()
     }
 
+    @Test
+    fun migrateThreeToFourAddsOfflineDownloadStorage() {
+        helper.createDatabase(TEST_DATABASE_3_4, 3).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_3_4, 4, true, MIGRATION_3_4).close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"
+        const val TEST_DATABASE_3_4 = "migration-test-3-4"
     }
 }

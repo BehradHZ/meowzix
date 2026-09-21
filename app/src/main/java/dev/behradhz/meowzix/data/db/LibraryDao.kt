@@ -61,6 +61,9 @@ interface LibraryDao {
 
     @Query("DELETE FROM tracks WHERE id = :trackId AND NOT EXISTS (SELECT 1 FROM track_sources WHERE trackId = :trackId)")
     suspend fun deleteTrackIfOrphaned(trackId: String)
+
+    @Query("DELETE FROM track_sources WHERE id = :sourceId AND type = 'APP_OFFLINE_COPY'")
+    suspend fun deleteOfflineSource(sourceId: String)
 }
 
 data class LocalPlaybackRow(

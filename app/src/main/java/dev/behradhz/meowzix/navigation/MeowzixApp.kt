@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -52,6 +53,7 @@ import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.feature.library.LibraryRoute
+import dev.behradhz.meowzix.feature.downloads.DownloadsRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.queue.QueueRoute
@@ -66,6 +68,7 @@ private const val LIBRARY_ROUTE = "library"
 private const val NOW_PLAYING_ROUTE = "now-playing"
 private const val QUEUE_ROUTE = "queue"
 private const val TELEGRAM_AUTH_ROUTE = "telegram-auth"
+private const val DOWNLOADS_ROUTE = "downloads"
 
 private data class TopLevelDestination(
     val route: String,
@@ -104,6 +107,11 @@ fun MeowzixApp(
                 route = QUEUE_ROUTE,
                 label = "Queue",
                 icon = { Icon(Icons.Rounded.QueueMusic, contentDescription = null) },
+            ),
+            TopLevelDestination(
+                route = DOWNLOADS_ROUTE,
+                label = "Offline",
+                icon = { Icon(Icons.Rounded.DownloadForOffline, contentDescription = null) },
             ),
             TopLevelDestination(
                 route = TELEGRAM_AUTH_ROUTE,
@@ -145,6 +153,9 @@ fun MeowzixApp(
             }
             composable(TELEGRAM_AUTH_ROUTE) {
                 TelegramAuthRoute(onBack = navController::popBackStack)
+            }
+            composable(DOWNLOADS_ROUTE) {
+                DownloadsRoute()
             }
         }
 

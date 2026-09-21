@@ -11,14 +11,18 @@ import dagger.hilt.components.SingletonComponent
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.MIGRATION_1_2
 import dev.behradhz.meowzix.data.db.MIGRATION_2_3
+import dev.behradhz.meowzix.data.db.MIGRATION_3_4
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.TelegramDao
+import dev.behradhz.meowzix.data.db.DownloadDao
+import dev.behradhz.meowzix.data.downloads.TdLibDownloadRepository
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
 import dev.behradhz.meowzix.data.telegram.TdLibRemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.data.telegram.TdLibTelegramRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
@@ -62,6 +66,10 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
+    abstract fun bindDownloadRepository(impl: TdLibDownloadRepository): DownloadRepository
+
+    @Binds
+    @Singleton
     abstract fun bindLocalMediaScanner(impl: MediaStoreScanner): LocalMediaScanner
 }
 
@@ -72,7 +80,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MeowzixDatabase =
         Room.databaseBuilder(context, MeowzixDatabase::class.java, "meowzix.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
 
     @Provides
@@ -80,4 +88,7 @@ object DatabaseModule {
 
     @Provides
     fun provideTelegramDao(database: MeowzixDatabase): TelegramDao = database.telegramDao()
+
+    @Provides
+    fun provideDownloadDao(database: MeowzixDatabase): DownloadDao = database.downloadDao()
 }
