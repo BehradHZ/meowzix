@@ -4,15 +4,20 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +38,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.behradhz.meowzix.domain.downloads.DownloadStatus
+import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -87,6 +94,77 @@ fun TrackArtwork(
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(size * 0.42f),
             )
+        }
+    }
+}
+
+@Composable
+fun ChatAvatar(
+    artworkRef: String?,
+    description: String,
+    size: Dp = 48.dp,
+    modifier: Modifier = Modifier,
+) {
+    val bitmap = rememberArtworkBitmap(artworkRef)
+    Box(
+        modifier = modifier.size(size).clip(MaterialTheme.shapes.extraLarge)
+            .background(MaterialTheme.colorScheme.secondaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            Image(bitmap = bitmap, contentDescription = description, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else {
+            Icon(Icons.Rounded.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size * 0.46f))
+        }
+    }
+}
+
+@Composable
+fun DownloadableTrackArtwork(
+    artworkRef: String?,
+    description: String,
+    size: Dp = 52.dp,
+    isOffline: Boolean,
+    download: OfflineDownload?,
+    onDownload: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier.size(size)) {
+        TrackArtwork(artworkRef, description, size = size)
+        if (!isOffline) {
+            val active = download?.status == DownloadStatus.DOWNLOADING || download?.status == DownloadStatus.QUEUED
+            if (active) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = MaterialTheme.shapes.medium,
+                    color = Color.Black.copy(alpha = 0.36f),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        val total = download?.totalBytes?.takeIf { it > 0L }
+                        if (total != null) {
+                            CircularProgressIndicator(
+                                progress = { (download.downloadedBytes.toFloat() / total).coerceIn(0f, 1f) },
+                                modifier = Modifier.size(size * 0.60f), strokeWidth = 3.dp, color = Color.White,
+                                trackColor = Color.White.copy(alpha = 0.24f),
+                            )
+                        } else {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(size * 0.60f), strokeWidth = 3.dp, color = Color.White,
+                                trackColor = Color.White.copy(alpha = 0.24f),
+                            )
+                        }
+                    }
+                }
+            } else {
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomEnd).size(27.dp).clickable(onClick = onDownload),
+                    shape = MaterialTheme.shapes.extraLarge, color = Color.Black.copy(alpha = 0.70f), contentColor = Color.White,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Download, contentDescription = "Download", modifier = Modifier.size(17.dp))
+                    }
+                }
+            }
         }
     }
 }

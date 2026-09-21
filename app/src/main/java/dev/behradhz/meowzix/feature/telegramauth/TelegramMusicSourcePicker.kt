@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
+import dev.behradhz.meowzix.ui.components.ChatAvatar
 
 @Composable
 internal fun TelegramMusicSourcePicker(
@@ -143,7 +144,8 @@ internal fun TelegramMusicSourcePicker(
                             onCheckedChange = { checked -> onSetSelected(chat.chatId, checked) },
                             enabled = enabled,
                         )
-                        Column(modifier = Modifier.weight(1f).padding(start = 6.dp)) {
+                        ChatAvatar(chat.profilePhotoRef, chat.title, size = 44.dp)
+                        Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
                             Text(
                                 text = chat.title,
                                 style = MaterialTheme.typography.bodyLarge,

@@ -80,6 +80,8 @@ private data class TopLevelDestination(
 
 @Composable
 fun MeowzixApp(
+    openNowPlayingRequest: Boolean = false,
+    onNowPlayingRequestConsumed: () -> Unit = {},
     playerViewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
@@ -89,6 +91,14 @@ fun MeowzixApp(
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
     val spectrum by playerViewModel.spectrum.collectAsStateWithLifecycle()
 
+    LaunchedEffect(openNowPlayingRequest) {
+        if (openNowPlayingRequest) {
+            navController.navigate(NOW_PLAYING_ROUTE) { launchSingleTop = true }
+            onNowPlayingRequestConsumed()
+        }
+    }
+
+    // Keep capture ownership
     val destinations = remember {
         listOf(
             TopLevelDestination(
