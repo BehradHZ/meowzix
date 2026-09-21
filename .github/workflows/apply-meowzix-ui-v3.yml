@@ -1,0 +1,38 @@
+name: Retry artwork and offline UX
+on:
+  push:
+    branches: [feat/telegram-library-ux]
+    paths: [.github/workflows/apply-meowzix-ui-v3.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/telegram-library-ux
+      - name: Apply corrected UI script
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          app = Path('app/src/main/java/dev/behradhz/meowzix/navigation/MeowzixApp.kt')
+          text = app.read_text()
+          needle = '    val spectrum by playerViewModel.spectrum.collectAsStateWithLifecycle()\n\n'
+          if needle not in text:
+              raise SystemExit('Meowzix insertion point missing')
+          app.write_text(text.replace(needle, needle + '    // Keep capture ownership\n', 1))
+
+          workflow = Path('.github/workflows/apply-meowzix-ui-v2.yml').read_text().splitlines()
+          start = next(i for i,l in enumerate(workflow) if "python3 - <<'PY'" in l) + 1
+          end = next(i for i in range(start, len(workflow)) if workflow[i].strip() == 'PY')
+          source = '\n'.join(line[10:] if line.startswith('          ') else line for line in workflow[start:end])
+          exec(compile(source, 'embedded-ui-script', 'exec'), {})
+          Path('.github/workflows/apply-meowzix-ui-v3.yml').unlink(missing_ok=True)
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(ui): add source avatars and offline download UX"
+          git push origin HEAD:feat/telegram-library-ux
