@@ -7,6 +7,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
@@ -42,17 +43,15 @@ class PlaybackService : MediaSessionService() {
     private var isChangingShuffleCycle = false
 
     private val playerListener = object : Player.Listener {
-        override fun onAudioSessionIdChanged(audioSessionId: Int) {
-            // Never use session 0: Android treats that as the global output mix.
-            audioVisualizer.attachToSession(audioSessionId)
-        }
-
         override fun onEvents(player: Player, events: Player.Events) {
             if (
                 events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
                 player.playbackState == Player.STATE_ENDED
             ) {
                 startNextPureShuffleCycle()
+            }
+            if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
+                audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString())
             }
             if (
                 events.containsAny(
@@ -88,7 +87,10 @@ class PlaybackService : MediaSessionService() {
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
+        val mediaSourceFactory = DefaultMediaSourceFactory(this)
+            .setDataSourceFactory(MeowzixDataSourceFactory(this))
         player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_LOCAL)
@@ -98,6 +100,7 @@ class PlaybackService : MediaSessionService() {
 
         serviceScope.launch {
             restoreSession()
+            audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString())
             while (isActive) {
                 delay(POSITION_SAVE_INTERVAL_MS)
                 if (player.isPlaying) persistNow()
@@ -166,17 +169,10 @@ class PlaybackService : MediaSessionService() {
                 val repeatMode = currentItems.first().repeatMode()
                 val previousLastId = player.currentMediaItem?.mediaId
                 val shouldContinue = repeatMode == RepeatMode.ALL && player.playWhenReady
-                val catalogItems = runCatching { playbackCatalog.availableLocalTracks() }
+                val catalogItems = runCatching { playbackCatalog.availableTracks() }
                     .getOrNull()
                     ?.map { it.toMediaItem(playbackMode, repeatMode) }
-                val isLocalLibraryCycle = currentItems.any {
-                    it.localConfiguration?.uri?.scheme == "content"
-                }
-                val eligibleItems = if (isLocalLibraryCycle && catalogItems != null) {
-                    catalogItems
-                } else {
-                    currentItems
-                }
+                val eligibleItems = catalogItems ?: currentItems
                 if (eligibleItems.isEmpty()) {
                     player.clearMediaItems()
                     schedulePersist()
