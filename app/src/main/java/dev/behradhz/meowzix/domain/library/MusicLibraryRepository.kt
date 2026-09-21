@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.domain.library
 
 import dev.behradhz.meowzix.core.model.Track
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 
 data class LocalLibraryRefreshResult(
@@ -21,4 +22,5 @@ interface MusicLibraryRepository {
     fun observeTracks(): Flow<List<Track>>
     fun observeLibraryTracks(): Flow<List<LibraryTrack>>
     suspend fun refreshLocalMusic(): LocalLibraryRefreshResult
+    suspend fun unmergeSource(sourceId: UUID): UUID
 }

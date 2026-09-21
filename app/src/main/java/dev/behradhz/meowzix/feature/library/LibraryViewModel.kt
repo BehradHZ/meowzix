@@ -37,7 +37,7 @@ class LibraryViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             repository.observeTracks()
-                .catch { error -> _state.update { it.copy(errorMessage = error.message ?: "Unable to load Telegram music") } }
+                .catch { error -> _state.update { it.copy(errorMessage = error.message ?: "Unable to load music") } }
                 .collect { tracks -> _state.update { it.copy(tracks = tracks, errorMessage = null) } }
         }
         viewModelScope.launch {
@@ -47,8 +47,22 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** Telegram-only mode: local MediaStore scanning is intentionally disabled. */
-    fun refresh() = Unit
+    fun refresh() {
+        if (_state.value.isRefreshing) return
+        viewModelScope.launch {
+            _state.update { it.copy(isRefreshing = true, errorMessage = null) }
+            runCatching { repository.refreshLocalMusic() }
+                .onSuccess { result -> _state.update { it.copy(isRefreshing = false, lastRefresh = result) } }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            isRefreshing = false,
+                            errorMessage = error.message ?: "Unable to refresh local music",
+                        )
+                    }
+                }
+        }
+    }
 
     fun playTrack(track: Track) {
         playbackController.playTrack(track.id)

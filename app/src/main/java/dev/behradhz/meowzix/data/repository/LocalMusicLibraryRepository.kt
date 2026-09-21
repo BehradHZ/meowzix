@@ -80,6 +80,26 @@ class LocalMusicLibraryRepository @Inject constructor(
         return LocalLibraryRefreshResult(plan.discovered, plan.toCreate.size, plan.toUpdate.size, plan.missingSourceIds.size)
     }
 
+    override suspend fun unmergeSource(sourceId: UUID): UUID = database.withTransaction {
+        val source = requireNotNull(dao.sourceById(sourceId.toString())) { "Unknown track source." }
+        val sourceTrack = requireNotNull(dao.trackById(source.trackId)) { "Track source has no Track." }
+        val siblings = dao.sourcesForTrack(source.trackId)
+        if (siblings.size == 1) return@withTransaction UUID.fromString(source.trackId)
+
+        val now = Instant.now().toEpochMilli()
+        val newTrackId = UUID.randomUUID().toString()
+        dao.upsertTrack(
+            sourceTrack.copy(
+                id = newTrackId,
+                favorite = false,
+                createdAtEpochMs = now,
+                updatedAtEpochMs = now,
+            ),
+        )
+        dao.moveSource(source.id, newTrackId)
+        UUID.fromString(newTrackId)
+    }
+
     override suspend fun availableLocalTracks(): List<PlayableTrack> =
         dao.availableLocalPlaybackRows().distinctBy { it.id }.map { row ->
             PlayableTrack(
@@ -99,8 +119,14 @@ class LocalMusicLibraryRepository @Inject constructor(
         existingTrack: TrackEntity?,
         now: Long,
     ) {
-        val trackId = existingTrack?.id ?: existingSource?.trackId ?: UUID.randomUUID().toString()
+        val trackId = existingTrack?.id ?: existingSource?.trackId ?: findMatchingTrack(
+            normalizedTitle = TextNormalizer.normalize(item.title) ?: "unknown track",
+            normalizedArtist = TextNormalizer.normalize(item.artist),
+            durationMs = item.durationMs,
+            contentHashSha256 = existingSource?.contentHashSha256,
+        ) ?: UUID.randomUUID().toString()
         val sourceId = existingSource?.id ?: UUID.randomUUID().toString()
+        val canonicalTrack = existingTrack ?: dao.trackById(trackId)
 
         dao.upsertTrack(
             TrackEntity(
@@ -114,9 +140,9 @@ class LocalMusicLibraryRepository @Inject constructor(
                 trackNumber = item.trackNumber,
                 year = item.year,
                 artworkRef = item.artworkRef,
-                favorite = existingTrack?.favorite ?: false,
-                hidden = existingTrack?.hidden ?: false,
-                createdAtEpochMs = existingTrack?.createdAtEpochMs ?: now,
+                favorite = canonicalTrack?.favorite ?: false,
+                hidden = canonicalTrack?.hidden ?: false,
+                createdAtEpochMs = canonicalTrack?.createdAtEpochMs ?: now,
                 updatedAtEpochMs = now,
             ),
         )
@@ -145,6 +171,29 @@ class LocalMusicLibraryRepository @Inject constructor(
                 displayName = item.displayName,
                 dateModifiedSeconds = item.dateModifiedSeconds,
             ),
+        )
+    }
+
+    private suspend fun findMatchingTrack(
+        normalizedTitle: String,
+        normalizedArtist: String?,
+        durationMs: Long,
+        contentHashSha256: String?,
+    ): String? {
+        val sourcesByTrack = dao.allSources().groupBy { it.trackId }
+        val candidates = dao.allTracks().map { track ->
+            TrackMatchCandidate(
+                trackId = track.id,
+                normalizedTitle = track.normalizedTitle,
+                normalizedArtist = track.normalizedArtist,
+                durationMs = track.durationMs,
+                contentHashes = sourcesByTrack[track.id].orEmpty()
+                    .mapNotNullTo(mutableSetOf()) { it.contentHashSha256 },
+            )
+        }
+        return UnifiedTrackMatcher.match(
+            IncomingTrackIdentity(normalizedTitle, normalizedArtist, durationMs, contentHashSha256),
+            candidates,
         )
     }
 }

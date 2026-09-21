@@ -5,7 +5,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.core.model.SourceAvailability
+import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
+import dev.behradhz.meowzix.data.db.TrackEntity
+import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.ScannedLocalTrack
 import kotlinx.coroutines.flow.first
@@ -79,6 +82,53 @@ class LocalMusicLibraryRepositoryTest {
         assertEquals(0, secondResult.created)
         assertEquals(1_000, secondResult.updated)
         assertEquals(1_000, repository.observeTracks().first().size)
+    }
+
+    @Test
+    fun localAndRemoteMetadataMatchBecomeOneTrackWithTwoSources() = runTest {
+        val now = 1_700_000_000_000L
+        database.libraryDao().upsertTrack(
+            TrackEntity(
+                id = "00000000-0000-0000-0000-000000000001",
+                title = "Track 1",
+                normalizedTitle = "track 1",
+                artist = "Artist 1",
+                normalizedArtist = "artist 1",
+                album = null,
+                durationMs = 180_000L,
+                trackNumber = null,
+                year = null,
+                artworkRef = null,
+                favorite = false,
+                hidden = false,
+                createdAtEpochMs = now,
+                updatedAtEpochMs = now,
+            ),
+        )
+        database.libraryDao().upsertSource(
+            TrackSourceEntity(
+                id = "00000000-0000-0000-0000-000000000002",
+                trackId = "00000000-0000-0000-0000-000000000001",
+                type = TrackSourceType.TELEGRAM_REMOTE,
+                availability = SourceAvailability.REMOTE_ONLY,
+                contentUri = null,
+                localPath = null,
+                mimeType = "audio/mpeg",
+                fileSizeBytes = 5_000_000L,
+                contentHashSha256 = null,
+                trainingEligible = true,
+                createdAtEpochMs = now,
+                lastVerifiedAtEpochMs = now,
+            ),
+        )
+        scanner.tracks = listOf(track(1))
+
+        repository.refreshLocalMusic()
+
+        val tracks = repository.observeTracks().first()
+        assertEquals(1, tracks.size)
+        assertEquals(2, database.libraryDao().sourcesForTrack(tracks.single().id.toString()).size)
+        assertEquals(track(1).contentUri, repository.availableLocalTracks().single().contentUri)
     }
 
     private fun track(index: Int, title: String = "Track $index") = ScannedLocalTrack(

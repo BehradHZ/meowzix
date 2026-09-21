@@ -15,6 +15,9 @@ import dev.behradhz.meowzix.data.db.TelegramSelectedSourceEntity
 import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
+import dev.behradhz.meowzix.data.repository.IncomingTrackIdentity
+import dev.behradhz.meowzix.data.repository.TrackMatchCandidate
+import dev.behradhz.meowzix.data.repository.UnifiedTrackMatcher
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthState
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
@@ -357,24 +360,33 @@ class TdLibTelegramRepository @Inject constructor(
             val existingSource = existingTelegram?.let { libraryDao.sourceById(it.trackSourceId) }
             val existingTrack = existingSource?.let { libraryDao.trackById(it.trackId) }
             val created = existingSource == null
-            val trackId = existingTrack?.id ?: existingSource?.trackId ?: UUID.randomUUID().toString()
+            val normalizedTitle = TextNormalizer.normalize(candidate.title) ?: "unknown track"
+            val normalizedArtist = TextNormalizer.normalize(candidate.artist)
+            val trackId = existingTrack?.id ?: existingSource?.trackId ?: findMatchingTrack(
+                IncomingTrackIdentity(
+                    normalizedTitle = normalizedTitle,
+                    normalizedArtist = normalizedArtist,
+                    durationMs = candidate.durationMs,
+                ),
+            ) ?: UUID.randomUUID().toString()
             val sourceId = existingSource?.id ?: UUID.randomUUID().toString()
+            val canonicalTrack = existingTrack ?: libraryDao.trackById(trackId)
 
             libraryDao.upsertTrack(
                 TrackEntity(
                     id = trackId,
                     title = candidate.title,
-                    normalizedTitle = TextNormalizer.normalize(candidate.title) ?: "unknown track",
+                    normalizedTitle = normalizedTitle,
                     artist = candidate.artist,
                     normalizedArtist = TextNormalizer.normalize(candidate.artist),
-                    album = existingTrack?.album,
-                    durationMs = candidate.durationMs.takeIf { it > 0L } ?: existingTrack?.durationMs ?: 0L,
-                    trackNumber = existingTrack?.trackNumber,
-                    year = existingTrack?.year,
-                    artworkRef = existingTrack?.artworkRef,
-                    favorite = existingTrack?.favorite ?: false,
-                    hidden = existingTrack?.hidden ?: false,
-                    createdAtEpochMs = existingTrack?.createdAtEpochMs ?: now,
+                    album = canonicalTrack?.album,
+                    durationMs = candidate.durationMs.takeIf { it > 0L } ?: canonicalTrack?.durationMs ?: 0L,
+                    trackNumber = canonicalTrack?.trackNumber,
+                    year = canonicalTrack?.year,
+                    artworkRef = canonicalTrack?.artworkRef,
+                    favorite = canonicalTrack?.favorite ?: false,
+                    hidden = canonicalTrack?.hidden ?: false,
+                    createdAtEpochMs = canonicalTrack?.createdAtEpochMs ?: now,
                     updatedAtEpochMs = now,
                 ),
             )
@@ -410,6 +422,21 @@ class TdLibTelegramRepository @Inject constructor(
             )
             created
         }
+    }
+
+    private suspend fun findMatchingTrack(incoming: IncomingTrackIdentity): String? {
+        val sourcesByTrack = libraryDao.allSources().groupBy { it.trackId }
+        val candidates = libraryDao.allTracks().map { track ->
+            TrackMatchCandidate(
+                trackId = track.id,
+                normalizedTitle = track.normalizedTitle,
+                normalizedArtist = track.normalizedArtist,
+                durationMs = track.durationMs,
+                contentHashes = sourcesByTrack[track.id].orEmpty()
+                    .mapNotNullTo(mutableSetOf()) { it.contentHashSha256 },
+            )
+        }
+        return UnifiedTrackMatcher.match(incoming, candidates)
     }
 
     private fun submitParameters() {
