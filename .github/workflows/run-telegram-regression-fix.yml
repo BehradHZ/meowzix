@@ -1,0 +1,31 @@
+name: Run Telegram regression fix
+
+on:
+  push:
+    branches:
+      - feat/telegram-library-ux
+    paths:
+      - .github/workflows/run-telegram-regression-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/telegram-library-ux
+      - name: Patch Telegram loading
+        run: python3 .github/scripts/fix_telegram_avatar.py
+      - name: Commit patch
+        run: |
+          rm -f .github/scripts/fix_telegram_avatar.py
+          rm -f .github/workflows/run-telegram-regression-fix.yml
+          rm -f .github/workflows/fix-telegram-avatar-loading.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(telegram): load source avatars without blocking chats"
+          git push origin HEAD:feat/telegram-library-ux
