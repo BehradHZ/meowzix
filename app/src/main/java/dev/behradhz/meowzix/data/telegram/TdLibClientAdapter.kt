@@ -11,7 +11,11 @@ import kotlin.coroutines.resumeWithException
 
 internal class TdLibException(val errorCode: Int, message: String) : Exception(message)
 
-internal class TdLibClientAdapter {
+/**
+ * Thin process-local TDLib bridge. Playback's custom Media3 DataSource uses the active instance to
+ * read progressively downloaded Telegram files without forcing the whole file to finish first.
+ */
+class TdLibClientAdapter {
     private val updateChannel = MutableSharedFlow<TdApi.Object>(replay = 1, extraBufferCapacity = 64)
     private val failureChannel = MutableSharedFlow<Throwable>(replay = 1, extraBufferCapacity = 8)
     val updates: Flow<TdApi.Object> = updateChannel.asSharedFlow()
