@@ -7,7 +7,9 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -87,9 +89,13 @@ import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.core.permissions.AudioPermission
 import dev.behradhz.meowzix.core.permissions.AudioPermissionStatus
 import dev.behradhz.meowzix.core.permissions.audioPermissionStatus
+import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.navigation.horizontalSwipeNavigation
+import dev.behradhz.meowzix.ui.components.ChatAvatar
+import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import java.util.UUID
 
@@ -111,6 +117,7 @@ private data class AlbumKey(val name: String, val artist: String)
 
 @Composable
 fun LibraryRoute(
+    onSwipePastEnd: () -> Unit = {},
     onOpenNowPlaying: () -> Unit,
     onOpenTelegram: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel(),
@@ -177,6 +184,7 @@ fun LibraryRoute(
         onPlayPlaylist = viewModel::playSelectedPlaylist,
         onSaveQueue = viewModel::saveQueueToPlaylist,
         onOpenTelegram = onOpenTelegram,
+        onSwipePastEnd = onSwipePastEnd,
     )
 }
 
@@ -200,6 +208,7 @@ private fun LibraryScreen(
     onPlayPlaylist: (PlaybackMode) -> Unit,
     onSaveQueue: () -> Unit,
     onOpenTelegram: () -> Unit,
+    onSwipePastEnd: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var selectedSectionIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -242,6 +251,14 @@ private fun LibraryScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .horizontalSwipeNavigation(
+                enabled = selectedArtist == null && selectedAlbumName == null,
+                onSwipeLeft = {
+                    if (selectedSectionIndex < LibrarySection.entries.lastIndex) selectedSectionIndex++
+                    else onSwipePastEnd()
+                },
+                onSwipeRight = { if (selectedSectionIndex > 0) selectedSectionIndex-- },
+            )
             .statusBarsPadding(),
     ) {
         if (selectedArtist != null) {
@@ -260,6 +277,7 @@ private fun LibraryScreen(
                 onAddToQueue = onAddToQueue,
                 onPinOffline = onPinOffline,
                 availability = state.availability,
+                downloads = state.downloads,
                 playlists = state.playlists,
                 onFavorite = onFavorite,
                 onAddToPlaylist = onAddToPlaylist,
@@ -286,6 +304,7 @@ private fun LibraryScreen(
                 onAddToQueue = onAddToQueue,
                 onPinOffline = onPinOffline,
                 availability = state.availability,
+                downloads = state.downloads,
                 playlists = state.playlists,
                 onFavorite = onFavorite,
                 onAddToPlaylist = onAddToPlaylist,
@@ -402,6 +421,7 @@ private fun LibraryScreen(
                     onAddToQueue = onAddToQueue,
                     onPinOffline = onPinOffline,
                     availability = state.availability,
+                    downloads = state.downloads,
                     playlists = state.playlists,
                     onFavorite = onFavorite,
                     onAddToPlaylist = onAddToPlaylist,
@@ -439,6 +459,7 @@ private fun LibraryScreen(
 
                 LibrarySection.PLAYLISTS -> PlaylistsSection(
                     playlists = state.playlists,
+                    playlistArtwork = state.playlistArtwork,
                     selectedPlaylistId = state.selectedPlaylistId,
                     tracks = state.selectedPlaylistTracks,
                     onCreate = onCreatePlaylist,
@@ -669,6 +690,7 @@ private fun TracksSection(
     onAddToQueue: (Track) -> Unit,
     onPinOffline: (Track) -> Unit,
     availability: Map<UUID, LibraryTrackAvailability>,
+    downloads: Map<UUID, OfflineDownload>,
     playlists: List<PlaylistSummary>,
     onFavorite: (Track) -> Unit,
     onAddToPlaylist: (Track, UUID) -> Unit,
@@ -687,6 +709,7 @@ private fun TracksSection(
                 onAddToQueue = { onAddToQueue(track) },
                 onPinOffline = { onPinOffline(track) },
                 availability = availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
+                download = downloads[track.id],
                 playlists = playlists,
                 onFavorite = { onFavorite(track) },
                 onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
@@ -704,11 +727,13 @@ private fun SwipeableTrackRow(
     onAddToQueue: () -> Unit,
     onPinOffline: () -> Unit,
     availability: LibraryTrackAvailability,
+    download: OfflineDownload?,
     playlists: List<PlaylistSummary>,
     onFavorite: () -> Unit,
     onAddToPlaylist: (UUID) -> Unit,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
+        positionalThreshold = { distance -> distance * 0.22f },
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.StartToEnd -> {
@@ -767,6 +792,7 @@ private fun SwipeableTrackRow(
             onAddToQueue = onAddToQueue,
             onPinOffline = onPinOffline,
             availability = availability,
+            download = download,
             playlists = playlists,
             onFavorite = onFavorite,
             onAddToPlaylist = onAddToPlaylist,
@@ -774,6 +800,7 @@ private fun SwipeableTrackRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TrackRow(
     track: Track,
@@ -783,6 +810,7 @@ private fun TrackRow(
     onAddToQueue: () -> Unit,
     onPinOffline: () -> Unit,
     availability: LibraryTrackAvailability,
+    download: OfflineDownload?,
     playlists: List<PlaylistSummary>,
     onFavorite: () -> Unit,
     onAddToPlaylist: (UUID) -> Unit,
@@ -791,15 +819,23 @@ private fun TrackRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = { menuExpanded = true }),
         shape = RoundedCornerShape(16.dp),
-        color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent,
+        color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
+        shadowElevation = 1.dp,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TrackArtwork(track.artworkRef, track.title, size = 52.dp)
+            DownloadableTrackArtwork(
+                artworkRef = track.artworkRef,
+                description = track.title,
+                size = 52.dp,
+                isOffline = availability == LibraryTrackAvailability.OFFLINE,
+                download = download,
+                onDownload = onPinOffline,
+            )
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -844,39 +880,27 @@ private fun TrackRow(
                     onDismissRequest = { menuExpanded = false },
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Play next") },
-                        leadingIcon = { Icon(Icons.Rounded.PlaylistPlay, contentDescription = null) },
-                        onClick = { menuExpanded = false; onPlayNext() },
-                    )
-                    DropdownMenuItem(
                         text = { Text("Add to queue") },
                         leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, contentDescription = null) },
                         onClick = { menuExpanded = false; onAddToQueue() },
                     )
                     DropdownMenuItem(
-                        text = { Text(if (track.favorite) "Remove favorite" else "Favorite") },
-                        leadingIcon = {
-                            Icon(
-                                if (track.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                contentDescription = null,
-                            )
-                        },
-                        onClick = { menuExpanded = false; onFavorite() },
+                        text = { Text("Play next") },
+                        leadingIcon = { Icon(Icons.Rounded.PlaylistPlay, contentDescription = null) },
+                        onClick = { menuExpanded = false; onPlayNext() },
                     )
                     playlists.forEach { playlist ->
                         DropdownMenuItem(
-                            text = { Text("Add to ${playlist.title}") },
+                            text = { Text("Add to playlist · ${playlist.title}") },
                             leadingIcon = { Icon(Icons.Rounded.PlaylistAddCircle, contentDescription = null) },
                             onClick = { menuExpanded = false; onAddToPlaylist(playlist.id) },
                         )
                     }
-                    if (availability != LibraryTrackAvailability.OFFLINE) {
-                        DropdownMenuItem(
-                            text = { Text("Pin offline") },
-                            leadingIcon = { Icon(Icons.Rounded.DownloadForOffline, contentDescription = null) },
-                            onClick = { menuExpanded = false; onPinOffline() },
-                        )
-                    }
+                    DropdownMenuItem(
+                        text = { Text(if (track.favorite) "Remove favorite" else "Favorite") },
+                        leadingIcon = { Icon(if (track.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, contentDescription = null) },
+                        onClick = { menuExpanded = false; onFavorite() },
+                    )
                 }
             }
         }
@@ -987,6 +1011,7 @@ private fun LibraryGroupRow(
 @Composable
 private fun PlaylistsSection(
     playlists: List<PlaylistSummary>,
+    playlistArtwork: Map<UUID, String?>,
     selectedPlaylistId: UUID?,
     tracks: List<Track>,
     onCreate: () -> Unit,
@@ -1015,7 +1040,13 @@ private fun PlaylistsSection(
                 color = if (selectedPlaylistId == playlist.id) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                 shape = RoundedCornerShape(12.dp),
             ) {
-                Text("${playlist.title} · ${trackCountLabel(playlist.trackCount)}", modifier = Modifier.padding(12.dp))
+                Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    ChatAvatar(playlistArtwork[playlist.id], playlist.title, size = 46.dp)
+                    Column(Modifier.padding(start = 12.dp)) {
+                        Text(playlist.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(trackCountLabel(playlist.trackCount), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f))
+                    }
+                }
             }
         }
         if (selectedPlaylistId != null && tracks.isNotEmpty()) {

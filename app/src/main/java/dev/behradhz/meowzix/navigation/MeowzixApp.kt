@@ -136,10 +136,40 @@ fun MeowzixApp(
             startDestination = LIBRARY_ROUTE,
             modifier = Modifier
                 .fillMaxSize()
+                .horizontalSwipeNavigation(
+                    enabled = isTopLevelDestination && currentRoute != LIBRARY_ROUTE,
+                    onSwipeLeft = {
+                        val index = destinations.indexOfFirst { it.route == currentRoute }
+                        if (index in 0 until destinations.lastIndex) {
+                            navController.navigate(destinations[index + 1].route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    },
+                    onSwipeRight = {
+                        val index = destinations.indexOfFirst { it.route == currentRoute }
+                        if (index > 0) {
+                            navController.navigate(destinations[index - 1].route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    },
+                )
                 .hazeSource(hazeState),
         ) {
             composable(LIBRARY_ROUTE) {
                 LibraryRoute(
+                    onSwipePastEnd = {
+                        navController.navigate(QUEUE_ROUTE) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
                     onOpenNowPlaying = {
                         navController.navigate(NOW_PLAYING_ROUTE) { launchSingleTop = true }
                     },
