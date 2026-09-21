@@ -451,6 +451,7 @@ private fun LibraryScreen(
                         onAddToQueue = onAddToQueue,
                         onPinOffline = onPinOffline,
                         availability = state.availability,
+                        downloads = state.downloads,
                         playlists = state.playlists,
                         onFavorite = onFavorite,
                         onAddToPlaylist = onAddToPlaylist,
