@@ -1,11 +1,15 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,11 +19,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -31,9 +36,13 @@ import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.VolumeDown
+import androidx.compose.material.icons.rounded.VolumeOff
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -46,17 +55,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -65,13 +79,31 @@ import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
+import dev.behradhz.meowzix.domain.playback.QueueItem
+import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.ui.components.AudioSpectrum
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
+import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+private val PlayerPrimaryContent = Color(0xFFF5F0EB)
+private val PlayerSecondaryContent = Color(0xFFC9C1BA)
+private val PlayerGlass = Color(0xFF181716)
+
+private enum class ArtworkGestureAxis {
+    UNDECIDED,
+    HORIZONTAL,
+    VERTICAL,
+}
 
 @Composable
 fun NowPlayingRoute(
@@ -81,7 +113,11 @@ fun NowPlayingRoute(
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val queueState by viewModel.queueState.collectAsStateWithLifecycle()
     val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()
+    val audioManager = remember(context) {
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
     var spectrumPermissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
@@ -105,6 +141,7 @@ fun NowPlayingRoute(
 
     NowPlayingScreen(
         state = state,
+        queueState = queueState,
         spectrum = spectrum,
         spectrumPermissionGranted = spectrumPermissionGranted,
         onRequestSpectrumPermission = {
@@ -115,6 +152,19 @@ fun NowPlayingRoute(
         onSeek = viewModel::seekTo,
         onPrevious = viewModel::previous,
         onNext = viewModel::next,
+        getVolumeFraction = {
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max.toFloat()
+        },
+        onVolumeFractionChange = { fraction ->
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            val target = (fraction.coerceIn(0f, 1f) * max).roundToInt()
+            audioManager.setStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                target,
+                0,
+            )
+        },
         onTogglePlaybackMode = viewModel::togglePlaybackMode,
         onCycleRepeatMode = viewModel::cycleRepeatMode,
         onOpenQueue = onOpenQueue,
@@ -124,6 +174,7 @@ fun NowPlayingRoute(
 @Composable
 private fun NowPlayingScreen(
     state: PlaybackState,
+    queueState: QueueState,
     spectrum: AudioSpectrumState,
     spectrumPermissionGranted: Boolean,
     onRequestSpectrumPermission: () -> Unit,
@@ -132,6 +183,8 @@ private fun NowPlayingScreen(
     onSeek: (Long) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    getVolumeFraction: () -> Float,
+    onVolumeFractionChange: (Float) -> Unit,
     onTogglePlaybackMode: () -> Unit,
     onCycleRepeatMode: () -> Unit,
     onOpenQueue: () -> Unit,
@@ -146,6 +199,8 @@ private fun NowPlayingScreen(
     var pendingSeek by remember(track.id) { mutableStateOf<Float?>(null) }
     val duration = state.durationMs.coerceAtLeast(1)
     val shownPosition = pendingSeek?.toLong() ?: state.positionMs.coerceIn(0, duration)
+    val previousPreview = if (state.canSkipPrevious) queueState.previousPreview() else null
+    val nextPreview = if (state.canSkipNext) queueState.nextPreview() else null
 
     Box(modifier = Modifier.fillMaxSize()) {
         TrackArtworkBackdrop(
@@ -155,71 +210,53 @@ private fun NowPlayingScreen(
                 .hazeSource(hazeState),
         )
 
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val artworkSize = minOf(maxWidth - 48.dp, 330.dp)
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 22.dp, vertical = 10.dp),
+        ) {
+            val compact = maxHeight < 720.dp
+            val fixedReserve = if (compact) 346.dp else 364.dp
+            val artworkHeightBudget = (maxHeight - fixedReserve).coerceAtLeast(156.dp)
+            val artworkSize = minOf(
+                maxWidth,
+                if (compact) 278.dp else 326.dp,
+                artworkHeightBudget,
+            )
+            val sectionGap = if (compact) 10.dp else 14.dp
+            val spectrumHeight = if (compact) 26.dp else 32.dp
+            val playButtonSize = if (compact) 68.dp else 74.dp
 
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp)
-                    .padding(top = 14.dp, bottom = 30.dp),
+                modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                GlassSurface(
+                PlayerHeader(
                     hazeState = hazeState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp),
-                    shape = RoundedCornerShape(29.dp),
-                    fallbackColor = Color.Black.copy(alpha = 0.30f),
-                    tint = Color.White.copy(alpha = 0.09f),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                Icons.Rounded.KeyboardArrowDown,
-                                contentDescription = "Close now playing",
-                                tint = Color.White,
-                                modifier = Modifier.size(30.dp),
-                            )
-                        }
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            text = "Now Playing",
-                            color = Color.White.copy(alpha = 0.84f),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = onOpenQueue) {
-                            Icon(
-                                Icons.Rounded.QueueMusic,
-                                contentDescription = "Open queue",
-                                tint = Color.White,
-                            )
-                        }
-                    }
-                }
+                    onBack = onBack,
+                    onOpenQueue = onOpenQueue,
+                )
 
-                Spacer(Modifier.height(28.dp))
+                Spacer(Modifier.height(sectionGap))
 
-                SwipeableArtwork(
-                    artworkRef = track.artworkRef,
-                    title = track.title,
+                GestureArtwork(
+                    currentArtworkRef = track.artworkRef,
+                    currentTitle = track.title,
+                    previousTrack = previousPreview,
+                    nextTrack = nextPreview,
                     artworkSize = artworkSize,
-                    canSkipPrevious = state.canSkipPrevious,
-                    canSkipNext = state.canSkipNext,
                     onPrevious = onPrevious,
                     onNext = onNext,
+                    getVolumeFraction = getVolumeFraction,
+                    onVolumeFractionChange = onVolumeFractionChange,
+                    onTogglePlayPause = onTogglePlayPause,
                     isPreparing = state.status == PlaybackStatus.BUFFERING ||
                         state.status == PlaybackStatus.PREPARING,
                 )
 
-                Spacer(Modifier.height(30.dp))
+                Spacer(Modifier.height(sectionGap))
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -229,49 +266,28 @@ private fun NowPlayingScreen(
                         text = track.title,
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        maxLines = 2,
+                        color = PlayerPrimaryContent,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = track.artist ?: "Unknown artist",
                         style = MaterialTheme.typography.titleMedium,
-                        color = Color.White.copy(alpha = 0.62f),
+                        color = PlayerSecondaryContent,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp),
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
 
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.weight(1f))
 
-                LiveSpectrumPanel(
-                    hazeState = hazeState,
+                TimelineSpectrum(
                     spectrum = spectrum,
                     permissionGranted = spectrumPermissionGranted,
                     onRequestPermission = onRequestSpectrumPermission,
+                    height = spectrumHeight,
                 )
-
-                if (state.errorMessage != null) {
-                    GlassSurface(
-                        hazeState = hazeState,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 16.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        fallbackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.28f),
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.10f),
-                    ) {
-                        Text(
-                            text = state.errorMessage,
-                            color = Color.White,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(14.dp),
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(18.dp))
 
                 Slider(
                     value = shownPosition.toFloat(),
@@ -282,14 +298,16 @@ private fun NowPlayingScreen(
                     },
                     valueRange = 0f..duration.toFloat(),
                     enabled = state.durationMs > 0,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp),
                     colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = Color.White,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.22f),
-                        disabledThumbColor = Color.White.copy(alpha = 0.34f),
-                        disabledActiveTrackColor = Color.White.copy(alpha = 0.22f),
-                        disabledInactiveTrackColor = Color.White.copy(alpha = 0.12f),
+                        thumbColor = PlayerPrimaryContent,
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        inactiveTrackColor = PlayerPrimaryContent.copy(alpha = 0.20f),
+                        disabledThumbColor = PlayerSecondaryContent.copy(alpha = 0.46f),
+                        disabledActiveTrackColor = PlayerSecondaryContent.copy(alpha = 0.30f),
+                        disabledInactiveTrackColor = PlayerSecondaryContent.copy(alpha = 0.14f),
                     ),
                 )
 
@@ -300,318 +318,547 @@ private fun NowPlayingScreen(
                     Text(
                         formatDuration(shownPosition),
                         style = MaterialTheme.typography.labelMedium,
-                        color = Color.White.copy(alpha = 0.62f),
+                        color = PlayerSecondaryContent,
                     )
                     Text(
                         "-${formatDuration((duration - shownPosition).coerceAtLeast(0))}",
                         style = MaterialTheme.typography.labelMedium,
-                        color = Color.White.copy(alpha = 0.62f),
+                        color = PlayerSecondaryContent,
                     )
                 }
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(if (compact) 6.dp else 10.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(
-                        onClick = onPrevious,
-                        enabled = state.canSkipPrevious,
-                        modifier = Modifier.size(62.dp),
-                    ) {
-                        Icon(
-                            Icons.Rounded.SkipPrevious,
-                            contentDescription = "Previous track",
-                            tint = if (state.canSkipPrevious) Color.White else Color.White.copy(alpha = 0.24f),
-                            modifier = Modifier.size(38.dp),
-                        )
-                    }
-
-                    Surface(
-                        onClick = onTogglePlayPause,
-                        modifier = Modifier.size(78.dp),
-                        shape = RoundedCornerShape(39.dp),
-                        color = Color.White.copy(alpha = 0.92f),
-                        contentColor = Color.Black,
-                        shadowElevation = 12.dp,
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (state.status == PlaybackStatus.PLAYING) {
-                                    Icons.Rounded.Pause
-                                } else {
-                                    Icons.Rounded.PlayArrow
-                                },
-                                contentDescription = if (state.status == PlaybackStatus.PLAYING) "Pause" else "Play",
-                                modifier = Modifier.size(40.dp),
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = onNext,
-                        enabled = state.canSkipNext,
-                        modifier = Modifier.size(62.dp),
-                    ) {
-                        Icon(
-                            Icons.Rounded.SkipNext,
-                            contentDescription = "Next track",
-                            tint = if (state.canSkipNext) Color.White else Color.White.copy(alpha = 0.24f),
-                            modifier = Modifier.size(38.dp),
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(22.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    GlassModeButton(
-                        hazeState = hazeState,
-                        modifier = Modifier.weight(1f),
-                        selected = state.playbackMode == PlaybackMode.PURE_SHUFFLE,
-                        label = if (state.playbackMode == PlaybackMode.PURE_SHUFFLE) {
-                            "Pure Shuffle"
-                        } else {
-                            "Ordered"
-                        },
-                        icon = Icons.Rounded.Shuffle,
-                        onClick = onTogglePlaybackMode,
-                    )
-
-                    GlassModeButton(
-                        hazeState = hazeState,
-                        modifier = Modifier.weight(1f),
-                        selected = state.repeatMode != RepeatMode.OFF,
-                        label = when (state.repeatMode) {
-                            RepeatMode.OFF -> "Repeat Off"
-                            RepeatMode.ONE -> "Repeat One"
-                            RepeatMode.ALL -> "Repeat All"
-                        },
-                        icon = if (state.repeatMode == RepeatMode.ONE) {
-                            Icons.Rounded.RepeatOne
-                        } else {
-                            Icons.Rounded.Repeat
-                        },
-                        onClick = onCycleRepeatMode,
-                    )
-                }
+                PlaybackControls(
+                    state = state,
+                    playButtonSize = playButtonSize,
+                    onPrevious = onPrevious,
+                    onNext = onNext,
+                    onTogglePlayPause = onTogglePlayPause,
+                    onTogglePlaybackMode = onTogglePlaybackMode,
+                    onCycleRepeatMode = onCycleRepeatMode,
+                )
 
                 Text(
                     text = if (state.queueSize > 0 && state.queueIndex >= 0) {
-                        "${state.queueIndex + 1} of ${state.queueSize}"
+                        "${state.queueIndex + 1} / ${state.queueSize}"
                     } else {
                         "Queue ready"
                     },
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.52f),
-                    modifier = Modifier.padding(top = 18.dp),
+                    color = PlayerSecondaryContent.copy(alpha = 0.72f),
+                    modifier = Modifier.padding(top = if (compact) 4.dp else 7.dp),
                 )
+            }
+
+            state.errorMessage?.let { message ->
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 60.dp, start = 8.dp, end = 8.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.96f),
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    shadowElevation = 8.dp,
+                ) {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun LiveSpectrumPanel(
-    hazeState: dev.chrisbanes.haze.HazeState,
-    spectrum: AudioSpectrumState,
-    permissionGranted: Boolean,
-    onRequestPermission: () -> Unit,
+private fun PlayerHeader(
+    hazeState: HazeState,
+    onBack: () -> Unit,
+    onOpenQueue: () -> Unit,
 ) {
     GlassSurface(
         hazeState = hazeState,
         modifier = Modifier
             .fillMaxWidth()
-            .height(104.dp),
-        shape = RoundedCornerShape(24.dp),
-        fallbackColor = Color.Black.copy(alpha = 0.22f),
-        tint = Color.White.copy(alpha = 0.06f),
-    ) {
-        if (permissionGranted) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "LIVE SPECTRUM",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.58f),
-                    )
-                    Spacer(Modifier.weight(1f))
-                    if (!spectrum.isCapturing) {
-                        Text(
-                            text = if (spectrum.sessionId > 0) "Ready" else "Waiting for audio",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.42f),
-                        )
-                    }
-                }
-
-                AudioSpectrum(
-                    bands = spectrum.bands,
-                    color = Color.White,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(top = 6.dp),
-                )
-            }
-        } else {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(onClick = onRequestPermission)
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Rounded.GraphicEq,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.76f),
-                )
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 12.dp),
-                ) {
-                    Text(
-                        text = "Enable live spectrum",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = "Android requires audio permission for playback visualization. Meowzix reads only its own player session.",
-                        color = Color.White.copy(alpha = 0.58f),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GlassModeButton(
-    hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier,
-    selected: Boolean,
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
-) {
-    GlassSurface(
-        hazeState = hazeState,
-        modifier = modifier
-            .height(48.dp)
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(24.dp),
-        fallbackColor = if (selected) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
-        } else {
-            Color.Black.copy(alpha = 0.24f)
-        },
-        tint = if (selected) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-        } else {
-            Color.White.copy(alpha = 0.07f)
-        },
+            .height(52.dp),
+        shape = RoundedCornerShape(26.dp),
+        fallbackColor = PlayerGlass.copy(alpha = 0.88f),
+        tint = PlayerPrimaryContent.copy(alpha = 0.06f),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 14.dp),
+            modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.78f),
-                modifier = Modifier.size(19.dp),
-            )
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = "Close now playing",
+                    tint = PlayerPrimaryContent,
+                    modifier = Modifier.size(29.dp),
+                )
+            }
+            Spacer(Modifier.weight(1f))
             Text(
-                text = label,
-                color = Color.White.copy(alpha = 0.86f),
-                style = MaterialTheme.typography.labelMedium,
+                text = "Now Playing",
+                color = PlayerPrimaryContent,
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                modifier = Modifier.padding(start = 7.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onOpenQueue) {
+                Icon(
+                    Icons.Rounded.QueueMusic,
+                    contentDescription = "Open queue",
+                    tint = PlayerPrimaryContent,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelineSpectrum(
+    spectrum: AudioSpectrumState,
+    permissionGranted: Boolean,
+    onRequestPermission: () -> Unit,
+    height: Dp,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (permissionGranted) {
+            AudioSpectrum(
+                bands = spectrum.bands,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 2.dp, vertical = 2.dp),
+            )
+        } else {
+            Icon(
+                Icons.Rounded.GraphicEq,
+                contentDescription = "Enable live spectrum",
+                tint = PlayerSecondaryContent.copy(alpha = 0.72f),
+                modifier = Modifier
+                    .size(22.dp)
+                    .clickable(onClick = onRequestPermission),
             )
         }
     }
 }
 
 @Composable
-private fun SwipeableArtwork(
-    artworkRef: String?,
-    title: String,
-    artworkSize: androidx.compose.ui.unit.Dp,
-    canSkipPrevious: Boolean,
-    canSkipNext: Boolean,
+private fun PlaybackControls(
+    state: PlaybackState,
+    playButtonSize: Dp,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onTogglePlayPause: () -> Unit,
+    onTogglePlaybackMode: () -> Unit,
+    onCycleRepeatMode: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ModeIconButton(
+            selected = state.playbackMode == PlaybackMode.PURE_SHUFFLE,
+            onClick = onTogglePlaybackMode,
+            contentDescription = if (state.playbackMode == PlaybackMode.PURE_SHUFFLE) {
+                "Pure shuffle on"
+            } else {
+                "Ordered playback"
+            },
+        ) {
+            Icon(Icons.Rounded.Shuffle, contentDescription = null)
+        }
+
+        IconButton(
+            onClick = onPrevious,
+            enabled = state.canSkipPrevious,
+            modifier = Modifier.size(52.dp),
+        ) {
+            Icon(
+                Icons.Rounded.SkipPrevious,
+                contentDescription = "Previous track",
+                tint = if (state.canSkipPrevious) {
+                    PlayerPrimaryContent
+                } else {
+                    PlayerSecondaryContent.copy(alpha = 0.30f)
+                },
+                modifier = Modifier.size(34.dp),
+            )
+        }
+
+        Surface(
+            onClick = onTogglePlayPause,
+            modifier = Modifier.size(playButtonSize),
+            shape = RoundedCornerShape(playButtonSize / 2),
+            color = PlayerPrimaryContent,
+            contentColor = Color(0xFF171411),
+            shadowElevation = 10.dp,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (state.status == PlaybackStatus.PLAYING) {
+                        Icons.Rounded.Pause
+                    } else {
+                        Icons.Rounded.PlayArrow
+                    },
+                    contentDescription = if (state.status == PlaybackStatus.PLAYING) "Pause" else "Play",
+                    modifier = Modifier.size(38.dp),
+                )
+            }
+        }
+
+        IconButton(
+            onClick = onNext,
+            enabled = state.canSkipNext,
+            modifier = Modifier.size(52.dp),
+        ) {
+            Icon(
+                Icons.Rounded.SkipNext,
+                contentDescription = "Next track",
+                tint = if (state.canSkipNext) {
+                    PlayerPrimaryContent
+                } else {
+                    PlayerSecondaryContent.copy(alpha = 0.30f)
+                },
+                modifier = Modifier.size(34.dp),
+            )
+        }
+
+        ModeIconButton(
+            selected = state.repeatMode != RepeatMode.OFF,
+            onClick = onCycleRepeatMode,
+            contentDescription = when (state.repeatMode) {
+                RepeatMode.OFF -> "Repeat off"
+                RepeatMode.ONE -> "Repeat one"
+                RepeatMode.ALL -> "Repeat all"
+            },
+        ) {
+            Icon(
+                imageVector = if (state.repeatMode == RepeatMode.ONE) {
+                    Icons.Rounded.RepeatOne
+                } else {
+                    Icons.Rounded.Repeat
+                },
+                contentDescription = null,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModeIconButton(
+    selected: Boolean,
+    onClick: () -> Unit,
+    contentDescription: String,
+    icon: @Composable () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .size(44.dp)
+            .semantics { this.contentDescription = contentDescription },
+        shape = RoundedCornerShape(22.dp),
+        color = if (selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+        } else {
+            PlayerGlass.copy(alpha = 0.76f)
+        },
+        contentColor = if (selected) MaterialTheme.colorScheme.primary else PlayerSecondaryContent,
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier.size(22.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                icon()
+            }
+        }
+    }
+}
+
+@Composable
+private fun GestureArtwork(
+    currentArtworkRef: String?,
+    currentTitle: String,
+    previousTrack: QueueItem?,
+    nextTrack: QueueItem?,
+    artworkSize: Dp,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    getVolumeFraction: () -> Float,
+    onVolumeFractionChange: (Float) -> Unit,
+    onTogglePlayPause: () -> Unit,
     isPreparing: Boolean,
 ) {
     val density = LocalDensity.current
-    val swipeThreshold = with(density) { 92.dp.toPx() }
-    val visualLimit = with(density) { 42.dp.toPx() }
-    var dragDistance by remember(title) { mutableFloatStateOf(0f) }
+    val coroutineScope = rememberCoroutineScope()
+    val artworkPx = with(density) { artworkSize.toPx() }
+    val axisLockThreshold = with(density) { 10.dp.toPx() }
+    val switchThreshold = artworkPx * 0.30f
+    var totalDrag by remember(currentTitle) { mutableStateOf(Offset.Zero) }
+    var gestureAxis by remember(currentTitle) { mutableStateOf(ArtworkGestureAxis.UNDECIDED) }
+    var horizontalOffsetPx by remember(currentTitle) { mutableFloatStateOf(0f) }
+    var startingVolume by remember(currentTitle) { mutableFloatStateOf(0f) }
+    var shownVolume by remember(currentTitle) { mutableFloatStateOf(0f) }
+    var showVolumeOverlay by remember(currentTitle) { mutableStateOf(false) }
+    var settleJob by remember(currentTitle) { mutableStateOf<Job?>(null) }
+    var hideVolumeJob by remember(currentTitle) { mutableStateOf<Job?>(null) }
+
+    fun animateArtworkTo(target: Float, finished: (() -> Unit)? = null) {
+        settleJob?.cancel()
+        settleJob = coroutineScope.launch {
+            animate(
+                initialValue = horizontalOffsetPx,
+                targetValue = target,
+                animationSpec = tween(durationMillis = 150),
+            ) { value, _ ->
+                horizontalOffsetPx = value
+            }
+            finished?.invoke()
+            horizontalOffsetPx = 0f
+        }
+    }
 
     Surface(
         modifier = Modifier
             .size(artworkSize)
-            .graphicsLayer {
-                translationX = dragDistance.coerceIn(-visualLimit, visualLimit)
-                rotationZ = (dragDistance / visualLimit).coerceIn(-1f, 1f) * 1.5f
-            }
-            .pointerInput(title, canSkipPrevious, canSkipNext) {
-                detectHorizontalDragGestures(
-                    onDragStart = { dragDistance = 0f },
-                    onHorizontalDrag = { _, dragAmount -> dragDistance += dragAmount },
-                    onDragCancel = { dragDistance = 0f },
-                    onDragEnd = {
-                        when {
-                            dragDistance <= -swipeThreshold && canSkipNext -> onNext()
-                            dragDistance >= swipeThreshold && canSkipPrevious -> onPrevious()
+            .pointerInput(currentTitle, previousTrack?.id, nextTrack?.id, artworkPx) {
+                detectDragGestures(
+                    onDragStart = {
+                        settleJob?.cancel()
+                        hideVolumeJob?.cancel()
+                        totalDrag = Offset.Zero
+                        gestureAxis = ArtworkGestureAxis.UNDECIDED
+                        startingVolume = getVolumeFraction().coerceIn(0f, 1f)
+                        shownVolume = startingVolume
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        totalDrag += dragAmount
+
+                        if (gestureAxis == ArtworkGestureAxis.UNDECIDED &&
+                            maxOf(abs(totalDrag.x), abs(totalDrag.y)) >= axisLockThreshold
+                        ) {
+                            gestureAxis = if (abs(totalDrag.x) >= abs(totalDrag.y)) {
+                                ArtworkGestureAxis.HORIZONTAL
+                            } else {
+                                ArtworkGestureAxis.VERTICAL
+                            }
                         }
-                        dragDistance = 0f
+
+                        when (gestureAxis) {
+                            ArtworkGestureAxis.HORIZONTAL -> {
+                                val requested = totalDrag.x.coerceIn(-artworkPx, artworkPx)
+                                horizontalOffsetPx = when {
+                                    requested < 0f && nextTrack == null -> requested * 0.18f
+                                    requested > 0f && previousTrack == null -> requested * 0.18f
+                                    else -> requested
+                                }
+                            }
+
+                            ArtworkGestureAxis.VERTICAL -> {
+                                val newVolume = (
+                                    startingVolume - totalDrag.y / (artworkPx * 0.82f)
+                                    ).coerceIn(0f, 1f)
+                                shownVolume = newVolume
+                                showVolumeOverlay = true
+                                onVolumeFractionChange(newVolume)
+                            }
+
+                            ArtworkGestureAxis.UNDECIDED -> Unit
+                        }
+                    },
+                    onDragCancel = {
+                        if (gestureAxis == ArtworkGestureAxis.HORIZONTAL) {
+                            animateArtworkTo(0f)
+                        }
+                        if (gestureAxis == ArtworkGestureAxis.VERTICAL) {
+                            hideVolumeJob = coroutineScope.launch {
+                                delay(450)
+                                showVolumeOverlay = false
+                            }
+                        }
+                        totalDrag = Offset.Zero
+                        gestureAxis = ArtworkGestureAxis.UNDECIDED
+                    },
+                    onDragEnd = {
+                        when (gestureAxis) {
+                            ArtworkGestureAxis.HORIZONTAL -> {
+                                when {
+                                    horizontalOffsetPx <= -switchThreshold && nextTrack != null -> {
+                                        animateArtworkTo(-artworkPx, onNext)
+                                    }
+
+                                    horizontalOffsetPx >= switchThreshold && previousTrack != null -> {
+                                        animateArtworkTo(artworkPx, onPrevious)
+                                    }
+
+                                    else -> animateArtworkTo(0f)
+                                }
+                            }
+
+                            ArtworkGestureAxis.VERTICAL -> {
+                                hideVolumeJob = coroutineScope.launch {
+                                    delay(550)
+                                    showVolumeOverlay = false
+                                }
+                            }
+
+                            ArtworkGestureAxis.UNDECIDED -> Unit
+                        }
+                        totalDrag = Offset.Zero
+                        gestureAxis = ArtworkGestureAxis.UNDECIDED
                     },
                 )
-            },
+            }
+            .clickable(onClick = onTogglePlayPause),
         shape = RoundedCornerShape(24.dp),
         color = Color.Transparent,
-        shadowElevation = 22.dp,
+        shadowElevation = 18.dp,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            TrackArtwork(
-                artworkRef = artworkRef,
-                description = title,
-                size = artworkSize,
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            previousTrack?.let { preview ->
+                ArtworkPage(
+                    artworkRef = preview.artworkRef,
+                    title = preview.title,
+                    artworkSize = artworkSize,
+                    translationXPx = horizontalOffsetPx - artworkPx,
+                )
+            }
+
+            ArtworkPage(
+                artworkRef = currentArtworkRef,
+                title = currentTitle,
+                artworkSize = artworkSize,
+                translationXPx = horizontalOffsetPx,
             )
+
+            nextTrack?.let { preview ->
+                ArtworkPage(
+                    artworkRef = preview.artworkRef,
+                    title = preview.title,
+                    artworkSize = artworkSize,
+                    translationXPx = horizontalOffsetPx + artworkPx,
+                )
+            }
 
             if (isPreparing) {
                 Surface(
-                    color = Color.Black.copy(alpha = 0.28f),
+                    color = Color.Black.copy(alpha = 0.34f),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color.White)
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
+
+            if (showVolumeOverlay) {
+                VolumeGestureOverlay(
+                    volume = shownVolume,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 14.dp),
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun ArtworkPage(
+    artworkRef: String?,
+    title: String,
+    artworkSize: Dp,
+    translationXPx: Float,
+) {
+    TrackArtwork(
+        artworkRef = artworkRef,
+        description = title,
+        size = artworkSize,
+        modifier = Modifier.graphicsLayer {
+            translationX = translationXPx
+        },
+    )
+}
+
+@Composable
+private fun VolumeGestureOverlay(
+    volume: Float,
+    modifier: Modifier = Modifier,
+) {
+    val normalized = volume.coerceIn(0f, 1f)
+    Surface(
+        modifier = modifier.width(76.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.Black.copy(alpha = 0.72f),
+        contentColor = PlayerPrimaryContent,
+        shadowElevation = 8.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 13.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                imageVector = when {
+                    normalized <= 0.001f -> Icons.Rounded.VolumeOff
+                    normalized < 0.45f -> Icons.Rounded.VolumeDown
+                    else -> Icons.Rounded.VolumeUp
+                },
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+            )
+            Text(
+                text = "${(normalized * 100f).roundToInt()}%",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
+            )
+            LinearProgressIndicator(
+                progress = { normalized },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = PlayerPrimaryContent.copy(alpha = 0.18f),
+            )
+        }
+    }
+}
+
+private fun QueueState.previousPreview(): QueueItem? {
+    if (items.size <= 1 || currentIndex !in items.indices) return null
+    return when {
+        currentIndex > 0 -> items[currentIndex - 1]
+        repeatMode == RepeatMode.ALL -> items.last()
+        else -> null
+    }
+}
+
+private fun QueueState.nextPreview(): QueueItem? {
+    if (items.size <= 1 || currentIndex !in items.indices) return null
+    return when {
+        currentIndex < items.lastIndex -> items[currentIndex + 1]
+        repeatMode == RepeatMode.ALL -> items.first()
+        else -> null
     }
 }
 
@@ -620,6 +867,8 @@ private fun EmptyNowPlaying(onBack: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(24.dp),
     ) {
         IconButton(
