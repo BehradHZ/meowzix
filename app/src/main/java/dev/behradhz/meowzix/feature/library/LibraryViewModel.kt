@@ -56,7 +56,11 @@ class LibraryViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             repository.observeLibraryTracks()
-                .catch { error -> _state.update { it.copy(errorMessage = error.message ?: "Unable to load music") } }
+                .catch { error ->
+                    _state.update {
+                        it.copy(errorMessage = error.message ?: "Unable to load music")
+                    }
+                }
                 .collect { tracks ->
                     _state.update {
                         it.copy(
@@ -65,9 +69,8 @@ class LibraryViewModel @Inject constructor(
                             errorMessage = null,
                         )
                     }
-                    repository.prefetchArtwork(
-                        tracks.map { it.track.id },
-                    )
+                    // Artwork is deliberately not prefetched for the whole library. Visible rows
+                    // and Now Playing request the high-quality image only when they need it.
                 }
         }
         viewModelScope.launch {
@@ -77,14 +80,20 @@ class LibraryViewModel @Inject constructor(
         }
         viewModelScope.launch {
             downloadRepository.observeDownloads().collect { downloads ->
-                _state.update { it.copy(downloads = downloads.associateBy(OfflineDownload::trackId)) }
+                _state.update {
+                    it.copy(downloads = downloads.associateBy(OfflineDownload::trackId))
+                }
             }
         }
         viewModelScope.launch {
             telegramRepository.musicSourceState.collect { telegram ->
                 val accountId = telegram.accountId
-                val artwork = if (accountId == null) emptyMap() else telegram.chats.associate { chat ->
-                    telegramPlaylistId(accountId, chat.chatId) to chat.profilePhotoRef
+                val artwork = if (accountId == null) {
+                    emptyMap()
+                } else {
+                    telegram.chats.associate { chat ->
+                        telegramPlaylistId(accountId, chat.chatId) to chat.profilePhotoRef
+                    }
                 }
                 _state.update { it.copy(playlistArtwork = artwork) }
             }
@@ -101,7 +110,11 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isRefreshing = true, errorMessage = null) }
             runCatching { repository.refreshLocalMusic() }
-                .onSuccess { result -> _state.update { it.copy(isRefreshing = false, lastRefresh = result) } }
+                .onSuccess { result ->
+                    _state.update {
+                        it.copy(isRefreshing = false, lastRefresh = result)
+                    }
+                }
                 .onFailure { error ->
                     _state.update {
                         it.copy(
@@ -113,7 +126,6 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** Starts the selected track inside the exact browsing context supplied by the UI. */
     fun playTrack(track: Track, queueTracks: List<Track> = _state.value.tracks) {
         val queue = queueTracks.distinctBy { it.id }
         if (queue.isEmpty()) {
@@ -123,14 +135,35 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    fun playCollection(tracks: List<Track>, mode: PlaybackMode) {
+        val ids = tracks.distinctBy { it.id }.map { it.id }
+        if (ids.isNotEmpty()) queueRepository.replaceAndPlay(ids, mode)
+    }
+
     fun playNext(track: Track) = queueRepository.playNext(track.id)
+
     fun addToQueue(track: Track) = queueRepository.addToQueue(track.id)
+
     fun pinOffline(track: Track) = downloadRepository.pinOffline(track.id)
-    fun setFavorite(track: Track) = viewModelScope.launch { repository.setFavorite(track.id, !track.favorite) }
+
+    fun setFavorite(track: Track) = viewModelScope.launch {
+        repository.setFavorite(track.id, !track.favorite)
+    }
+
+    fun ensureArtwork(track: Track) {
+        val ref = track.artworkRef
+        if (ref.isNullOrBlank() || ref.contains("/artwork-preview/")) {
+            repository.prefetchArtwork(listOf(track.id))
+        }
+    }
 
     fun createPlaylist() = viewModelScope.launch {
         val id = playlistRepository.create("Playlist ${_state.value.playlists.size + 1}")
         selectPlaylist(id)
+    }
+
+    fun renamePlaylist(playlistId: UUID, title: String) = viewModelScope.launch {
+        playlistRepository.rename(playlistId, title)
     }
 
     fun addToPlaylist(track: Track, playlistId: UUID) = viewModelScope.launch {
@@ -138,9 +171,18 @@ class LibraryViewModel @Inject constructor(
     }
 
     private var playlistTracksJob: Job? = null
+
     fun selectPlaylist(playlistId: UUID) {
+        if (_state.value.selectedPlaylistId == playlistId && playlistTracksJob?.isActive == true) {
+            return
+        }
         playlistTracksJob?.cancel()
-        _state.update { it.copy(selectedPlaylistId = playlistId, selectedPlaylistTracks = emptyList()) }
+        _state.update {
+            it.copy(
+                selectedPlaylistId = playlistId,
+                selectedPlaylistTracks = emptyList(),
+            )
+        }
         playlistTracksJob = viewModelScope.launch {
             playlistRepository.observeTracks(playlistId).collect { tracks ->
                 _state.update { it.copy(selectedPlaylistTracks = tracks) }
@@ -150,16 +192,20 @@ class LibraryViewModel @Inject constructor(
 
     fun movePlaylistTrack(fromIndex: Int, toIndex: Int) {
         val id = _state.value.selectedPlaylistId ?: return
-        viewModelScope.launch { playlistRepository.moveTrack(id, fromIndex, toIndex) }
+        viewModelScope.launch {
+            playlistRepository.moveTrack(id, fromIndex, toIndex)
+        }
     }
 
     fun removePlaylistTrack(track: Track) {
         val id = _state.value.selectedPlaylistId ?: return
-        viewModelScope.launch { playlistRepository.removeTrack(id, track.id) }
+        viewModelScope.launch {
+            playlistRepository.removeTrack(id, track.id)
+        }
     }
 
     fun playSelectedPlaylist(mode: PlaybackMode) {
-        queueRepository.replaceAndPlay(_state.value.selectedPlaylistTracks.map { it.id }, mode)
+        playCollection(_state.value.selectedPlaylistTracks, mode)
     }
 
     fun saveQueueToPlaylist() = viewModelScope.launch {
