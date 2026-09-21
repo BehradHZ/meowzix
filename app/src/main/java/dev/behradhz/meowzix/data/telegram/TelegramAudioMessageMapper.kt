@@ -13,6 +13,7 @@ internal data class TelegramAudioCandidate(
     val fileId: Int,
     val persistentFileId: String?,
     val fileSizeBytes: Long?,
+    val artworkMinithumbnail: ByteArray?,
 )
 
 private val supportedAudioExtensions = setOf("mp3", "m4a", "aac", "flac", "ogg", "opus", "wav")
@@ -38,6 +39,7 @@ internal fun TdApi.Message.toAudioCandidate(): TelegramAudioCandidate? = when (v
             fileId = audio.audio.id,
             persistentFileId = audio.audio.remote.uniqueId.cleanOrNull(),
             fileSizeBytes = audio.audio.size.toLong().takeIf { it > 0L },
+            artworkMinithumbnail = audio.albumCoverMinithumbnail?.data?.copyOf(),
         )
     }
     is TdApi.MessageDocument -> {
@@ -53,6 +55,7 @@ internal fun TdApi.Message.toAudioCandidate(): TelegramAudioCandidate? = when (v
             fileId = document.document.id,
             persistentFileId = document.document.remote.uniqueId.cleanOrNull(),
             fileSizeBytes = document.document.size.toLong().takeIf { it > 0L },
+            artworkMinithumbnail = null,
         )
     }
     else -> null
