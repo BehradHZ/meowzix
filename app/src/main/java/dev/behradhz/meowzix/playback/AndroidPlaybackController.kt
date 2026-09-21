@@ -8,6 +8,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
@@ -19,7 +20,6 @@ import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
-import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
 import java.time.Instant
 import java.time.ZoneId
@@ -30,12 +30,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.guava.await
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 @Singleton
 class AndroidPlaybackController @Inject constructor(
@@ -91,7 +91,7 @@ class AndroidPlaybackController @Inject constructor(
 
     override fun playNow(trackId: UUID) {
         scope.launch {
-            val tracks = runCatching { catalog.availableLocalTracks() }
+            val tracks = runCatching { catalog.availableTracks() }
                 .getOrElse { error ->
                     showError(error.message ?: "Unable to load the playback queue")
                     return@launch
@@ -106,16 +106,14 @@ class AndroidPlaybackController @Inject constructor(
                     showError(error.message ?: "Playback is unavailable")
                     return@launch
                 }
-            run {
-                connected.repeatMode = Player.REPEAT_MODE_OFF
-                connected.setMediaItems(
-                    tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
-                    startIndex,
-                    0,
-                )
-                connected.prepare()
-                connected.play()
-            }
+            connected.repeatMode = Player.REPEAT_MODE_OFF
+            connected.setMediaItems(
+                tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
+                startIndex,
+                0,
+            )
+            connected.prepare()
+            connected.play()
         }
     }
 
@@ -153,14 +151,26 @@ class AndroidPlaybackController @Inject constructor(
     }
 
     override fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode) {
+        replaceAndPlayInternal(trackIds, null, mode)
+    }
+
+    override fun replaceAndPlay(trackIds: List<UUID>, startTrackId: UUID, mode: PlaybackMode) {
+        replaceAndPlayInternal(trackIds, startTrackId, mode)
+    }
+
+    private fun replaceAndPlayInternal(
+        trackIds: List<UUID>,
+        startTrackId: UUID?,
+        mode: PlaybackMode,
+    ) {
         scope.launch {
-            val byId = runCatching { catalog.availableLocalTracks().associateBy { it.id } }
+            val byId = runCatching { catalog.availableTracks().associateBy { it.id } }
                 .getOrElse { error ->
                     showError(error.message ?: "Unable to load playlist")
                     return@launch
                 }
             val requested = trackIds.distinct().mapNotNull(byId::get)
-            val tracks = when (mode) {
+            var tracks = when (mode) {
                 PlaybackMode.ORDERED -> requested
                 PlaybackMode.PURE_SHUFFLE -> PureShuffleEngine.newCycle(requested).order
                 PlaybackMode.SMART_SHUFFLE -> {
@@ -173,8 +183,19 @@ class AndroidPlaybackController @Inject constructor(
                 }
             }
             if (tracks.isEmpty()) return@launch showError("No playlist tracks are available")
+
+            if (startTrackId != null && mode != PlaybackMode.ORDERED) {
+                val selectedIndex = tracks.indexOfFirst { it.id == startTrackId }
+                if (selectedIndex > 0) tracks = tracks.drop(selectedIndex) + tracks.take(selectedIndex)
+            }
+            val startIndex = when {
+                startTrackId == null -> 0
+                mode == PlaybackMode.ORDERED -> tracks.indexOfFirst { it.id == startTrackId }.coerceAtLeast(0)
+                else -> 0
+            }
+
             withController { connected ->
-                connected.setMediaItems(tracks.map { it.toMediaItem(mode, RepeatMode.OFF) }, 0, 0)
+                connected.setMediaItems(tracks.map { it.toMediaItem(mode, RepeatMode.OFF) }, startIndex, 0)
                 connected.repeatMode = RepeatMode.OFF.toPlayerRepeatMode(mode)
                 connected.prepare()
                 connected.play()
@@ -196,7 +217,7 @@ class AndroidPlaybackController @Inject constructor(
 
     override fun setPlaybackMode(mode: PlaybackMode) {
         scope.launch {
-            val tracks = runCatching { catalog.availableLocalTracks() }
+            val tracks = runCatching { catalog.availableTracks() }
                 .getOrElse { error ->
                     showError(error.message ?: "Unable to load the playback queue")
                     return@launch
@@ -206,53 +227,51 @@ class AndroidPlaybackController @Inject constructor(
                     showError(error.message ?: "Playback is unavailable")
                     return@launch
                 }
-            run {
-                val repeatMode = connected.queueRepeatMode()
-                val currentId = connected.currentMediaItem?.mediaId
-                val position = connected.currentPosition.coerceAtLeast(0)
-                val wasPlaying = connected.isPlaying
-                val orderedTracks = when (mode) {
-                    PlaybackMode.ORDERED -> tracks
-                    PlaybackMode.PURE_SHUFFLE -> {
-                        val shuffled = PureShuffleEngine.newCycle(tracks).order
-                        val currentIndex = shuffled.indexOfFirst { it.id.toString() == currentId }
-                        if (currentIndex > 0) {
-                            shuffled.drop(currentIndex) + shuffled.take(currentIndex)
-                        } else {
-                            shuffled
-                        }
-                    }
-                    PlaybackMode.SMART_SHUFFLE -> {
-                        val currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() }
-                        val ids = recommendationEngine.generate(
-                            allowedTrackIds = tracks.map { it.id },
-                            currentTrackId = currentTrackId,
-                            timeBucket = currentTimeBucket(),
-                        ).trackIds
-                        val tracksById = tracks.associateBy { it.id }
-                        val recommended = ids.mapNotNull(tracksById::get)
-                        val current = currentTrackId?.let(tracksById::get)
-                        if (current != null) listOf(current) + recommended.filterNot { it.id == current.id } else recommended
+            val repeatMode = connected.queueRepeatMode()
+            val currentId = connected.currentMediaItem?.mediaId
+            val position = connected.currentPosition.coerceAtLeast(0)
+            val wasPlaying = connected.isPlaying
+            val orderedTracks = when (mode) {
+                PlaybackMode.ORDERED -> tracks
+                PlaybackMode.PURE_SHUFFLE -> {
+                    val shuffled = PureShuffleEngine.newCycle(tracks).order
+                    val currentIndex = shuffled.indexOfFirst { it.id.toString() == currentId }
+                    if (currentIndex > 0) {
+                        shuffled.drop(currentIndex) + shuffled.take(currentIndex)
+                    } else {
+                        shuffled
                     }
                 }
-                if (orderedTracks.isEmpty()) {
-                    connected.clearMediaItems()
-                    return@run
+                PlaybackMode.SMART_SHUFFLE -> {
+                    val currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                    val ids = recommendationEngine.generate(
+                        allowedTrackIds = tracks.map { it.id },
+                        currentTrackId = currentTrackId,
+                        timeBucket = currentTimeBucket(),
+                    ).trackIds
+                    val tracksById = tracks.associateBy { it.id }
+                    val recommended = ids.mapNotNull(tracksById::get)
+                    val current = currentTrackId?.let(tracksById::get)
+                    if (current != null) listOf(current) + recommended.filterNot { it.id == current.id } else recommended
                 }
-                val startIndex = when (mode) {
-                    PlaybackMode.PURE_SHUFFLE, PlaybackMode.SMART_SHUFFLE -> 0
-                    PlaybackMode.ORDERED -> orderedTracks.indexOfFirst { it.id.toString() == currentId }
-                        .coerceAtLeast(0)
-                }
-                connected.repeatMode = repeatMode.toPlayerRepeatMode(mode)
-                connected.setMediaItems(
-                    orderedTracks.map { it.toMediaItem(mode, repeatMode) },
-                    startIndex,
-                    position,
-                )
-                connected.prepare()
-                if (wasPlaying) connected.play()
             }
+            if (orderedTracks.isEmpty()) {
+                connected.clearMediaItems()
+                return@launch
+            }
+            val startIndex = when (mode) {
+                PlaybackMode.PURE_SHUFFLE, PlaybackMode.SMART_SHUFFLE -> 0
+                PlaybackMode.ORDERED -> orderedTracks.indexOfFirst { it.id.toString() == currentId }
+                    .coerceAtLeast(0)
+            }
+            connected.repeatMode = repeatMode.toPlayerRepeatMode(mode)
+            connected.setMediaItems(
+                orderedTracks.map { it.toMediaItem(mode, repeatMode) },
+                startIndex,
+                position,
+            )
+            connected.prepare()
+            if (wasPlaying) connected.play()
         }
     }
 
@@ -347,7 +366,7 @@ class AndroidPlaybackController @Inject constructor(
         )
     }
 
-    private suspend fun findTrack(trackId: UUID) = runCatching { catalog.availableLocalTracks() }
+    private suspend fun findTrack(trackId: UUID) = runCatching { catalog.availableTracks() }
         .onFailure { error -> showError(error.message ?: "Unable to load the playback queue") }
         .getOrNull()
         ?.firstOrNull { it.id == trackId }
