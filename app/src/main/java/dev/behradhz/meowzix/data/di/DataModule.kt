@@ -16,13 +16,15 @@ import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
+import dev.behradhz.meowzix.data.telegram.TdLibRemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.data.telegram.TdLibTelegramRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
-import dev.behradhz.meowzix.playback.AndroidPlaybackController
+import dev.behradhz.meowzix.playback.ResolvingPlaybackController
 import javax.inject.Singleton
 
 @Module
@@ -38,15 +40,19 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindPlaybackController(impl: AndroidPlaybackController): PlaybackController
+    abstract fun bindPlaybackController(impl: ResolvingPlaybackController): PlaybackController
 
     @Binds
     @Singleton
-    abstract fun bindQueueRepository(impl: AndroidPlaybackController): QueueRepository
+    abstract fun bindQueueRepository(impl: ResolvingPlaybackController): QueueRepository
 
     @Binds
     @Singleton
     abstract fun bindTelegramRepository(impl: TdLibTelegramRepository): TelegramRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindRemoteTrackPlaybackResolver(impl: TdLibRemoteTrackPlaybackResolver): RemoteTrackPlaybackResolver
 
     @Binds
     @Singleton

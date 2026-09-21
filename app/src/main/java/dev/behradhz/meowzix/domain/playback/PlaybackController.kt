@@ -3,7 +3,7 @@ package dev.behradhz.meowzix.domain.playback
 import java.util.UUID
 import kotlinx.coroutines.flow.StateFlow
 
-enum class PlaybackStatus { IDLE, PREPARING, BUFFERING, PLAYING, PAUSED, ERROR }
+enum class PlaybackStatus { IDLE, PREPARING, DOWNLOADING, BUFFERING, PLAYING, PAUSED, ERROR }
 
 enum class PlaybackMode { ORDERED, PURE_SHUFFLE }
 

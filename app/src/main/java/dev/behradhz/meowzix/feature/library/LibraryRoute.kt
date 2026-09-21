@@ -96,7 +96,7 @@ fun LibraryRoute(
         onRefresh = viewModel::refresh,
         onPlayTrack = { item ->
             viewModel.playTrack(item)
-            onOpenNowPlaying()
+            if (item.availability == LibraryTrackAvailability.OFFLINE) onOpenNowPlaying()
         },
         onOpenNowPlaying = onOpenNowPlaying,
         onPlayNext = viewModel::playNext,
@@ -171,6 +171,7 @@ private fun LibraryScreen(
                     items(state.tracks, key = { it.track.id.toString() }) { item ->
                         TrackRow(
                             item = item,
+                            isPreparing = state.preparingTrackId == item.track.id,
                             onClick = { onPlayTrack(item) },
                             onPlayNext = { onPlayNext(item) },
                             onAddToQueue = { onAddToQueue(item) },
@@ -186,14 +187,16 @@ private fun LibraryScreen(
 @Composable
 private fun TrackRow(
     item: LibraryTrack,
+    isPreparing: Boolean,
     onClick: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
 ) {
-    val playableNow = item.availability == LibraryTrackAvailability.OFFLINE
+    val canPlay = item.availability != LibraryTrackAvailability.UNAVAILABLE && !isPreparing
+    val queueableNow = item.availability == LibraryTrackAvailability.OFFLINE
     val track = item.track
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(enabled = playableNow, onClick = onClick).padding(vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().clickable(enabled = canPlay, onClick = onClick).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TrackArtwork(track.artworkRef, track.title)
@@ -208,7 +211,7 @@ private fun TrackRow(
                     color = MaterialTheme.colorScheme.secondary,
                 )
                 LibraryTrackAvailability.CLOUD -> Text(
-                    "Cloud",
+                    if (isPreparing) "Downloading from Telegram…" else "Cloud · tap to download & play",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -220,11 +223,15 @@ private fun TrackRow(
             }
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text(formatDuration(track.durationMs), style = MaterialTheme.typography.bodySmall)
-            if (playableNow) {
-                Row {
-                    TextButton(onClick = onPlayNext) { Text("Next") }
-                    TextButton(onClick = onAddToQueue) { Text("Add") }
+            if (isPreparing) {
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            } else {
+                Text(formatDuration(track.durationMs), style = MaterialTheme.typography.bodySmall)
+                if (queueableNow) {
+                    Row {
+                        TextButton(onClick = onPlayNext) { Text("Next") }
+                        TextButton(onClick = onAddToQueue) { Text("Add") }
+                    }
                 }
             }
         }

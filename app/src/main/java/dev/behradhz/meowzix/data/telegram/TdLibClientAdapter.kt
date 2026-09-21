@@ -26,6 +26,7 @@ internal class TdLibClientAdapter {
             { error -> failureChannel.trySend(error) },
             { error -> failureChannel.trySend(error) },
         )
+        activeInstance = this
     }
 
     suspend fun <R : TdApi.Object> send(function: TdApi.Function<R>): R =
@@ -46,4 +47,11 @@ internal class TdLibClientAdapter {
                 },
             )
         }
+
+    companion object {
+        @Volatile
+        private var activeInstance: TdLibClientAdapter? = null
+
+        fun activeOrNull(): TdLibClientAdapter? = activeInstance
+    }
 }
