@@ -12,6 +12,7 @@ import dev.behradhz.meowzix.domain.playback.AUDIO_SPECTRUM_BAND_COUNT
 import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import java.io.File
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.LinkedHashMap
@@ -23,7 +24,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -81,9 +81,10 @@ class AndroidAudioVisualizer @Inject constructor(
     }
 
     override fun release() {
+        // This repository is a process singleton. PlaybackService can be recreated, so cancelling
+        // the backing scope here would permanently disable waveform analysis for the next service.
         analysisJob?.cancel()
         analysisJob = null
-        scope.cancel()
         synchronized(cache) { cache.clear() }
         _spectrum.value = AudioSpectrumState()
     }
@@ -187,7 +188,7 @@ class AndroidAudioVisualizer @Inject constructor(
         when (encoding) {
             AudioFormat.ENCODING_PCM_FLOAT -> {
                 while (buffer.remaining() >= 4 && count < MAX_SAMPLES_PER_BUFFER) {
-                    val sample = buffer.float.coerceIn(-1f, 1f)
+                    val sample = buffer.getFloat().coerceIn(-1f, 1f)
                     sum += sample * sample
                     count++
                 }
@@ -201,7 +202,7 @@ class AndroidAudioVisualizer @Inject constructor(
             }
             else -> {
                 while (buffer.remaining() >= 2 && count < MAX_SAMPLES_PER_BUFFER) {
-                    val sample = buffer.short / 32768.0
+                    val sample = buffer.getShort() / 32768.0
                     sum += sample * sample
                     count++
                 }
@@ -237,7 +238,7 @@ class AndroidAudioVisualizer @Inject constructor(
         val counts = IntArray(AUDIO_SPECTRUM_BAND_COUNT)
         val buffer = ByteArray(8192)
         var total = 0
-        context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
+        openInputStream(uri)?.buffered()?.use { input ->
             while (total < FALLBACK_MAX_BYTES) {
                 val read = input.read(buffer, 0, minOf(buffer.size, FALLBACK_MAX_BYTES - total))
                 if (read <= 0) break
@@ -257,6 +258,11 @@ class AndroidAudioVisualizer @Inject constructor(
         }
         normalize(buckets)
         return buckets
+    }
+
+    private fun openInputStream(uri: Uri): InputStream? = when (uri.scheme) {
+        "file" -> uri.path?.let(::File)?.takeIf(File::isFile)?.inputStream()
+        else -> context.contentResolver.openInputStream(uri)
     }
 
     private fun normalize(values: FloatArray) {
