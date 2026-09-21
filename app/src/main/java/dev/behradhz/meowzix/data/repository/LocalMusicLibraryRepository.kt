@@ -37,6 +37,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.drinkless.tdlib.TdApi
 
 @Singleton
@@ -49,7 +51,7 @@ class LocalMusicLibraryRepository @Inject constructor(
 ) : MusicLibraryRepository, PlaybackCatalog {
     private val artworkScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val artworkAttempts = ConcurrentHashMap.newKeySet<String>()
-    private val previewDirectory = File(context.cacheDir, "artwork-preview")
+    private val artworkMutex = Mutex()
     private val artworkDirectory = File(context.filesDir, "artwork")
 
     override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableTracks().map { rows ->
@@ -62,8 +64,12 @@ class LocalMusicLibraryRepository @Inject constructor(
             tracks.map { entity ->
                 val trackSources = sourcesByTrack[entity.id].orEmpty()
                 val availability = when {
-                    trackSources.any { it.availability == SourceAvailability.AVAILABLE_LOCAL } -> LibraryTrackAvailability.OFFLINE
-                    trackSources.any { it.type == TrackSourceType.TELEGRAM_REMOTE && it.availability == SourceAvailability.REMOTE_ONLY } -> LibraryTrackAvailability.CLOUD
+                    trackSources.any { it.availability == SourceAvailability.AVAILABLE_LOCAL } ->
+                        LibraryTrackAvailability.OFFLINE
+                    trackSources.any {
+                        it.type == TrackSourceType.TELEGRAM_REMOTE &&
+                            it.availability == SourceAvailability.REMOTE_ONLY
+                    } -> LibraryTrackAvailability.CLOUD
                     else -> LibraryTrackAvailability.UNAVAILABLE
                 }
                 LibraryTrack(entity.toDomain(), availability)
@@ -85,10 +91,17 @@ class LocalMusicLibraryRepository @Inject constructor(
             }
             val reconciliation = LocalLibraryReconciler.plan(scanned, snapshots)
 
-            for (item in reconciliation.toCreate) persistScannedItem(item, null, null, now)
+            for (item in reconciliation.toCreate) {
+                persistScannedItem(item, null, null, now)
+            }
             for (match in reconciliation.toUpdate) {
                 val existingSource = existingSourcesById[match.existing.sourceId] ?: continue
-                persistScannedItem(match.scanned, existingSource, existingTracksById[match.existing.trackId], now)
+                persistScannedItem(
+                    match.scanned,
+                    existingSource,
+                    existingTracksById[match.existing.trackId],
+                    now,
+                )
             }
             for (sourceId in reconciliation.missingSourceIds) {
                 dao.updateAvailability(sourceId, SourceAvailability.MISSING, now)
@@ -96,12 +109,21 @@ class LocalMusicLibraryRepository @Inject constructor(
             reconciliation
         }
 
-        return LocalLibraryRefreshResult(plan.discovered, plan.toCreate.size, plan.toUpdate.size, plan.missingSourceIds.size)
+        return LocalLibraryRefreshResult(
+            plan.discovered,
+            plan.toCreate.size,
+            plan.toUpdate.size,
+            plan.missingSourceIds.size,
+        )
     }
 
     override suspend fun unmergeSource(sourceId: UUID): UUID = database.withTransaction {
-        val source = requireNotNull(dao.sourceById(sourceId.toString())) { "Unknown track source." }
-        val sourceTrack = requireNotNull(dao.trackById(source.trackId)) { "Track source has no Track." }
+        val source = requireNotNull(dao.sourceById(sourceId.toString())) {
+            "Unknown track source."
+        }
+        val sourceTrack = requireNotNull(dao.trackById(source.trackId)) {
+            "Track source has no Track."
+        }
         val siblings = dao.sourcesForTrack(source.trackId)
         if (siblings.size == 1) return@withTransaction UUID.fromString(source.trackId)
 
@@ -124,87 +146,110 @@ class LocalMusicLibraryRepository @Inject constructor(
     }
 
     override fun prefetchArtwork(trackIds: List<UUID>) {
-        val requested = trackIds.map(UUID::toString).filter(artworkAttempts::add)
+        val requested = trackIds
+            .asSequence()
+            .map(UUID::toString)
+            .distinct()
+            .filter(artworkAttempts::add)
+            .toList()
         if (requested.isEmpty()) return
+
         artworkScope.launch {
-            val client = TdLibClientAdapter.activeOrNull()
-            if (client == null) {
-                requested.forEach(artworkAttempts::remove)
-                return@launch
-            }
-            val wanted = requested.toSet()
-            val tracksById = dao.allTracks().filter { it.id in wanted }.associateBy { it.id }
-            val sources = dao.allSources().filter {
-                it.trackId in wanted &&
-                    it.type == TrackSourceType.TELEGRAM_REMOTE &&
-                    it.availability != SourceAvailability.MISSING
-            }
-            val telegramBySource = telegramDao.allTelegramTrackSources().associateBy { it.trackSourceId }
-            previewDirectory.mkdirs()
-            artworkDirectory.mkdirs()
-
-            for (source in sources) {
-                val track = tracksById[source.trackId] ?: continue
-                val existingArtwork = track.artworkRef
-                val needsUpgrade = existingArtwork.isNullOrBlank() || existingArtwork.contains("/artwork-preview/")
-                if (!needsUpgrade) continue
-                val telegram = telegramBySource[source.id] ?: continue
-                val message = runCatching {
-                    client.send(TdApi.GetMessage(telegram.chatId, telegram.messageId))
-                }.getOrNull() ?: continue
-                val candidate = message.toAudioCandidate() ?: continue
-
-                if (existingArtwork.isNullOrBlank()) {
-                    candidate.artworkMinithumbnail
-                        ?.takeIf { it.isNotEmpty() }
-                        ?.let { bytes ->
-                            val previewFile = File(previewDirectory, "${track.id}.jpg")
-                            runCatching {
-                                previewFile.writeBytes(bytes)
-                                dao.setArtworkRef(
-                                    trackId = track.id,
-                                    artworkRef = Uri.fromFile(previewFile).toString(),
-                                    updatedAt = Instant.now().toEpochMilli(),
-                                )
-                            }
-                        }
+            artworkMutex.withLock {
+                val client = TdLibClientAdapter.activeOrNull()
+                if (client == null) {
+                    requested.forEach(artworkAttempts::remove)
+                    return@withLock
                 }
+                artworkDirectory.mkdirs()
 
-                val artworkFileId = candidate.artworkFileId ?: continue
-                val downloaded = runCatching {
-                    client.send(TdApi.DownloadFile(artworkFileId, ARTWORK_PRIORITY, 0L, 0L, true))
-                }.getOrNull() ?: continue
-                val downloadedPath = downloaded.local.path.takeIf {
-                    downloaded.local.isDownloadingCompleted && it.isNotBlank()
-                } ?: continue
-                val sourceFile = File(downloadedPath).takeIf(File::isFile) ?: continue
-                val finalArtwork = File(artworkDirectory, "${track.id}.jpg")
-                runCatching {
-                    sourceFile.inputStream().buffered().use { input ->
-                        finalArtwork.outputStream().buffered().use(input::copyTo)
-                    }
-                    dao.setArtworkRef(
-                        trackId = track.id,
-                        artworkRef = Uri.fromFile(finalArtwork).toString(),
-                        updatedAt = Instant.now().toEpochMilli(),
-                    )
+                requested.forEach { trackId ->
+                    val terminal = runCatching {
+                        fetchHighQualityArtwork(client, trackId)
+                    }.getOrDefault(false)
+
+                    // Transient failures may retry when a row/player becomes visible again.
+                    // Successful fetches and tracks with no Telegram artwork stay deduplicated.
+                    if (!terminal) artworkAttempts.remove(trackId)
                 }
             }
         }
     }
 
-    override suspend fun availableLocalTracks(): List<PlayableTrack> =
-        dao.availableLocalPlaybackRows().distinctBy { it.id }.map { row ->
-            PlayableTrack(
-                id = UUID.fromString(row.id),
-                title = row.title,
-                artist = row.artist,
-                album = row.album,
-                durationMs = row.durationMs,
-                artworkRef = row.artworkRef,
-                contentUri = row.contentUri,
+    /**
+     * Only the real Telegram album-cover thumbnail file is persisted. The tiny minithumbnail is
+     * intentionally ignored so list and player artwork never settle on the low-resolution preview.
+     */
+    private suspend fun fetchHighQualityArtwork(
+        client: TdLibClientAdapter,
+        trackId: String,
+    ): Boolean {
+        val track = dao.trackById(trackId) ?: return true
+        val existingArtwork = track.artworkRef
+        val legacyPreview = existingArtwork?.contains("/artwork-preview/") == true
+
+        if (!existingArtwork.isNullOrBlank() && !legacyPreview) return true
+
+        if (legacyPreview) {
+            deleteLegacyArtworkPreview(existingArtwork)
+            dao.setArtworkRef(
+                trackId = trackId,
+                artworkRef = null,
+                updatedAt = Instant.now().toEpochMilli(),
             )
         }
+
+        val telegram = telegramDao.telegramSourceForAnyAccountTrack(trackId) ?: return true
+        val message = runCatching {
+            client.send(TdApi.GetMessage(telegram.chatId, telegram.messageId))
+        }.getOrNull() ?: return false
+        val candidate = message.toAudioCandidate() ?: return true
+        val artworkFileId = candidate.artworkFileId ?: return true
+
+        val downloaded = runCatching {
+            client.send(TdApi.DownloadFile(artworkFileId, ARTWORK_PRIORITY, 0L, 0L, true))
+        }.getOrNull() ?: return false
+        val downloadedPath = downloaded.local.path.takeIf {
+            downloaded.local.isDownloadingCompleted && it.isNotBlank()
+        } ?: return false
+        val sourceFile = File(downloadedPath).takeIf(File::isFile) ?: return false
+        val finalArtwork = File(artworkDirectory, "$trackId.artwork")
+
+        return runCatching {
+            sourceFile.inputStream().buffered().use { input ->
+                finalArtwork.outputStream().buffered().use(input::copyTo)
+            }
+            dao.setArtworkRef(
+                trackId = trackId,
+                artworkRef = Uri.fromFile(finalArtwork).toString(),
+                updatedAt = Instant.now().toEpochMilli(),
+            )
+        }.isSuccess
+    }
+
+    private fun deleteLegacyArtworkPreview(ref: String) {
+        runCatching {
+            val file = Uri.parse(ref).path?.let(::File) ?: return@runCatching
+            val previewRoot = File(context.cacheDir, "artwork-preview").canonicalFile
+            val candidate = file.canonicalFile
+            if (candidate.path.startsWith(previewRoot.path)) candidate.delete()
+        }
+    }
+
+    override suspend fun availableLocalTracks(): List<PlayableTrack> =
+        dao.availableLocalPlaybackRows()
+            .distinctBy { it.id }
+            .map { row ->
+                PlayableTrack(
+                    id = UUID.fromString(row.id),
+                    title = row.title,
+                    artist = row.artist,
+                    album = row.album,
+                    durationMs = row.durationMs,
+                    artworkRef = row.artworkRef,
+                    contentUri = row.contentUri,
+                )
+            }
 
     override suspend fun availableTracks(): List<PlayableTrack> {
         val tracks = dao.allTracks().filterNot { it.hidden }
@@ -221,12 +266,16 @@ class LocalMusicLibraryRepository @Inject constructor(
                         (it.contentUri != null || it.localPath != null)
                 }
                 .minByOrNull(::localSourcePriority)
+
             val contentUri = if (local != null) {
                 local.contentUri ?: local.localPath?.let { "file://$it" }
             } else {
                 val remote = sources
                     .asSequence()
-                    .filter { it.type == TrackSourceType.TELEGRAM_REMOTE && it.availability == SourceAvailability.REMOTE_ONLY }
+                    .filter {
+                        it.type == TrackSourceType.TELEGRAM_REMOTE &&
+                            it.availability == SourceAvailability.REMOTE_ONLY
+                    }
                     .mapNotNull { source -> telegramBySource[source.id] }
                     .firstOrNull { it.tdFileId != null }
                 remote?.tdFileId?.let { fileId ->
@@ -325,7 +374,12 @@ class LocalMusicLibraryRepository @Inject constructor(
             )
         }
         return UnifiedTrackMatcher.match(
-            IncomingTrackIdentity(normalizedTitle, normalizedArtist, durationMs, contentHashSha256),
+            IncomingTrackIdentity(
+                normalizedTitle,
+                normalizedArtist,
+                durationMs,
+                contentHashSha256,
+            ),
             candidates,
         )
     }
