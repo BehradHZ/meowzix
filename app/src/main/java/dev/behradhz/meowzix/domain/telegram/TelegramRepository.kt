@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.domain.telegram
 
+import java.util.UUID
 import kotlinx.coroutines.flow.StateFlow
 
 sealed interface TelegramAuthStep {
@@ -57,6 +58,18 @@ data class TelegramMusicSourceState(
     val errorMessage: String? = null,
 )
 
+/**
+ * Controls how a Telegram-backed track is sent to another Telegram chat.
+ *
+ * `includeSourceAttribution = true` performs a real Telegram forward and therefore keeps the
+ * original sender/source information. Telegram only allows caption removal when sending a copy,
+ * so `keepCaption` is ignored by TDLib while source attribution is retained.
+ */
+data class TelegramForwardOptions(
+    val includeSourceAttribution: Boolean = true,
+    val keepCaption: Boolean = true,
+)
+
 /** Domain boundary that keeps TDLib types and threading out of UI consumers. */
 interface TelegramRepository {
     val authState: StateFlow<TelegramAuthState>
@@ -74,9 +87,26 @@ interface TelegramRepository {
     fun refreshSelectableChats()
     fun setMusicSourceSelected(chatId: Long, selected: Boolean)
     fun syncSelectedSources()
-    suspend fun trackIdsForChat(chatId: Long): List<java.util.UUID>
+    suspend fun trackIdsForChat(chatId: Long): List<UUID>
     fun clearMusicSourceError()
+
+    /**
+     * Returns chats suitable for the Telegram-style forward picker. The implementation should
+     * prefer TDLib's local chat index so typing remains immediate and may fall back to server-side
+     * search when useful.
+     */
+    suspend fun searchForwardChats(query: String, limit: Int = 50): List<TelegramChatSummary>
+
+    /**
+     * Forwards the Telegram message backing [trackId] to [targetChatId]. Local-only tracks are not
+     * uploaded as substitutes: this operation intentionally preserves Telegram message identity.
+     */
+    suspend fun forwardTrack(
+        trackId: UUID,
+        targetChatId: Long,
+        options: TelegramForwardOptions = TelegramForwardOptions(),
+    )
 }
 
-fun telegramPlaylistId(accountId: String, chatId: Long): java.util.UUID =
-    java.util.UUID.nameUUIDFromBytes("telegram-playlist:$accountId:$chatId".toByteArray())
+fun telegramPlaylistId(accountId: String, chatId: Long): UUID =
+    UUID.nameUUIDFromBytes("telegram-playlist:$accountId:$chatId".toByteArray())
