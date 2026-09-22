@@ -42,6 +42,7 @@ class AndroidPlaybackController @Inject constructor(
     @ApplicationContext context: Context,
     private val catalog: PlaybackCatalog,
     private val recommendationEngine: RecommendationEngine,
+    private val windowedQueue: WindowedPlaybackQueue,
 ) : PlaybackController, QueueRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(PlaybackState(status = PlaybackStatus.PREPARING))
@@ -53,9 +54,11 @@ class AndroidPlaybackController @Inject constructor(
         SessionToken(context, ComponentName(context, PlaybackService::class.java)),
     ).buildAsync()
     private var controller: MediaController? = null
+    private var lastPublishedQueueRevision = Long.MIN_VALUE
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            windowedQueue.updateCurrent(player.currentMediaItem?.mediaId)
             updateState(player)
         }
 
@@ -70,6 +73,7 @@ class AndroidPlaybackController @Inject constructor(
                 .onSuccess { connected ->
                     controller = connected
                     connected.addListener(listener)
+                    windowedQueue.updateCurrent(connected.currentMediaItem?.mediaId)
                     updateState(connected)
                 }
                 .onFailure { error ->
@@ -101,36 +105,25 @@ class AndroidPlaybackController @Inject constructor(
                 showError("This track is no longer available")
                 return@launch
             }
-            val connected = runCatching { controller ?: controllerFuture.await().also { controller = it } }
-                .getOrElse { error ->
-                    showError(error.message ?: "Playback is unavailable")
-                    return@launch
-                }
-            connected.repeatMode = Player.REPEAT_MODE_OFF
-            connected.setMediaItems(
-                tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
-                startIndex,
-                0,
+            val connected = controllerOrNull() ?: return@launch
+            windowedQueue.reset(
+                tracks = tracks,
+                currentIndex = startIndex,
+                playbackMode = PlaybackMode.ORDERED,
+                repeatMode = RepeatMode.OFF,
             )
-            connected.prepare()
-            connected.play()
+            materializeCurrentWindow(connected, positionMs = 0L, shouldPlay = true)
         }
     }
 
     override fun playNext(trackId: UUID) {
         scope.launch {
             val track = findTrack(trackId) ?: return@launch
-            withController { connected ->
-                if (
-                    connected.queuePlaybackMode() == PlaybackMode.PURE_SHUFFLE &&
-                    connected.containsTrack(trackId)
-                ) return@withController
-                val insertionIndex = (connected.currentMediaItemIndex + 1)
-                    .coerceIn(0, connected.mediaItemCount)
-                connected.addMediaItem(
-                    insertionIndex,
-                    track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
-                )
+            val connected = controllerOrNull() ?: return@launch
+            bootstrapQueueIfNeeded(connected)
+            windowedQueue.updateCurrent(connected.currentMediaItem?.mediaId)
+            if (windowedQueue.insertNext(track)) {
+                rematerializePreservingCurrent(connected)
             }
         }
     }
@@ -138,14 +131,12 @@ class AndroidPlaybackController @Inject constructor(
     override fun addToQueue(trackId: UUID) {
         scope.launch {
             val track = findTrack(trackId) ?: return@launch
-            withController { connected ->
-                if (
-                    connected.queuePlaybackMode() == PlaybackMode.PURE_SHUFFLE &&
-                    connected.containsTrack(trackId)
-                ) return@withController
-                connected.addMediaItem(
-                    track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
-                )
+            val connected = controllerOrNull() ?: return@launch
+            bootstrapQueueIfNeeded(connected)
+            windowedQueue.updateCurrent(connected.currentMediaItem?.mediaId)
+            if (windowedQueue.append(track)) {
+                ensureAheadLoaded(connected)
+                publishQueueState(connected)
             }
         }
     }
@@ -170,16 +161,20 @@ class AndroidPlaybackController @Inject constructor(
                     return@launch
                 }
             val requested = trackIds.distinct().mapNotNull(byId::get)
+            var shuffleSeed: Long? = null
             var tracks = when (mode) {
                 PlaybackMode.ORDERED -> requested
-                PlaybackMode.PURE_SHUFFLE -> PureShuffleEngine.newCycle(requested).order
+                PlaybackMode.PURE_SHUFFLE -> {
+                    val cycle = PureShuffleEngine.newCycle(requested.map { it.id })
+                    shuffleSeed = cycle.seed
+                    cycle.order.mapNotNull(byId::get)
+                }
                 PlaybackMode.SMART_SHUFFLE -> {
                     val ids = recommendationEngine.generate(
                         allowedTrackIds = requested.map { it.id },
                         timeBucket = currentTimeBucket(),
-                    ).trackIds
-                    val requestedById = requested.associateBy { it.id }
-                    ids.mapNotNull(requestedById::get)
+                    ).trackIds.distinct()
+                    ids.mapNotNull(byId::get)
                 }
             }
             if (tracks.isEmpty()) return@launch showError("No playlist tracks are available")
@@ -194,70 +189,105 @@ class AndroidPlaybackController @Inject constructor(
                 else -> 0
             }
 
-            withController { connected ->
-                connected.setMediaItems(tracks.map { it.toMediaItem(mode, RepeatMode.OFF) }, startIndex, 0)
-                connected.repeatMode = RepeatMode.OFF.toPlayerRepeatMode(mode)
-                connected.prepare()
-                connected.play()
+            val connected = controllerOrNull() ?: return@launch
+            windowedQueue.reset(
+                tracks = tracks,
+                currentIndex = startIndex,
+                playbackMode = mode,
+                repeatMode = RepeatMode.OFF,
+                shuffleSeed = shuffleSeed,
+            )
+            materializeCurrentWindow(connected, positionMs = 0L, shouldPlay = true)
+        }
+    }
+
+    override fun removeAt(index: Int) {
+        scope.launch {
+            val connected = controllerOrNull() ?: return@launch
+            bootstrapQueueIfNeeded(connected)
+            windowedQueue.updateCurrent(connected.currentMediaItem?.mediaId)
+            val previousCurrentId = connected.currentMediaItem?.mediaId
+            if (windowedQueue.removeAt(index)) {
+                val currentStillExists = previousCurrentId?.let { id ->
+                    runCatching { UUID.fromString(id) }.getOrNull()?.let(windowedQueue::contains)
+                } == true
+                rematerializePreservingCurrent(connected, preservePosition = currentStillExists)
             }
         }
     }
 
-    override fun removeAt(index: Int) = withController { connected ->
-        if (index in 0 until connected.mediaItemCount) connected.removeMediaItem(index)
-    }
-
-    override fun move(fromIndex: Int, toIndex: Int) = withController { connected ->
-        if (fromIndex in 0 until connected.mediaItemCount && toIndex in 0 until connected.mediaItemCount) {
-            connected.moveMediaItem(fromIndex, toIndex)
+    override fun move(fromIndex: Int, toIndex: Int) {
+        scope.launch {
+            val connected = controllerOrNull() ?: return@launch
+            bootstrapQueueIfNeeded(connected)
+            windowedQueue.updateCurrent(connected.currentMediaItem?.mediaId)
+            if (windowedQueue.move(fromIndex, toIndex)) {
+                rematerializePreservingCurrent(connected)
+            }
         }
     }
 
-    override fun clear() = withController(MediaController::clearMediaItems)
+    override fun clear() {
+        windowedQueue.clear()
+        lastPublishedQueueRevision = Long.MIN_VALUE
+        withController { connected ->
+            connected.clearMediaItems()
+            publishQueueState(connected)
+        }
+    }
 
     override fun setPlaybackMode(mode: PlaybackMode) {
         scope.launch {
-            val connected = runCatching { controller ?: controllerFuture.await().also { controller = it } }
-                .getOrElse { error ->
-                    showError(error.message ?: "Playback is unavailable")
-                    return@launch
-                }
+            val connected = controllerOrNull() ?: return@launch
             if (connected.mediaItemCount == 0) return@launch
-            val repeatMode = connected.queueRepeatMode()
-            val currentIndex = connected.currentMediaItemIndex.coerceAtLeast(0)
-            val currentId = connected.currentMediaItem?.mediaId
-            val existingIds = (0 until connected.mediaItemCount).map { connected.getMediaItemAt(it).mediaId }
-            val desiredFutureIds = when (mode) {
+            bootstrapQueueIfNeeded(connected)
+            windowedQueue.updateCurrent(connected.currentMediaItem?.mediaId)
+            val snapshot = windowedQueue.snapshot()
+            if (snapshot.currentIndex !in snapshot.tracks.indices) return@launch
+            val currentId = snapshot.tracks[snapshot.currentIndex].id
+            val prefix = snapshot.tracks.take(snapshot.currentIndex + 1)
+            val future = snapshot.tracks.drop(snapshot.currentIndex + 1)
+            var shuffleSeed: Long? = null
+            val desiredFuture = when (mode) {
                 PlaybackMode.ORDERED -> {
-                    val order = runCatching { catalog.availableTracks().map { it.id.toString() } }.getOrDefault(emptyList())
-                    val rank = order.withIndex().associate { it.value to it.index }
-                    existingIds.drop(currentIndex + 1).sortedBy { rank[it] ?: Int.MAX_VALUE }
+                    val canonicalOrder = runCatching { catalog.availableTracks().map { it.id } }.getOrDefault(emptyList())
+                    val rank = canonicalOrder.withIndex().associate { it.value to it.index }
+                    future.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
                 }
-                PlaybackMode.PURE_SHUFFLE -> existingIds.drop(currentIndex + 1).shuffled()
+                PlaybackMode.PURE_SHUFFLE -> {
+                    val byId = future.associateBy { it.id }
+                    val cycle = PureShuffleEngine.newCycle(future.map { it.id })
+                    shuffleSeed = cycle.seed
+                    cycle.order.mapNotNull(byId::get)
+                }
                 PlaybackMode.SMART_SHUFFLE -> {
-                    val allowed = existingIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
+                    val byId = future.associateBy { it.id }
                     recommendationEngine.generate(
-                        allowedTrackIds = allowed,
-                        currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
+                        allowedTrackIds = future.map { it.id },
+                        currentTrackId = currentId,
                         timeBucket = currentTimeBucket(),
-                    ).trackIds.map(UUID::toString).filterNot { it == currentId }
+                    ).trackIds.distinct().mapNotNull(byId::get)
                 }
             }
-            desiredFutureIds.forEachIndexed { offset, mediaId ->
-                val destination = currentIndex + 1 + offset
-                val sourceIndex = (destination until connected.mediaItemCount)
-                    .firstOrNull { connected.getMediaItemAt(it).mediaId == mediaId }
-                    ?: return@forEachIndexed
-                if (sourceIndex != destination) connected.moveMediaItem(sourceIndex, destination)
-            }
-            updateQueuePolicyMetadata(connected, mode, repeatMode)
+            windowedQueue.resetAtTrack(
+                tracks = prefix + desiredFuture,
+                currentTrackId = currentId,
+                playbackMode = mode,
+                repeatMode = snapshot.repeatMode,
+                shuffleSeed = shuffleSeed,
+            )
+            connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(mode)
+            rematerializePreservingCurrent(connected)
         }
     }
 
     override fun setRepeatMode(mode: RepeatMode) = withController { connected ->
-        val playbackMode = connected.queuePlaybackMode()
+        bootstrapQueueIfNeeded(connected)
+        windowedQueue.setRepeatMode(mode)
+        val playbackMode = windowedQueue.snapshot().playbackMode
         connected.repeatMode = mode.toPlayerRepeatMode(playbackMode)
         updateQueuePolicyMetadata(connected, playbackMode, mode)
+        publishQueueState(connected)
     }
 
     override fun resume() = withController { connected ->
@@ -288,6 +318,7 @@ class AndroidPlaybackController @Inject constructor(
     }
 
     override fun skipToNext() = withController { connected ->
+        ensureAheadLoaded(connected)
         if (connected.hasNextMediaItem()) {
             connected.seekToNext()
             if (connected.playbackState == Player.STATE_IDLE) connected.prepare()
@@ -295,16 +326,86 @@ class AndroidPlaybackController @Inject constructor(
         }
     }
 
+    private suspend fun controllerOrNull(): MediaController? = runCatching {
+        controller ?: controllerFuture.await().also { controller = it }
+    }.onFailure { error ->
+        showError(error.message ?: "Playback is unavailable")
+    }.getOrNull()
+
     private fun withController(action: (MediaController) -> Unit) {
         scope.launch {
-            runCatching { controller ?: controllerFuture.await().also { controller = it } }
-                .onSuccess(action)
-                .onFailure { error -> showError(error.message ?: "Playback is unavailable") }
+            controllerOrNull()?.let(action)
         }
+    }
+
+    private fun materializeCurrentWindow(
+        connected: MediaController,
+        positionMs: Long,
+        shouldPlay: Boolean,
+    ) {
+        val snapshot = windowedQueue.snapshot()
+        val window = windowedQueue.materializedWindow()
+        if (window.tracks.isEmpty()) {
+            connected.clearMediaItems()
+            publishQueueState(connected)
+            return
+        }
+        connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(snapshot.playbackMode)
+        connected.setMediaItems(
+            window.tracks.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) },
+            window.currentIndex,
+            positionMs.coerceAtLeast(0),
+        )
+        connected.prepare()
+        if (shouldPlay) connected.play()
+        publishQueueState(connected)
+    }
+
+    private fun rematerializePreservingCurrent(
+        connected: MediaController,
+        preservePosition: Boolean = true,
+    ) {
+        val currentId = connected.currentMediaItem?.mediaId
+        windowedQueue.updateCurrent(currentId)
+        val snapshot = windowedQueue.snapshot()
+        val selectedId = snapshot.tracks.getOrNull(snapshot.currentIndex)?.id?.toString()
+        val keepPosition = preservePosition && currentId != null && currentId == selectedId
+        val position = if (keepPosition) connected.currentPosition.coerceAtLeast(0) else 0L
+        val shouldPlay = connected.playWhenReady
+        materializeCurrentWindow(connected, position, shouldPlay)
+    }
+
+    private fun ensureAheadLoaded(connected: MediaController) {
+        if (!windowedQueue.isActive() || connected.mediaItemCount == 0) return
+        windowedQueue.updateCurrent(connected.currentMediaItem?.mediaId)
+        if (!windowedQueue.shouldRefillAhead(connected.currentMediaItemIndex, connected.mediaItemCount)) return
+        val lastId = connected.getMediaItemAt(connected.mediaItemCount - 1).mediaId
+        val snapshot = windowedQueue.snapshot()
+        val refill = windowedQueue.nextBatchAfter(lastId)
+        if (refill.isNotEmpty()) {
+            connected.addMediaItems(refill.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) })
+        }
+    }
+
+    private fun bootstrapQueueIfNeeded(player: Player) {
+        if (windowedQueue.isActive() || player.mediaItemCount == 0) return
+        val tracks = (0 until player.mediaItemCount).mapNotNull { index ->
+            player.getMediaItemAt(index).toPersistedPlaybackItem()?.toPlayableTrack()
+        }
+        if (tracks.isEmpty()) return
+        val currentId = player.currentMediaItem?.mediaId
+            ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+        windowedQueue.resetAtTrack(
+            tracks = tracks,
+            currentTrackId = currentId,
+            playbackMode = player.queuePlaybackMode(),
+            repeatMode = player.queueRepeatMode(),
+        )
     }
 
     private fun updateState(player: Player?, errorMessage: String? = player?.playerError?.message) {
         if (player == null) return
+        windowedQueue.updateCurrent(player.currentMediaItem?.mediaId)
         val mediaItem = player.currentMediaItem
         val trackId = mediaItem?.mediaId?.let { mediaId ->
             runCatching { UUID.fromString(mediaId) }.getOrNull()
@@ -312,6 +413,11 @@ class AndroidPlaybackController @Inject constructor(
         val duration = player.duration.takeIf { it != C.TIME_UNSET && it >= 0 }
             ?: mediaItem?.mediaMetadata?.durationMs?.coerceAtLeast(0)
             ?: 0L
+        val snapshot = windowedQueue.snapshot().takeIf { windowedQueue.isActive() }
+        val logicalIndex = snapshot?.currentIndex ?: player.currentMediaItemIndex
+        val logicalSize = snapshot?.tracks?.size ?: player.mediaItemCount
+        val playbackMode = snapshot?.playbackMode ?: player.queuePlaybackMode()
+        val repeatMode = snapshot?.repeatMode ?: player.queueRepeatMode()
         _state.value = PlaybackState(
             status = when {
                 errorMessage != null -> PlaybackStatus.ERROR
@@ -329,32 +435,60 @@ class AndroidPlaybackController @Inject constructor(
                     artworkRef = mediaItem.mediaMetadata.artworkUri?.toString(),
                 )
             },
-            queueIndex = player.currentMediaItemIndex,
-            queueSize = player.mediaItemCount,
+            queueIndex = logicalIndex,
+            queueSize = logicalSize,
             positionMs = player.currentPosition.coerceAtLeast(0),
             durationMs = duration,
-            playbackMode = player.queuePlaybackMode(),
-            repeatMode = player.queueRepeatMode(),
-            canSkipPrevious = player.hasPreviousMediaItem(),
-            canSkipNext = player.hasNextMediaItem(),
+            playbackMode = playbackMode,
+            repeatMode = repeatMode,
+            canSkipPrevious = logicalIndex > 0 || player.hasPreviousMediaItem(),
+            canSkipNext = logicalIndex in 0 until logicalSize - 1 || player.hasNextMediaItem(),
             errorMessage = errorMessage,
         )
+        publishQueueState(player)
+    }
+
+    private fun publishQueueState(player: Player) {
+        val snapshot = windowedQueue.snapshot().takeIf { windowedQueue.isActive() }
+        if (snapshot == null) {
+            _queueState.value = QueueState(
+                items = (0 until player.mediaItemCount).mapNotNull { index ->
+                    val item = player.getMediaItemAt(index)
+                    runCatching { UUID.fromString(item.mediaId) }.getOrNull()?.let { id ->
+                        QueueItem(
+                            id = id,
+                            title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { "Unknown Track" },
+                            artist = item.mediaMetadata.artist?.toString(),
+                            artworkRef = item.mediaMetadata.artworkUri?.toString(),
+                        )
+                    }
+                },
+                currentIndex = player.currentMediaItemIndex,
+                playbackMode = player.queuePlaybackMode(),
+                repeatMode = player.queueRepeatMode(),
+            )
+            lastPublishedQueueRevision = Long.MIN_VALUE
+            return
+        }
+        val items = if (snapshot.revision != lastPublishedQueueRevision) {
+            snapshot.tracks.map { track ->
+                QueueItem(
+                    id = track.id,
+                    title = track.title.ifBlank { "Unknown Track" },
+                    artist = track.artist,
+                    artworkRef = track.artworkRef,
+                )
+            }
+        } else {
+            _queueState.value.items
+        }
         _queueState.value = QueueState(
-            items = (0 until player.mediaItemCount).mapNotNull { index ->
-                val item = player.getMediaItemAt(index)
-                runCatching { UUID.fromString(item.mediaId) }.getOrNull()?.let { id ->
-                    QueueItem(
-                        id = id,
-                        title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { "Unknown Track" },
-                        artist = item.mediaMetadata.artist?.toString(),
-                        artworkRef = item.mediaMetadata.artworkUri?.toString(),
-                    )
-                }
-            },
-            currentIndex = player.currentMediaItemIndex,
-            playbackMode = player.queuePlaybackMode(),
-            repeatMode = player.queueRepeatMode(),
+            items = items,
+            currentIndex = snapshot.currentIndex,
+            playbackMode = snapshot.playbackMode,
+            repeatMode = snapshot.repeatMode,
         )
+        lastPublishedQueueRevision = snapshot.revision
     }
 
     private suspend fun findTrack(trackId: UUID) = runCatching { catalog.availableTracks() }
@@ -377,9 +511,6 @@ private fun Player.queuePlaybackMode(): PlaybackMode =
 
 private fun Player.queueRepeatMode(): RepeatMode =
     if (mediaItemCount == 0) RepeatMode.OFF else getMediaItemAt(0).repeatMode()
-
-private fun Player.containsTrack(trackId: UUID): Boolean =
-    (0 until mediaItemCount).any { index -> getMediaItemAt(index).mediaId == trackId.toString() }
 
 private fun updateQueuePolicyMetadata(player: MediaController, playbackMode: PlaybackMode, repeatMode: RepeatMode) {
     for (index in 0 until player.mediaItemCount) {
