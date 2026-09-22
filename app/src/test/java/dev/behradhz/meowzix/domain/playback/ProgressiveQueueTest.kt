@@ -67,6 +67,20 @@ class ProgressiveQueueTest {
     }
 
     @Test
+    fun `removing current track advances logical current to its successor`() {
+        val queue = ProgressiveQueue()
+        val tracks = tracks(20)
+        queue.start(tracks, 5, PlaybackMode.ORDERED, RepeatMode.OFF)
+
+        assertTrue(queue.removeAt(5))
+
+        val snapshot = requireNotNull(queue.snapshot())
+        assertEquals(5, snapshot.currentIndex)
+        assertEquals(tracks[6].id, snapshot.tracks[snapshot.currentIndex].id)
+        assertFalse(snapshot.tracks.any { it.id == tracks[5].id })
+    }
+
+    @Test
     fun `many refills cover queue once without duplicates`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(1_000)

@@ -237,12 +237,14 @@ class AndroidPlaybackController @Inject constructor(
 
     override fun removeAt(index: Int) {
         withController { connected ->
-            if (progressiveQueue.snapshot() != null) {
+            val before = progressiveQueue.snapshot()
+            if (before != null) {
+                val removingCurrent = index == before.currentIndex
                 if (progressiveQueue.removeAt(index)) {
                     if (progressiveQueue.snapshot() == null) {
                         connected.clearMediaItems()
                     } else {
-                        rebuildProgressiveWindow(connected)
+                        rebuildProgressiveWindow(connected, preservePosition = !removingCurrent)
                     }
                 }
             } else if (index in 0 until connected.mediaItemCount) {
@@ -372,11 +374,14 @@ class AndroidPlaybackController @Inject constructor(
         action(connected)
     }
 
-    private fun rebuildProgressiveWindow(connected: MediaController) {
+    private fun rebuildProgressiveWindow(
+        connected: MediaController,
+        preservePosition: Boolean = true,
+    ) {
         val currentMediaId = connected.currentMediaItem?.mediaId
         progressiveQueue.updateCurrent(currentMediaId)
         val snapshot = progressiveQueue.snapshot() ?: return
-        val positionMs = connected.currentPosition.coerceAtLeast(0)
+        val positionMs = if (preservePosition) connected.currentPosition.coerceAtLeast(0) else 0L
         val shouldPlay = connected.playWhenReady
         val plan = progressiveQueue.resetWindow()
         connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
