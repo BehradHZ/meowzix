@@ -30,7 +30,6 @@ class AudioFeatureExtractionCoordinator @Inject constructor(
     private val libraryDao: LibraryDao,
     private val audioFeatureDao: AudioFeatureDao,
     private val extractor: AudioFeatureExtractor,
-    private val personalizationTrainer: PersonalizationTrainer,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gate = Semaphore(1)
@@ -87,7 +86,6 @@ class AudioFeatureExtractionCoordinator @Inject constructor(
                 sourceContentHash = feature.sourceContentHash,
             ),
         )
-        personalizationTrainer.refreshIfStale()
     }
 
     private fun chooseReadableSource(sources: List<TrackSourceEntity>): TrackSourceEntity? =
