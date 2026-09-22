@@ -11,14 +11,15 @@ import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
-import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import dev.behradhz.meowzix.data.network.NetworkPolicy
 import dev.behradhz.meowzix.data.network.NetworkUse
+import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
+import dev.behradhz.meowzix.data.telegram.toAudioCandidate
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
-import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import java.io.File
 import java.security.DigestOutputStream
 import java.security.MessageDigest
@@ -127,16 +128,42 @@ class TdLibDownloadRepository @Inject constructor(
             ?: return
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
         val remoteSource = requireNotNull(libraryDao.sourceById(telegramSource.trackSourceId))
+
+        // TDLib file ids belong to the active TDLib database and can become stale after a
+        // logout/re-login or session rebuild. Re-fetch the originating message before every
+        // explicit offline download so we always use the current file object instead of a Room
+        // snapshot that may now produce TDLib's "File not found" error.
+        val refreshedMessage = client.send(TdApi.GetMessage(telegramSource.chatId, telegramSource.messageId))
+        val candidate = refreshedMessage.toAudioCandidate()
+        if (candidate == null) {
+            libraryDao.updateAvailability(
+                telegramSource.trackSourceId,
+                SourceAvailability.MISSING,
+                Instant.now().toEpochMilli(),
+            )
+            error("Telegram file is no longer available.")
+        }
+        telegramDao.upsertTelegramTrackSource(
+            telegramSource.copy(
+                tdFileId = candidate.fileId,
+                tdPersistentFileId = candidate.persistentFileId ?: telegramSource.tdPersistentFileId,
+                fileName = candidate.fileName ?: telegramSource.fileName,
+                telegramTitle = candidate.title,
+                telegramPerformer = candidate.artist,
+            ),
+        )
+
+        val fileId = candidate.fileId
         val existing = downloadDao.byTrackId(trackId.toString())
         val now = Instant.now().toEpochMilli()
         val initial = DownloadRecordEntity(
             id = existing?.id ?: UUID.randomUUID().toString(),
             trackId = trackId.toString(),
             trackSourceId = telegramSource.trackSourceId,
-            tdFileId = telegramSource.tdFileId,
+            tdFileId = fileId,
             status = DownloadStatus.DOWNLOADING.name,
             downloadedBytes = 0L,
-            totalBytes = remoteSource.fileSizeBytes,
+            totalBytes = candidate.fileSizeBytes ?: remoteSource.fileSizeBytes,
             localPath = existing?.localPath,
             pinned = true,
             failureReason = null,
@@ -145,7 +172,6 @@ class TdLibDownloadRepository @Inject constructor(
         )
         downloadDao.upsert(initial)
 
-        val fileId = requireNotNull(telegramSource.tdFileId) { "Telegram file is unavailable." }
         val progressJob = scope.launch {
             client.updates
                 .filterIsInstance<TdApi.UpdateFile>()
@@ -171,7 +197,7 @@ class TdLibDownloadRepository @Inject constructor(
         val sourceFile = File(tdPath).takeIf(File::isFile) ?: error("Downloaded file is missing.")
 
         offlineDirectory.mkdirs()
-        val extension = telegramSource.fileName?.substringAfterLast('.', "")
+        val extension = candidate.fileName?.substringAfterLast('.', "")
             ?.takeIf { it.matches(Regex("[A-Za-z0-9]{1,8}")) }
         val destination = File(offlineDirectory, trackId.toString() + extension?.let { ".$it" }.orEmpty())
         val partial = File(offlineDirectory, destination.name + ".part")
@@ -195,7 +221,7 @@ class TdLibDownloadRepository @Inject constructor(
                     availability = SourceAvailability.AVAILABLE_LOCAL,
                     contentUri = null,
                     localPath = destination.absolutePath,
-                    mimeType = remoteSource.mimeType,
+                    mimeType = candidate.mimeType ?: remoteSource.mimeType,
                     fileSizeBytes = destination.length(),
                     contentHashSha256 = hash,
                     trainingEligible = remoteSource.trainingEligible,
