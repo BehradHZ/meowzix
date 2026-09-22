@@ -21,6 +21,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -147,38 +148,46 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             val fileId = source.candidate.fileId
             activeFullFileIds += fileId
             try {
-                val client = TdLibClientAdapter.activeOrNull() ?: return@launch
-                val downloaded = client.send(
-                    TdApi.DownloadFile(fileId, BACKGROUND_PRIORITY, 0L, 0L, true),
-                )
-                val tdPath = downloaded.local.path.takeIf {
-                    downloaded.local.isDownloadingCompleted && it.isNotBlank()
-                } ?: return@launch
-                val sourceFile = File(tdPath).takeIf(File::isFile) ?: return@launch
-                val permanent = copyToPermanentCache(trackId, source.candidate.fileName, sourceFile)
-                val now = Instant.now().toEpochMilli()
-                val localSourceId = UUID.nameUUIDFromBytes(
-                    "tdlib-local:$trackId".toByteArray(),
-                ).toString()
-                val previousLocalSource = libraryDao.sourceById(localSourceId)
-                libraryDao.upsertSource(
-                    TrackSourceEntity(
-                        id = localSourceId,
-                        trackId = trackId.toString(),
-                        type = TrackSourceType.TDLIB_LOCAL,
-                        availability = SourceAvailability.AVAILABLE_LOCAL,
-                        contentUri = null,
-                        localPath = permanent.absolutePath,
-                        mimeType = source.candidate.mimeType ?: source.remoteSource.mimeType,
-                        fileSizeBytes = permanent.length(),
-                        contentHashSha256 = previousLocalSource?.contentHashSha256,
-                        trainingEligible = source.remoteSource.trainingEligible,
-                        createdAtEpochMs = previousLocalSource?.createdAtEpochMs ?: now,
-                        lastVerifiedAtEpochMs = now,
-                    ),
-                )
-                extractFullArtwork(trackId, permanent)?.let { artworkUri ->
-                    libraryDao.setArtworkRef(trackId.toString(), artworkUri, Instant.now().toEpochMilli())
+                try {
+                    val client = TdLibClientAdapter.activeOrNull() ?: return@launch
+                    val downloaded = client.send(
+                        TdApi.DownloadFile(fileId, BACKGROUND_PRIORITY, 0L, 0L, true),
+                    )
+                    val tdPath = downloaded.local.path.takeIf {
+                        downloaded.local.isDownloadingCompleted && it.isNotBlank()
+                    } ?: return@launch
+                    val sourceFile = File(tdPath).takeIf(File::isFile) ?: return@launch
+                    val permanent = copyToPermanentCache(trackId, source.candidate.fileName, sourceFile)
+                    val now = Instant.now().toEpochMilli()
+                    val localSourceId = UUID.nameUUIDFromBytes(
+                        "tdlib-local:$trackId".toByteArray(),
+                    ).toString()
+                    val previousLocalSource = libraryDao.sourceById(localSourceId)
+                    libraryDao.upsertSource(
+                        TrackSourceEntity(
+                            id = localSourceId,
+                            trackId = trackId.toString(),
+                            type = TrackSourceType.TDLIB_LOCAL,
+                            availability = SourceAvailability.AVAILABLE_LOCAL,
+                            contentUri = null,
+                            localPath = permanent.absolutePath,
+                            mimeType = source.candidate.mimeType ?: source.remoteSource.mimeType,
+                            fileSizeBytes = permanent.length(),
+                            contentHashSha256 = previousLocalSource?.contentHashSha256,
+                            trainingEligible = source.remoteSource.trainingEligible,
+                            createdAtEpochMs = previousLocalSource?.createdAtEpochMs ?: now,
+                            lastVerifiedAtEpochMs = now,
+                        ),
+                    )
+                    extractFullArtwork(trackId, permanent)?.let { artworkUri ->
+                        libraryDao.setArtworkRef(trackId.toString(), artworkUri, Instant.now().toEpochMilli())
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    // Permanent caching is a best-effort optimization. Playback already has its
+                    // progressive TDLib source, so a TDLib, filesystem, metadata, or Room failure
+                    // here must never escape this root coroutine and terminate the app process.
                 }
             } finally {
                 activeFullFileIds -= fileId
