@@ -105,8 +105,10 @@ class RoomListeningHistoryRepository @Inject constructor(
             dao.clearTrackStats()
             dao.clearSessions()
         }
-        personalizationTrainer.reset()
+        personalizationTrainer.resetAfterHistoryClear()
     }
+
+    override suspend fun resetPersonalization() = personalizationTrainer.resetLearningKeepHistory()
 
     private suspend fun session(now: Instant, mode: PlaybackMode): Session {
         val existing = currentSession
