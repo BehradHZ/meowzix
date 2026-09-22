@@ -31,7 +31,13 @@ class LocalMusicLibraryRepositoryTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         database = Room.inMemoryDatabaseBuilder(context, MeowzixDatabase::class.java).build()
         scanner = FakeLocalMediaScanner()
-        repository = LocalMusicLibraryRepository(database, database.libraryDao(), scanner)
+        repository = LocalMusicLibraryRepository(
+            context,
+            database,
+            database.libraryDao(),
+            database.telegramDao(),
+            scanner,
+        )
     }
 
     @After
