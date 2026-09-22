@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,7 +35,21 @@ fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
             Text("Store listening history on this device", modifier = Modifier.weight(1f))
             Switch(privacy.listeningHistoryEnabled, viewModel::setHistoryEnabled)
         }
-        Button(onClick = viewModel::clear, enabled = rows.isNotEmpty()) { Text("Clear history") }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Button(onClick = viewModel::clear, enabled = rows.isNotEmpty()) { Text("Clear history") }
+            OutlinedButton(onClick = viewModel::resetPersonalization, enabled = rows.isNotEmpty()) {
+                Text("Reset Smart learning")
+            }
+        }
+        Text(
+            "Reset Smart learning keeps your history visible but makes Smart Shuffle learn again only from future listening.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
         Text("Recently played", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 20.dp, bottom = 8.dp))
         val recent = rows.filter { it.type == ListeningEventType.PLAY_STARTED }.distinctBy { it.trackId }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
