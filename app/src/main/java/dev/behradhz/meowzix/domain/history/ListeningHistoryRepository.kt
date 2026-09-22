@@ -45,6 +45,7 @@ interface ListeningHistoryRepository {
     suspend fun finalizePlayback(playbackInstanceId: UUID, positionMs: Long, durationMs: Long, intentionalSkip: Boolean)
     suspend fun recordSeek(playbackInstanceId: UUID, positionMs: Long, durationMs: Long)
     suspend fun clear()
+    suspend fun resetPersonalization()
 }
 
 data class EventTimeContext(val localHour: Int, val dayOfWeek: DayOfWeek, val bucket: TimeBucket, val isWeekend: Boolean)

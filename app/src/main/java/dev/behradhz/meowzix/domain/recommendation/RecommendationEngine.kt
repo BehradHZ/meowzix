@@ -36,8 +36,10 @@ data class ScoreBreakdown(
     val recencyPenalty: Double,
     val artistPenalty: Double,
     val sessionSkipPenalty: Double,
+    val learnedPreference: Double? = null,
 ) {
     fun explanation(): List<String> = buildList {
+        if (learnedPreference != null && learnedPreference > 0.65) add("learned preference for this context")
         if (timeAffinity > globalAffinity + 0.1) add("strong time-of-day preference")
         if (recencyPenalty == 0.0) add("not played recently")
         if (artistPenalty == 0.0) add("artist not repeated")
@@ -70,11 +72,13 @@ data class AdaptiveScoreWeights(
     val exploration: Double = 0.10,
     val freshness: Double = 0.10,
     val diversity: Double = 0.10,
+    /** Centered learned score can nudge ranking without bypassing diversity/recency constraints. */
+    val learned: Double = 0.25,
     val timeConfidenceK: Double = 5.0,
 )
 
 class AdaptiveScorer(private val weights: AdaptiveScoreWeights = AdaptiveScoreWeights()) {
-    fun score(candidate: SmartCandidate, now: Instant): ScoreBreakdown {
+    fun score(candidate: SmartCandidate, now: Instant, learnedPreference: Double? = null): ScoreBreakdown {
         val global = affinity(candidate.global, candidate.favorite)
         val observedTime = affinity(candidate.time, candidate.favorite)
         val confidence = candidate.time.starts / (candidate.time.starts + weights.timeConfidenceK)
@@ -92,9 +96,10 @@ class AdaptiveScorer(private val weights: AdaptiveScoreWeights = AdaptiveScoreWe
         val sessionSkip = (candidate.sessionEarlySkips * 0.12).coerceAtMost(0.36)
         val freshness = 1.0 - recency.coerceIn(0.0, 1.0)
         val diversity = 1.0 - (artist * 4).coerceIn(0.0, 1.0)
+        val learnedNudge = learnedPreference?.let { weights.learned * (it.coerceIn(0.0, 1.0) - 0.5) } ?: 0.0
         val total = weights.global * global + weights.time * time + weights.exploration * exploration +
-            weights.freshness * freshness + weights.diversity * diversity - recency - artist - sessionSkip
-        return ScoreBreakdown(total, global, time, exploration, recency, artist, sessionSkip)
+            weights.freshness * freshness + weights.diversity * diversity + learnedNudge - recency - artist - sessionSkip
+        return ScoreBreakdown(total, global, time, exploration, recency, artist, sessionSkip, learnedPreference)
     }
 
     private fun affinity(stats: PreferenceSnapshot, favorite: Boolean): Double {

@@ -7,6 +7,7 @@ import dev.behradhz.meowzix.data.db.ListeningSessionEntity
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.TrackPreferenceStatsEntity
 import dev.behradhz.meowzix.data.db.TrackTimePreferenceEntity
+import dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
 import dev.behradhz.meowzix.domain.history.ListeningEvent
 import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
 import dev.behradhz.meowzix.domain.history.ListeningEventType
@@ -29,6 +30,7 @@ import kotlinx.coroutines.sync.withLock
 class RoomListeningHistoryRepository @Inject constructor(
     private val database: MeowzixDatabase,
     private val dao: HistoryDao,
+    private val personalizationTrainer: PersonalizationTrainer,
 ) : ListeningHistoryRepository {
     private val mutex = Mutex()
     private val active = mutableMapOf<UUID, ActivePlayback>()
@@ -86,6 +88,7 @@ class RoomListeningHistoryRepository @Inject constructor(
         val context = active.remove(playbackInstanceId) ?: return@withLock
         val type = ListeningEventSemantics.outcome(positionMs, durationMs, intentionalSkip)
         database.withTransaction { insert(context, type, Instant.now(), positionMs, durationMs) }
+        personalizationTrainer.onPlaybackFinalized(playbackInstanceId)
     }
 
     override suspend fun recordSeek(playbackInstanceId: UUID, positionMs: Long, durationMs: Long) = mutex.withLock {
@@ -102,7 +105,10 @@ class RoomListeningHistoryRepository @Inject constructor(
             dao.clearTrackStats()
             dao.clearSessions()
         }
+        personalizationTrainer.resetAfterHistoryClear()
     }
+
+    override suspend fun resetPersonalization() = personalizationTrainer.resetLearningKeepHistory()
 
     private suspend fun session(now: Instant, mode: PlaybackMode): Session {
         val existing = currentSession

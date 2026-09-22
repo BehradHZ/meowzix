@@ -18,8 +18,9 @@ import androidx.room.TypeConverters
         ListeningEventEntity::class,
         TrackPreferenceStatsEntity::class,
         TrackTimePreferenceEntity::class,
+        AudioFeatureVectorEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(DbConverters::class)
@@ -29,4 +30,5 @@ abstract class MeowzixDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
     abstract fun playlistDao(): PlaylistDao
     abstract fun historyDao(): HistoryDao
+    abstract fun audioFeatureDao(): AudioFeatureDao
 }
