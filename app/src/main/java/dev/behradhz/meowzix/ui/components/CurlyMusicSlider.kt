@@ -33,7 +33,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
-import kotlin.math.max
 import kotlin.math.sin
 
 /**
@@ -101,7 +100,7 @@ fun CurlyMusicSlider(
     val waveLengthPx = with(density) { waveLength.toPx().coerceAtLeast(1f) }
     val thumbInteractionHeightPx = with(density) { 23.dp.toPx() }
     val thumbGapPx = with(density) { 3.dp.toPx() }
-    val visualHeight = max(36.dp, thumbRadius * 2 + 12.dp)
+    val visualHeight = 40.dp
     val wavePath = remember { Path() }
 
     val coercedValue = value.coerceIn(valueRange.start, valueRange.endInclusive)
