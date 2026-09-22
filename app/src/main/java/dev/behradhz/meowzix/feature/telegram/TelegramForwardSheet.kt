@@ -37,11 +37,39 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardOptions
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import java.util.UUID
+
+@Composable
+fun TelegramForwardSheet(
+    track: NowPlayingTrack,
+    query: String,
+    chats: List<TelegramChatSummary>,
+    isSearching: Boolean,
+    isSending: Boolean,
+    errorMessage: String?,
+    defaults: TelegramForwardSettings,
+    onQueryChange: (String) -> Unit,
+    onForward: (Long, TelegramForwardOptions, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) = TelegramForwardSheet(
+    trackId = track.id,
+    title = track.title,
+    artist = track.artist,
+    query = query,
+    chats = chats,
+    isSearching = isSearching,
+    isSending = isSending,
+    errorMessage = errorMessage,
+    defaults = defaults,
+    onQueryChange = onQueryChange,
+    onForward = onForward,
+    onDismiss = onDismiss,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
