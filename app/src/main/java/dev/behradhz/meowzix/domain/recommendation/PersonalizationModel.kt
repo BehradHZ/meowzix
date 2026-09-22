@@ -37,6 +37,8 @@ data class PersonalizationModelState(
     val modelVersion: String = "1",
     val featureSchemaVersion: Int = PersonalizationFeatureVectorizer.SCHEMA_VERSION,
     val trainingDataVersion: Long = 0L,
+    /** Events at or before this version are permanently excluded until an explicit full rebuild. */
+    val historyFloorVersion: Long = 0L,
     val trainedAtEpochMs: Long = 0L,
     val sampleCount: Long = 0L,
     val active: Boolean = false,
@@ -50,7 +52,7 @@ interface PersonalizationModel {
 
     /**
      * Clears learned weights. [trainingDataVersion] can watermark existing history so a privacy
-     * reset keeps raw history for the user without immediately relearning from those old events.
+     * reset keeps raw history for the user without ever relearning those old events implicitly.
      */
     suspend fun reset(trainingDataVersion: Long = 0L)
 }
