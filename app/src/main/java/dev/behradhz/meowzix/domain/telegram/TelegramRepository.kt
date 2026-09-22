@@ -89,13 +89,18 @@ interface TelegramRepository {
     fun syncSelectedSources()
     suspend fun trackIdsForChat(chatId: Long): List<UUID>
     fun clearMusicSourceError()
+}
 
+/**
+ * Telegram message forwarding is deliberately its own capability. This keeps importing/syncing
+ * music independent from outbound messaging and lets UI hide the action when Telegram is absent.
+ */
+interface TelegramForwardRepository {
     /**
-     * Returns chats suitable for the Telegram-style forward picker. The implementation should
-     * prefer TDLib's local chat index so typing remains immediate and may fall back to server-side
-     * search when useful.
+     * Returns chats suitable for a Telegram-style forward picker. Implementations should prefer
+     * TDLib's local chat index so typing stays immediate and may supplement it with server search.
      */
-    suspend fun searchForwardChats(query: String, limit: Int = 50): List<TelegramChatSummary>
+    suspend fun searchChats(query: String, limit: Int = 50): List<TelegramChatSummary>
 
     /**
      * Forwards the Telegram message backing [trackId] to [targetChatId]. Local-only tracks are not
