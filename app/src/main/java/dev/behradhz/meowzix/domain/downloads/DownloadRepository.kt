@@ -19,6 +19,10 @@ interface DownloadRepository {
     fun pinOffline(trackId: UUID)
     fun retry(trackId: UUID)
     fun cancel(trackId: UUID)
+
+    /** Reconciles persisted interrupted downloads and resumes them when their provider is ready. */
+    fun resumeInterruptedDownloads()
+
     suspend fun removeOfflineCopy(trackId: UUID)
     suspend fun storageBytes(): Long
     suspend fun clearTemporaryCache()
