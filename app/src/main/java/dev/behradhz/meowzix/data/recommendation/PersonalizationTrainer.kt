@@ -54,5 +54,11 @@ class PersonalizationTrainer @Inject constructor(
         }
     }
 
-    suspend fun reset() = trainingMutex.withLock { model.reset() }
+    suspend fun resetAfterHistoryClear() = trainingMutex.withLock { model.reset(0L) }
+
+    suspend fun resetLearningKeepHistory() = trainingMutex.withLock {
+        // Watermark everything already stored so the next stale check learns only from interactions
+        // that happen after the user's explicit reset.
+        model.reset(datasetBuilder.latestDataVersion())
+    }
 }
