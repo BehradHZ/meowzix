@@ -10,11 +10,19 @@ data class NetworkPlaybackSettings(
     val listeningHistoryEnabled: Boolean = true,
 )
 
+data class TelegramForwardSettings(
+    val includeSourceAttribution: Boolean = true,
+    val keepCaption: Boolean = true,
+)
+
 interface SettingsRepository {
     val networkPlaybackSettings: Flow<NetworkPlaybackSettings>
+    val telegramForwardSettings: Flow<TelegramForwardSettings>
+
     suspend fun setOfflineMode(enabled: Boolean)
     suspend fun setWifiOnlyDownloads(enabled: Boolean)
     suspend fun setPrefetchEnabled(enabled: Boolean)
     suspend fun setPrefetchOnMetered(enabled: Boolean)
     suspend fun setListeningHistoryEnabled(enabled: Boolean)
+    suspend fun setTelegramForwardDefaults(includeSourceAttribution: Boolean, keepCaption: Boolean)
 }
