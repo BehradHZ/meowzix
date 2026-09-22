@@ -466,14 +466,8 @@ class TdLibTelegramRepository @Inject constructor(
 
     override suspend fun trackIdsForChat(chatId: Long): List<UUID> {
         val accountId = currentUserId?.toString() ?: _musicSourceState.value.accountId ?: return emptyList()
-        return telegramDao.telegramSourcesForChat(accountId, chatId)
-            .mapNotNull { source ->
-                libraryDao.sourceById(source.trackSourceId)
-                    ?.takeUnless { it.availability == SourceAvailability.MISSING }
-                    ?.trackId
-                    ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
-            }
-            .distinct()
+        return telegramDao.activeTrackIdsForChat(accountId, chatId)
+            .mapNotNull { trackId -> runCatching { UUID.fromString(trackId) }.getOrNull() }
     }
 
     private suspend fun ensureChatPlaylist(accountId: String, chatId: Long, title: String) {
@@ -492,13 +486,7 @@ class TdLibTelegramRepository @Inject constructor(
         ensureChatPlaylist(accountId, chatId, title)
         val playlistId = telegramPlaylistId(accountId, chatId).toString()
         val now = Instant.now().toEpochMilli()
-        val trackIds = telegramDao.telegramSourcesForChat(accountId, chatId)
-            .mapNotNull { source ->
-                libraryDao.sourceById(source.trackSourceId)
-                    ?.takeUnless { it.availability == SourceAvailability.MISSING }
-                    ?.trackId
-            }
-            .distinct()
+        val trackIds = telegramDao.activeTrackIdsForChat(accountId, chatId)
         playlistDao.clearTracks(playlistId)
         if (trackIds.isNotEmpty()) {
             playlistDao.upsertTracks(
@@ -528,15 +516,13 @@ class TdLibTelegramRepository @Inject constructor(
     }
 
     private suspend fun findMatchingTrack(incoming: IncomingTrackIdentity): String? {
-        val sourcesByTrack = libraryDao.allSources().groupBy { it.trackId }
-        val candidates = libraryDao.allTracks().map { track ->
+        val artist = incoming.normalizedArtist ?: return null
+        val candidates = libraryDao.matchingTracks(incoming.normalizedTitle, artist).map { track ->
             TrackMatchCandidate(
                 trackId = track.id,
                 normalizedTitle = track.normalizedTitle,
                 normalizedArtist = track.normalizedArtist,
                 durationMs = track.durationMs,
-                contentHashes = sourcesByTrack[track.id].orEmpty()
-                    .mapNotNullTo(mutableSetOf()) { it.contentHashSha256 },
             )
         }
         return UnifiedTrackMatcher.match(incoming, candidates)

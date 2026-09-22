@@ -114,6 +114,15 @@ interface LibraryDao {
     )
     suspend fun availableTracks(): List<TrackEntity>
 
+    @Query(
+        """
+        SELECT * FROM tracks
+        WHERE normalizedTitle = :normalizedTitle
+          AND normalizedArtist = :normalizedArtist
+        """,
+    )
+    suspend fun matchingTracks(normalizedTitle: String, normalizedArtist: String): List<TrackEntity>
+
     @Query("SELECT * FROM track_sources WHERE availability != 'MISSING'")
     fun observeActiveSources(): Flow<List<TrackSourceEntity>>
 
