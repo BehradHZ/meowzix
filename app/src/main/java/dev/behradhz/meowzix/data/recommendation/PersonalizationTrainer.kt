@@ -46,4 +46,6 @@ class PersonalizationTrainer @Inject constructor(
             }
         }
     }
+
+    suspend fun reset() = model.reset()
 }
