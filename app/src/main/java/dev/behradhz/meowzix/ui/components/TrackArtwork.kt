@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.ui.components
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -43,9 +44,57 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+private object ArtworkBitmapCache {
+    private const val MAX_CACHE_KB = 24 * 1024
+    private val cache = object : LruCache<String, ImageBitmap>(MAX_CACHE_KB) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            ((value.width.toLong() * value.height.toLong() * 4L) / 1024L)
+                .coerceAtLeast(1L)
+                .coerceAtMost(Int.MAX_VALUE.toLong())
+                .toInt()
+    }
+    private val decodeLocks = ConcurrentHashMap<String, Mutex>()
+
+    suspend fun getOrDecode(
+        context: Context,
+        artworkRef: String,
+        targetPixels: Int,
+    ): ImageBitmap? {
+        val bucket = artworkTargetBucket(targetPixels)
+        val key = "$artworkRef#$bucket"
+        synchronized(cache) { cache.get(key) }?.let { return it }
+
+        val mutex = decodeLocks.getOrPut(key) { Mutex() }
+        return try {
+            mutex.withLock {
+                synchronized(cache) { cache.get(key) }?.let { return@withLock it }
+                val decoded = decodeSampledArtwork(
+                    context = context,
+                    uri = Uri.parse(artworkRef),
+                    targetPixels = bucket,
+                )
+                if (decoded != null) {
+                    synchronized(cache) { cache.put(key, decoded) }
+                }
+                decoded
+            }
+        } finally {
+            if (!mutex.isLocked) decodeLocks.remove(key, mutex)
+        }
+    }
+}
+
+private fun artworkTargetBucket(targetPixels: Int): Int {
+    val target = targetPixels.coerceAtLeast(64)
+    return ARTWORK_SIZE_BUCKETS.firstOrNull { it >= target } ?: ARTWORK_SIZE_BUCKETS.last()
+}
 
 @Composable
 private fun rememberArtworkBitmap(
@@ -61,10 +110,10 @@ private fun rememberArtworkBitmap(
         bitmap = if (artworkRef.isNullOrBlank()) {
             null
         } else {
-            decodeSampledArtwork(
-                context = context,
-                uri = Uri.parse(artworkRef),
-                targetPixels = targetPixels.coerceAtLeast(64),
+            ArtworkBitmapCache.getOrDecode(
+                context = context.applicationContext,
+                artworkRef = artworkRef,
+                targetPixels = targetPixels,
             )
         }
     }
@@ -353,6 +402,7 @@ fun TrackArtworkBackdrop(
 }
 
 private val PLAYER_BACKDROP_BLUR = 46.dp
-private const val BACKDROP_TARGET_PIXELS = 1800
+private val ARTWORK_SIZE_BUCKETS = intArrayOf(128, 256, 512, 1024, 1536)
+private const val BACKDROP_TARGET_PIXELS = 1536
 private const val SHARP_ARTWORK_SCALE = 1.10f
 private const val BLURRED_ARTWORK_SCALE = 1.16f
