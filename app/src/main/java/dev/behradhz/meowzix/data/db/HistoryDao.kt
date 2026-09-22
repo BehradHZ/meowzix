@@ -33,6 +33,18 @@ interface HistoryDao {
     @Query("SELECT * FROM listening_events WHERE type IN ('PLAY_STARTED', 'SKIPPED_EARLY') ORDER BY occurredAtEpochMs DESC LIMIT :limit")
     suspend fun recentSelectionEvents(limit: Int): List<ListeningEventEntity>
 
+    @Query("SELECT * FROM listening_events ORDER BY occurredAtEpochMs ASC")
+    suspend fun allEventsChronological(): List<ListeningEventEntity>
+
+    @Query("SELECT * FROM listening_events WHERE playbackInstanceId = :playbackInstanceId ORDER BY occurredAtEpochMs ASC")
+    suspend fun eventsForPlayback(playbackInstanceId: String): List<ListeningEventEntity>
+
+    @Query(
+        "SELECT COALESCE(MAX(occurredAtEpochMs), 0) FROM listening_events " +
+            "WHERE type IN ('PLAY_COMPLETED', 'PLAY_STOPPED', 'SKIPPED_EARLY', 'SKIPPED_LATE')",
+    )
+    suspend fun latestOutcomeVersion(): Long
+
     @Query("DELETE FROM listening_events") suspend fun clearEvents()
     @Query("DELETE FROM listening_sessions") suspend fun clearSessions()
     @Query("DELETE FROM track_preference_stats") suspend fun clearTrackStats()
