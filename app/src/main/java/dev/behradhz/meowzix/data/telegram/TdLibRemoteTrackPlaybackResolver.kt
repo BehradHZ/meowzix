@@ -48,13 +48,13 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     private val artworkDirectory = File(context.filesDir, "artwork")
 
     override suspend fun prepareForPlayback(trackId: UUID): PlayableTrack? {
+        cachedLocalTrack(trackId)?.let { return it }
+
         val settings = settingsRepository.networkPlaybackSettings.first()
         networkPolicy.blockReason(settings, NetworkUse.USER_REQUEST)?.let(::error)
         val source = resolveSource(trackId) ?: return null
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
 
-        // Only wait for a small useful prefix. The Media3 TDLib data source consumes this prefix
-        // immediately while a lower-priority full download continues in the background.
         client.send(
             TdApi.DownloadFile(
                 source.candidate.fileId,
@@ -82,6 +82,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         cancelPrefetch()
         prefetchJob = scope.launch {
             runCatching {
+                if (cachedLocalTrack(trackId) != null) return@runCatching
                 val settings = settingsRepository.networkPlaybackSettings.first()
                 if (!settings.prefetchEnabled) return@runCatching
                 if (networkPolicy.blockReason(settings, NetworkUse.PREFETCH) != null) return@runCatching
@@ -112,6 +113,44 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                 runCatching { TdLibClientAdapter.activeOrNull()?.send(TdApi.CancelDownloadFile(fileId, false)) }
             }
         }
+    }
+
+    private suspend fun cachedLocalTrack(trackId: UUID): PlayableTrack? {
+        val track = libraryDao.trackById(trackId.toString()) ?: return null
+        if (track.hidden) return null
+        val now = Instant.now().toEpochMilli()
+        val sources = libraryDao.sourcesForTrack(trackId.toString())
+            .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
+            .sortedBy(::localSourcePriority)
+
+        for (source in sources) {
+            val contentUri = when {
+                !source.contentUri.isNullOrBlank() -> source.contentUri
+                !source.localPath.isNullOrBlank() -> {
+                    val path = source.localPath ?: continue
+                    if (File(path).isFile) {
+                        "file://$path"
+                    } else {
+                        if (source.type == TrackSourceType.APP_OFFLINE_COPY || source.type == TrackSourceType.TDLIB_LOCAL) {
+                            libraryDao.updateAvailability(source.id, SourceAvailability.MISSING, now)
+                        }
+                        null
+                    }
+                }
+                else -> null
+            } ?: continue
+
+            return PlayableTrack(
+                id = trackId,
+                title = track.title,
+                artist = track.artist,
+                album = track.album,
+                durationMs = track.durationMs,
+                artworkRef = track.artworkRef,
+                contentUri = contentUri,
+            )
+        }
+        return null
     }
 
     private suspend fun resolveSource(trackId: UUID): ResolvedTelegramSource? {
@@ -185,9 +224,6 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Throwable) {
-                    // Permanent caching is a best-effort optimization. Playback already has its
-                    // progressive TDLib source, so a TDLib, filesystem, metadata, or Room failure
-                    // here must never escape this root coroutine and terminate the app process.
                 }
             } finally {
                 activeFullFileIds -= fileId
@@ -221,8 +257,6 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                 retriever.setDataSource(audioFile.absolutePath)
                 retriever.embeddedPicture
             } finally {
-                // MediaMetadataRetriever implements AutoCloseable only from API 29. release() is
-                // available on our minSdk (26), so use it directly for full compatibility.
                 retriever.release()
             }
         }.getOrNull() ?: return null
@@ -249,4 +283,11 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         fun streamUri(fileId: Int, trackId: UUID): String =
             "meowzix-tdlib://audio/$fileId?trackId=$trackId"
     }
+}
+
+private fun localSourcePriority(source: TrackSourceEntity): Int = when (source.type) {
+    TrackSourceType.APP_OFFLINE_COPY -> 0
+    TrackSourceType.TDLIB_LOCAL -> 1
+    TrackSourceType.LOCAL_MEDIASTORE -> 2
+    else -> 3
 }
