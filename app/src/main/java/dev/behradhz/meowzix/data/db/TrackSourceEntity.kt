@@ -15,7 +15,12 @@ import dev.behradhz.meowzix.core.model.TrackSourceType
         childColumns = ["trackId"],
         onDelete = ForeignKey.CASCADE,
     )],
-    indices = [Index("trackId"), Index(value = ["contentUri"], unique = true)],
+    indices = [
+        Index("trackId"),
+        Index(value = ["contentUri"], unique = true),
+        Index(value = ["trackId", "availability"]),
+        Index(value = ["type", "availability", "trackId"]),
+    ],
 )
 data class TrackSourceEntity(
     @PrimaryKey val id: String,

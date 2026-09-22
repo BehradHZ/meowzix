@@ -1,9 +1,17 @@
 package dev.behradhz.meowzix.data.db
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "tracks")
+@Entity(
+    tableName = "tracks",
+    indices = [
+        Index(value = ["hidden", "normalizedTitle"]),
+        Index("normalizedArtist"),
+        Index("favorite"),
+    ],
+)
 data class TrackEntity(
     @PrimaryKey val id: String,
     val title: String,

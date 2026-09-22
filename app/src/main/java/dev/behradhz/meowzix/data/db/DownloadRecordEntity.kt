@@ -13,7 +13,11 @@ import androidx.room.PrimaryKey
         childColumns = ["trackId"],
         onDelete = ForeignKey.CASCADE,
     )],
-    indices = [Index("trackId", unique = true), Index("tdFileId")],
+    indices = [
+        Index("trackId", unique = true),
+        Index("tdFileId"),
+        Index("updatedAtEpochMs"),
+    ],
 )
 data class DownloadRecordEntity(
     @PrimaryKey val id: String,
