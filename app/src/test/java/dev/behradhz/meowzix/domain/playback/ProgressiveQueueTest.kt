@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.domain.playback
 import java.util.UUID
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -95,6 +96,51 @@ class ProgressiveQueueTest {
 
         assertEquals(1_000, seen.size)
         assertEquals(tracks.map { it.id }.toSet(), seen)
+    }
+
+    @Test
+    fun `ten thousand track queue keeps Media3 window bounded and reuses stable snapshot`() {
+        val queue = ProgressiveQueue()
+        val tracks = tracks(10_000)
+        val requestedIndex = 5_000
+
+        val initialWindow = queue.start(
+            orderedTracks = tracks,
+            requestedStartIndex = requestedIndex,
+            mode = PlaybackMode.ORDERED,
+            repeat = RepeatMode.OFF,
+        )
+        val firstSnapshot = requireNotNull(queue.snapshot())
+        val secondSnapshot = requireNotNull(queue.snapshot())
+
+        assertEquals(10_000, firstSnapshot.tracks.size)
+        assertEquals(requestedIndex, firstSnapshot.currentIndex)
+        assertEquals(
+            ProgressiveQueue.PREVIOUS_WINDOW_SIZE + 1 + ProgressiveQueue.INITIAL_FORWARD_COUNT,
+            initialWindow.tracks.size,
+        )
+        assertSame(firstSnapshot, secondSnapshot)
+
+        // A playback-position tick resolves the same logical media id. It must not allocate a new
+        // 10k-element queue snapshot while nothing about the queue has changed.
+        assertTrue(queue.updateCurrent(tracks[requestedIndex].id.toString()))
+        assertSame(firstSnapshot, queue.snapshot())
+
+        // A real structural change must invalidate the cache and remain logically correct.
+        val newTrack = PlayableTrack(
+            id = UUID.nameUUIDFromBytes("extra-track".toByteArray()),
+            title = "Extra Track",
+            artist = "Artist",
+            album = null,
+            durationMs = 180_000,
+            artworkRef = null,
+            contentUri = "content://track/extra",
+        )
+        assertTrue(queue.insertNext(newTrack))
+        val changedSnapshot = requireNotNull(queue.snapshot())
+        assertFalse(firstSnapshot === changedSnapshot)
+        assertEquals(10_001, changedSnapshot.tracks.size)
+        assertEquals(newTrack.id, changedSnapshot.tracks[requestedIndex + 1].id)
     }
 
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
