@@ -18,6 +18,11 @@ data class PersistedPlaybackSession(
     val positionMs: Long,
     val playbackMode: PlaybackMode,
     val repeatMode: RepeatMode,
+    val logicalMediaIds: List<String> = emptyList(),
+    val logicalCurrentIndex: Int = -1,
+    val materializedStartIndex: Int = 0,
+    val materializedEndExclusive: Int = 0,
+    val shuffleSeed: Long? = null,
 ) {
     companion object {
         val Empty = PersistedPlaybackSession(

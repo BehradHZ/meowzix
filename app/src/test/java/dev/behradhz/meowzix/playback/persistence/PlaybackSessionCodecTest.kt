@@ -32,6 +32,10 @@ class PlaybackSessionCodecTest {
             positionMs = 42_000,
             playbackMode = PlaybackMode.ORDERED,
             repeatMode = RepeatMode.ALL,
+            logicalMediaIds = listOf("track-0", "track|1", "track-2", "track-3"),
+            logicalCurrentIndex = 2,
+            materializedStartIndex = 1,
+            materializedEndExclusive = 4,
         )
 
         assertEquals(session, PlaybackSessionCodec.decode(PlaybackSessionCodec.encode(session)))
@@ -48,12 +52,16 @@ class PlaybackSessionCodecTest {
                 positionMs = -1,
                 playbackMode = PlaybackMode.ORDERED,
                 repeatMode = RepeatMode.OFF,
+                logicalMediaIds = listOf("id"),
+                logicalCurrentIndex = 99,
+                materializedEndExclusive = 1,
             ),
         )
 
         val restored = requireNotNull(PlaybackSessionCodec.decode(encoded))
 
         assertEquals(0, restored.currentIndex)
+        assertEquals(0, restored.logicalCurrentIndex)
         assertEquals(0, restored.positionMs)
     }
 
@@ -64,7 +72,7 @@ class PlaybackSessionCodecTest {
     }
 
     @Test
-    fun `round trip preserves pure shuffle cycle and repeat policy`() {
+    fun `round trip preserves pure shuffle logical cycle and seed`() {
         val session = PersistedPlaybackSession(
             items = listOf(
                 PersistedPlaybackItem("second", "content://2", "Second", null, null, 2),
@@ -74,8 +82,28 @@ class PlaybackSessionCodecTest {
             positionMs = 250,
             playbackMode = PlaybackMode.PURE_SHUFFLE,
             repeatMode = RepeatMode.ALL,
+            logicalMediaIds = listOf("third", "second", "first", "fourth"),
+            logicalCurrentIndex = 2,
+            materializedStartIndex = 1,
+            materializedEndExclusive = 4,
+            shuffleSeed = 8675309,
         )
 
         assertEquals(session, PlaybackSessionCodec.decode(PlaybackSessionCodec.encode(session)))
+    }
+
+    @Test
+    fun `legacy v1 sessions upgrade to a logical queue`() {
+        val legacy = """
+            v1|1|250|ORDERED|OFF
+            i|Zmlyc3Q|Y29udGVudDovLzE|Rmlyc3Q|-|-|1
+            i|c2Vjb25k|Y29udGVudDovLzI|U2Vjb25k|-|-|2
+        """.trimIndent()
+
+        val restored = requireNotNull(PlaybackSessionCodec.decode(legacy))
+
+        assertEquals(listOf("first", "second"), restored.logicalMediaIds)
+        assertEquals(1, restored.logicalCurrentIndex)
+        assertEquals(2, restored.materializedEndExclusive)
     }
 }

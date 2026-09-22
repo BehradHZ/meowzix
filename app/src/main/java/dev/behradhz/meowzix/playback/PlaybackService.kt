@@ -28,6 +28,7 @@ import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
@@ -52,6 +53,7 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var playbackCatalog: PlaybackCatalog
     @Inject lateinit var audioVisualizer: AudioVisualizerRepository
     @Inject lateinit var libraryRepository: MusicLibraryRepository
+    @Inject lateinit var progressiveQueue: ProgressiveQueue
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
@@ -61,7 +63,8 @@ class PlaybackService : MediaSessionService() {
     private var retryMediaId: String? = null
     private var retryCount = 0
     private var isRestoring = true
-    private var isChangingShuffleCycle = false
+    private var isChangingQueueCycle = false
+    private var isExpandingWindow = false
     private var currentFavorite = false
 
     private val shuffleCommand = SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY)
@@ -103,6 +106,9 @@ class PlaybackService : MediaSessionService() {
 
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            if (events.contains(Player.EVENT_TIMELINE_CHANGED) && player.mediaItemCount == 0) {
+                progressiveQueue.clear()
+            }
             if (
                 events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
                 player.playbackState == Player.STATE_READY &&
@@ -111,12 +117,16 @@ class PlaybackService : MediaSessionService() {
                 clearPlaybackRetry()
             }
             if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) && player.playbackState == Player.STATE_ENDED) {
-                startNextPureShuffleCycle()
+                startNextQueueCycle()
             }
             if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
                 clearPlaybackRetry()
+                progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)
+                expandProgressiveWindow()
                 runCatching { audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString()) }
                 refreshFavoriteState()
+            } else if (events.contains(Player.EVENT_TIMELINE_CHANGED)) {
+                expandProgressiveWindow()
             }
             if (
                 events.containsAny(
@@ -177,9 +187,8 @@ class PlaybackService : MediaSessionService() {
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Throwable) {
-                    // Session restore is optional. A stale/corrupt snapshot must not terminate the
-                    // media service, because the app shell creates a controller during startup.
                     isRestoring = false
+                    progressiveQueue.clear()
                     player.clearMediaItems()
                 }
                 runCatching {
@@ -188,7 +197,7 @@ class PlaybackService : MediaSessionService() {
                 refreshFavoriteState()
                 while (isActive) {
                     delay(POSITION_SAVE_INTERVAL_MS)
-                    if (player.isPlaying) persistSafely()
+                    if (player.isPlaying) persistPositionSafely()
                 }
             } finally {
                 isRestoring = false
@@ -246,6 +255,36 @@ class PlaybackService : MediaSessionService() {
         if (::mediaSession.isInitialized) mediaSession.setMediaButtonPreferences(mediaButtons())
     }
 
+    private fun expandProgressiveWindow() {
+        if (isExpandingWindow || player.mediaItemCount == 0) return
+        val snapshot = progressiveQueue.snapshot() ?: return
+        if (!progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)) {
+            progressiveQueue.clear()
+            return
+        }
+        isExpandingWindow = true
+        try {
+            val removeCount = progressiveQueue.trimMaterializedHistory()
+            if (removeCount > 0 && removeCount <= player.currentMediaItemIndex) {
+                player.removeMediaItems(0, removeCount)
+            }
+
+            val forward = progressiveQueue.takeForwardBatchIfNeeded()
+            if (forward.isNotEmpty()) {
+                val policy = progressiveQueue.snapshot() ?: snapshot
+                player.addMediaItems(forward.map { it.toMediaItem(policy.playbackMode, policy.repeatMode) })
+            }
+
+            val backward = progressiveQueue.takeBackwardBatchIfNeeded()
+            if (backward.isNotEmpty()) {
+                val policy = progressiveQueue.snapshot() ?: snapshot
+                player.addMediaItems(0, backward.map { it.toMediaItem(policy.playbackMode, policy.repeatMode) })
+            }
+        } finally {
+            isExpandingWindow = false
+        }
+    }
+
     private fun handlePlaybackFailure(error: PlaybackException) {
         val currentItem = player.currentMediaItem
         val mediaId = currentItem?.mediaId
@@ -278,9 +317,6 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
-        // Never silently consume the queue on a source failure. A missing local file, a stalled
-        // Telegram download, or a decoder error should leave the requested item selected so the UI
-        // can show the failure and the user can retry or explicitly skip it.
         Log.w(TAG, "Playback failed; keeping the current queue item selected", error)
         clearPlaybackRetry()
         player.pause()
@@ -296,6 +332,35 @@ class PlaybackService : MediaSessionService() {
 
     private fun toggleSystemShuffle() {
         if (player.mediaItemCount == 0) return
+        val active = progressiveQueue.snapshot()
+        if (active != null && progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)) {
+            val nextMode = if (active.playbackMode == PlaybackMode.PURE_SHUFFLE) {
+                PlaybackMode.ORDERED
+            } else {
+                PlaybackMode.PURE_SHUFFLE
+            }
+            val refreshed = progressiveQueue.snapshot() ?: return
+            val future = refreshed.tracks.drop(refreshed.currentIndex + 1)
+            serviceScope.launch {
+                var seed: Long? = null
+                val desiredFuture = if (nextMode == PlaybackMode.PURE_SHUFFLE) {
+                    val byId = future.associateBy { it.id }
+                    PureShuffleEngine.newCycle(future.map { it.id }).let { cycle ->
+                        seed = cycle.seed
+                        cycle.order.mapNotNull(byId::get)
+                    }
+                } else {
+                    val order = runCatching { playbackCatalog.availableTracks().map { it.id } }.getOrDefault(emptyList())
+                    val rank = order.withIndex().associate { it.value to it.index }
+                    future.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
+                }
+                progressiveQueue.replaceFuture(desiredFuture, nextMode, seed)
+                rebuildProgressiveWindow()
+                refreshMediaButtons()
+            }
+            return
+        }
+
         val nextMode = if (currentPlaybackMode() == PlaybackMode.PURE_SHUFFLE) PlaybackMode.ORDERED else PlaybackMode.PURE_SHUFFLE
         val currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
         val currentId = player.currentMediaItem?.mediaId
@@ -321,7 +386,6 @@ class PlaybackService : MediaSessionService() {
             }
             updateQueuePolicyMetadata(nextMode, currentRepeatMode())
             if (currentId != player.currentMediaItem?.mediaId) {
-                // Defensive: queue reordering must never replace the active track.
                 player.seekTo(currentIndex.coerceAtMost(player.mediaItemCount - 1), player.currentPosition)
             }
             refreshMediaButtons()
@@ -334,7 +398,9 @@ class PlaybackService : MediaSessionService() {
             RepeatMode.ALL -> RepeatMode.ONE
             RepeatMode.ONE -> RepeatMode.OFF
         }
-        player.repeatMode = next.toPlayerRepeatMode(currentPlaybackMode())
+        val progressive = progressiveQueue.snapshot() != null
+        if (progressive) progressiveQueue.updateRepeatMode(next)
+        player.repeatMode = next.toPlayerRepeatMode(progressive)
         updateQueuePolicyMetadata(currentPlaybackMode(), next)
         refreshMediaButtons()
     }
@@ -354,7 +420,6 @@ class PlaybackService : MediaSessionService() {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
-                // Favorite state is secondary to playback; DB/read failures stay non-fatal.
             }
         }
     }
@@ -386,19 +451,56 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun currentPlaybackMode(): PlaybackMode =
-        player.takeIf { it.mediaItemCount > 0 }?.getMediaItemAt(0)?.playbackMode() ?: PlaybackMode.ORDERED
+        progressiveQueue.snapshot()?.playbackMode
+            ?: player.takeIf { it.mediaItemCount > 0 }?.getMediaItemAt(0)?.playbackMode()
+            ?: PlaybackMode.ORDERED
 
     private fun currentRepeatMode(): RepeatMode =
-        player.takeIf { it.mediaItemCount > 0 }?.getMediaItemAt(0)?.repeatMode() ?: when (player.repeatMode) {
-            Player.REPEAT_MODE_ONE -> RepeatMode.ONE
-            Player.REPEAT_MODE_ALL -> RepeatMode.ALL
-            else -> RepeatMode.OFF
-        }
+        progressiveQueue.snapshot()?.repeatMode
+            ?: player.takeIf { it.mediaItemCount > 0 }?.getMediaItemAt(0)?.repeatMode()
+            ?: when (player.repeatMode) {
+                Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+                Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+                else -> RepeatMode.OFF
+            }
 
     private suspend fun restoreSession() {
         val saved = stateStore.load()
-        if (player.mediaItemCount == 0 && saved.items.isNotEmpty()) {
-            player.repeatMode = saved.repeatMode.toPlayerRepeatMode(saved.playbackMode)
+        if (player.mediaItemCount != 0 || saved.items.isEmpty()) {
+            isRestoring = false
+            return
+        }
+
+        val logicalIds = saved.logicalMediaIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
+        val restoredProgressive = if (logicalIds.isNotEmpty()) {
+            val available = runCatching { playbackCatalog.availableTracks().associateBy { it.id } }.getOrNull()
+            available != null && progressiveQueue.restore(
+                orderedTrackIds = logicalIds,
+                availableTracks = available,
+                requestedCurrentIndex = saved.logicalCurrentIndex,
+                requestedMaterializedStartIndex = saved.materializedStartIndex,
+                requestedMaterializedEndExclusive = saved.materializedEndExclusive,
+                mode = saved.playbackMode,
+                repeat = saved.repeatMode,
+                seed = saved.shuffleSeed,
+            )
+        } else {
+            false
+        }
+
+        if (restoredProgressive) {
+            progressiveQueue.updateCurrent(saved.items.getOrNull(saved.currentIndex)?.mediaId)
+            val plan = progressiveQueue.resetWindow()
+            player.repeatMode = saved.repeatMode.toPlayerRepeatMode(progressive = true)
+            player.setMediaItems(
+                plan.tracks.map { it.toMediaItem(saved.playbackMode, saved.repeatMode) },
+                plan.startIndexInWindow,
+                saved.positionMs,
+            )
+            player.prepare()
+        } else {
+            progressiveQueue.clear()
+            player.repeatMode = saved.repeatMode.toPlayerRepeatMode(progressive = false)
             player.setMediaItems(
                 saved.items.map { it.toMediaItem(saved.playbackMode, saved.repeatMode) },
                 saved.currentIndex,
@@ -424,12 +526,24 @@ class PlaybackService : MediaSessionService() {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
-            // A resume snapshot is convenience data; persistence failures must not stop playback.
+        }
+    }
+
+    private suspend fun persistPositionSafely() {
+        try {
+            stateStore.savePosition(
+                mediaId = player.currentMediaItem?.mediaId,
+                positionMs = player.currentPosition.coerceAtLeast(0),
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
         }
     }
 
     private suspend fun persistNow() {
         val items = (0 until player.mediaItemCount).mapNotNull { player.getMediaItemAt(it).toPersistedPlaybackItem() }
+        val logical = progressiveQueue.snapshot()
         stateStore.save(
             PersistedPlaybackSession(
                 items = items,
@@ -437,38 +551,112 @@ class PlaybackService : MediaSessionService() {
                 positionMs = player.currentPosition.coerceAtLeast(0),
                 playbackMode = currentPlaybackMode(),
                 repeatMode = currentRepeatMode(),
+                logicalMediaIds = logical?.tracks?.map { it.id.toString() }.orEmpty(),
+                logicalCurrentIndex = logical?.currentIndex ?: -1,
+                materializedStartIndex = logical?.materializedStartIndex ?: 0,
+                materializedEndExclusive = logical?.materializedEndExclusive ?: items.size,
+                shuffleSeed = logical?.shuffleSeed,
             ),
         )
     }
 
-    private fun startNextPureShuffleCycle() {
-        if (isChangingShuffleCycle || player.mediaItemCount == 0) return
+    private fun rebuildProgressiveWindow() {
+        val snapshot = progressiveQueue.snapshot() ?: return
+        val currentId = player.currentMediaItem?.mediaId
+        progressiveQueue.updateCurrent(currentId)
+        val position = player.currentPosition.coerceAtLeast(0)
+        val shouldResume = player.playWhenReady
+        val plan = progressiveQueue.resetWindow()
+        val refreshed = progressiveQueue.snapshot() ?: snapshot
+        player.repeatMode = refreshed.repeatMode.toPlayerRepeatMode(progressive = true)
+        player.setMediaItems(
+            plan.tracks.map { it.toMediaItem(refreshed.playbackMode, refreshed.repeatMode) },
+            plan.startIndexInWindow,
+            position,
+        )
+        player.prepare()
+        if (shouldResume) player.play()
+        schedulePersist()
+    }
+
+    private fun startNextQueueCycle() {
+        if (isChangingQueueCycle || player.mediaItemCount == 0) return
+        val progressive = progressiveQueue.snapshot()
+        if (progressive != null) {
+            val shouldPrepareNext = progressive.repeatMode == RepeatMode.ALL ||
+                (progressive.playbackMode == PlaybackMode.PURE_SHUFFLE && progressive.repeatMode == RepeatMode.OFF)
+            if (!shouldPrepareNext) return
+            isChangingQueueCycle = true
+            serviceScope.launch {
+                try {
+                    val shouldContinue = progressive.repeatMode == RepeatMode.ALL && player.playWhenReady
+                    val previousLast = progressive.tracks.getOrNull(progressive.currentIndex)
+                    var seed: Long? = progressive.shuffleSeed
+                    val nextOrder = when (progressive.playbackMode) {
+                        PlaybackMode.PURE_SHUFFLE -> {
+                            val byId = progressive.tracks.associateBy { it.id }
+                            PureShuffleEngine.newCycle(
+                                progressive.tracks.map { it.id },
+                                previousLast?.id,
+                            ).let { cycle ->
+                                seed = cycle.seed
+                                cycle.order.mapNotNull(byId::get)
+                            }
+                        }
+                        PlaybackMode.ORDERED, PlaybackMode.SMART_SHUFFLE -> progressive.tracks
+                    }
+                    val plan = progressiveQueue.start(
+                        orderedTracks = nextOrder,
+                        requestedStartIndex = 0,
+                        mode = progressive.playbackMode,
+                        repeat = progressive.repeatMode,
+                        seed = seed,
+                    )
+                    player.repeatMode = Player.REPEAT_MODE_OFF
+                    player.setMediaItems(
+                        plan.tracks.map { it.toMediaItem(progressive.playbackMode, progressive.repeatMode) },
+                        plan.startIndexInWindow,
+                        0,
+                    )
+                    player.prepare()
+                    if (shouldContinue) player.play()
+                    schedulePersist()
+                } finally {
+                    isChangingQueueCycle = false
+                }
+            }
+            return
+        }
+
+        startNextLegacyPureShuffleCycle()
+    }
+
+    private fun startNextLegacyPureShuffleCycle() {
+        if (isChangingQueueCycle || player.mediaItemCount == 0) return
         val currentItems = (0 until player.mediaItemCount).map(player::getMediaItemAt)
         val playbackMode = currentItems.first().playbackMode()
         if (playbackMode != PlaybackMode.PURE_SHUFFLE) return
-        isChangingShuffleCycle = true
+        isChangingQueueCycle = true
         serviceScope.launch {
             try {
                 val repeatMode = currentItems.first().repeatMode()
                 val previousLastId = player.currentMediaItem?.mediaId
                 val shouldContinue = repeatMode == RepeatMode.ALL && player.playWhenReady
+                if (repeatMode != RepeatMode.ALL) return@launch
                 val catalogItems = runCatching { playbackCatalog.availableTracks() }
                     .getOrNull()
                     ?.map { it.toMediaItem(playbackMode, repeatMode) }
                     ?.takeIf { it.isNotEmpty() }
-                // A transient empty catalog (DB refresh, source rescan, or startup restore) must not
-                // erase a valid in-memory queue at the repeat-all boundary. Keep the current cycle
-                // as the fallback and let the next cycle reconcile with the canonical catalog.
                 val eligibleItems = catalogItems ?: currentItems
                 val previousLastItem = eligibleItems.firstOrNull { it.mediaId == previousLastId }
                 val nextCycle = PureShuffleEngine.newCycle(eligibleItems, previousLastItem).order
-                player.repeatMode = repeatMode.toPlayerRepeatMode(playbackMode)
+                player.repeatMode = Player.REPEAT_MODE_OFF
                 player.setMediaItems(nextCycle, 0, 0)
                 player.prepare()
                 if (shouldContinue) player.play()
                 schedulePersist()
             } finally {
-                isChangingShuffleCycle = false
+                isChangingQueueCycle = false
             }
         }
     }
@@ -487,8 +675,8 @@ class PlaybackService : MediaSessionService() {
     }
 }
 
-private fun RepeatMode.toPlayerRepeatMode(playbackMode: PlaybackMode): Int = when {
+private fun RepeatMode.toPlayerRepeatMode(progressive: Boolean): Int = when {
     this == RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-    this == RepeatMode.ALL && playbackMode != PlaybackMode.PURE_SHUFFLE -> Player.REPEAT_MODE_ALL
+    this == RepeatMode.ALL && !progressive -> Player.REPEAT_MODE_ALL
     else -> Player.REPEAT_MODE_OFF
 }

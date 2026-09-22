@@ -15,6 +15,8 @@ import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
+import dev.behradhz.meowzix.domain.playback.PlayableTrack
+import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueRepository
@@ -42,6 +44,7 @@ class AndroidPlaybackController @Inject constructor(
     @ApplicationContext context: Context,
     private val catalog: PlaybackCatalog,
     private val recommendationEngine: RecommendationEngine,
+    private val progressiveQueue: ProgressiveQueue,
 ) : PlaybackController, QueueRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(PlaybackState(status = PlaybackStatus.PREPARING))
@@ -91,7 +94,7 @@ class AndroidPlaybackController @Inject constructor(
 
     override fun playNow(trackId: UUID) {
         scope.launch {
-            val tracks = runCatching { catalog.availableTracks() }
+            val tracks = runCatching { catalog.availableTracks().distinctBy(PlayableTrack::id) }
                 .getOrElse { error ->
                     showError(error.message ?: "Unable to load the playback queue")
                     return@launch
@@ -106,10 +109,16 @@ class AndroidPlaybackController @Inject constructor(
                     showError(error.message ?: "Playback is unavailable")
                     return@launch
                 }
+            val window = progressiveQueue.start(
+                orderedTracks = tracks,
+                requestedStartIndex = startIndex,
+                mode = PlaybackMode.ORDERED,
+                repeat = RepeatMode.OFF,
+            )
             connected.repeatMode = Player.REPEAT_MODE_OFF
             connected.setMediaItems(
-                tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
-                startIndex,
+                window.tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
+                window.startIndexInWindow,
                 0,
             )
             connected.prepare()
@@ -120,11 +129,13 @@ class AndroidPlaybackController @Inject constructor(
     override fun playNext(trackId: UUID) {
         scope.launch {
             val track = findTrack(trackId) ?: return@launch
-            withController { connected ->
-                if (
-                    connected.queuePlaybackMode() == PlaybackMode.PURE_SHUFFLE &&
-                    connected.containsTrack(trackId)
-                ) return@withController
+            withConnectedController { connected ->
+                val active = progressiveQueue.snapshot()
+                if (active != null) {
+                    if (progressiveQueue.insertNext(track)) rebuildProgressiveWindow(connected)
+                    return@withConnectedController
+                }
+                if (connected.containsTrack(trackId)) return@withConnectedController
                 val insertionIndex = (connected.currentMediaItemIndex + 1)
                     .coerceIn(0, connected.mediaItemCount)
                 connected.addMediaItem(
@@ -138,11 +149,13 @@ class AndroidPlaybackController @Inject constructor(
     override fun addToQueue(trackId: UUID) {
         scope.launch {
             val track = findTrack(trackId) ?: return@launch
-            withController { connected ->
-                if (
-                    connected.queuePlaybackMode() == PlaybackMode.PURE_SHUFFLE &&
-                    connected.containsTrack(trackId)
-                ) return@withController
+            withConnectedController { connected ->
+                val active = progressiveQueue.snapshot()
+                if (active != null) {
+                    if (progressiveQueue.append(track)) rebuildProgressiveWindow(connected)
+                    return@withConnectedController
+                }
+                if (connected.containsTrack(trackId)) return@withConnectedController
                 connected.addMediaItem(
                     track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
                 )
@@ -170,16 +183,24 @@ class AndroidPlaybackController @Inject constructor(
                     return@launch
                 }
             val requested = trackIds.distinct().mapNotNull(byId::get)
+            var shuffleSeed: Long? = null
             var tracks = when (mode) {
                 PlaybackMode.ORDERED -> requested
-                PlaybackMode.PURE_SHUFFLE -> PureShuffleEngine.newCycle(requested).order
+                PlaybackMode.PURE_SHUFFLE -> {
+                    val requestedById = requested.associateBy { it.id }
+                    PureShuffleEngine.newCycle(requested.map { it.id }).let { cycle ->
+                        shuffleSeed = cycle.seed
+                        cycle.order.mapNotNull(requestedById::get)
+                    }
+                }
                 PlaybackMode.SMART_SHUFFLE -> {
                     val ids = recommendationEngine.generate(
                         allowedTrackIds = requested.map { it.id },
                         timeBucket = currentTimeBucket(),
-                    ).trackIds
+                    ).trackIds.distinct()
                     val requestedById = requested.associateBy { it.id }
-                    ids.mapNotNull(requestedById::get)
+                    val ranked = ids.mapNotNull(requestedById::get)
+                    ranked + requested.filterNot { track -> ranked.any { it.id == track.id } }
                 }
             }
             if (tracks.isEmpty()) return@launch showError("No playlist tracks are available")
@@ -194,26 +215,56 @@ class AndroidPlaybackController @Inject constructor(
                 else -> 0
             }
 
-            withController { connected ->
-                connected.setMediaItems(tracks.map { it.toMediaItem(mode, RepeatMode.OFF) }, startIndex, 0)
-                connected.repeatMode = RepeatMode.OFF.toPlayerRepeatMode(mode)
+            withConnectedController { connected ->
+                val window = progressiveQueue.start(
+                    orderedTracks = tracks,
+                    requestedStartIndex = startIndex,
+                    mode = mode,
+                    repeat = RepeatMode.OFF,
+                    seed = shuffleSeed,
+                )
+                connected.setMediaItems(
+                    window.tracks.map { it.toMediaItem(mode, RepeatMode.OFF) },
+                    window.startIndexInWindow,
+                    0,
+                )
+                connected.repeatMode = Player.REPEAT_MODE_OFF
                 connected.prepare()
                 connected.play()
             }
         }
     }
 
-    override fun removeAt(index: Int) = withController { connected ->
-        if (index in 0 until connected.mediaItemCount) connected.removeMediaItem(index)
-    }
-
-    override fun move(fromIndex: Int, toIndex: Int) = withController { connected ->
-        if (fromIndex in 0 until connected.mediaItemCount && toIndex in 0 until connected.mediaItemCount) {
-            connected.moveMediaItem(fromIndex, toIndex)
+    override fun removeAt(index: Int) {
+        withController { connected ->
+            if (progressiveQueue.snapshot() != null) {
+                if (progressiveQueue.removeAt(index)) {
+                    if (progressiveQueue.snapshot() == null) {
+                        connected.clearMediaItems()
+                    } else {
+                        rebuildProgressiveWindow(connected)
+                    }
+                }
+            } else if (index in 0 until connected.mediaItemCount) {
+                connected.removeMediaItem(index)
+            }
         }
     }
 
-    override fun clear() = withController(MediaController::clearMediaItems)
+    override fun move(fromIndex: Int, toIndex: Int) {
+        withController { connected ->
+            if (progressiveQueue.snapshot() != null) {
+                if (progressiveQueue.move(fromIndex, toIndex)) rebuildProgressiveWindow(connected)
+            } else if (fromIndex in 0 until connected.mediaItemCount && toIndex in 0 until connected.mediaItemCount) {
+                connected.moveMediaItem(fromIndex, toIndex)
+            }
+        }
+    }
+
+    override fun clear() = withController { connected ->
+        progressiveQueue.clear()
+        connected.clearMediaItems()
+    }
 
     override fun setPlaybackMode(mode: PlaybackMode) {
         scope.launch {
@@ -222,41 +273,50 @@ class AndroidPlaybackController @Inject constructor(
                     showError(error.message ?: "Playback is unavailable")
                     return@launch
                 }
-            if (connected.mediaItemCount == 0) return@launch
-            val repeatMode = connected.queueRepeatMode()
-            val currentIndex = connected.currentMediaItemIndex.coerceAtLeast(0)
-            val currentId = connected.currentMediaItem?.mediaId
-            val existingIds = (0 until connected.mediaItemCount).map { connected.getMediaItemAt(it).mediaId }
-            val desiredFutureIds = when (mode) {
+            val active = progressiveQueue.snapshot()
+            if (active == null) {
+                setLegacyPlaybackMode(connected, mode)
+                return@launch
+            }
+            if (active.tracks.isEmpty()) return@launch
+            val currentTrack = active.tracks[active.currentIndex]
+            val future = active.tracks.drop(active.currentIndex + 1)
+            var seed: Long? = null
+            val desiredFuture = when (mode) {
                 PlaybackMode.ORDERED -> {
-                    val order = runCatching { catalog.availableTracks().map { it.id.toString() } }.getOrDefault(emptyList())
-                    val rank = order.withIndex().associate { it.value to it.index }
-                    existingIds.drop(currentIndex + 1).sortedBy { rank[it] ?: Int.MAX_VALUE }
+                    val rank = runCatching { catalog.availableTracks().map { it.id } }
+                        .getOrDefault(emptyList())
+                        .withIndex()
+                        .associate { it.value to it.index }
+                    future.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
                 }
-                PlaybackMode.PURE_SHUFFLE -> existingIds.drop(currentIndex + 1).shuffled()
+                PlaybackMode.PURE_SHUFFLE -> {
+                    val byId = future.associateBy { it.id }
+                    PureShuffleEngine.newCycle(future.map { it.id }).let { cycle ->
+                        seed = cycle.seed
+                        cycle.order.mapNotNull(byId::get)
+                    }
+                }
                 PlaybackMode.SMART_SHUFFLE -> {
-                    val allowed = existingIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
-                    recommendationEngine.generate(
-                        allowedTrackIds = allowed,
-                        currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
+                    val byId = future.associateBy { it.id }
+                    val rankedIds = recommendationEngine.generate(
+                        allowedTrackIds = future.map { it.id },
+                        currentTrackId = currentTrack.id,
                         timeBucket = currentTimeBucket(),
-                    ).trackIds.map(UUID::toString).filterNot { it == currentId }
+                    ).trackIds.distinct()
+                    val ranked = rankedIds.mapNotNull(byId::get)
+                    ranked + future.filterNot { candidate -> ranked.any { it.id == candidate.id } }
                 }
             }
-            desiredFutureIds.forEachIndexed { offset, mediaId ->
-                val destination = currentIndex + 1 + offset
-                val sourceIndex = (destination until connected.mediaItemCount)
-                    .firstOrNull { connected.getMediaItemAt(it).mediaId == mediaId }
-                    ?: return@forEachIndexed
-                if (sourceIndex != destination) connected.moveMediaItem(sourceIndex, destination)
-            }
-            updateQueuePolicyMetadata(connected, mode, repeatMode)
+            progressiveQueue.replaceFuture(desiredFuture, mode, seed)
+            rebuildProgressiveWindow(connected)
         }
     }
 
     override fun setRepeatMode(mode: RepeatMode) = withController { connected ->
-        val playbackMode = connected.queuePlaybackMode()
-        connected.repeatMode = mode.toPlayerRepeatMode(playbackMode)
+        progressiveQueue.updateRepeatMode(mode)
+        val playbackMode = progressiveQueue.snapshot()?.playbackMode ?: connected.queuePlaybackMode()
+        connected.repeatMode = mode.toPlayerRepeatMode(progressive = progressiveQueue.snapshot() != null)
         updateQueuePolicyMetadata(connected, playbackMode, mode)
     }
 
@@ -303,15 +363,80 @@ class AndroidPlaybackController @Inject constructor(
         }
     }
 
+    private suspend fun withConnectedController(action: (MediaController) -> Unit) {
+        val connected = runCatching { controller ?: controllerFuture.await().also { controller = it } }
+            .getOrElse { error ->
+                showError(error.message ?: "Playback is unavailable")
+                return
+            }
+        action(connected)
+    }
+
+    private fun rebuildProgressiveWindow(connected: MediaController) {
+        val currentMediaId = connected.currentMediaItem?.mediaId
+        progressiveQueue.updateCurrent(currentMediaId)
+        val snapshot = progressiveQueue.snapshot() ?: return
+        val positionMs = connected.currentPosition.coerceAtLeast(0)
+        val shouldPlay = connected.playWhenReady
+        val plan = progressiveQueue.resetWindow()
+        connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
+        connected.setMediaItems(
+            plan.tracks.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) },
+            plan.startIndexInWindow,
+            positionMs,
+        )
+        connected.prepare()
+        if (shouldPlay) connected.play()
+    }
+
+    private fun setLegacyPlaybackMode(connected: MediaController, mode: PlaybackMode) {
+        if (connected.mediaItemCount == 0) return
+        val repeatMode = connected.queueRepeatMode()
+        val currentIndex = connected.currentMediaItemIndex.coerceAtLeast(0)
+        val currentId = connected.currentMediaItem?.mediaId
+        val existingIds = (0 until connected.mediaItemCount).map { connected.getMediaItemAt(it).mediaId }
+        scope.launch {
+            val desiredFutureIds = when (mode) {
+                PlaybackMode.ORDERED -> {
+                    val order = runCatching { catalog.availableTracks().map { it.id.toString() } }.getOrDefault(emptyList())
+                    val rank = order.withIndex().associate { it.value to it.index }
+                    existingIds.drop(currentIndex + 1).sortedBy { rank[it] ?: Int.MAX_VALUE }
+                }
+                PlaybackMode.PURE_SHUFFLE -> existingIds.drop(currentIndex + 1).shuffled()
+                PlaybackMode.SMART_SHUFFLE -> {
+                    val allowed = existingIds.drop(currentIndex + 1)
+                        .mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
+                    recommendationEngine.generate(
+                        allowedTrackIds = allowed,
+                        currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
+                        timeBucket = currentTimeBucket(),
+                    ).trackIds.map(UUID::toString).filterNot { it == currentId }
+                }
+            }
+            desiredFutureIds.forEachIndexed { offset, mediaId ->
+                val destination = currentIndex + 1 + offset
+                val sourceIndex = (destination until connected.mediaItemCount)
+                    .firstOrNull { connected.getMediaItemAt(it).mediaId == mediaId }
+                    ?: return@forEachIndexed
+                if (sourceIndex != destination) connected.moveMediaItem(sourceIndex, destination)
+            }
+            updateQueuePolicyMetadata(connected, mode, repeatMode)
+        }
+    }
+
     private fun updateState(player: Player?, errorMessage: String? = player?.playerError?.message) {
         if (player == null) return
         val mediaItem = player.currentMediaItem
         val trackId = mediaItem?.mediaId?.let { mediaId ->
             runCatching { UUID.fromString(mediaId) }.getOrNull()
         }
+        progressiveQueue.updateCurrent(mediaItem?.mediaId)
+        val logical = progressiveQueue.snapshot()
         val duration = player.duration.takeIf { it != C.TIME_UNSET && it >= 0 }
             ?: mediaItem?.mediaMetadata?.durationMs?.coerceAtLeast(0)
             ?: 0L
+        val playbackMode = logical?.playbackMode ?: player.queuePlaybackMode()
+        val repeatMode = logical?.repeatMode ?: player.queueRepeatMode()
         _state.value = PlaybackState(
             status = when {
                 errorMessage != null -> PlaybackStatus.ERROR
@@ -329,17 +454,24 @@ class AndroidPlaybackController @Inject constructor(
                     artworkRef = mediaItem.mediaMetadata.artworkUri?.toString(),
                 )
             },
-            queueIndex = player.currentMediaItemIndex,
-            queueSize = player.mediaItemCount,
+            queueIndex = logical?.currentIndex ?: player.currentMediaItemIndex,
+            queueSize = logical?.tracks?.size ?: player.mediaItemCount,
             positionMs = player.currentPosition.coerceAtLeast(0),
             durationMs = duration,
-            playbackMode = player.queuePlaybackMode(),
-            repeatMode = player.queueRepeatMode(),
-            canSkipPrevious = player.hasPreviousMediaItem(),
-            canSkipNext = player.hasNextMediaItem(),
+            playbackMode = playbackMode,
+            repeatMode = repeatMode,
+            canSkipPrevious = logical?.let { it.currentIndex > 0 } ?: player.hasPreviousMediaItem(),
+            canSkipNext = logical?.let { it.currentIndex < it.tracks.lastIndex } ?: player.hasNextMediaItem(),
             errorMessage = errorMessage,
         )
-        _queueState.value = QueueState(
+        _queueState.value = logical?.let { snapshot ->
+            QueueState(
+                items = snapshot.tracks.map(PlayableTrack::toQueueItem),
+                currentIndex = snapshot.currentIndex,
+                playbackMode = snapshot.playbackMode,
+                repeatMode = snapshot.repeatMode,
+            )
+        } ?: QueueState(
             items = (0 until player.mediaItemCount).mapNotNull { index ->
                 val item = player.getMediaItemAt(index)
                 runCatching { UUID.fromString(item.mediaId) }.getOrNull()?.let { id ->
@@ -352,8 +484,8 @@ class AndroidPlaybackController @Inject constructor(
                 }
             },
             currentIndex = player.currentMediaItemIndex,
-            playbackMode = player.queuePlaybackMode(),
-            repeatMode = player.queueRepeatMode(),
+            playbackMode = playbackMode,
+            repeatMode = repeatMode,
         )
     }
 
@@ -372,6 +504,13 @@ class AndroidPlaybackController @Inject constructor(
     }
 }
 
+private fun PlayableTrack.toQueueItem() = QueueItem(
+    id = id,
+    title = title,
+    artist = artist,
+    artworkRef = artworkRef,
+)
+
 private fun Player.queuePlaybackMode(): PlaybackMode =
     if (mediaItemCount == 0) PlaybackMode.ORDERED else getMediaItemAt(0).playbackMode()
 
@@ -388,9 +527,9 @@ private fun updateQueuePolicyMetadata(player: MediaController, playbackMode: Pla
     }
 }
 
-private fun RepeatMode.toPlayerRepeatMode(playbackMode: PlaybackMode): Int = when {
+private fun RepeatMode.toPlayerRepeatMode(progressive: Boolean): Int = when {
     this == RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-    this == RepeatMode.ALL && playbackMode != PlaybackMode.PURE_SHUFFLE -> Player.REPEAT_MODE_ALL
+    this == RepeatMode.ALL && !progressive -> Player.REPEAT_MODE_ALL
     else -> Player.REPEAT_MODE_OFF
 }
 
