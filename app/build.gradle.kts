@@ -52,13 +52,13 @@ room {
     schemaDirectory("$projectDir/schemas")
 }
 
-// MigrationTestHelper reads exported schemas from androidTest assets. Generate the current Room
-// schema before the Room plugin copies that directory, otherwise a newly bumped DB version can
-// compile successfully while its migration tests fail only because the current JSON was not there
-// yet. Historical schemas remain committed and continue to be the migration inputs.
+// MigrationTestHelper reads schemas from androidTest assets. Room writes the current generated
+// schema into app/schemas via copyRoomSchemas, so finish that staging step before the test-assets
+// task snapshots the directory. This keeps historical schemas as migration inputs while ensuring
+// the current target schema is available for validation in the same clean CI checkout.
 tasks.configureEach {
     if (name.startsWith("copyRoomSchemasToAndroidTestAssets")) {
-        dependsOn("kspDebugKotlin")
+        dependsOn("copyRoomSchemas")
     }
 }
 
