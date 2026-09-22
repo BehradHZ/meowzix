@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
@@ -59,6 +60,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import dev.behradhz.meowzix.ui.components.AudioSpectrum
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
@@ -82,6 +84,7 @@ fun NowPlayingRoute(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
+    val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
 
     NowPlayingScreen(
         state = state,
@@ -95,8 +98,25 @@ fun NowPlayingRoute(
         onToggleFavorite = viewModel::toggleFavorite,
         onTogglePlaybackMode = viewModel::togglePlaybackMode,
         onCycleRepeatMode = viewModel::cycleRepeatMode,
+        onOpenForward = viewModel::openForwardPicker,
         onOpenQueue = onOpenQueue,
     )
+
+    val track = state.currentTrack
+    if (forwardState.isOpen && track != null) {
+        TelegramForwardSheet(
+            track = track,
+            query = forwardState.query,
+            chats = forwardState.chats,
+            isSearching = forwardState.isSearching,
+            isSending = forwardState.isSending,
+            errorMessage = forwardState.errorMessage,
+            defaults = forwardState.defaults,
+            onQueryChange = viewModel::searchForwardChats,
+            onForward = viewModel::forwardCurrentTrack,
+            onDismiss = viewModel::dismissForwardPicker,
+        )
+    }
 }
 
 @Composable
@@ -112,6 +132,7 @@ private fun NowPlayingScreen(
     onToggleFavorite: () -> Unit,
     onTogglePlaybackMode: () -> Unit,
     onCycleRepeatMode: () -> Unit,
+    onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
 ) {
     val track = state.currentTrack
@@ -143,6 +164,7 @@ private fun NowPlayingScreen(
             PlayerHeader(
                 hazeState = hazeState,
                 onBack = onBack,
+                onOpenForward = onOpenForward,
                 onOpenQueue = onOpenQueue,
             )
 
@@ -396,6 +418,7 @@ private fun FileWaveform(
 private fun PlayerHeader(
     hazeState: HazeState,
     onBack: () -> Unit,
+    onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
 ) {
     GlassSurface(
@@ -427,6 +450,13 @@ private fun PlayerHeader(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.weight(1f))
+            IconButton(onClick = onOpenForward) {
+                Icon(
+                    Icons.Rounded.Send,
+                    contentDescription = "Forward track on Telegram",
+                    tint = PlayerPrimaryContent,
+                )
+            }
             IconButton(onClick = onOpenQueue) {
                 Icon(
                     Icons.Rounded.QueueMusic,

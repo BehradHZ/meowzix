@@ -9,13 +9,34 @@ import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
+import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
+import dev.behradhz.meowzix.domain.telegram.TelegramForwardOptions
+import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+data class TelegramForwardUiState(
+    val isOpen: Boolean = false,
+    val query: String = "",
+    val chats: List<TelegramChatSummary> = emptyList(),
+    val isSearching: Boolean = false,
+    val isSending: Boolean = false,
+    val errorMessage: String? = null,
+    val defaults: TelegramForwardSettings = TelegramForwardSettings(),
+)
 
 @HiltViewModel
 class NowPlayingViewModel @Inject constructor(
@@ -23,6 +44,8 @@ class NowPlayingViewModel @Inject constructor(
     private val queueRepository: QueueRepository,
     private val audioVisualizerRepository: AudioVisualizerRepository,
     private val libraryRepository: MusicLibraryRepository,
+    private val telegramForwardRepository: TelegramForwardRepository,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
     val state = combine(
         playbackController.state,
@@ -58,6 +81,10 @@ class NowPlayingViewModel @Inject constructor(
         false,
     )
 
+    private val _forwardState = MutableStateFlow(TelegramForwardUiState())
+    val forwardState: StateFlow<TelegramForwardUiState> = _forwardState.asStateFlow()
+    private var forwardSearchJob: Job? = null
+
     init {
         viewModelScope.launch {
             playbackController.state
@@ -68,6 +95,11 @@ class NowPlayingViewModel @Inject constructor(
                         libraryRepository.prefetchArtwork(listOf(trackId))
                     }
                 }
+        }
+        viewModelScope.launch {
+            settingsRepository.telegramForwardSettings.collect { defaults ->
+                _forwardState.update { it.copy(defaults = defaults) }
+            }
         }
     }
 
@@ -101,4 +133,88 @@ class NowPlayingViewModel @Inject constructor(
             RepeatMode.ALL -> RepeatMode.OFF
         },
     )
+
+    fun openForwardPicker() {
+        if (state.value.currentTrack == null) return
+        _forwardState.update {
+            it.copy(
+                isOpen = true,
+                query = "",
+                chats = emptyList(),
+                isSearching = true,
+                isSending = false,
+                errorMessage = null,
+            )
+        }
+        searchForwardChats("")
+    }
+
+    fun dismissForwardPicker() {
+        forwardSearchJob?.cancel()
+        _forwardState.update {
+            it.copy(
+                isOpen = false,
+                query = "",
+                chats = emptyList(),
+                isSearching = false,
+                isSending = false,
+                errorMessage = null,
+            )
+        }
+    }
+
+    fun searchForwardChats(query: String) {
+        _forwardState.update { it.copy(query = query, isSearching = true, errorMessage = null) }
+        forwardSearchJob?.cancel()
+        forwardSearchJob = viewModelScope.launch {
+            if (query.isNotBlank()) delay(120)
+            runCatching { telegramForwardRepository.searchChats(query) }
+                .onSuccess { chats ->
+                    if (_forwardState.value.query == query) {
+                        _forwardState.update { it.copy(chats = chats, isSearching = false) }
+                    }
+                }
+                .onFailure { error ->
+                    if (_forwardState.value.query == query) {
+                        _forwardState.update {
+                            it.copy(
+                                chats = emptyList(),
+                                isSearching = false,
+                                errorMessage = error.message ?: "Unable to search Telegram chats.",
+                            )
+                        }
+                    }
+                }
+        }
+    }
+
+    fun forwardCurrentTrack(
+        targetChatId: Long,
+        options: TelegramForwardOptions,
+        rememberDefaults: Boolean,
+    ) {
+        val trackId = state.value.currentTrack?.id ?: return
+        if (_forwardState.value.isSending) return
+        viewModelScope.launch {
+            _forwardState.update { it.copy(isSending = true, errorMessage = null) }
+            runCatching {
+                if (rememberDefaults) {
+                    settingsRepository.setTelegramForwardDefaults(
+                        includeSourceAttribution = options.includeSourceAttribution,
+                        keepCaption = options.keepCaption,
+                    )
+                }
+                telegramForwardRepository.forwardTrack(trackId, targetChatId, options)
+            }.onSuccess {
+                dismissForwardPicker()
+            }.onFailure { error ->
+                _forwardState.update {
+                    it.copy(
+                        isSending = false,
+                        errorMessage = error.message ?: "Unable to forward this track.",
+                    )
+                }
+            }
+        }
+    }
 }

@@ -28,6 +28,7 @@ import dev.behradhz.meowzix.data.history.RoomListeningHistoryRepository
 import dev.behradhz.meowzix.data.recommendation.HeuristicRecommendationEngine
 import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
 import dev.behradhz.meowzix.data.telegram.TdLibRemoteTrackPlaybackResolver
+import dev.behradhz.meowzix.data.telegram.TdLibTelegramForwardRepository
 import dev.behradhz.meowzix.data.telegram.TdLibTelegramRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
@@ -37,6 +38,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
+import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
@@ -71,6 +73,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindTelegramRepository(impl: TdLibTelegramRepository): TelegramRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindTelegramForwardRepository(impl: TdLibTelegramForwardRepository): TelegramForwardRepository
 
     @Binds
     @Singleton
