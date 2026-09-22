@@ -44,3 +44,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Meowzix"
 include(":app")
+include(":baselineprofile")
