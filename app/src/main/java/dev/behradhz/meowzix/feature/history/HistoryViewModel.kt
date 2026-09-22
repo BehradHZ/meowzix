@@ -33,4 +33,5 @@ class HistoryViewModel @Inject constructor(
 
     fun setHistoryEnabled(enabled: Boolean) = viewModelScope.launch { settings.setListeningHistoryEnabled(enabled) }
     fun clear() = viewModelScope.launch { history.clear() }
+    fun resetPersonalization() = viewModelScope.launch { history.resetPersonalization() }
 }
