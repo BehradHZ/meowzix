@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.playback
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -56,6 +57,9 @@ class PlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
     private var persistJob: Job? = null
+    private var playbackRetryJob: Job? = null
+    private var retryMediaId: String? = null
+    private var retryCount = 0
     private var isRestoring = true
     private var isChangingShuffleCycle = false
     private var currentFavorite = false
@@ -99,10 +103,18 @@ class PlaybackService : MediaSessionService() {
 
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            if (
+                events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
+                player.playbackState == Player.STATE_READY &&
+                player.playerError == null
+            ) {
+                clearPlaybackRetry()
+            }
             if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) && player.playbackState == Player.STATE_ENDED) {
                 startNextPureShuffleCycle()
             }
             if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
+                clearPlaybackRetry()
                 runCatching { audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString()) }
                 refreshFavoriteState()
             }
@@ -122,16 +134,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            val nextIndex = player.currentMediaItemIndex + 1
-            if (nextIndex in 0 until player.mediaItemCount) {
-                player.seekTo(nextIndex, 0)
-                player.prepare()
-                player.play()
-            } else {
-                player.pause()
-                player.stop()
-            }
-            schedulePersist()
+            handlePlaybackFailure(error)
         }
     }
 
@@ -196,6 +199,7 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: ControllerInfo): MediaSession = mediaSession
 
     override fun onDestroy() {
+        clearPlaybackRetry()
         player.removeListener(playerListener)
         audioVisualizer.release()
         mediaSession.release()
@@ -242,6 +246,54 @@ class PlaybackService : MediaSessionService() {
         if (::mediaSession.isInitialized) mediaSession.setMediaButtonPreferences(mediaButtons())
     }
 
+    private fun handlePlaybackFailure(error: PlaybackException) {
+        val currentItem = player.currentMediaItem
+        val mediaId = currentItem?.mediaId
+        val isTelegramStream = currentItem?.localConfiguration?.uri?.scheme == TDLIB_SCHEME
+
+        if (isTelegramStream && mediaId != null) {
+            if (retryMediaId != mediaId) {
+                clearPlaybackRetry()
+                retryMediaId = mediaId
+            }
+            if (retryCount < MAX_REMOTE_PLAYBACK_RETRIES) {
+                retryCount += 1
+                val attempt = retryCount
+                val shouldResume = player.playWhenReady
+                playbackRetryJob?.cancel()
+                Log.w(
+                    TAG,
+                    "Telegram playback failed for $mediaId; retrying attempt $attempt/$MAX_REMOTE_PLAYBACK_RETRIES",
+                    error,
+                )
+                playbackRetryJob = serviceScope.launch {
+                    delay(REMOTE_PLAYBACK_RETRY_BASE_DELAY_MS * attempt)
+                    if (player.currentMediaItem?.mediaId != mediaId) return@launch
+                    val stillWantsPlayback = player.playWhenReady
+                    player.prepare()
+                    if (shouldResume && stillWantsPlayback) player.play()
+                }
+                schedulePersist()
+                return
+            }
+        }
+
+        // Never silently consume the queue on a source failure. A missing local file, a stalled
+        // Telegram download, or a decoder error should leave the requested item selected so the UI
+        // can show the failure and the user can retry or explicitly skip it.
+        Log.w(TAG, "Playback failed; keeping the current queue item selected", error)
+        clearPlaybackRetry()
+        player.pause()
+        schedulePersist()
+    }
+
+    private fun clearPlaybackRetry() {
+        playbackRetryJob?.cancel()
+        playbackRetryJob = null
+        retryMediaId = null
+        retryCount = 0
+    }
+
     private fun toggleSystemShuffle() {
         if (player.mediaItemCount == 0) return
         val nextMode = if (currentPlaybackMode() == PlaybackMode.PURE_SHUFFLE) PlaybackMode.ORDERED else PlaybackMode.PURE_SHUFFLE
@@ -260,10 +312,10 @@ class PlaybackService : MediaSessionService() {
                         .sortedBy { rank[it] ?: Int.MAX_VALUE }
                 }
             }
-            desiredFutureIds.forEachIndexed { offset, mediaId ->
+            desiredFutureIds.forEachIndexed { offset, desiredMediaId ->
                 val destination = currentIndex + 1 + offset
                 val sourceIndex = (destination until player.mediaItemCount)
-                    .firstOrNull { player.getMediaItemAt(it).mediaId == mediaId }
+                    .firstOrNull { player.getMediaItemAt(it).mediaId == desiredMediaId }
                     ?: return@forEachIndexed
                 if (sourceIndex != destination) player.moveMediaItem(sourceIndex, destination)
             }
@@ -422,9 +474,13 @@ class PlaybackService : MediaSessionService() {
     }
 
     private companion object {
+        const val TAG = "MeowzixPlayback"
+        const val TDLIB_SCHEME = "meowzix-tdlib"
         const val ACTION_TOGGLE_SHUFFLE = "dev.behradhz.meowzix.action.TOGGLE_SHUFFLE"
         const val ACTION_CYCLE_REPEAT = "dev.behradhz.meowzix.action.CYCLE_REPEAT"
         const val ACTION_TOGGLE_FAVORITE = "dev.behradhz.meowzix.action.TOGGLE_FAVORITE"
+        const val MAX_REMOTE_PLAYBACK_RETRIES = 3
+        const val REMOTE_PLAYBACK_RETRY_BASE_DELAY_MS = 600L
         const val FORWARD_INCREMENT_MS = 15_000L
         const val PERSIST_DEBOUNCE_MS = 250L
         const val POSITION_SAVE_INTERVAL_MS = 1_000L
