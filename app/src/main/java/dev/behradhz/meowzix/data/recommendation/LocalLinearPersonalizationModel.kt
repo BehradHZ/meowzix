@@ -49,7 +49,9 @@ class LocalLinearPersonalizationModel @Inject constructor(
         if (samples.isEmpty()) return
         mutex.withLock {
             loadLocked()
-            val freshSamples = samples.filter { it.dataVersion > modelState.trainingDataVersion }
+            val freshSamples = samples.filter {
+                it.dataVersion > modelState.trainingDataVersion && it.dataVersion > modelState.historyFloorVersion
+            }
             if (freshSamples.isEmpty()) return@withLock
             freshSamples.sortedBy { it.dataVersion }.forEach { train(it, epochs = INCREMENTAL_EPOCHS) }
             val newCount = modelState.sampleCount + freshSamples.size
@@ -66,7 +68,7 @@ class LocalLinearPersonalizationModel @Inject constructor(
     override suspend fun rebuild(samples: List<TrainingSample>) {
         mutex.withLock {
             loadLocked()
-            val floor = modelState.trainingDataVersion.takeIf { modelState.sampleCount == 0L } ?: 0L
+            val floor = modelState.historyFloorVersion
             val eligible = samples.filter { it.dataVersion > floor }
             weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
             repeat(REBUILD_EPOCHS) {
@@ -74,6 +76,7 @@ class LocalLinearPersonalizationModel @Inject constructor(
             }
             modelState = PersonalizationModelState(
                 trainingDataVersion = maxOf(floor, eligible.maxOfOrNull { it.dataVersion } ?: 0L),
+                historyFloorVersion = floor,
                 trainedAtEpochMs = System.currentTimeMillis(),
                 sampleCount = eligible.size.toLong(),
                 active = eligible.size >= MIN_TRAINING_SAMPLES,
@@ -84,8 +87,12 @@ class LocalLinearPersonalizationModel @Inject constructor(
 
     override suspend fun reset(trainingDataVersion: Long) {
         mutex.withLock {
+            val floor = trainingDataVersion.coerceAtLeast(0L)
             weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
-            modelState = PersonalizationModelState(trainingDataVersion = trainingDataVersion.coerceAtLeast(0L))
+            modelState = PersonalizationModelState(
+                trainingDataVersion = floor,
+                historyFloorVersion = floor,
+            )
             loaded = true
             persistLocked()
         }
@@ -102,13 +109,16 @@ class LocalLinearPersonalizationModel @Inject constructor(
         val schema = values[FEATURE_SCHEMA] ?: PersonalizationFeatureVectorizer.SCHEMA_VERSION
         val encodedWeights = values[WEIGHTS]
         val decoded = encodedWeights?.split(',')?.mapNotNull(String::toDoubleOrNull)
+        val trainingDataVersion = values[TRAINING_DATA_VERSION] ?: 0L
+        val historyFloorVersion = values[HISTORY_FLOOR_VERSION] ?: 0L
         if (
             schema != PersonalizationFeatureVectorizer.SCHEMA_VERSION ||
             decoded == null || decoded.size != PersonalizationFeatureVectorizer.FEATURE_COUNT
         ) {
             weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
             modelState = PersonalizationModelState(
-                trainingDataVersion = values[TRAINING_DATA_VERSION] ?: 0L,
+                trainingDataVersion = maxOf(trainingDataVersion, historyFloorVersion),
+                historyFloorVersion = historyFloorVersion,
             )
         } else {
             weights = decoded.toDoubleArray()
@@ -116,7 +126,8 @@ class LocalLinearPersonalizationModel @Inject constructor(
             modelState = PersonalizationModelState(
                 modelVersion = values[MODEL_VERSION] ?: MODEL_VERSION_VALUE,
                 featureSchemaVersion = schema,
-                trainingDataVersion = values[TRAINING_DATA_VERSION] ?: 0L,
+                trainingDataVersion = maxOf(trainingDataVersion, historyFloorVersion),
+                historyFloorVersion = historyFloorVersion,
                 trainedAtEpochMs = values[TRAINED_AT] ?: 0L,
                 sampleCount = count,
                 active = count >= MIN_TRAINING_SAMPLES,
@@ -143,6 +154,7 @@ class LocalLinearPersonalizationModel @Inject constructor(
             values[MODEL_VERSION] = modelState.modelVersion
             values[FEATURE_SCHEMA] = modelState.featureSchemaVersion
             values[TRAINING_DATA_VERSION] = modelState.trainingDataVersion
+            values[HISTORY_FLOOR_VERSION] = modelState.historyFloorVersion
             values[TRAINED_AT] = modelState.trainedAtEpochMs
             values[SAMPLE_COUNT] = modelState.sampleCount
         }
@@ -161,6 +173,7 @@ class LocalLinearPersonalizationModel @Inject constructor(
         private val MODEL_VERSION = stringPreferencesKey("model_version")
         private val FEATURE_SCHEMA = intPreferencesKey("feature_schema")
         private val TRAINING_DATA_VERSION = longPreferencesKey("training_data_version")
+        private val HISTORY_FLOOR_VERSION = longPreferencesKey("history_floor_version")
         private val TRAINED_AT = longPreferencesKey("trained_at")
         private val SAMPLE_COUNT = longPreferencesKey("sample_count")
     }
