@@ -50,12 +50,15 @@ class LocalLinearPersonalizationModel @Inject constructor(
         if (samples.isEmpty()) return
         mutex.withLock {
             loadLocked()
-            samples.sortedBy { it.dataVersion }.forEach { train(it, epochs = INCREMENTAL_EPOCHS) }
+            val freshSamples = samples.filter { it.dataVersion > modelState.trainingDataVersion }
+            if (freshSamples.isEmpty()) return@withLock
+            freshSamples.sortedBy { it.dataVersion }.forEach { train(it, epochs = INCREMENTAL_EPOCHS) }
+            val newCount = modelState.sampleCount + freshSamples.size
             modelState = modelState.copy(
-                trainingDataVersion = maxOf(modelState.trainingDataVersion, samples.maxOf { it.dataVersion }),
+                trainingDataVersion = freshSamples.maxOf { it.dataVersion },
                 trainedAtEpochMs = System.currentTimeMillis(),
-                sampleCount = modelState.sampleCount + samples.size,
-                active = modelState.sampleCount + samples.size >= MIN_TRAINING_SAMPLES,
+                sampleCount = newCount,
+                active = newCount >= MIN_TRAINING_SAMPLES,
             )
             persistLocked()
         }
@@ -64,26 +67,28 @@ class LocalLinearPersonalizationModel @Inject constructor(
     override suspend fun rebuild(samples: List<TrainingSample>) {
         mutex.withLock {
             loadLocked()
+            val floor = modelState.trainingDataVersion.takeIf { modelState.sampleCount == 0L } ?: 0L
+            val eligible = samples.filter { it.dataVersion > floor }
             weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
             repeat(REBUILD_EPOCHS) {
-                samples.sortedBy { sample -> sample.dataVersion }.forEach { train(it, epochs = 1) }
+                eligible.sortedBy { sample -> sample.dataVersion }.forEach { train(it, epochs = 1) }
             }
             modelState = PersonalizationModelState(
-                trainingDataVersion = samples.maxOfOrNull { it.dataVersion } ?: 0L,
+                trainingDataVersion = maxOf(floor, eligible.maxOfOrNull { it.dataVersion } ?: 0L),
                 trainedAtEpochMs = System.currentTimeMillis(),
-                sampleCount = samples.size.toLong(),
-                active = samples.size >= MIN_TRAINING_SAMPLES,
+                sampleCount = eligible.size.toLong(),
+                active = eligible.size >= MIN_TRAINING_SAMPLES,
             )
             persistLocked()
         }
     }
 
-    override suspend fun reset() {
+    override suspend fun reset(trainingDataVersion: Long) {
         mutex.withLock {
             weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
-            modelState = PersonalizationModelState()
+            modelState = PersonalizationModelState(trainingDataVersion = trainingDataVersion.coerceAtLeast(0L))
             loaded = true
-            context.personalizationModelDataStore.edit { it.clear() }
+            persistLocked()
         }
     }
 
@@ -103,7 +108,9 @@ class LocalLinearPersonalizationModel @Inject constructor(
             decoded == null || decoded.size != PersonalizationFeatureVectorizer.FEATURE_COUNT
         ) {
             weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
-            modelState = PersonalizationModelState()
+            modelState = PersonalizationModelState(
+                trainingDataVersion = values[TRAINING_DATA_VERSION] ?: 0L,
+            )
         } else {
             weights = decoded.toDoubleArray()
             val count = values[SAMPLE_COUNT] ?: 0L
