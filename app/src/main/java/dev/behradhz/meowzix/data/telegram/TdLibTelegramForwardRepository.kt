@@ -57,14 +57,12 @@ class TdLibTelegramForwardRepository @Inject constructor(
         }
 
         val selectedIds = telegramRepository.musicSourceState.value.selectedChatIds
-        return ids.asSequence()
-            .take(safeLimit)
-            .mapNotNull { chatId ->
-                runCatching { activeClient.send(TdApi.GetChat(chatId)) }
-                    .getOrNull()
-                    ?.toForwardSummary(currentUserId, chatId in selectedIds)
-            }
-            .toList()
+        val result = ArrayList<TelegramChatSummary>(minOf(ids.size, safeLimit))
+        for (chatId in ids.take(safeLimit)) {
+            val chat = runCatching { activeClient.send(TdApi.GetChat(chatId)) }.getOrNull() ?: continue
+            result += chat.toForwardSummary(currentUserId, chatId in selectedIds)
+        }
+        return result
     }
 
     override suspend fun forwardTrack(
