@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.behradhz.meowzix.domain.recommendation.LinearRankerMath
 import dev.behradhz.meowzix.domain.recommendation.PersonalizationFeatureVectorizer
 import dev.behradhz.meowzix.domain.recommendation.PersonalizationModel
 import dev.behradhz.meowzix.domain.recommendation.PersonalizationModelState
@@ -14,7 +15,6 @@ import dev.behradhz.meowzix.domain.recommendation.TrainingSample
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.tanh
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -39,10 +39,9 @@ class LocalLinearPersonalizationModel @Inject constructor(
         ensureLoaded()
         val snapshotState = modelState
         if (!snapshotState.active) return emptyMap()
-        val snapshotWeights = weights
+        val snapshotWeights = weights.copyOf()
         return features.mapValues { (_, vector) ->
-            // Map the linear model's [-1, 1] predicted reward into [0, 1] for Smart scoring.
-            ((tanh(dot(snapshotWeights, vector)) + 1.0) / 2.0).coerceIn(0.0, 1.0)
+            LinearRankerMath.preferenceScore(snapshotWeights, vector)
         }
     }
 
@@ -127,17 +126,14 @@ class LocalLinearPersonalizationModel @Inject constructor(
     }
 
     private fun train(sample: TrainingSample, epochs: Int) {
-        require(sample.features.size == weights.size) { "Unexpected personalization feature vector size." }
-        repeat(epochs) {
-            val prediction = tanh(dot(weights, sample.features))
-            val error = sample.reward.coerceIn(-1.0, 1.0) - prediction
-            for (index in weights.indices) {
-                val feature = sample.features[index]
-                if (feature == 0.0) continue
-                val gradient = error * feature * sample.weight - L2 * weights[index]
-                weights[index] = (weights[index] + LEARNING_RATE * gradient).coerceIn(-MAX_WEIGHT, MAX_WEIGHT)
-            }
-        }
+        LinearRankerMath.trainInPlace(
+            weights = weights,
+            sample = sample,
+            epochs = epochs,
+            learningRate = LEARNING_RATE,
+            l2 = L2,
+            maxWeight = MAX_WEIGHT,
+        )
     }
 
     private suspend fun persistLocked() {
@@ -152,21 +148,14 @@ class LocalLinearPersonalizationModel @Inject constructor(
         }
     }
 
-    private fun dot(a: DoubleArray, b: DoubleArray): Double {
-        val limit = minOf(a.size, b.size)
-        var result = 0.0
-        for (index in 0 until limit) result += a[index] * b[index]
-        return result
-    }
-
     companion object {
         const val MIN_TRAINING_SAMPLES = 50
-        private const val MODEL_VERSION_VALUE = "1"
-        private const val LEARNING_RATE = 0.06
-        private const val L2 = 0.0005
-        private const val MAX_WEIGHT = 4.0
-        private const val INCREMENTAL_EPOCHS = 2
-        private const val REBUILD_EPOCHS = 6
+        internal const val MODEL_VERSION_VALUE = "1"
+        internal const val LEARNING_RATE = 0.06
+        internal const val L2 = 0.0005
+        internal const val MAX_WEIGHT = 4.0
+        internal const val INCREMENTAL_EPOCHS = 2
+        internal const val REBUILD_EPOCHS = 6
 
         private val WEIGHTS = stringPreferencesKey("weights")
         private val MODEL_VERSION = stringPreferencesKey("model_version")
