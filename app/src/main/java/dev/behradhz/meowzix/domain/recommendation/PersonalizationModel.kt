@@ -47,7 +47,12 @@ interface PersonalizationModel {
     suspend fun scoreBatch(features: Map<UUID, DoubleArray>): Map<UUID, Double>
     suspend fun update(samples: List<TrainingSample>)
     suspend fun rebuild(samples: List<TrainingSample>)
-    suspend fun reset()
+
+    /**
+     * Clears learned weights. [trainingDataVersion] can watermark existing history so a privacy
+     * reset keeps raw history for the user without immediately relearning from those old events.
+     */
+    suspend fun reset(trainingDataVersion: Long = 0L)
 }
 
 /**
