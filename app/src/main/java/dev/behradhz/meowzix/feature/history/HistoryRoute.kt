@@ -68,11 +68,16 @@ fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
             modifier = Modifier.padding(top = 8.dp),
         )
         if (BuildConfig.DEBUG) {
-            OutlinedButton(
-                onClick = viewModel::exportPersonalizationDebugReport,
-                modifier = Modifier.padding(top = 10.dp),
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Export Smart debug report")
+                OutlinedButton(onClick = viewModel::rebuildPersonalization) {
+                    Text("Rebuild Smart model from history")
+                }
+                OutlinedButton(onClick = viewModel::exportPersonalizationDebugReport) {
+                    Text("Export Smart debug report")
+                }
             }
         }
         Text("Recently played", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 20.dp, bottom = 8.dp))
