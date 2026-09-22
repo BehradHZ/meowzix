@@ -29,6 +29,7 @@ import kotlin.math.PI
 import kotlin.math.sin
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -98,7 +99,7 @@ class PlaybackServiceTest {
     }
 
     @Test
-    fun brokenItemAdvancesToTheNextPlayableTrack() {
+    fun brokenItemStaysSelectedUntilTheUserExplicitlySkips() {
         val missing = playableItem("Missing", File(context.cacheDir, "does-not-exist.wav"))
         val playable = playableItem("Playable", createWaveFile("playable.wav", 4_000))
 
@@ -108,8 +109,18 @@ class PlaybackServiceTest {
             controller.play()
         }
 
+        waitUntil { onMain { controller.playerError != null } }
+        assertEquals(0, onMain { controller.currentMediaItemIndex })
+        assertEquals("Missing", onMain { controller.currentMediaItem?.mediaMetadata?.title })
+        assertNotNull(onMain { controller.playerError })
+
+        onMain {
+            controller.seekToNextMediaItem()
+            controller.prepare()
+            controller.play()
+        }
         waitUntil { onMain { controller.currentMediaItemIndex == 1 && controller.isPlaying } }
-        assertTrue(onMain { controller.playerError == null })
+        assertEquals("Playable", onMain { controller.currentMediaItem?.mediaMetadata?.title })
     }
 
     @Test
