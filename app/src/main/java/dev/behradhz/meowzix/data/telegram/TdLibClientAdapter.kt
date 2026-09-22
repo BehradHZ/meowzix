@@ -11,22 +11,26 @@ import kotlin.coroutines.resumeWithException
 
 internal class TdLibException(val errorCode: Int, message: String) : Exception(message)
 
-/**
- * Thin process-local TDLib bridge. Playback's custom Media3 DataSource uses the active instance to
- * read progressively downloaded Telegram files without forcing the whole file to finish first.
- */
 class TdLibClientAdapter {
     private val updateChannel = MutableSharedFlow<TdApi.Object>(replay = 1, extraBufferCapacity = 64)
     private val failureChannel = MutableSharedFlow<Throwable>(replay = 1, extraBufferCapacity = 8)
     val updates: Flow<TdApi.Object> = updateChannel.asSharedFlow()
     val failures: Flow<Throwable> = failureChannel.asSharedFlow()
 
+    private val readyGate = AuthorizationReadyGate()
     private val client: Client
 
     init {
         Client.setLogMessageHandler(0, null)
         client = Client.create(
-            { update -> updateChannel.tryEmit(update) },
+            { update ->
+                val shouldForward = if (update is TdApi.UpdateAuthorizationState) {
+                    readyGate.shouldForward(update.authorizationState is TdApi.AuthorizationStateReady)
+                } else {
+                    true
+                }
+                if (shouldForward) updateChannel.tryEmit(update)
+            },
             { error -> failureChannel.tryEmit(error) },
             { error -> failureChannel.tryEmit(error) },
         )
@@ -57,5 +61,20 @@ class TdLibClientAdapter {
         private var activeInstance: TdLibClientAdapter? = null
 
         fun activeOrNull(): TdLibClientAdapter? = activeInstance
+    }
+}
+
+internal class AuthorizationReadyGate {
+    private var readyDelivered = false
+
+    @Synchronized
+    fun shouldForward(isReady: Boolean): Boolean {
+        if (!isReady) {
+            readyDelivered = false
+            return true
+        }
+        if (readyDelivered) return false
+        readyDelivered = true
+        return true
     }
 }
