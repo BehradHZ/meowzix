@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.feature.history
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,12 +16,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.behradhz.meowzix.BuildConfig
 import dev.behradhz.meowzix.domain.history.ListeningEventType
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -29,6 +33,19 @@ import java.time.format.DateTimeFormatter
 fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
     val rows by viewModel.rows.collectAsStateWithLifecycle()
     val privacy by viewModel.privacy.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    LaunchedEffect(viewModel, context) {
+        viewModel.debugReports.collect { report ->
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "Meowzix personalization debug report")
+                putExtra(Intent.EXTRA_TEXT, report)
+            }
+            context.startActivity(Intent.createChooser(sendIntent, "Export debug report"))
+        }
+    }
+
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 18.dp)) {
         Text("History", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(vertical = 20.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -50,6 +67,14 @@ fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp),
         )
+        if (BuildConfig.DEBUG) {
+            OutlinedButton(
+                onClick = viewModel::exportPersonalizationDebugReport,
+                modifier = Modifier.padding(top = 10.dp),
+            ) {
+                Text("Export Smart debug report")
+            }
+        }
         Text("Recently played", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 20.dp, bottom = 8.dp))
         val recent = rows.filter { it.type == ListeningEventType.PLAY_STARTED }.distinctBy { it.trackId }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
