@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.data.recommendation.PersonalizationDebugReportBuilder
+import dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
 import dev.behradhz.meowzix.domain.history.ListeningEventType
 import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
@@ -25,6 +26,7 @@ class HistoryViewModel @Inject constructor(
     private val history: ListeningHistoryRepository,
     library: MusicLibraryRepository,
     private val settings: SettingsRepository,
+    private val personalizationTrainer: PersonalizationTrainer,
     private val debugReportBuilder: PersonalizationDebugReportBuilder,
 ) : ViewModel() {
     val rows = combine(history.observeEvents(), library.observeTracks()) { events, tracks ->
@@ -41,6 +43,7 @@ class HistoryViewModel @Inject constructor(
     fun setHistoryEnabled(enabled: Boolean) = viewModelScope.launch { settings.setListeningHistoryEnabled(enabled) }
     fun clear() = viewModelScope.launch { history.clear() }
     fun resetPersonalization() = viewModelScope.launch { history.resetPersonalization() }
+    fun rebuildPersonalization() = viewModelScope.launch { personalizationTrainer.rebuildFromStoredHistory() }
 
     fun exportPersonalizationDebugReport() = viewModelScope.launch {
         _debugReports.emit(debugReportBuilder.buildText())
