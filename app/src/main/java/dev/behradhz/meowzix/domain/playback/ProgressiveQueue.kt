@@ -20,6 +20,11 @@ class ProgressiveQueue @Inject constructor() {
     private var repeatMode = RepeatMode.OFF
     private var shuffleSeed: Long? = null
 
+    // Playback position updates ask for a queue snapshot frequently. The logical queue usually does
+    // not change between those ticks, so keep one immutable snapshot and invalidate it only when a
+    // queue field actually changes. This prevents repeatedly copying a large queue during playback.
+    private var cachedSnapshot: ProgressiveQueueSnapshot? = null
+
     @Synchronized
     fun start(
         orderedTracks: List<PlayableTrack>,
@@ -38,6 +43,7 @@ class ProgressiveQueue @Inject constructor() {
         playbackMode = mode
         repeatMode = repeat
         shuffleSeed = seed
+        invalidateSnapshot()
         return resetWindowLocked()
     }
 
@@ -68,6 +74,7 @@ class ProgressiveQueue @Inject constructor() {
         playbackMode = mode
         repeatMode = repeat
         shuffleSeed = seed
+        invalidateSnapshot()
         return true
     }
 
@@ -75,14 +82,19 @@ class ProgressiveQueue @Inject constructor() {
     fun clear() = clearLocked()
 
     @Synchronized
-    fun snapshot(): ProgressiveQueueSnapshot? = snapshotLocked()
+    fun snapshot(): ProgressiveQueueSnapshot? = cachedSnapshot ?: snapshotLocked()?.also {
+        cachedSnapshot = it
+    }
 
     @Synchronized
     fun updateCurrent(mediaId: String?): Boolean {
         val id = mediaId?.let { runCatching { UUID.fromString(it) }.getOrNull() } ?: return false
         val index = tracks.indexOfFirst { it.id == id }
         if (index < 0) return false
-        currentIndex = index
+        if (index != currentIndex) {
+            currentIndex = index
+            invalidateSnapshot()
+        }
         return true
     }
 
@@ -97,6 +109,7 @@ class ProgressiveQueue @Inject constructor() {
         val oldEnd = materializedEndExclusive
         val newEnd = (oldEnd + REFILL_BATCH_SIZE).coerceAtMost(tracks.size)
         materializedEndExclusive = newEnd
+        invalidateSnapshot()
         return tracks.subList(oldEnd, newEnd).toList()
     }
 
@@ -108,6 +121,7 @@ class ProgressiveQueue @Inject constructor() {
         if (desiredStart <= materializedStartIndex) return 0
         val removed = desiredStart - materializedStartIndex
         materializedStartIndex = desiredStart
+        invalidateSnapshot()
         return removed
     }
 
@@ -120,6 +134,7 @@ class ProgressiveQueue @Inject constructor() {
         val oldStart = materializedStartIndex
         val newStart = (oldStart - REFILL_BATCH_SIZE).coerceAtLeast(0)
         materializedStartIndex = newStart
+        invalidateSnapshot()
         return tracks.subList(newStart, oldStart).toList()
     }
 
@@ -138,6 +153,7 @@ class ProgressiveQueue @Inject constructor() {
         } else {
             tracks.add((currentIndex + 1).coerceAtMost(tracks.size), track)
         }
+        invalidateSnapshot()
         return true
     }
 
@@ -146,6 +162,7 @@ class ProgressiveQueue @Inject constructor() {
         if (!trackIds.add(track.id)) return false
         tracks += track
         if (currentIndex < 0) currentIndex = 0
+        invalidateSnapshot()
         return true
     }
 
@@ -162,6 +179,7 @@ class ProgressiveQueue @Inject constructor() {
         currentIndex = currentId
             ?.let { id -> tracks.indexOfFirst { it.id == id }.takeIf { it >= 0 } }
             ?: index.coerceAtMost(tracks.lastIndex)
+        invalidateSnapshot()
         return true
     }
 
@@ -172,6 +190,7 @@ class ProgressiveQueue @Inject constructor() {
         val item = tracks.removeAt(fromIndex)
         tracks.add(toIndex, item)
         currentIndex = currentId?.let { id -> tracks.indexOfFirst { it.id == id } } ?: currentIndex
+        invalidateSnapshot()
         return true
     }
 
@@ -197,17 +216,24 @@ class ProgressiveQueue @Inject constructor() {
         shuffleSeed = seed
         materializedStartIndex = 0
         materializedEndExclusive = 0
+        invalidateSnapshot()
     }
 
     @Synchronized
     fun updateRepeatMode(mode: RepeatMode) {
-        repeatMode = mode
+        if (repeatMode != mode) {
+            repeatMode = mode
+            invalidateSnapshot()
+        }
     }
 
     @Synchronized
     fun updatePlaybackMode(mode: PlaybackMode, seed: Long? = shuffleSeed) {
-        playbackMode = mode
-        shuffleSeed = seed
+        if (playbackMode != mode || shuffleSeed != seed) {
+            playbackMode = mode
+            shuffleSeed = seed
+            invalidateSnapshot()
+        }
     }
 
     @Synchronized
@@ -220,8 +246,13 @@ class ProgressiveQueue @Inject constructor() {
     fun hasNext(): Boolean = currentIndex >= 0 && currentIndex < tracks.lastIndex
 
     private fun resetWindowLocked(): QueueWindowPlan {
-        materializedStartIndex = (currentIndex - PREVIOUS_WINDOW_SIZE).coerceAtLeast(0)
-        materializedEndExclusive = (currentIndex + 1 + INITIAL_FORWARD_COUNT).coerceAtMost(tracks.size)
+        val newStart = (currentIndex - PREVIOUS_WINDOW_SIZE).coerceAtLeast(0)
+        val newEnd = (currentIndex + 1 + INITIAL_FORWARD_COUNT).coerceAtMost(tracks.size)
+        if (materializedStartIndex != newStart || materializedEndExclusive != newEnd) {
+            materializedStartIndex = newStart
+            materializedEndExclusive = newEnd
+            invalidateSnapshot()
+        }
         return QueueWindowPlan(
             tracks = tracks.subList(materializedStartIndex, materializedEndExclusive).toList(),
             startIndexInWindow = currentIndex - materializedStartIndex,
@@ -252,6 +283,11 @@ class ProgressiveQueue @Inject constructor() {
         playbackMode = PlaybackMode.ORDERED
         repeatMode = RepeatMode.OFF
         shuffleSeed = null
+        invalidateSnapshot()
+    }
+
+    private fun invalidateSnapshot() {
+        cachedSnapshot = null
     }
 
     companion object {
