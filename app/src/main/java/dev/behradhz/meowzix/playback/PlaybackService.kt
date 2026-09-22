@@ -33,6 +33,7 @@ import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -102,7 +103,7 @@ class PlaybackService : MediaSessionService() {
                 startNextPureShuffleCycle()
             }
             if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
-                audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString())
+                runCatching { audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString()) }
                 refreshFavoriteState()
             }
             if (
@@ -167,12 +168,27 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         serviceScope.launch {
-            restoreSession()
-            audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString())
-            refreshFavoriteState()
-            while (isActive) {
-                delay(POSITION_SAVE_INTERVAL_MS)
-                if (player.isPlaying) persistNow()
+            try {
+                try {
+                    restoreSession()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    // Session restore is optional. A stale/corrupt snapshot must not terminate the
+                    // media service, because the app shell creates a controller during startup.
+                    isRestoring = false
+                    player.clearMediaItems()
+                }
+                runCatching {
+                    audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString())
+                }
+                refreshFavoriteState()
+                while (isActive) {
+                    delay(POSITION_SAVE_INTERVAL_MS)
+                    if (player.isPlaying) persistSafely()
+                }
+            } finally {
+                isRestoring = false
             }
         }
     }
@@ -276,10 +292,18 @@ class PlaybackService : MediaSessionService() {
             ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
             ?: return
         serviceScope.launch {
-            val track = libraryRepository.observeTracks().first().firstOrNull { it.id == trackId } ?: return@launch
-            currentFavorite = !track.favorite
-            libraryRepository.setFavorite(trackId, currentFavorite)
-            refreshMediaButtons()
+            try {
+                val track = libraryRepository.observeTracks().first().firstOrNull { it.id == trackId }
+                    ?: return@launch
+                val favorite = !track.favorite
+                libraryRepository.setFavorite(trackId, favorite)
+                currentFavorite = favorite
+                refreshMediaButtons()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                // Favorite state is secondary to playback; DB/read failures stay non-fatal.
+            }
         }
     }
 
@@ -292,7 +316,13 @@ class PlaybackService : MediaSessionService() {
             return
         }
         serviceScope.launch {
-            currentFavorite = libraryRepository.observeTracks().first().firstOrNull { it.id == trackId }?.favorite == true
+            currentFavorite = try {
+                libraryRepository.observeTracks().first().firstOrNull { it.id == trackId }?.favorite == true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                false
+            }
             refreshMediaButtons()
         }
     }
@@ -332,7 +362,17 @@ class PlaybackService : MediaSessionService() {
         persistJob?.cancel()
         persistJob = serviceScope.launch {
             delay(PERSIST_DEBOUNCE_MS)
+            persistSafely()
+        }
+    }
+
+    private suspend fun persistSafely() {
+        try {
             persistNow()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            // A resume snapshot is convenience data; persistence failures must not stop playback.
         }
     }
 
