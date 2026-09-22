@@ -9,6 +9,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Keeps training away from Media3 callbacks and Compose. Any failure leaves heuristic Smart
@@ -21,11 +23,14 @@ class PersonalizationTrainer @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val refreshRunning = AtomicBoolean(false)
+    private val trainingMutex = Mutex()
 
     fun onPlaybackFinalized(playbackInstanceId: UUID) {
         scope.launch {
             runCatching {
-                datasetBuilder.sampleForPlayback(playbackInstanceId)?.let { model.update(listOf(it)) }
+                trainingMutex.withLock {
+                    datasetBuilder.sampleForPlayback(playbackInstanceId)?.let { model.update(listOf(it)) }
+                }
             }
         }
     }
@@ -35,10 +40,12 @@ class PersonalizationTrainer @Inject constructor(
         scope.launch {
             try {
                 runCatching {
-                    val latest = datasetBuilder.latestDataVersion()
-                    val state = model.state()
-                    if (latest > state.trainingDataVersion) {
-                        model.rebuild(datasetBuilder.buildAll())
+                    trainingMutex.withLock {
+                        val latest = datasetBuilder.latestDataVersion()
+                        val state = model.state()
+                        if (latest > state.trainingDataVersion) {
+                            model.rebuild(datasetBuilder.buildAll())
+                        }
                     }
                 }
             } finally {
@@ -47,5 +54,5 @@ class PersonalizationTrainer @Inject constructor(
         }
     }
 
-    suspend fun reset() = model.reset()
+    suspend fun reset() = trainingMutex.withLock { model.reset() }
 }
