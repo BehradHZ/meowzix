@@ -86,3 +86,22 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         db.execSQL("CREATE TABLE IF NOT EXISTS `track_time_preferences` (`trackId` TEXT NOT NULL, `timeBucket` TEXT NOT NULL, `starts` INTEGER NOT NULL, `completions` INTEGER NOT NULL, `earlySkips` INTEGER NOT NULL, `manualSelections` INTEGER NOT NULL, `lastInteractionAtEpochMs` INTEGER, PRIMARY KEY(`trackId`, `timeBucket`))")
     }
 }
+
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `audio_feature_vectors` (" +
+                "`id` TEXT NOT NULL, `trackId` TEXT NOT NULL, `sourceIdUsed` TEXT NOT NULL, " +
+                "`extractorName` TEXT NOT NULL, `extractorVersion` TEXT NOT NULL, `schemaVersion` INTEGER NOT NULL, " +
+                "`vectorFormat` TEXT NOT NULL, `vectorBlob` BLOB NOT NULL, `generatedAtEpochMs` INTEGER NOT NULL, " +
+                "`sourceContentHash` TEXT, PRIMARY KEY(`id`), " +
+                "FOREIGN KEY(`trackId`) REFERENCES `tracks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_audio_feature_vectors_trackId` ON `audio_feature_vectors` (`trackId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_audio_feature_vectors_sourceIdUsed` ON `audio_feature_vectors` (`sourceIdUsed`)")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_audio_feature_vectors_trackId_extractorName_extractorVersion_schemaVersion` " +
+                "ON `audio_feature_vectors` (`trackId`, `extractorName`, `extractorVersion`, `schemaVersion`)",
+        )
+    }
+}
