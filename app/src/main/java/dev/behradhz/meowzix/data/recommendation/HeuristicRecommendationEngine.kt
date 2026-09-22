@@ -1,11 +1,16 @@
 package dev.behradhz.meowzix.data.recommendation
 
 import dev.behradhz.meowzix.core.model.SourceAvailability
+import dev.behradhz.meowzix.data.db.AudioFeatureDao
+import dev.behradhz.meowzix.data.db.AudioFeatureVectorEntity
 import dev.behradhz.meowzix.data.db.HistoryDao
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.domain.history.ListeningEventType
 import dev.behradhz.meowzix.domain.history.TimeBucket
 import dev.behradhz.meowzix.domain.recommendation.AdaptiveScorer
+import dev.behradhz.meowzix.domain.recommendation.AudioFeatureExtractor
+import dev.behradhz.meowzix.domain.recommendation.AudioFeatureVectorCodec
+import dev.behradhz.meowzix.domain.recommendation.AudioVectorFormat
 import dev.behradhz.meowzix.domain.recommendation.CandidateGenerator
 import dev.behradhz.meowzix.domain.recommendation.PersonalizationFeatureVectorizer
 import dev.behradhz.meowzix.domain.recommendation.PersonalizationModel
@@ -29,6 +34,9 @@ import kotlinx.coroutines.flow.first
 class HeuristicRecommendationEngine @Inject constructor(
     private val libraryDao: LibraryDao,
     private val historyDao: HistoryDao,
+    private val audioFeatureDao: AudioFeatureDao,
+    private val audioFeatureExtractor: AudioFeatureExtractor,
+    private val audioFeatureExtractionCoordinator: AudioFeatureExtractionCoordinator,
     private val settings: SettingsRepository,
     private val personalizationModel: PersonalizationModel,
     private val personalizationTrainer: PersonalizationTrainer,
@@ -88,6 +96,15 @@ class HeuristicRecommendationEngine @Inject constructor(
         val offlineOnly = settings.networkPlaybackSettings.first().offlineMode
         val valid = CandidateGenerator.generate(candidates, currentTrackId, offlineOnly)
 
+        // Missing acoustic features are optional. Extraction is queued in a serial background lane
+        // and this queue generation uses whatever compatible vectors already exist right now.
+        audioFeatureExtractionCoordinator.schedule(valid.map { it.trackId })
+        val audio = audioFeatureDao.compatibleVectors(
+            audioFeatureExtractor.extractorName,
+            audioFeatureExtractor.extractorVersion,
+            audioFeatureExtractor.schemaVersion,
+        ).mapNotNull { row -> row.decodeValues()?.let { row.trackId to it } }.toMap()
+
         // A stale/missing learned model never blocks queue creation. Rebuild happens off the
         // playback path, and this generation simply falls back to the deterministic heuristic.
         personalizationTrainer.refreshIfStale()
@@ -106,6 +123,7 @@ class HeuristicRecommendationEngine @Inject constructor(
                     normalizedArtist = track.normalizedArtist,
                     favorite = track.favorite,
                     durationMs = track.durationMs,
+                    audioFeatures = audio[track.id],
                 ),
             )
         }.toMap()
@@ -115,4 +133,8 @@ class HeuristicRecommendationEngine @Inject constructor(
         }
         return SmartQueue(SmartSelector.order(scores, seed), scores)
     }
+
+    private fun AudioFeatureVectorEntity.decodeValues(): DoubleArray? = runCatching {
+        AudioFeatureVectorCodec.decode(vectorBlob, AudioVectorFormat.valueOf(vectorFormat))
+    }.getOrNull()
 }
