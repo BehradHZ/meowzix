@@ -52,6 +52,16 @@ room {
     schemaDirectory("$projectDir/schemas")
 }
 
+// MigrationTestHelper reads exported schemas from androidTest assets. Generate the current Room
+// schema before the Room plugin copies that directory, otherwise a newly bumped DB version can
+// compile successfully while its migration tests fail only because the current JSON was not there
+// yet. Historical schemas remain committed and continue to be the migration inputs.
+tasks.configureEach {
+    if (name.startsWith("copyRoomSchemasToAndroidTestAssets")) {
+        dependsOn("kspDebugKotlin")
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
     val serializationBom = platform("org.jetbrains.kotlinx:kotlinx-serialization-bom:1.8.1")
