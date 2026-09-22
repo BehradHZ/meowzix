@@ -11,20 +11,22 @@ import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
-import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import dev.behradhz.meowzix.data.network.NetworkPolicy
 import dev.behradhz.meowzix.data.network.NetworkUse
+import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
-import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
+import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import java.io.File
 import java.security.DigestOutputStream
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -33,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
@@ -53,7 +56,19 @@ class TdLibDownloadRepository @Inject constructor(
 ) : DownloadRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<UUID, Job>()
+    private val recoveryStarted = AtomicBoolean(false)
     private val offlineDirectory = File(context.filesDir, "offline")
+
+    init {
+        // Construction itself never waits for Telegram/network. Once instantiated, recovery observes
+        // auth state and resumes only after TDLib reaches Ready.
+        scope.launch {
+            telegramRepository.authState
+                .map { it.step is TelegramAuthStep.Ready }
+                .distinctUntilChanged()
+                .collect { ready -> if (ready) resumeEligiblePersistedDownloads() }
+        }
+    }
 
     override fun observeDownloads(): Flow<List<OfflineDownload>> = downloadDao.observeAll().map { rows ->
         rows.map { row ->
@@ -85,6 +100,16 @@ class TdLibDownloadRepository @Inject constructor(
     }
 
     override fun retry(trackId: UUID) = pinOffline(trackId)
+
+    override fun resumeInterruptedDownloads() {
+        if (!recoveryStarted.compareAndSet(false, true)) return
+        scope.launch {
+            reconcilePersistedDownloadState()
+            if (telegramRepository.authState.value.step is TelegramAuthStep.Ready) {
+                resumeEligiblePersistedDownloads()
+            }
+        }
+    }
 
     override fun cancel(trackId: UUID) {
         jobs.remove(trackId)?.cancel()
@@ -118,16 +143,72 @@ class TdLibDownloadRepository @Inject constructor(
         }
     }
 
+    private suspend fun reconcilePersistedDownloadState() {
+        offlineDirectory.mkdirs()
+        offlineDirectory.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".part") }
+            ?.forEach { runCatching { it.delete() } }
+
+        val now = Instant.now().toEpochMilli()
+        downloadDao.all().forEach { record ->
+            val status = runCatching { DownloadStatus.valueOf(record.status) }.getOrNull() ?: return@forEach
+            when (status) {
+                DownloadStatus.DOWNLOADING -> {
+                    // Process death cannot keep the in-memory job alive. Preserve progress metadata
+                    // and move the durable record back to QUEUED for provider-ready recovery.
+                    downloadDao.upsert(
+                        record.copy(
+                            status = DownloadStatus.QUEUED.name,
+                            failureReason = null,
+                            updatedAtEpochMs = now,
+                        ),
+                    )
+                }
+                DownloadStatus.COMPLETED -> {
+                    val localFile = record.localPath?.let(::File)
+                    if (localFile == null || !localFile.isFile) {
+                        database.withTransaction {
+                            libraryDao.deleteOfflineSource(offlineSourceId(UUID.fromString(record.trackId)))
+                            downloadDao.upsert(
+                                record.copy(
+                                    status = DownloadStatus.FAILED.name,
+                                    localPath = null,
+                                    failureReason = "Offline copy is missing. Retry to download it again.",
+                                    updatedAtEpochMs = now,
+                                ),
+                            )
+                        }
+                    }
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    private suspend fun resumeEligiblePersistedDownloads() {
+        downloadDao.all()
+            .asSequence()
+            .filter { it.pinned }
+            .filter {
+                it.status == DownloadStatus.QUEUED.name || it.status == DownloadStatus.DOWNLOADING.name
+            }
+            .mapNotNull { runCatching { UUID.fromString(it.trackId) }.getOrNull() }
+            .forEach(::pinOffline)
+    }
+
     private suspend fun download(trackId: UUID) {
         val settings = settingsRepository.networkPlaybackSettings.first()
         networkPolicy.blockReason(settings, NetworkUse.USER_REQUEST)?.let(::error)
         val accountId = telegramRepository.musicSourceState.value.accountId
             ?: error("Connect Telegram before downloading.")
         val telegramSource = telegramDao.telegramSourceForTrack(accountId, trackId.toString())
-            ?: return
+            ?: error("This track no longer has an accessible Telegram source.")
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
         val remoteSource = requireNotNull(libraryDao.sourceById(telegramSource.trackSourceId))
         val existing = downloadDao.byTrackId(trackId.toString())
+
+        ensureStorageCapacity(remoteSource.fileSizeBytes, copiesNeeded = 2)
+
         val now = Instant.now().toEpochMilli()
         val initial = DownloadRecordEntity(
             id = existing?.id ?: UUID.randomUUID().toString(),
@@ -135,8 +216,8 @@ class TdLibDownloadRepository @Inject constructor(
             trackSourceId = telegramSource.trackSourceId,
             tdFileId = telegramSource.tdFileId,
             status = DownloadStatus.DOWNLOADING.name,
-            downloadedBytes = 0L,
-            totalBytes = remoteSource.fileSizeBytes,
+            downloadedBytes = existing?.downloadedBytes ?: 0L,
+            totalBytes = remoteSource.fileSizeBytes ?: existing?.totalBytes,
             localPath = existing?.localPath,
             pinned = true,
             failureReason = null,
@@ -162,6 +243,8 @@ class TdLibDownloadRepository @Inject constructor(
                 }
         }
         val downloaded = try {
+            // TDLib resumes its own partial file state when possible; the durable app record above
+            // survives process death and is reconciled back into this request on next Ready state.
             client.send(TdApi.DownloadFile(fileId, PIN_PRIORITY, 0L, 0L, true))
         } finally {
             progressJob.cancel()
@@ -170,7 +253,8 @@ class TdLibDownloadRepository @Inject constructor(
             ?: error("Telegram download did not complete.")
         val sourceFile = File(tdPath).takeIf(File::isFile) ?: error("Downloaded file is missing.")
 
-        offlineDirectory.mkdirs()
+        ensureStorageCapacity(sourceFile.length(), copiesNeeded = 1)
+        if (!offlineDirectory.exists() && !offlineDirectory.mkdirs()) error("Unable to create offline storage.")
         val extension = telegramSource.fileName?.substringAfterLast('.', "")
             ?.takeIf { it.matches(Regex("[A-Za-z0-9]{1,8}")) }
         val destination = File(offlineDirectory, trackId.toString() + extension?.let { ".$it" }.orEmpty())
@@ -216,6 +300,17 @@ class TdLibDownloadRepository @Inject constructor(
         }
     }
 
+    private suspend fun ensureStorageCapacity(payloadBytes: Long?, copiesNeeded: Int) {
+        val usable = context.filesDir.usableSpace
+        if (StorageSafety.hasCapacity(usable, payloadBytes, copiesNeeded)) return
+        // Only explicitly evictable/unpinned app-owned copies may be removed automatically.
+        clearTemporaryCache()
+        val refreshed = context.filesDir.usableSpace
+        if (!StorageSafety.hasCapacity(refreshed, payloadBytes, copiesNeeded)) {
+            error("Not enough storage to complete this download safely.")
+        }
+    }
+
     private suspend fun markCanceled(trackId: UUID) = updateStatus(trackId, DownloadStatus.CANCELED, null)
 
     private suspend fun markFailed(trackId: UUID, reason: String) = updateStatus(trackId, DownloadStatus.FAILED, reason)
@@ -249,4 +344,22 @@ class TdLibDownloadRepository @Inject constructor(
 internal object CacheEvictionPolicy {
     fun evictable(records: List<DownloadRecordEntity>): List<DownloadRecordEntity> =
         records.filterNot { it.pinned }
+}
+
+internal object StorageSafety {
+    private const val MIN_FREE_BYTES = 64L * 1024L * 1024L
+
+    fun hasCapacity(usableBytes: Long, payloadBytes: Long?, copiesNeeded: Int): Boolean =
+        usableBytes >= requiredFreeBytes(payloadBytes, copiesNeeded)
+
+    fun requiredFreeBytes(payloadBytes: Long?, copiesNeeded: Int): Long {
+        val payload = payloadBytes?.coerceAtLeast(0L) ?: 0L
+        val copies = copiesNeeded.coerceAtLeast(1).toLong()
+        val payloadRequirement = if (payload == 0L) 0L else {
+            val multiplied = if (payload > Long.MAX_VALUE / copies) Long.MAX_VALUE else payload * copies
+            val overhead = payload / 10L
+            if (multiplied > Long.MAX_VALUE - overhead) Long.MAX_VALUE else multiplied + overhead
+        }
+        return maxOf(MIN_FREE_BYTES, payloadRequirement)
+    }
 }
