@@ -7,13 +7,19 @@ import dev.behradhz.meowzix.domain.history.ListeningEventType
 import dev.behradhz.meowzix.domain.history.TimeBucket
 import dev.behradhz.meowzix.domain.recommendation.AdaptiveScorer
 import dev.behradhz.meowzix.domain.recommendation.CandidateGenerator
+import dev.behradhz.meowzix.domain.recommendation.PersonalizationFeatureVectorizer
+import dev.behradhz.meowzix.domain.recommendation.PersonalizationModel
 import dev.behradhz.meowzix.domain.recommendation.PreferenceSnapshot
+import dev.behradhz.meowzix.domain.recommendation.RecommendationContext
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
 import dev.behradhz.meowzix.domain.recommendation.SmartCandidate
 import dev.behradhz.meowzix.domain.recommendation.SmartQueue
 import dev.behradhz.meowzix.domain.recommendation.SmartSelector
+import dev.behradhz.meowzix.domain.recommendation.TrackPersonalizationFeatures
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import java.time.DayOfWeek
 import java.time.Instant
+import java.time.ZonedDateTime
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,6 +30,8 @@ class HeuristicRecommendationEngine @Inject constructor(
     private val libraryDao: LibraryDao,
     private val historyDao: HistoryDao,
     private val settings: SettingsRepository,
+    private val personalizationModel: PersonalizationModel,
+    private val personalizationTrainer: PersonalizationTrainer,
 ) : RecommendationEngine {
     private val scorer = AdaptiveScorer()
 
@@ -34,6 +42,7 @@ class HeuristicRecommendationEngine @Inject constructor(
         seed: Long,
     ): SmartQueue {
         val now = Instant.now()
+        val localNow = ZonedDateTime.now()
         val allowed = allowedTrackIds?.mapTo(mutableSetOf(), UUID::toString)
         val tracks = libraryDao.allTracks().filter { allowed == null || it.id in allowed }
         val sources = libraryDao.allSources().groupBy { it.trackId }
@@ -78,7 +87,32 @@ class HeuristicRecommendationEngine @Inject constructor(
         }
         val offlineOnly = settings.networkPlaybackSettings.first().offlineMode
         val valid = CandidateGenerator.generate(candidates, currentTrackId, offlineOnly)
-        val scores = valid.associate { it.trackId to scorer.score(it, now) }
+
+        // A stale/missing learned model never blocks queue creation. Rebuild happens off the
+        // playback path, and this generation simply falls back to the deterministic heuristic.
+        personalizationTrainer.refreshIfStale()
+        val context = RecommendationContext(
+            localHour = localNow.hour,
+            dayOfWeek = localNow.dayOfWeek.value,
+            isWeekend = localNow.dayOfWeek == DayOfWeek.SATURDAY || localNow.dayOfWeek == DayOfWeek.SUNDAY,
+            timeBucket = timeBucket,
+        )
+        val featureVectors = valid.mapNotNull { candidate ->
+            val track = trackById[candidate.trackId.toString()] ?: return@mapNotNull null
+            candidate.trackId to PersonalizationFeatureVectorizer.vectorize(
+                context,
+                TrackPersonalizationFeatures(
+                    trackId = candidate.trackId,
+                    normalizedArtist = track.normalizedArtist,
+                    favorite = track.favorite,
+                    durationMs = track.durationMs,
+                ),
+            )
+        }.toMap()
+        val learned = runCatching { personalizationModel.scoreBatch(featureVectors) }.getOrDefault(emptyMap())
+        val scores = valid.associate { candidate ->
+            candidate.trackId to scorer.score(candidate, now, learned[candidate.trackId])
+        }
         return SmartQueue(SmartSelector.order(scores, seed), scores)
     }
 }
