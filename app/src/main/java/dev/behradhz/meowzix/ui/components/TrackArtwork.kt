@@ -7,7 +7,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
@@ -29,9 +28,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -239,8 +240,9 @@ fun DownloadableTrackArtwork(
 }
 
 /**
- * Full-bleed artwork used by Now Playing. The source remains high quality on disk while decoding
- * is bounded to a display-sized bitmap so an oversized album cover cannot exhaust the app heap.
+ * Full-bleed artwork used by Now Playing. The sharp cover is slightly zoomed, while a second
+ * display-sized decode is blurred and alpha-masked into the lower half. The mask makes the two
+ * layers blend continuously instead of creating a visible horizontal seam behind the controls.
  */
 @Composable
 fun TrackArtworkBackdrop(
@@ -254,16 +256,38 @@ fun TrackArtworkBackdrop(
             Image(
                 bitmap = bitmap,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = SHARP_ARTWORK_SCALE
+                        scaleY = SHARP_ARTWORK_SCALE
+                    },
                 contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
             )
 
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.52f)
-                    .clipToBounds(),
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.Offscreen
+                    }
+                    .drawWithCache {
+                        val blurMask = Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.00f to Color.Transparent,
+                                0.38f to Color.Transparent,
+                                0.54f to Color.Black.copy(alpha = 0.14f),
+                                0.66f to Color.Black.copy(alpha = 0.58f),
+                                0.78f to Color.Black.copy(alpha = 0.90f),
+                                1.00f to Color.Black,
+                            ),
+                        )
+                        onDrawWithContent {
+                            drawContent()
+                            drawRect(brush = blurMask, blendMode = BlendMode.DstIn)
+                        }
+                    },
             ) {
                 Image(
                     bitmap = bitmap,
@@ -271,22 +295,12 @@ fun TrackArtworkBackdrop(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            scaleX = 1.18f
-                            scaleY = 1.18f
+                            scaleX = BLURRED_ARTWORK_SCALE
+                            scaleY = BLURRED_ARTWORK_SCALE
                         }
-                        .blur(42.dp),
+                        .blur(PLAYER_BACKDROP_BLUR),
                     contentScale = ContentScale.Crop,
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.18f),
-                                0.34f to Color.Black.copy(alpha = 0.48f),
-                                1f to Color.Black.copy(alpha = 0.88f),
-                            ),
-                        ),
+                    alignment = Alignment.TopCenter,
                 )
             }
 
@@ -295,10 +309,14 @@ fun TrackArtworkBackdrop(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.18f),
-                            0.46f to Color.Transparent,
-                            0.72f to Color.Black.copy(alpha = 0.12f),
-                            1f to Color.Black.copy(alpha = 0.52f),
+                            colorStops = arrayOf(
+                                0.00f to Color.Black.copy(alpha = 0.08f),
+                                0.32f to Color.Transparent,
+                                0.50f to Color.Black.copy(alpha = 0.05f),
+                                0.66f to Color.Black.copy(alpha = 0.22f),
+                                0.80f to Color.Black.copy(alpha = 0.56f),
+                                1.00f to Color.Black.copy(alpha = 0.88f),
+                            ),
                         ),
                     ),
             )
@@ -318,12 +336,15 @@ fun TrackArtworkBackdrop(
             )
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.58f)
+                    .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f)),
+                            colorStops = arrayOf(
+                                0.00f to Color.Transparent,
+                                0.48f to Color.Transparent,
+                                0.72f to Color.Black.copy(alpha = 0.44f),
+                                1.00f to Color.Black.copy(alpha = 0.88f),
+                            ),
                         ),
                     ),
             )
@@ -331,4 +352,7 @@ fun TrackArtworkBackdrop(
     }
 }
 
-private const val BACKDROP_TARGET_PIXELS = 1600
+private val PLAYER_BACKDROP_BLUR = 46.dp
+private const val BACKDROP_TARGET_PIXELS = 1800
+private const val SHARP_ARTWORK_SCALE = 1.10f
+private const val BLURRED_ARTWORK_SCALE = 1.16f
