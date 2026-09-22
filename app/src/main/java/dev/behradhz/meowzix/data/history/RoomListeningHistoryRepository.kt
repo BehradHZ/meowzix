@@ -66,16 +66,23 @@ class RoomListeningHistoryRepository @Inject constructor(
     }
 
     override suspend fun startPlayback(trackId: UUID, initiatedBy: PlaybackInitiator, mode: PlaybackMode): UUID = mutex.withLock {
+        val playbackId = UUID.randomUUID()
+        // Restored Media3 state can outlive its canonical library row (for example after a source
+        // was removed while the app was closed). History has a foreign key to Track, so recording
+        // such a stale queue item must be a no-op rather than a process-fatal constraint error.
+        if (database.libraryDao().trackById(trackId.toString()) == null) return@withLock playbackId
+
         val now = Instant.now()
         val session = session(now, mode)
-        val playbackId = UUID.randomUUID()
         val context = ActivePlayback(playbackId, trackId, session.id, initiatedBy, mode)
-        active[playbackId] = context
         database.withTransaction {
             if (initiatedBy == PlaybackInitiator.USER) insert(context, ListeningEventType.MANUAL_SELECTED, now, null, null)
             else insert(context, ListeningEventType.AUTO_SELECTED, now, null, null)
             insert(context, ListeningEventType.PLAY_STARTED, now, 0L, null)
         }
+        // Only mark the playback active once both required history rows have committed. This avoids
+        // retaining a phantom active record if Room rejects the transaction for any reason.
+        active[playbackId] = context
         playbackId
     }
 
