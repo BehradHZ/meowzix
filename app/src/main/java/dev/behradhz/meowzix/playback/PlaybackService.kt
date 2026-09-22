@@ -52,17 +52,21 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var playbackCatalog: PlaybackCatalog
     @Inject lateinit var audioVisualizer: AudioVisualizerRepository
     @Inject lateinit var libraryRepository: MusicLibraryRepository
+    @Inject lateinit var windowedQueue: WindowedPlaybackQueue
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
     private var persistJob: Job? = null
+    private var windowMaintenanceJob: Job? = null
     private var playbackRetryJob: Job? = null
     private var retryMediaId: String? = null
     private var retryCount = 0
     private var isRestoring = true
     private var isChangingShuffleCycle = false
+    private var isMaintainingWindow = false
     private var currentFavorite = false
+    private var lastPersistedQueueRevision = Long.MIN_VALUE
 
     private val shuffleCommand = SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY)
     private val repeatCommand = SessionCommand(ACTION_CYCLE_REPEAT, Bundle.EMPTY)
@@ -110,13 +114,20 @@ class PlaybackService : MediaSessionService() {
             ) {
                 clearPlaybackRetry()
             }
-            if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) && player.playbackState == Player.STATE_ENDED) {
-                startNextPureShuffleCycle()
+            if (events.contains(Player.EVENT_TIMELINE_CHANGED) && player.mediaItemCount == 0 && !isRestoring) {
+                windowedQueue.clear()
             }
             if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
                 clearPlaybackRetry()
+                windowedQueue.updateCurrent(player.currentMediaItem?.mediaId)
+                scheduleWindowMaintenance()
                 runCatching { audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString()) }
                 refreshFavoriteState()
+            } else if (events.contains(Player.EVENT_TIMELINE_CHANGED)) {
+                scheduleWindowMaintenance()
+            }
+            if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) && player.playbackState == Player.STATE_ENDED) {
+                handlePlaybackEnded()
             }
             if (
                 events.containsAny(
@@ -180,6 +191,7 @@ class PlaybackService : MediaSessionService() {
                     // Session restore is optional. A stale/corrupt snapshot must not terminate the
                     // media service, because the app shell creates a controller during startup.
                     isRestoring = false
+                    windowedQueue.clear()
                     player.clearMediaItems()
                 }
                 runCatching {
@@ -188,7 +200,7 @@ class PlaybackService : MediaSessionService() {
                 refreshFavoriteState()
                 while (isActive) {
                     delay(POSITION_SAVE_INTERVAL_MS)
-                    if (player.isPlaying) persistSafely()
+                    if (player.isPlaying) persistProgressSafely()
                 }
             } finally {
                 isRestoring = false
@@ -200,6 +212,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         clearPlaybackRetry()
+        windowMaintenanceJob?.cancel()
         player.removeListener(playerListener)
         audioVisualizer.release()
         mediaSession.release()
@@ -294,8 +307,130 @@ class PlaybackService : MediaSessionService() {
         retryCount = 0
     }
 
+    private fun scheduleWindowMaintenance() {
+        if (isRestoring || !windowedQueue.isActive()) return
+        if (windowMaintenanceJob?.isActive == true) return
+        windowMaintenanceJob = serviceScope.launch { maintainPlayerWindow() }
+    }
+
+    private fun maintainPlayerWindow(forceRefill: Boolean = false) {
+        if (isMaintainingWindow || !windowedQueue.isActive() || player.mediaItemCount == 0) return
+        isMaintainingWindow = true
+        try {
+            windowedQueue.updateCurrent(player.currentMediaItem?.mediaId)
+            var snapshot = windowedQueue.snapshot()
+
+            if (windowedQueue.shouldBackfillHistory(player.currentMediaItemIndex) && player.mediaItemCount > 0) {
+                val firstId = player.getMediaItemAt(0).mediaId
+                val backfill = windowedQueue.previousBatchBefore(firstId)
+                if (backfill.isNotEmpty()) {
+                    player.addMediaItems(
+                        0,
+                        backfill.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) },
+                    )
+                }
+            }
+
+            val trimCount = windowedQueue.trimBeforeCount(player.currentMediaItemIndex)
+            if (trimCount > 0 && trimCount < player.mediaItemCount) {
+                player.removeMediaItems(0, trimCount)
+            }
+
+            snapshot = windowedQueue.snapshot()
+            if (
+                forceRefill ||
+                windowedQueue.shouldRefillAhead(player.currentMediaItemIndex, player.mediaItemCount)
+            ) {
+                val lastId = player.getMediaItemAt(player.mediaItemCount - 1).mediaId
+                val refill = windowedQueue.nextBatchAfter(lastId)
+                if (refill.isNotEmpty()) {
+                    player.addMediaItems(
+                        refill.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) },
+                    )
+                }
+            }
+        } finally {
+            isMaintainingWindow = false
+        }
+    }
+
+    private fun handlePlaybackEnded() {
+        if (!windowedQueue.isActive()) {
+            startNextPureShuffleCycle()
+            return
+        }
+        serviceScope.launch {
+            windowedQueue.updateCurrent(player.currentMediaItem?.mediaId)
+            val snapshot = windowedQueue.snapshot()
+            if (snapshot.currentIndex in 0 until snapshot.tracks.lastIndex) {
+                val shouldContinue = player.playWhenReady
+                maintainPlayerWindow(forceRefill = true)
+                if (player.hasNextMediaItem()) {
+                    player.seekToNextMediaItem()
+                    player.prepare()
+                    if (shouldContinue) player.play()
+                }
+                return@launch
+            }
+            if (snapshot.repeatMode != RepeatMode.ALL) return@launch
+            if (snapshot.playbackMode == PlaybackMode.PURE_SHUFFLE) {
+                startNextPureShuffleCycle()
+            } else {
+                val shouldContinue = player.playWhenReady
+                windowedQueue.reset(
+                    tracks = snapshot.tracks,
+                    currentIndex = 0,
+                    playbackMode = snapshot.playbackMode,
+                    repeatMode = snapshot.repeatMode,
+                    shuffleSeed = snapshot.shuffleSeed,
+                )
+                materializeWindow(positionMs = 0L, shouldPlay = shouldContinue)
+                schedulePersist()
+            }
+        }
+    }
+
     private fun toggleSystemShuffle() {
         if (player.mediaItemCount == 0) return
+        if (!windowedQueue.isActive()) {
+            toggleLegacySystemShuffle()
+            return
+        }
+        val nextMode = if (currentPlaybackMode() == PlaybackMode.PURE_SHUFFLE) PlaybackMode.ORDERED else PlaybackMode.PURE_SHUFFLE
+        serviceScope.launch {
+            windowedQueue.updateCurrent(player.currentMediaItem?.mediaId)
+            val snapshot = windowedQueue.snapshot()
+            if (snapshot.currentIndex !in snapshot.tracks.indices) return@launch
+            val currentId = snapshot.tracks[snapshot.currentIndex].id
+            val prefix = snapshot.tracks.take(snapshot.currentIndex + 1)
+            val future = snapshot.tracks.drop(snapshot.currentIndex + 1)
+            var shuffleSeed: Long? = null
+            val reorderedFuture = if (nextMode == PlaybackMode.PURE_SHUFFLE) {
+                val byId = future.associateBy { it.id }
+                val cycle = PureShuffleEngine.newCycle(future.map { it.id })
+                shuffleSeed = cycle.seed
+                cycle.order.mapNotNull(byId::get)
+            } else {
+                val orderedIds = runCatching { playbackCatalog.availableTracks().map { it.id } }.getOrDefault(emptyList())
+                val rank = orderedIds.withIndex().associate { it.value to it.index }
+                future.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
+            }
+            val position = player.currentPosition.coerceAtLeast(0)
+            val shouldPlay = player.playWhenReady
+            windowedQueue.resetAtTrack(
+                tracks = prefix + reorderedFuture,
+                currentTrackId = currentId,
+                playbackMode = nextMode,
+                repeatMode = snapshot.repeatMode,
+                shuffleSeed = shuffleSeed,
+            )
+            materializeWindow(position, shouldPlay)
+            refreshMediaButtons()
+            schedulePersist()
+        }
+    }
+
+    private fun toggleLegacySystemShuffle() {
         val nextMode = if (currentPlaybackMode() == PlaybackMode.PURE_SHUFFLE) PlaybackMode.ORDERED else PlaybackMode.PURE_SHUFFLE
         val currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
         val currentId = player.currentMediaItem?.mediaId
@@ -321,7 +456,6 @@ class PlaybackService : MediaSessionService() {
             }
             updateQueuePolicyMetadata(nextMode, currentRepeatMode())
             if (currentId != player.currentMediaItem?.mediaId) {
-                // Defensive: queue reordering must never replace the active track.
                 player.seekTo(currentIndex.coerceAtMost(player.mediaItemCount - 1), player.currentPosition)
             }
             refreshMediaButtons()
@@ -334,9 +468,11 @@ class PlaybackService : MediaSessionService() {
             RepeatMode.ALL -> RepeatMode.ONE
             RepeatMode.ONE -> RepeatMode.OFF
         }
-        player.repeatMode = next.toPlayerRepeatMode(currentPlaybackMode())
+        if (windowedQueue.isActive()) windowedQueue.setRepeatMode(next)
+        player.repeatMode = next.toPlayerRepeatMode(currentPlaybackMode(), windowedQueue.isActive())
         updateQueuePolicyMetadata(currentPlaybackMode(), next)
         refreshMediaButtons()
+        schedulePersist()
     }
 
     private fun toggleSystemFavorite() {
@@ -386,27 +522,66 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun currentPlaybackMode(): PlaybackMode =
-        player.takeIf { it.mediaItemCount > 0 }?.getMediaItemAt(0)?.playbackMode() ?: PlaybackMode.ORDERED
+        windowedQueue.snapshot().takeIf { windowedQueue.isActive() }?.playbackMode
+            ?: player.takeIf { it.mediaItemCount > 0 }?.getMediaItemAt(0)?.playbackMode()
+            ?: PlaybackMode.ORDERED
 
     private fun currentRepeatMode(): RepeatMode =
-        player.takeIf { it.mediaItemCount > 0 }?.getMediaItemAt(0)?.repeatMode() ?: when (player.repeatMode) {
-            Player.REPEAT_MODE_ONE -> RepeatMode.ONE
-            Player.REPEAT_MODE_ALL -> RepeatMode.ALL
-            else -> RepeatMode.OFF
-        }
+        windowedQueue.snapshot().takeIf { windowedQueue.isActive() }?.repeatMode
+            ?: player.takeIf { it.mediaItemCount > 0 }?.getMediaItemAt(0)?.repeatMode()
+            ?: when (player.repeatMode) {
+                Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+                Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+                else -> RepeatMode.OFF
+            }
 
     private suspend fun restoreSession() {
         val saved = stateStore.load()
         if (player.mediaItemCount == 0 && saved.items.isNotEmpty()) {
-            player.repeatMode = saved.repeatMode.toPlayerRepeatMode(saved.playbackMode)
-            player.setMediaItems(
-                saved.items.map { it.toMediaItem(saved.playbackMode, saved.repeatMode) },
-                saved.currentIndex,
-                saved.positionMs,
-            )
+            val logicalTracks = saved.items.mapNotNull { it.toPlayableTrack() }
+            if (logicalTracks.isNotEmpty()) {
+                windowedQueue.reset(
+                    tracks = logicalTracks,
+                    currentIndex = saved.currentIndex,
+                    playbackMode = saved.playbackMode,
+                    repeatMode = saved.repeatMode,
+                )
+                player.repeatMode = saved.repeatMode.toPlayerRepeatMode(saved.playbackMode, windowed = true)
+                val window = windowedQueue.materializedWindow()
+                player.setMediaItems(
+                    window.tracks.map { it.toMediaItem(saved.playbackMode, saved.repeatMode) },
+                    window.currentIndex,
+                    saved.positionMs,
+                )
+                lastPersistedQueueRevision = windowedQueue.snapshot().revision
+            } else {
+                player.repeatMode = saved.repeatMode.toPlayerRepeatMode(saved.playbackMode, windowed = false)
+                player.setMediaItems(
+                    saved.items.map { it.toMediaItem(saved.playbackMode, saved.repeatMode) },
+                    saved.currentIndex,
+                    saved.positionMs,
+                )
+            }
             player.prepare()
         }
         isRestoring = false
+    }
+
+    private fun materializeWindow(positionMs: Long, shouldPlay: Boolean) {
+        val snapshot = windowedQueue.snapshot()
+        val window = windowedQueue.materializedWindow()
+        if (window.tracks.isEmpty()) {
+            player.clearMediaItems()
+            return
+        }
+        player.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(snapshot.playbackMode, windowed = true)
+        player.setMediaItems(
+            window.tracks.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) },
+            window.currentIndex,
+            positionMs.coerceAtLeast(0),
+        )
+        player.prepare()
+        if (shouldPlay) player.play()
     }
 
     private fun schedulePersist() {
@@ -420,7 +595,12 @@ class PlaybackService : MediaSessionService() {
 
     private suspend fun persistSafely() {
         try {
-            persistNow()
+            val snapshot = windowedQueue.snapshot().takeIf { windowedQueue.isActive() }
+            if (snapshot != null && snapshot.revision == lastPersistedQueueRevision) {
+                persistProgressSafely()
+            } else {
+                persistNow()
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
@@ -428,21 +608,69 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private suspend fun persistProgressSafely() {
+        try {
+            stateStore.saveProgress(
+                mediaId = player.currentMediaItem?.mediaId,
+                positionMs = player.currentPosition.coerceAtLeast(0),
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            // Frequent progress persistence is best-effort.
+        }
+    }
+
     private suspend fun persistNow() {
-        val items = (0 until player.mediaItemCount).mapNotNull { player.getMediaItemAt(it).toPersistedPlaybackItem() }
+        val snapshot = windowedQueue.snapshot().takeIf { windowedQueue.isActive() }
+        val items = snapshot?.tracks?.map { it.toPersistedPlaybackItem() }
+            ?: (0 until player.mediaItemCount).mapNotNull { player.getMediaItemAt(it).toPersistedPlaybackItem() }
+        val currentIndex = snapshot?.currentIndex?.coerceAtLeast(0)
+            ?: player.currentMediaItemIndex.coerceAtLeast(0)
         stateStore.save(
             PersistedPlaybackSession(
                 items = items,
-                currentIndex = player.currentMediaItemIndex.coerceAtLeast(0),
+                currentIndex = currentIndex,
                 positionMs = player.currentPosition.coerceAtLeast(0),
-                playbackMode = currentPlaybackMode(),
-                repeatMode = currentRepeatMode(),
+                playbackMode = snapshot?.playbackMode ?: currentPlaybackMode(),
+                repeatMode = snapshot?.repeatMode ?: currentRepeatMode(),
             ),
         )
+        lastPersistedQueueRevision = snapshot?.revision ?: Long.MIN_VALUE
     }
 
     private fun startNextPureShuffleCycle() {
         if (isChangingShuffleCycle || player.mediaItemCount == 0) return
+        if (windowedQueue.isActive()) {
+            val snapshot = windowedQueue.snapshot()
+            if (snapshot.playbackMode != PlaybackMode.PURE_SHUFFLE || snapshot.repeatMode != RepeatMode.ALL) return
+            isChangingShuffleCycle = true
+            serviceScope.launch {
+                try {
+                    val previousLastId = snapshot.tracks.getOrNull(snapshot.currentIndex)?.id
+                    val byId = snapshot.tracks.associateBy { it.id }
+                    val cycle = PureShuffleEngine.newCycle(
+                        eligibleItems = snapshot.tracks.map { it.id },
+                        previousLastItem = previousLastId,
+                    )
+                    val nextTracks = cycle.order.mapNotNull(byId::get)
+                    val shouldContinue = player.playWhenReady
+                    windowedQueue.reset(
+                        tracks = nextTracks,
+                        currentIndex = 0,
+                        playbackMode = PlaybackMode.PURE_SHUFFLE,
+                        repeatMode = snapshot.repeatMode,
+                        shuffleSeed = cycle.seed,
+                    )
+                    materializeWindow(positionMs = 0L, shouldPlay = shouldContinue)
+                    schedulePersist()
+                } finally {
+                    isChangingShuffleCycle = false
+                }
+            }
+            return
+        }
+
         val currentItems = (0 until player.mediaItemCount).map(player::getMediaItemAt)
         val playbackMode = currentItems.first().playbackMode()
         if (playbackMode != PlaybackMode.PURE_SHUFFLE) return
@@ -456,13 +684,10 @@ class PlaybackService : MediaSessionService() {
                     .getOrNull()
                     ?.map { it.toMediaItem(playbackMode, repeatMode) }
                     ?.takeIf { it.isNotEmpty() }
-                // A transient empty catalog (DB refresh, source rescan, or startup restore) must not
-                // erase a valid in-memory queue at the repeat-all boundary. Keep the current cycle
-                // as the fallback and let the next cycle reconcile with the canonical catalog.
                 val eligibleItems = catalogItems ?: currentItems
                 val previousLastItem = eligibleItems.firstOrNull { it.mediaId == previousLastId }
                 val nextCycle = PureShuffleEngine.newCycle(eligibleItems, previousLastItem).order
-                player.repeatMode = repeatMode.toPlayerRepeatMode(playbackMode)
+                player.repeatMode = repeatMode.toPlayerRepeatMode(playbackMode, windowed = false)
                 player.setMediaItems(nextCycle, 0, 0)
                 player.prepare()
                 if (shouldContinue) player.play()
@@ -487,8 +712,8 @@ class PlaybackService : MediaSessionService() {
     }
 }
 
-private fun RepeatMode.toPlayerRepeatMode(playbackMode: PlaybackMode): Int = when {
+private fun RepeatMode.toPlayerRepeatMode(playbackMode: PlaybackMode, windowed: Boolean): Int = when {
     this == RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-    this == RepeatMode.ALL && playbackMode != PlaybackMode.PURE_SHUFFLE -> Player.REPEAT_MODE_ALL
+    this == RepeatMode.ALL && !windowed && playbackMode != PlaybackMode.PURE_SHUFFLE -> Player.REPEAT_MODE_ALL
     else -> Player.REPEAT_MODE_OFF
 }
