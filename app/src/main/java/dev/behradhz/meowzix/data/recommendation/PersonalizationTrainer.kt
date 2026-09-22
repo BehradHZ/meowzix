@@ -61,4 +61,10 @@ class PersonalizationTrainer @Inject constructor(
         // that happen after the user's explicit reset.
         model.reset(datasetBuilder.latestDataVersion())
     }
+
+    /** Explicit developer/user maintenance action: discard weights and rebuild from stored history. */
+    suspend fun rebuildFromStoredHistory() = trainingMutex.withLock {
+        model.reset(0L)
+        model.rebuild(datasetBuilder.buildAll())
+    }
 }
