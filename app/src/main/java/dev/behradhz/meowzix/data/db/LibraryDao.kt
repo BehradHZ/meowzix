@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.data.db
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
@@ -44,6 +45,40 @@ interface LibraryDao {
         """,
     )
     fun observeAvailableTracks(): Flow<List<TrackEntity>>
+
+    @Query(
+        """
+        SELECT DISTINCT t.*
+        FROM tracks t
+        WHERE t.hidden = 0
+          AND EXISTS (
+              SELECT 1
+              FROM track_sources active
+              WHERE active.trackId = t.id
+                AND active.availability != 'MISSING'
+          )
+          AND (
+              EXISTS (
+                  SELECT 1
+                  FROM track_sources local
+                  WHERE local.trackId = t.id
+                    AND local.type = 'LOCAL_MEDIASTORE'
+                    AND local.availability != 'MISSING'
+              )
+              OR EXISTS (
+                  SELECT 1
+                  FROM telegram_track_sources tg
+                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  INNER JOIN telegram_selected_sources selected
+                      ON selected.accountId = tg.accountId
+                     AND selected.chatId = tg.chatId
+                  WHERE origin.trackId = t.id
+              )
+          )
+        ORDER BY t.normalizedTitle
+        """,
+    )
+    fun pagingAvailableTracks(): PagingSource<Int, TrackEntity>
 
     @Query(
         """

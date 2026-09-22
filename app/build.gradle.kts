@@ -91,6 +91,9 @@ dependencies {
 
     implementation("androidx.room:room-runtime:2.8.5")
     implementation("androidx.room:room-ktx:2.8.5")
+    implementation("androidx.room:room-paging:2.8.5")
+    implementation("androidx.paging:paging-runtime-ktx:3.5.1")
+    implementation("androidx.paging:paging-compose:3.5.1")
     ksp("androidx.room:room-compiler:2.8.5")
 
     implementation("com.google.dagger:hilt-android:2.60.1")
