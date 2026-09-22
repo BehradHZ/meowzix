@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -99,9 +101,15 @@ class LibraryViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            playbackController.state.collect { playback ->
-                _state.update { it.copy(playback = playback) }
-            }
+            playbackController.state
+                // Library only needs the identity/metadata of the active track. Position, buffer,
+                // and status ticks are intentionally sliced out so they cannot invalidate the
+                // entire library screen several times per second during playback.
+                .map { playback -> PlaybackState(currentTrack = playback.currentTrack) }
+                .distinctUntilChanged()
+                .collect { playback ->
+                    _state.update { it.copy(playback = playback) }
+                }
         }
     }
 
