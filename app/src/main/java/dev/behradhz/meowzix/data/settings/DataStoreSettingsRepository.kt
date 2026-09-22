@@ -3,14 +3,17 @@ package dev.behradhz.meowzix.data.settings
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
 private val Context.settingsDataStore by preferencesDataStore("settings")
@@ -19,7 +22,11 @@ private val Context.settingsDataStore by preferencesDataStore("settings")
 class DataStoreSettingsRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) : SettingsRepository {
-    override val networkPlaybackSettings: Flow<NetworkPlaybackSettings> = context.settingsDataStore.data.map { values ->
+    private val safeData = context.settingsDataStore.data.catch { error ->
+        if (error is IOException) emit(emptyPreferences()) else throw error
+    }
+
+    override val networkPlaybackSettings: Flow<NetworkPlaybackSettings> = safeData.map { values ->
         NetworkPlaybackSettings(
             offlineMode = values[OFFLINE_MODE] ?: false,
             wifiOnlyDownloads = values[WIFI_ONLY] ?: false,
@@ -29,7 +36,7 @@ class DataStoreSettingsRepository @Inject constructor(
         )
     }
 
-    override val telegramForwardSettings: Flow<TelegramForwardSettings> = context.settingsDataStore.data.map { values ->
+    override val telegramForwardSettings: Flow<TelegramForwardSettings> = safeData.map { values ->
         TelegramForwardSettings(
             includeSourceAttribution = values[FORWARD_INCLUDE_SOURCE] ?: true,
             keepCaption = values[FORWARD_KEEP_CAPTION] ?: true,

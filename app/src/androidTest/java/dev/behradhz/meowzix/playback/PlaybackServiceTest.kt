@@ -10,10 +10,14 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.common.util.concurrent.ListenableFuture
+import dev.behradhz.meowzix.MainActivity
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.RepeatMode
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
@@ -21,8 +25,6 @@ import java.nio.ByteOrder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
-import dev.behradhz.meowzix.domain.playback.PlaybackMode
-import dev.behradhz.meowzix.domain.playback.RepeatMode
 import kotlin.math.PI
 import kotlin.math.sin
 import org.junit.After
@@ -35,12 +37,16 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PlaybackServiceTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
+    private lateinit var activityScenario: ActivityScenario<MainActivity>
     private lateinit var controllerFuture: ListenableFuture<MediaController>
     private lateinit var controller: MediaController
     private val files = mutableListOf<File>()
 
     @Before
     fun setUp() {
+        // Android 15+ intentionally rejects audio-focus requests from a background-only app. Keep
+        // the app foregrounded so these tests exercise the same lifecycle as a user pressing Play.
+        activityScenario = ActivityScenario.launch(MainActivity::class.java)
         controllerFuture = MediaController.Builder(
             context,
             SessionToken(context, ComponentName(context, PlaybackService::class.java)),
@@ -59,6 +65,7 @@ class PlaybackServiceTest {
             controller.clearMediaItems()
         }
         onMain { MediaController.releaseFuture(controllerFuture) }
+        activityScenario.close()
         files.forEach(File::delete)
     }
 

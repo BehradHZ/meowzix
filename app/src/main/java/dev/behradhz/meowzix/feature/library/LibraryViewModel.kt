@@ -56,11 +56,7 @@ class LibraryViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             repository.observeLibraryTracks()
-                .catch { error ->
-                    _state.update {
-                        it.copy(errorMessage = error.message ?: "Unable to load music")
-                    }
-                }
+                .catch { error -> reportLoadError(error, "Unable to load music") }
                 .collect { tracks ->
                     _state.update {
                         it.copy(
@@ -74,16 +70,20 @@ class LibraryViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
-            playlistRepository.observePlaylists().collect { playlists ->
-                _state.update { it.copy(playlists = playlists) }
-            }
+            playlistRepository.observePlaylists()
+                .catch { error -> reportLoadError(error, "Unable to load playlists") }
+                .collect { playlists ->
+                    _state.update { it.copy(playlists = playlists) }
+                }
         }
         viewModelScope.launch {
-            downloadRepository.observeDownloads().collect { downloads ->
-                _state.update {
-                    it.copy(downloads = downloads.associateBy(OfflineDownload::trackId))
+            downloadRepository.observeDownloads()
+                .catch { error -> reportLoadError(error, "Unable to load offline downloads") }
+                .collect { downloads ->
+                    _state.update {
+                        it.copy(downloads = downloads.associateBy(OfflineDownload::trackId))
+                    }
                 }
-            }
         }
         viewModelScope.launch {
             telegramRepository.musicSourceState.collect { telegram ->
@@ -147,7 +147,8 @@ class LibraryViewModel @Inject constructor(
     fun pinOffline(track: Track) = downloadRepository.pinOffline(track.id)
 
     fun setFavorite(track: Track) = viewModelScope.launch {
-        repository.setFavorite(track.id, !track.favorite)
+        runCatching { repository.setFavorite(track.id, !track.favorite) }
+            .onFailure { reportLoadError(it, "Unable to update favorite") }
     }
 
     fun ensureArtwork(track: Track) {
@@ -158,16 +159,19 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun createPlaylist() = viewModelScope.launch {
-        val id = playlistRepository.create("Playlist ${_state.value.playlists.size + 1}")
-        selectPlaylist(id)
+        runCatching { playlistRepository.create("Playlist ${_state.value.playlists.size + 1}") }
+            .onSuccess(::selectPlaylist)
+            .onFailure { reportLoadError(it, "Unable to create playlist") }
     }
 
     fun renamePlaylist(playlistId: UUID, title: String) = viewModelScope.launch {
-        playlistRepository.rename(playlistId, title)
+        runCatching { playlistRepository.rename(playlistId, title) }
+            .onFailure { reportLoadError(it, "Unable to rename playlist") }
     }
 
     fun addToPlaylist(track: Track, playlistId: UUID) = viewModelScope.launch {
-        playlistRepository.addTrack(playlistId, track.id)
+        runCatching { playlistRepository.addTrack(playlistId, track.id) }
+            .onFailure { reportLoadError(it, "Unable to update playlist") }
     }
 
     private var playlistTracksJob: Job? = null
@@ -184,23 +188,27 @@ class LibraryViewModel @Inject constructor(
             )
         }
         playlistTracksJob = viewModelScope.launch {
-            playlistRepository.observeTracks(playlistId).collect { tracks ->
-                _state.update { it.copy(selectedPlaylistTracks = tracks) }
-            }
+            playlistRepository.observeTracks(playlistId)
+                .catch { error -> reportLoadError(error, "Unable to load playlist") }
+                .collect { tracks ->
+                    _state.update { it.copy(selectedPlaylistTracks = tracks) }
+                }
         }
     }
 
     fun movePlaylistTrack(fromIndex: Int, toIndex: Int) {
         val id = _state.value.selectedPlaylistId ?: return
         viewModelScope.launch {
-            playlistRepository.moveTrack(id, fromIndex, toIndex)
+            runCatching { playlistRepository.moveTrack(id, fromIndex, toIndex) }
+                .onFailure { reportLoadError(it, "Unable to reorder playlist") }
         }
     }
 
     fun removePlaylistTrack(track: Track) {
         val id = _state.value.selectedPlaylistId ?: return
         viewModelScope.launch {
-            playlistRepository.removeTrack(id, track.id)
+            runCatching { playlistRepository.removeTrack(id, track.id) }
+                .onFailure { reportLoadError(it, "Unable to update playlist") }
         }
     }
 
@@ -211,8 +219,17 @@ class LibraryViewModel @Inject constructor(
     fun saveQueueToPlaylist() = viewModelScope.launch {
         val items = queueRepository.queueState.value.items
         if (items.isEmpty()) return@launch
-        val id = playlistRepository.create("Saved queue ${_state.value.playlists.size + 1}")
-        playlistRepository.replaceTracks(id, items.map { it.id })
-        selectPlaylist(id)
+        runCatching {
+            val id = playlistRepository.create("Saved queue ${_state.value.playlists.size + 1}")
+            playlistRepository.replaceTracks(id, items.map { it.id })
+            id
+        }.onSuccess(::selectPlaylist)
+            .onFailure { reportLoadError(it, "Unable to save queue") }
+    }
+
+    private fun reportLoadError(error: Throwable, fallback: String) {
+        _state.update {
+            it.copy(errorMessage = error.message?.takeIf(String::isNotBlank) ?: fallback)
+        }
     }
 }

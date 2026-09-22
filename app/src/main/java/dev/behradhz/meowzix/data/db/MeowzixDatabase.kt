@@ -20,7 +20,7 @@ import androidx.room.TypeConverters
         TrackTimePreferenceEntity::class,
         AudioFeatureVectorEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 @TypeConverters(DbConverters::class)

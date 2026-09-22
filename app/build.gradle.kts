@@ -52,6 +52,16 @@ room {
     schemaDirectory("$projectDir/schemas")
 }
 
+// MigrationTestHelper reads schemas from androidTest assets. Room writes the current generated
+// schema into app/schemas via copyRoomSchemas, so finish that staging step before the test-assets
+// task snapshots the directory. This keeps historical schemas as migration inputs while ensuring
+// the current target schema is available for validation in the same clean CI checkout.
+tasks.configureEach {
+    if (name.startsWith("copyRoomSchemasToAndroidTestAssets")) {
+        dependsOn("copyRoomSchemas")
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
     val serializationBom = platform("org.jetbrains.kotlinx:kotlinx-serialization-bom:1.8.1")

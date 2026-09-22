@@ -17,6 +17,7 @@ import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -139,7 +140,9 @@ class ResolvingPlaybackController @Inject constructor(
 
     override fun seekTo(positionMs: Long) {
         activeHistoryId?.let { playbackId ->
-            scope.launch { history.recordSeek(playbackId, positionMs, lastPlaybackState.durationMs) }
+            scope.launch {
+                historySafely { history.recordSeek(playbackId, positionMs, lastPlaybackState.durationMs) }
+            }
         }
         delegate.seekTo(positionMs)
     }
@@ -165,12 +168,14 @@ class ResolvingPlaybackController @Inject constructor(
         val newTrackId = playback.currentTrack?.id
         if (newTrackId != historyTrackId) {
             activeHistoryId?.let { playbackId ->
-                history.finalizePlayback(
-                    playbackId,
-                    lastPlaybackState.positionMs,
-                    lastPlaybackState.durationMs,
-                    intentionalSkip,
-                )
+                historySafely {
+                    history.finalizePlayback(
+                        playbackId,
+                        lastPlaybackState.positionMs,
+                        lastPlaybackState.durationMs,
+                        intentionalSkip,
+                    )
+                }
             }
             activeHistoryId = null
             historyTrackId = newTrackId
@@ -181,8 +186,14 @@ class ResolvingPlaybackController @Inject constructor(
                     PlaybackMode.SMART_SHUFFLE -> PlaybackInitiator.SMART_SHUFFLE
                     PlaybackMode.ORDERED -> PlaybackInitiator.QUEUE
                 }
-                if (settingsRepository.networkPlaybackSettings.first().listeningHistoryEnabled) {
-                    activeHistoryId = history.startPlayback(newTrackId, initiator, playback.playbackMode)
+                if (historyEnabledSafely()) {
+                    // A persisted Media3 queue can briefly contain an item whose canonical Track
+                    // row was removed or has not been rehydrated yet. History has foreign keys to
+                    // Track, so treat that bookkeeping failure as non-fatal instead of allowing an
+                    // uncaught coroutine exception to terminate the app process during startup.
+                    activeHistoryId = historySafely {
+                        history.startPlayback(newTrackId, initiator, playback.playbackMode)
+                    }
                 }
                 nextInitiator = null
             }
@@ -196,10 +207,28 @@ class ResolvingPlaybackController @Inject constructor(
                 false,
             ) == ListeningEventType.PLAY_COMPLETED
         ) {
-            history.finalizePlayback(playbackId, playback.positionMs, playback.durationMs, false)
+            historySafely {
+                history.finalizePlayback(playbackId, playback.positionMs, playback.durationMs, false)
+            }
             activeHistoryId = null
         }
         lastPlaybackState = playback
+    }
+
+    private suspend fun historyEnabledSafely(): Boolean = try {
+        settingsRepository.networkPlaybackSettings.first().listeningHistoryEnabled
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        false
+    }
+
+    private suspend fun <T> historySafely(block: suspend () -> T): T? = try {
+        block()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        null
     }
 
     private fun resolveAndPlayNow(trackId: UUID) {
