@@ -53,7 +53,7 @@ object AudioFeatureVectorCodec {
         AudioVectorFormat.FLOAT64_LE -> {
             require(blob.size % Double.SIZE_BYTES == 0) { "Corrupt audio feature vector length." }
             val buffer = ByteBuffer.wrap(blob).order(ByteOrder.LITTLE_ENDIAN)
-            DoubleArray(blob.size / Double.SIZE_BYTES) { buffer.double }
+            DoubleArray(blob.size / Double.SIZE_BYTES) { buffer.getDouble() }
         }
     }
 }
