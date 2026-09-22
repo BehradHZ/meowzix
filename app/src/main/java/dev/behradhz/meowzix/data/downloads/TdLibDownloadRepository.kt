@@ -121,6 +121,8 @@ class TdLibDownloadRepository @Inject constructor(
     }
 
     private suspend fun download(trackId: UUID) {
+        if (reuseExistingLocalCopy(trackId)) return
+
         val settings = settingsRepository.networkPlaybackSettings.first()
         networkPolicy.blockReason(settings, NetworkUse.USER_REQUEST)?.let(::error)
         val accountId = telegramRepository.musicSourceState.value.accountId
@@ -130,10 +132,6 @@ class TdLibDownloadRepository @Inject constructor(
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
         val remoteSource = requireNotNull(libraryDao.sourceById(telegramSource.trackSourceId))
 
-        // TDLib file ids belong to the active TDLib database and can become stale after a
-        // logout/re-login or session rebuild. Re-fetch the originating message before every
-        // explicit offline download so we always use the current file object instead of a Room
-        // snapshot that may now produce TDLib's "File not found" error.
         val refreshedMessage = client.send(TdApi.GetMessage(telegramSource.chatId, telegramSource.messageId))
         val candidate = refreshedMessage.toAudioCandidate()
         if (candidate == null) {
@@ -197,20 +195,7 @@ class TdLibDownloadRepository @Inject constructor(
             ?: error("Telegram download did not complete.")
         val sourceFile = File(tdPath).takeIf(File::isFile) ?: error("Downloaded file is missing.")
 
-        offlineDirectory.mkdirs()
-        val extension = candidate.fileName?.substringAfterLast('.', "")
-            ?.takeIf { it.matches(Regex("[A-Za-z0-9]{1,8}")) }
-        val destination = File(offlineDirectory, trackId.toString() + extension?.let { ".$it" }.orEmpty())
-        val partial = File(offlineDirectory, destination.name + ".part")
-        val digest = MessageDigest.getInstance("SHA-256")
-        sourceFile.inputStream().buffered().use { input ->
-            partial.outputStream().buffered().use { output ->
-                DigestOutputStream(output, digest).use(input::copyTo)
-            }
-        }
-        if (destination.exists() && !destination.delete()) error("Unable to replace offline copy.")
-        if (!partial.renameTo(destination)) error("Unable to finalize offline copy.")
-        val hash = digest.digest().joinToString("") { "%02x".format(it) }
+        val localCopy = copyIntoOfflineDirectory(trackId, sourceFile, candidate.fileName)
         val completedAt = Instant.now().toEpochMilli()
         database.withTransaction {
             val previousOfflineSource = libraryDao.sourceById(offlineSourceId(trackId))
@@ -221,10 +206,10 @@ class TdLibDownloadRepository @Inject constructor(
                     type = TrackSourceType.APP_OFFLINE_COPY,
                     availability = SourceAvailability.AVAILABLE_LOCAL,
                     contentUri = null,
-                    localPath = destination.absolutePath,
+                    localPath = localCopy.file.absolutePath,
                     mimeType = candidate.mimeType ?: remoteSource.mimeType,
-                    fileSizeBytes = destination.length(),
-                    contentHashSha256 = hash,
+                    fileSizeBytes = localCopy.file.length(),
+                    contentHashSha256 = localCopy.sha256,
                     trainingEligible = remoteSource.trainingEligible,
                     createdAtEpochMs = previousOfflineSource?.createdAtEpochMs ?: completedAt,
                     lastVerifiedAtEpochMs = completedAt,
@@ -234,13 +219,160 @@ class TdLibDownloadRepository @Inject constructor(
                 initial.copy(
                     tdFileId = downloaded.id,
                     status = DownloadStatus.COMPLETED.name,
-                    downloadedBytes = destination.length(),
-                    totalBytes = destination.length(),
-                    localPath = destination.absolutePath,
+                    downloadedBytes = localCopy.file.length(),
+                    totalBytes = localCopy.file.length(),
+                    localPath = localCopy.file.absolutePath,
                     updatedAtEpochMs = completedAt,
                 ),
             )
         }
+    }
+
+    private suspend fun reuseExistingLocalCopy(trackId: UUID): Boolean {
+        val existing = downloadDao.byTrackId(trackId.toString())
+        val existingFile = existing?.localPath?.let(::File)?.takeIf(File::isFile)
+        if (existing?.status == DownloadStatus.COMPLETED.name && existingFile != null) {
+            if (!existing.pinned || existing.failureReason != null) {
+                downloadDao.upsert(
+                    existing.copy(
+                        pinned = true,
+                        failureReason = null,
+                        downloadedBytes = existingFile.length(),
+                        totalBytes = existingFile.length(),
+                        updatedAtEpochMs = Instant.now().toEpochMilli(),
+                    ),
+                )
+            }
+            return true
+        }
+
+        val localSources = libraryDao.sourcesForTrack(trackId.toString())
+            .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
+            .sortedBy(::localReusePriority)
+
+        for (source in localSources) {
+            when {
+                source.type == TrackSourceType.APP_OFFLINE_COPY && !source.localPath.isNullOrBlank() -> {
+                    val file = source.localPath?.let(::File)?.takeIf(File::isFile) ?: continue
+                    markExistingSourceCompleted(trackId, source, file, existing)
+                    return true
+                }
+                source.type == TrackSourceType.TDLIB_LOCAL && !source.localPath.isNullOrBlank() -> {
+                    val file = source.localPath?.let(::File)?.takeIf(File::isFile) ?: continue
+                    val localCopy = copyIntoOfflineDirectory(trackId, file, file.name)
+                    val now = Instant.now().toEpochMilli()
+                    val previousOfflineSource = libraryDao.sourceById(offlineSourceId(trackId))
+                    database.withTransaction {
+                        libraryDao.upsertSource(
+                            TrackSourceEntity(
+                                id = offlineSourceId(trackId),
+                                trackId = trackId.toString(),
+                                type = TrackSourceType.APP_OFFLINE_COPY,
+                                availability = SourceAvailability.AVAILABLE_LOCAL,
+                                contentUri = null,
+                                localPath = localCopy.file.absolutePath,
+                                mimeType = source.mimeType,
+                                fileSizeBytes = localCopy.file.length(),
+                                contentHashSha256 = localCopy.sha256,
+                                trainingEligible = source.trainingEligible,
+                                createdAtEpochMs = previousOfflineSource?.createdAtEpochMs ?: now,
+                                lastVerifiedAtEpochMs = now,
+                            ),
+                        )
+                        downloadDao.upsert(
+                            completedRecord(trackId, source.id, localCopy.file, existing, now),
+                        )
+                    }
+                    return true
+                }
+                source.type == TrackSourceType.LOCAL_MEDIASTORE && !source.contentUri.isNullOrBlank() -> {
+                    val now = Instant.now().toEpochMilli()
+                    downloadDao.upsert(
+                        DownloadRecordEntity(
+                            id = existing?.id ?: UUID.randomUUID().toString(),
+                            trackId = trackId.toString(),
+                            trackSourceId = source.id,
+                            tdFileId = existing?.tdFileId,
+                            status = DownloadStatus.COMPLETED.name,
+                            downloadedBytes = source.fileSizeBytes ?: 0L,
+                            totalBytes = source.fileSizeBytes,
+                            localPath = null,
+                            pinned = true,
+                            failureReason = null,
+                            createdAtEpochMs = existing?.createdAtEpochMs ?: now,
+                            updatedAtEpochMs = now,
+                        ),
+                    )
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private suspend fun markExistingSourceCompleted(
+        trackId: UUID,
+        source: TrackSourceEntity,
+        file: File,
+        existing: DownloadRecordEntity?,
+    ) {
+        val now = Instant.now().toEpochMilli()
+        downloadDao.upsert(completedRecord(trackId, source.id, file, existing, now))
+    }
+
+    private fun completedRecord(
+        trackId: UUID,
+        trackSourceId: String,
+        file: File,
+        existing: DownloadRecordEntity?,
+        now: Long,
+    ) = DownloadRecordEntity(
+        id = existing?.id ?: UUID.randomUUID().toString(),
+        trackId = trackId.toString(),
+        trackSourceId = trackSourceId,
+        tdFileId = existing?.tdFileId,
+        status = DownloadStatus.COMPLETED.name,
+        downloadedBytes = file.length(),
+        totalBytes = file.length(),
+        localPath = file.absolutePath,
+        pinned = true,
+        failureReason = null,
+        createdAtEpochMs = existing?.createdAtEpochMs ?: now,
+        updatedAtEpochMs = now,
+    )
+
+    private fun copyIntoOfflineDirectory(trackId: UUID, sourceFile: File, fileName: String?): LocalCopy {
+        offlineDirectory.mkdirs()
+        val extension = fileName?.substringAfterLast('.', "")
+            ?.takeIf { it.matches(Regex("[A-Za-z0-9]{1,8}")) }
+        val destination = File(offlineDirectory, trackId.toString() + extension?.let { ".$it" }.orEmpty())
+        if (destination.isFile && destination.length() == sourceFile.length()) {
+            return LocalCopy(destination, sha256(destination))
+        }
+        val partial = File(offlineDirectory, destination.name + ".part")
+        val digest = MessageDigest.getInstance("SHA-256")
+        sourceFile.inputStream().buffered().use { input ->
+            partial.outputStream().buffered().use { output ->
+                DigestOutputStream(output, digest).use(input::copyTo)
+            }
+        }
+        if (destination.exists() && !destination.delete()) error("Unable to replace offline copy.")
+        if (!partial.renameTo(destination)) error("Unable to finalize offline copy.")
+        val hash = digest.digest().joinToString("") { "%02x".format(it) }
+        return LocalCopy(destination, hash)
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private suspend fun markCanceled(trackId: UUID) = updateStatus(trackId, DownloadStatus.CANCELED, null)
@@ -268,9 +400,18 @@ class TdLibDownloadRepository @Inject constructor(
         "app-offline:$trackId".toByteArray(),
     ).toString()
 
+    private data class LocalCopy(val file: File, val sha256: String)
+
     private companion object {
         const val PIN_PRIORITY = 32
     }
+}
+
+private fun localReusePriority(source: TrackSourceEntity): Int = when (source.type) {
+    TrackSourceType.APP_OFFLINE_COPY -> 0
+    TrackSourceType.TDLIB_LOCAL -> 1
+    TrackSourceType.LOCAL_MEDIASTORE -> 2
+    else -> 3
 }
 
 internal object CacheEvictionPolicy {

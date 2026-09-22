@@ -168,18 +168,12 @@ class LocalMusicLibraryRepository @Inject constructor(
                         fetchHighQualityArtwork(client, trackId)
                     }.getOrDefault(false)
 
-                    // Transient failures may retry when a row/player becomes visible again.
-                    // Successful fetches and tracks with no Telegram artwork stay deduplicated.
                     if (!terminal) artworkAttempts.remove(trackId)
                 }
             }
         }
     }
 
-    /**
-     * Only the real Telegram album-cover thumbnail file is persisted. The tiny minithumbnail is
-     * intentionally ignored so list and player artwork never settle on the low-resolution preview.
-     */
     private suspend fun fetchHighQualityArtwork(
         client: TdLibClientAdapter,
         trackId: String,
@@ -250,6 +244,18 @@ class LocalMusicLibraryRepository @Inject constructor(
                     contentUri = row.contentUri,
                 )
             }
+
+    override suspend fun isTrackLocallyPlayable(trackId: UUID): Boolean {
+        val track = dao.trackById(trackId.toString()) ?: return false
+        if (track.hidden) return false
+        return dao.sourcesForTrack(trackId.toString()).any { source ->
+            source.availability == SourceAvailability.AVAILABLE_LOCAL && when {
+                !source.contentUri.isNullOrBlank() -> true
+                !source.localPath.isNullOrBlank() -> source.localPath?.let { File(it).isFile } == true
+                else -> false
+            }
+        }
+    }
 
     override suspend fun availableTracks(): List<PlayableTrack> {
         val tracks = dao.availableTracks()
