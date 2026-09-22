@@ -21,6 +21,7 @@ import dev.behradhz.meowzix.data.telegram.toAudioCandidate
 import dev.behradhz.meowzix.domain.library.LibraryTrack
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
+import dev.behradhz.meowzix.domain.library.LocalMediaPermissionRevokedException
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
@@ -77,7 +78,12 @@ class LocalMusicLibraryRepository @Inject constructor(
         }
 
     override suspend fun refreshLocalMusic(): LocalLibraryRefreshResult {
-        val scanned = scanner.scan()
+        val scanned = try {
+            scanner.scan()
+        } catch (_: SecurityException) {
+            markLocalMediaUnavailable()
+            throw LocalMediaPermissionRevokedException()
+        }
         val now = Instant.now().toEpochMilli()
 
         val plan = database.withTransaction {
@@ -115,6 +121,17 @@ class LocalMusicLibraryRepository @Inject constructor(
             plan.toUpdate.size,
             plan.missingSourceIds.size,
         )
+    }
+
+    override suspend fun markLocalMediaUnavailable() {
+        val sourceIds = dao.allLocalSources().map { it.id }
+        if (sourceIds.isNotEmpty()) {
+            dao.updateAvailability(
+                sourceIds,
+                SourceAvailability.MISSING,
+                Instant.now().toEpochMilli(),
+            )
+        }
     }
 
     override suspend fun unmergeSource(sourceId: UUID): UUID = database.withTransaction {
