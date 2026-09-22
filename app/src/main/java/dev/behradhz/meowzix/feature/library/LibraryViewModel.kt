@@ -69,8 +69,6 @@ class LibraryViewModel @Inject constructor(
                             errorMessage = null,
                         )
                     }
-                    // Artwork is deliberately not prefetched for the whole library. Visible rows
-                    // and Now Playing request the high-quality image only when they need it.
                 }
         }
         viewModelScope.launch {
@@ -123,6 +121,13 @@ class LibraryViewModel @Inject constructor(
                         )
                     }
                 }
+        }
+    }
+
+    fun localMediaPermissionRevoked() = viewModelScope.launch {
+        repository.markLocalMediaUnavailable()
+        _state.update {
+            it.copy(errorMessage = "Music permission was revoked. Grant audio access again to restore local tracks.")
         }
     }
 
