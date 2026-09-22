@@ -8,6 +8,7 @@ import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackItem
+import java.util.UUID
 
 private const val PLAYBACK_MODE_KEY = "meowzix.playback_mode"
 private const val REPEAT_MODE_KEY = "meowzix.repeat_mode"
@@ -30,6 +31,28 @@ fun PlayableTrack.toMediaItem(
             .build(),
     )
     .build()
+
+fun PlayableTrack.toPersistedPlaybackItem(): PersistedPlaybackItem = PersistedPlaybackItem(
+    mediaId = id.toString(),
+    uri = contentUri,
+    title = title,
+    artist = artist,
+    artworkUri = artworkRef,
+    durationMs = durationMs.coerceAtLeast(0),
+)
+
+fun PersistedPlaybackItem.toPlayableTrack(): PlayableTrack? {
+    val trackId = runCatching { UUID.fromString(mediaId) }.getOrNull() ?: return null
+    return PlayableTrack(
+        id = trackId,
+        title = title.ifBlank { "Unknown Track" },
+        artist = artist,
+        album = null,
+        durationMs = durationMs.coerceAtLeast(0),
+        artworkRef = artworkUri,
+        contentUri = uri,
+    )
+}
 
 fun PersistedPlaybackItem.toMediaItem(
     playbackMode: PlaybackMode = PlaybackMode.ORDERED,
