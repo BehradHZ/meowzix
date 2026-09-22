@@ -403,12 +403,11 @@ class PlaybackService : MediaSessionService() {
                 val catalogItems = runCatching { playbackCatalog.availableTracks() }
                     .getOrNull()
                     ?.map { it.toMediaItem(playbackMode, repeatMode) }
+                    ?.takeIf { it.isNotEmpty() }
+                // A transient empty catalog (DB refresh, source rescan, or startup restore) must not
+                // erase a valid in-memory queue at the repeat-all boundary. Keep the current cycle
+                // as the fallback and let the next cycle reconcile with the canonical catalog.
                 val eligibleItems = catalogItems ?: currentItems
-                if (eligibleItems.isEmpty()) {
-                    player.clearMediaItems()
-                    schedulePersist()
-                    return@launch
-                }
                 val previousLastItem = eligibleItems.firstOrNull { it.mediaId == previousLastId }
                 val nextCycle = PureShuffleEngine.newCycle(eligibleItems, previousLastItem).order
                 player.repeatMode = repeatMode.toPlayerRepeatMode(playbackMode)
