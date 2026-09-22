@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.feature.downloads
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +44,7 @@ fun DownloadsRoute(viewModel: DownloadsViewModel = hiltViewModel()) {
     val rows by viewModel.rows.collectAsStateWithLifecycle()
     val settings by viewModel.networkSettings.collectAsStateWithLifecycle()
     val selectedChats by viewModel.selectedTelegramChats.collectAsStateWithLifecycle()
+    val chatDownloadProgress by viewModel.chatDownloadProgress.collectAsStateWithLifecycle()
     val active = rows.filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
     val rest = rows.filterNot { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
     LazyColumn(
@@ -57,7 +60,11 @@ fun DownloadsRoute(viewModel: DownloadsViewModel = hiltViewModel()) {
         if (selectedChats.isNotEmpty()) {
             item { SectionTitle("Telegram sources") }
             items(selectedChats, key = { it.chatId }) { chat ->
-                TelegramDownloadSource(chat) { viewModel.downloadAll(chat.chatId) }
+                TelegramDownloadSource(
+                    chat = chat,
+                    progress = chatDownloadProgress[chat.chatId],
+                    onToggleDownloadAll = { viewModel.toggleDownloadAll(chat.chatId) },
+                )
             }
         }
         if (active.isNotEmpty()) {
@@ -74,17 +81,52 @@ fun DownloadsRoute(viewModel: DownloadsViewModel = hiltViewModel()) {
 }
 
 @Composable
-private fun TelegramDownloadSource(chat: TelegramChatSummary, onDownloadAll: () -> Unit) {
+private fun TelegramDownloadSource(
+    chat: TelegramChatSummary,
+    progress: ChatDownloadProgress?,
+    onToggleDownloadAll: () -> Unit,
+) {
     Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.52f)) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             ChatAvatar(chat.profilePhotoRef, chat.title, size = 48.dp)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(chat.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("Selected Telegram source", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f))
+                Text(
+                    text = progress?.let {
+                        "Downloading ${it.completedTracks} of ${it.totalTracks} · tap the ring to stop"
+                    } ?: "Selected Telegram source",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            Button(onClick = onDownloadAll, shape = RoundedCornerShape(16.dp)) {
-                Icon(Icons.Rounded.DownloadForOffline, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.size(6.dp)); Text("All")
+            if (progress != null) {
+                Surface(
+                    onClick = onToggleDownloadAll,
+                    modifier = Modifier.size(62.dp),
+                    shape = RoundedCornerShape(31.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                    contentColor = MaterialTheme.colorScheme.primary,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(
+                            progress = { progress.fraction },
+                            modifier = Modifier.size(50.dp),
+                            strokeWidth = 4.dp,
+                        )
+                        Text(
+                            text = progress.completedTracks.toString(),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            } else {
+                Button(onClick = onToggleDownloadAll, shape = RoundedCornerShape(16.dp)) {
+                    Icon(Icons.Rounded.DownloadForOffline, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp)); Text("All")
+                }
             }
         }
     }

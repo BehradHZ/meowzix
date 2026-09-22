@@ -12,6 +12,7 @@ data class OfflineDownload(
     val totalBytes: Long?,
     val pinned: Boolean,
     val failureReason: String?,
+    val updatedAtEpochMs: Long = 0L,
 )
 
 interface DownloadRepository {

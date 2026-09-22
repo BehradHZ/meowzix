@@ -65,6 +65,7 @@ class TdLibDownloadRepository @Inject constructor(
                 totalBytes = row.totalBytes,
                 pinned = row.pinned,
                 failureReason = row.failureReason,
+                updatedAtEpochMs = row.updatedAtEpochMs,
             )
         }
     }
