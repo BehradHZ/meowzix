@@ -252,11 +252,11 @@ class LocalMusicLibraryRepository @Inject constructor(
             }
 
     override suspend fun availableTracks(): List<PlayableTrack> {
-        val tracks = dao.allTracks().filterNot { it.hidden }
+        val tracks = dao.availableTracks()
         val sourcesByTrack = dao.allSources()
             .filter { it.availability != SourceAvailability.MISSING }
             .groupBy { it.trackId }
-        val telegramBySource = telegramDao.allTelegramTrackSources().associateBy { it.trackSourceId }
+        val telegramBySource = telegramDao.allSelectedTelegramTrackSources().associateBy { it.trackSourceId }
 
         return tracks.mapNotNull { track ->
             val sources = sourcesByTrack[track.id].orEmpty()
