@@ -8,43 +8,47 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dev.behradhz.meowzix.data.db.AudioFeatureDao
+import dev.behradhz.meowzix.data.db.DownloadDao
+import dev.behradhz.meowzix.data.db.HistoryDao
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.MIGRATION_1_2
 import dev.behradhz.meowzix.data.db.MIGRATION_2_3
 import dev.behradhz.meowzix.data.db.MIGRATION_3_4
 import dev.behradhz.meowzix.data.db.MIGRATION_4_5
 import dev.behradhz.meowzix.data.db.MIGRATION_5_6
+import dev.behradhz.meowzix.data.db.MIGRATION_6_7
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
-import dev.behradhz.meowzix.data.db.TelegramDao
-import dev.behradhz.meowzix.data.db.DownloadDao
 import dev.behradhz.meowzix.data.db.PlaylistDao
-import dev.behradhz.meowzix.data.db.HistoryDao
+import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.downloads.TdLibDownloadRepository
+import dev.behradhz.meowzix.data.history.RoomListeningHistoryRepository
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
-import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
-import dev.behradhz.meowzix.data.repository.RoomPlaylistRepository
-import dev.behradhz.meowzix.data.history.RoomListeningHistoryRepository
+import dev.behradhz.meowzix.data.recommendation.AndroidPcmAudioFeatureExtractor
 import dev.behradhz.meowzix.data.recommendation.HeuristicRecommendationEngine
 import dev.behradhz.meowzix.data.recommendation.LocalLinearPersonalizationModel
+import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
+import dev.behradhz.meowzix.data.repository.RoomPlaylistRepository
 import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
 import dev.behradhz.meowzix.data.telegram.TdLibRemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.data.telegram.TdLibTelegramForwardRepository
 import dev.behradhz.meowzix.data.telegram.TdLibTelegramRepository
+import dev.behradhz.meowzix.domain.downloads.DownloadRepository
+import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
-import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
-import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
-import dev.behradhz.meowzix.domain.telegram.TelegramRepository
-import dev.behradhz.meowzix.domain.settings.SettingsRepository
-import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
+import dev.behradhz.meowzix.domain.recommendation.AudioFeatureExtractor
 import dev.behradhz.meowzix.domain.recommendation.PersonalizationModel
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.playback.AndroidAudioVisualizer
 import dev.behradhz.meowzix.playback.ResolvingPlaybackController
 import javax.inject.Singleton
@@ -110,6 +114,10 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
+    abstract fun bindAudioFeatureExtractor(impl: AndroidPcmAudioFeatureExtractor): AudioFeatureExtractor
+
+    @Binds
+    @Singleton
     abstract fun bindLocalMediaScanner(impl: MediaStoreScanner): LocalMediaScanner
 }
 
@@ -120,7 +128,14 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MeowzixDatabase =
         Room.databaseBuilder(context, MeowzixDatabase::class.java, "meowzix.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+            )
             .build()
 
     @Provides
@@ -137,4 +152,7 @@ object DatabaseModule {
 
     @Provides
     fun provideHistoryDao(database: MeowzixDatabase): HistoryDao = database.historyDao()
+
+    @Provides
+    fun provideAudioFeatureDao(database: MeowzixDatabase): AudioFeatureDao = database.audioFeatureDao()
 }
