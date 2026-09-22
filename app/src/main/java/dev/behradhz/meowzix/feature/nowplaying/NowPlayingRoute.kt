@@ -31,8 +31,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,6 +60,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import dev.behradhz.meowzix.ui.components.AudioSpectrum
+import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
 import dev.chrisbanes.haze.HazeState
@@ -194,7 +193,7 @@ private fun NowPlayingScreen(
                     .height(58.dp),
             )
 
-            Slider(
+            CurlyMusicSlider(
                 value = shownPosition.toFloat(),
                 onValueChange = { pendingSeek = it },
                 onValueChangeFinished = {
@@ -203,17 +202,11 @@ private fun NowPlayingScreen(
                 },
                 valueRange = 0f..duration.toFloat(),
                 enabled = state.durationMs > 0L,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(36.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = PlayerPrimaryContent,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = PlayerPrimaryContent.copy(alpha = 0.24f),
-                    disabledThumbColor = PlayerSecondaryContent.copy(alpha = 0.45f),
-                    disabledActiveTrackColor = PlayerSecondaryContent.copy(alpha = 0.30f),
-                    disabledInactiveTrackColor = PlayerSecondaryContent.copy(alpha = 0.14f),
-                ),
+                isPlaying = state.status == PlaybackStatus.PLAYING,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = PlayerPrimaryContent.copy(alpha = 0.24f),
+                thumbColor = PlayerPrimaryContent,
+                modifier = Modifier.fillMaxWidth(),
             )
 
             Row(
