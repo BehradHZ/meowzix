@@ -12,6 +12,7 @@ import javax.inject.Singleton
 @Singleton
 class ProgressiveQueue @Inject constructor() {
     private val tracks = mutableListOf<PlayableTrack>()
+    private val trackIds = hashSetOf<UUID>()
     private var currentIndex = -1
     private var materializedStartIndex = 0
     private var materializedEndExclusive = 0
@@ -31,6 +32,8 @@ class ProgressiveQueue @Inject constructor() {
         require(unique.isNotEmpty()) { "Progressive queue requires at least one track" }
         tracks.clear()
         tracks.addAll(unique)
+        trackIds.clear()
+        trackIds.addAll(unique.map(PlayableTrack::id))
         currentIndex = requestedStartIndex.coerceIn(tracks.indices)
         playbackMode = mode
         repeatMode = repeat
@@ -56,6 +59,8 @@ class ProgressiveQueue @Inject constructor() {
         }
         tracks.clear()
         tracks.addAll(restored)
+        trackIds.clear()
+        trackIds.addAll(restored.map(PlayableTrack::id))
         currentIndex = requestedCurrentIndex.coerceIn(tracks.indices)
         materializedStartIndex = requestedMaterializedStartIndex.coerceIn(0, currentIndex)
         materializedEndExclusive = requestedMaterializedEndExclusive
@@ -126,7 +131,7 @@ class ProgressiveQueue @Inject constructor() {
 
     @Synchronized
     fun insertNext(track: PlayableTrack): Boolean {
-        if (containsLocked(track.id)) return false
+        if (!trackIds.add(track.id)) return false
         if (tracks.isEmpty()) {
             tracks += track
             currentIndex = 0
@@ -138,7 +143,7 @@ class ProgressiveQueue @Inject constructor() {
 
     @Synchronized
     fun append(track: PlayableTrack): Boolean {
-        if (containsLocked(track.id)) return false
+        if (!trackIds.add(track.id)) return false
         tracks += track
         if (currentIndex < 0) currentIndex = 0
         return true
@@ -148,7 +153,8 @@ class ProgressiveQueue @Inject constructor() {
     fun removeAt(index: Int): Boolean {
         if (index !in tracks.indices) return false
         val currentId = tracks.getOrNull(currentIndex)?.id
-        tracks.removeAt(index)
+        val removed = tracks.removeAt(index)
+        trackIds.remove(removed.id)
         if (tracks.isEmpty()) {
             clearLocked()
             return true
@@ -185,6 +191,8 @@ class ProgressiveQueue @Inject constructor() {
         tracks.clear()
         tracks.addAll(fixed)
         tracks.addAll(uniqueFuture)
+        trackIds.clear()
+        trackIds.addAll(tracks.map(PlayableTrack::id))
         playbackMode = mode
         shuffleSeed = seed
         materializedStartIndex = 0
@@ -233,10 +241,11 @@ class ProgressiveQueue @Inject constructor() {
         )
     }
 
-    private fun containsLocked(trackId: UUID): Boolean = tracks.any { it.id == trackId }
+    private fun containsLocked(trackId: UUID): Boolean = trackId in trackIds
 
     private fun clearLocked() {
         tracks.clear()
+        trackIds.clear()
         currentIndex = -1
         materializedStartIndex = 0
         materializedEndExclusive = 0
