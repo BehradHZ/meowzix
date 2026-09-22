@@ -73,8 +73,6 @@ class ResolvingPlaybackController @Inject constructor(
                 .distinctUntilChanged()
                 .collect { currentTrackId ->
                     if (currentTrackId != null && !isLocal(currentTrackId)) {
-                        // Automatic queue transitions bypass playTrack(). Warm the current remote
-                        // item too so its full download is promoted to permanent app storage.
                         runCatching { remoteResolver.prepareForPlayback(currentTrackId) }
                     }
                 }
@@ -187,10 +185,6 @@ class ResolvingPlaybackController @Inject constructor(
                     PlaybackMode.ORDERED -> PlaybackInitiator.QUEUE
                 }
                 if (historyEnabledSafely()) {
-                    // A persisted Media3 queue can briefly contain an item whose canonical Track
-                    // row was removed or has not been rehydrated yet. History has foreign keys to
-                    // Track, so treat that bookkeeping failure as non-fatal instead of allowing an
-                    // uncaught coroutine exception to terminate the app process during startup.
                     activeHistoryId = historySafely {
                         history.startPlayback(newTrackId, initiator, playback.playbackMode)
                     }
@@ -268,6 +262,6 @@ class ResolvingPlaybackController @Inject constructor(
     }
 
     private suspend fun isLocal(trackId: UUID): Boolean = runCatching {
-        catalog.availableLocalTracks().any { it.id == trackId }
+        catalog.isTrackLocallyPlayable(trackId)
     }.getOrDefault(false)
 }
