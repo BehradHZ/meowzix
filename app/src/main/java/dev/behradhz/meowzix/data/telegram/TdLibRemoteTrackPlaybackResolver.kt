@@ -14,6 +14,7 @@ import dev.behradhz.meowzix.data.network.NetworkUse
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import java.io.File
 import java.time.Instant
@@ -21,6 +22,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,19 +52,27 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         val settings = settingsRepository.networkPlaybackSettings.first()
         networkPolicy.blockReason(settings, NetworkUse.USER_REQUEST)?.let(::error)
         val source = resolveSource(trackId) ?: return null
-        val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
+        val client = TdLibClientAdapter.activeOrNull()
+            ?: error("Telegram session is not ready. Reconnect Telegram and try again.")
 
         // Only wait for a small useful prefix. The Media3 TDLib data source consumes this prefix
         // immediately while a lower-priority full download continues in the background.
-        client.send(
-            TdApi.DownloadFile(
-                source.candidate.fileId,
-                PLAYBACK_PRIORITY,
-                0L,
-                INITIAL_PLAYBACK_BYTES,
-                true,
-            ),
-        )
+        runCatching {
+            client.send(
+                TdApi.DownloadFile(
+                    source.candidate.fileId,
+                    PLAYBACK_PRIORITY,
+                    0L,
+                    INITIAL_PLAYBACK_BYTES,
+                    true,
+                ),
+            )
+        }.getOrElse { error ->
+            throw IllegalStateException(
+                "This Telegram file could not be refreshed. Check the source chat and try again.",
+                error,
+            )
+        }
 
         startPermanentDownload(trackId, source)
         val track = libraryDao.trackById(trackId.toString()) ?: return null
@@ -114,12 +124,30 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     }
 
     private suspend fun resolveSource(trackId: UUID): ResolvedTelegramSource? {
-        val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
+        val accountId = telegramRepository.musicSourceState.value.accountId ?: run {
+            val message = when (telegramRepository.authState.value.step) {
+                TelegramAuthStep.Ready -> "Telegram account information is still loading. Try again shortly."
+                TelegramAuthStep.ConfigurationRequired -> "Telegram API configuration is missing."
+                else -> "Telegram session is unavailable. Reconnect Telegram to play this track."
+            }
+            error(message)
+        }
         val telegramSource = telegramDao.telegramSourceForTrack(accountId, trackId.toString()) ?: return null
         val remoteSource = libraryDao.sourceById(telegramSource.trackSourceId) ?: return null
         if (remoteSource.availability == SourceAvailability.MISSING) return null
-        val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
-        val message = client.send(TdApi.GetMessage(telegramSource.chatId, telegramSource.messageId))
+        val client = TdLibClientAdapter.activeOrNull()
+            ?: error("Telegram session is not ready. Reconnect Telegram and try again.")
+
+        // Refresh the origin message every time. tdFileId/file references are cache hints, while
+        // chatId + messageId are the durable identity of a Telegram-backed source.
+        val message = runCatching {
+            client.send(TdApi.GetMessage(telegramSource.chatId, telegramSource.messageId))
+        }.getOrElse { error ->
+            throw IllegalStateException(
+                "The Telegram source could not be refreshed. The message may be deleted or the chat may be inaccessible.",
+                error,
+            )
+        }
         val candidate = message.toAudioCandidate()
         if (candidate == null) {
             libraryDao.updateAvailability(
@@ -180,6 +208,11 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                 extractFullArtwork(trackId, permanent)?.let { artworkUri ->
                     libraryDao.setArtworkRef(trackId.toString(), artworkUri, Instant.now().toEpochMilli())
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                // Permanent caching is best-effort after playback already has a usable prefix. A
+                // network/storage/provider failure here must never crash the process or stop audio.
             } finally {
                 activeFullFileIds -= fileId
                 fullDownloadJobs.remove(trackId)
@@ -188,7 +221,9 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     }
 
     private fun copyToPermanentCache(trackId: UUID, fileName: String?, source: File): File {
-        playbackDirectory.mkdirs()
+        if (!playbackDirectory.exists() && !playbackDirectory.mkdirs()) {
+            error("Unable to create playback cache")
+        }
         val extension = fileName?.substringAfterLast('.', "")
             ?.takeIf { it.matches(Regex("[A-Za-z0-9]{1,8}")) }
         val destination = File(
@@ -212,16 +247,16 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                 retriever.setDataSource(audioFile.absolutePath)
                 retriever.embeddedPicture
             } finally {
-                // MediaMetadataRetriever implements AutoCloseable only from API 29. release() is
-                // available on our minSdk (26), so use it directly for full compatibility.
                 retriever.release()
             }
         }.getOrNull() ?: return null
         if (bytes.isEmpty()) return null
-        artworkDirectory.mkdirs()
+        if (!artworkDirectory.exists() && !artworkDirectory.mkdirs()) return null
         val artworkFile = File(artworkDirectory, "$trackId.jpg")
-        artworkFile.writeBytes(bytes)
-        return Uri.fromFile(artworkFile).toString()
+        return runCatching {
+            artworkFile.writeBytes(bytes)
+            Uri.fromFile(artworkFile).toString()
+        }.getOrNull()
     }
 
     private data class ResolvedTelegramSource(
