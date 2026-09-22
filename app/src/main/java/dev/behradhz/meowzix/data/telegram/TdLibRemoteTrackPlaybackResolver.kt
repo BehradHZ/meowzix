@@ -53,6 +53,11 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         val source = resolveSource(trackId) ?: return null
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
 
+        // Resolve the real Telegram album-cover file before the MediaItem is created. This keeps
+        // the player and MediaSession notification on the same high-quality artwork URI instead of
+        // ever promoting the tiny minithumbnail into a playback surface.
+        ensureHighQualityArtwork(client, trackId, source.candidate)
+
         // Only wait for a small useful prefix. The Media3 TDLib data source consumes this prefix
         // immediately while a lower-priority full download continues in the background.
         client.send(
@@ -87,6 +92,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                 if (networkPolicy.blockReason(settings, NetworkUse.PREFETCH) != null) return@runCatching
                 val source = resolveSource(trackId) ?: return@runCatching
                 val client = TdLibClientAdapter.activeOrNull() ?: return@runCatching
+                ensureHighQualityArtwork(client, trackId, source.candidate)
                 prefetchedFileId = source.candidate.fileId
                 client.send(
                     TdApi.DownloadFile(
@@ -140,6 +146,54 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             ),
         )
         return ResolvedTelegramSource(telegramSource.trackSourceId, remoteSource, candidate)
+    }
+
+    private suspend fun ensureHighQualityArtwork(
+        client: TdLibClientAdapter,
+        trackId: UUID,
+        candidate: TelegramAudioCandidate,
+    ): String? {
+        val trackIdString = trackId.toString()
+        val current = libraryDao.trackById(trackIdString)?.artworkRef
+        if (!current.isNullOrBlank() && !current.contains("/artwork-preview/")) return current
+
+        val artworkFileId = candidate.artworkFileId ?: return current
+        val downloaded = runCatching {
+            client.send(
+                TdApi.DownloadFile(
+                    artworkFileId,
+                    ARTWORK_PRIORITY,
+                    0L,
+                    0L,
+                    true,
+                ),
+            )
+        }.getOrNull() ?: return current
+        val sourcePath = downloaded.local.path.takeIf {
+            downloaded.local.isDownloadingCompleted && it.isNotBlank()
+        } ?: return current
+        val sourceFile = File(sourcePath).takeIf(File::isFile) ?: return current
+
+        artworkDirectory.mkdirs()
+        val artworkFile = File(artworkDirectory, "$trackId.artwork")
+        val partial = File(artworkDirectory, "$trackId.artwork.part")
+        return runCatching {
+            sourceFile.inputStream().buffered().use { input ->
+                partial.outputStream().buffered().use(input::copyTo)
+            }
+            if (artworkFile.exists() && !artworkFile.delete()) {
+                error("Unable to replace cached artwork")
+            }
+            if (!partial.renameTo(artworkFile)) {
+                error("Unable to finalize cached artwork")
+            }
+            val uri = Uri.fromFile(artworkFile).toString()
+            libraryDao.setArtworkRef(trackIdString, uri, Instant.now().toEpochMilli())
+            uri
+        }.getOrElse {
+            partial.delete()
+            current
+        }
     }
 
     private fun startPermanentDownload(trackId: UUID, source: ResolvedTelegramSource) {
@@ -241,6 +295,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
 
     private companion object {
         const val PLAYBACK_PRIORITY = 32
+        const val ARTWORK_PRIORITY = 31
         const val BACKGROUND_PRIORITY = 20
         const val PREFETCH_PRIORITY = 4
         const val INITIAL_PLAYBACK_BYTES = 1536L * 1024L
