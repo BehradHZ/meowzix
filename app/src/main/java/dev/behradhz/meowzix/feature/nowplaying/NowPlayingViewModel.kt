@@ -56,12 +56,26 @@ class NowPlayingViewModel @Inject constructor(
             emptyList(),
         )
 
+    // Playback position changes several times a second. Build the lookup table only when the
+    // library itself changes so metadata/favorite resolution stays O(1) on the hot playback path.
+    private val libraryById = libraryTracks
+        .map { tracks -> tracks.associateBy { it.id } }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            emptyMap(),
+        )
+
+    private val currentTrackId = playbackController.state
+        .map { playback -> playback.currentTrack?.id }
+        .distinctUntilChanged()
+
     val state = combine(
         playbackController.state,
-        libraryTracks,
-    ) { playback, tracks ->
+        libraryById,
+    ) { playback, tracksById ->
         val current = playback.currentTrack ?: return@combine playback
-        val liveTrack = tracks.firstOrNull { it.id == current.id } ?: return@combine playback
+        val liveTrack = tracksById[current.id] ?: return@combine playback
         playback.copy(
             currentTrack = current.copy(
                 title = liveTrack.title,
@@ -79,12 +93,11 @@ class NowPlayingViewModel @Inject constructor(
     val spectrum = audioVisualizerRepository.spectrum
 
     val isFavorite = combine(
-        state,
-        libraryTracks,
-    ) { playback, tracks ->
-        val id = playback.currentTrack?.id
-        id != null && tracks.firstOrNull { it.id == id }?.favorite == true
-    }.stateIn(
+        currentTrackId,
+        libraryById,
+    ) { id, tracksById ->
+        id != null && tracksById[id]?.favorite == true
+    }.distinctUntilChanged().stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         false,
@@ -96,14 +109,11 @@ class NowPlayingViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            playbackController.state
-                .map { it.currentTrack?.id }
-                .distinctUntilChanged()
-                .collect { trackId ->
-                    if (trackId != null) {
-                        libraryRepository.prefetchArtwork(listOf(trackId))
-                    }
+            currentTrackId.collect { trackId ->
+                if (trackId != null) {
+                    libraryRepository.prefetchArtwork(listOf(trackId))
                 }
+            }
         }
         viewModelScope.launch {
             settingsRepository.telegramForwardSettings
