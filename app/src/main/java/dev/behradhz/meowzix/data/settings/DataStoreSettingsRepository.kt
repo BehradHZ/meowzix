@@ -7,6 +7,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -28,11 +29,25 @@ class DataStoreSettingsRepository @Inject constructor(
         )
     }
 
+    override val telegramForwardSettings: Flow<TelegramForwardSettings> = context.settingsDataStore.data.map { values ->
+        TelegramForwardSettings(
+            includeSourceAttribution = values[FORWARD_INCLUDE_SOURCE] ?: true,
+            keepCaption = values[FORWARD_KEEP_CAPTION] ?: true,
+        )
+    }
+
     override suspend fun setOfflineMode(enabled: Boolean) = set(OFFLINE_MODE, enabled)
     override suspend fun setWifiOnlyDownloads(enabled: Boolean) = set(WIFI_ONLY, enabled)
     override suspend fun setPrefetchEnabled(enabled: Boolean) = set(PREFETCH, enabled)
     override suspend fun setPrefetchOnMetered(enabled: Boolean) = set(PREFETCH_METERED, enabled)
     override suspend fun setListeningHistoryEnabled(enabled: Boolean) = set(LISTENING_HISTORY, enabled)
+
+    override suspend fun setTelegramForwardDefaults(includeSourceAttribution: Boolean, keepCaption: Boolean) {
+        context.settingsDataStore.edit {
+            it[FORWARD_INCLUDE_SOURCE] = includeSourceAttribution
+            it[FORWARD_KEEP_CAPTION] = if (includeSourceAttribution) true else keepCaption
+        }
+    }
 
     private suspend fun set(key: androidx.datastore.preferences.core.Preferences.Key<Boolean>, value: Boolean) {
         context.settingsDataStore.edit { it[key] = value }
@@ -44,5 +59,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val PREFETCH = booleanPreferencesKey("prefetch_enabled")
         val PREFETCH_METERED = booleanPreferencesKey("prefetch_on_metered")
         val LISTENING_HISTORY = booleanPreferencesKey("listening_history_enabled")
+        val FORWARD_INCLUDE_SOURCE = booleanPreferencesKey("telegram_forward_include_source")
+        val FORWARD_KEEP_CAPTION = booleanPreferencesKey("telegram_forward_keep_caption")
     }
 }
