@@ -214,8 +214,11 @@ class ProgressiveQueue @Inject constructor() {
         trackIds.addAll(tracks.map(PlayableTrack::id))
         playbackMode = mode
         shuffleSeed = seed
-        materializedStartIndex = 0
-        materializedEndExclusive = 0
+        // Keep the already materialized history/current item stable. Only the future portion of
+        // the Media3 window needs to be replaced when shuffle mode changes, so preserve the window
+        // start and reserve a fresh bounded forward window without forcing setMediaItems/prepare.
+        materializedStartIndex = materializedStartIndex.coerceIn(0, currentIndex)
+        materializedEndExclusive = (currentIndex + 1 + INITIAL_FORWARD_COUNT).coerceAtMost(tracks.size)
         invalidateSnapshot()
     }
 
