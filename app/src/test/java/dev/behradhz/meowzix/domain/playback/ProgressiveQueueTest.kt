@@ -57,6 +57,26 @@ class ProgressiveQueueTest {
     }
 
     @Test
+    fun `replacing future preserves current materialized window for gapless mode changes`() {
+        val queue = ProgressiveQueue()
+        val tracks = tracks(100)
+        queue.start(tracks, 20, PlaybackMode.ORDERED, RepeatMode.OFF)
+        val before = requireNotNull(queue.snapshot())
+        val replacement = tracks.drop(21).reversed()
+
+        queue.replaceFuture(replacement, PlaybackMode.PURE_SHUFFLE, seed = 42L)
+
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(20, after.currentIndex)
+        assertEquals(tracks[20].id, after.tracks[after.currentIndex].id)
+        assertEquals(before.materializedStartIndex, after.materializedStartIndex)
+        assertEquals(31, after.materializedEndExclusive)
+        assertEquals(PlaybackMode.PURE_SHUFFLE, after.playbackMode)
+        assertEquals(42L, after.shuffleSeed)
+        assertEquals(replacement.take(10).map { it.id }, after.tracks.subList(21, 31).map { it.id })
+    }
+
+    @Test
     fun `duplicate canonical track IDs are rejected from manual queue mutation`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(20)
