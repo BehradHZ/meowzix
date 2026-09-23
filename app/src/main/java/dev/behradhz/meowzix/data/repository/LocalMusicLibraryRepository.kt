@@ -35,10 +35,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
 
 @Singleton
@@ -53,10 +55,11 @@ class LocalMusicLibraryRepository @Inject constructor(
     private val artworkAttempts = ConcurrentHashMap.newKeySet<String>()
     private val artworkMutex = Mutex()
     private val artworkDirectory = File(context.filesDir, "artwork")
+    private var lastSuccessfulRefreshAtEpochMs: Long? = null
 
-    override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableTracks().map { rows ->
-        rows.map(TrackEntity::toDomain)
-    }
+    override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableTracks()
+        .map { rows -> rows.map(TrackEntity::toDomain) }
+        .flowOn(Dispatchers.Default)
 
     override fun observeLibraryTracks(): Flow<List<LibraryTrack>> =
         combine(dao.observeAvailableTracks(), dao.observeActiveSources()) { tracks, sources ->
@@ -74,16 +77,25 @@ class LocalMusicLibraryRepository @Inject constructor(
                 }
                 LibraryTrack(entity.toDomain(), availability)
             }
-        }
+        }.flowOn(Dispatchers.Default)
+
+    override suspend fun shouldRefreshLocalMusic(): Boolean {
+        val dbVerifiedAt = dao.latestLocalVerificationEpochMs() ?: 0L
+        val lastVerifiedAt = maxOf(dbVerifiedAt, lastSuccessfulRefreshAtEpochMs ?: 0L)
+        if (lastVerifiedAt == 0L) return true
+        return Instant.now().toEpochMilli() - lastVerifiedAt >= AUTO_REFRESH_INTERVAL_MS
+    }
 
     override suspend fun refreshLocalMusic(): LocalLibraryRefreshResult {
         val scanned = scanner.scan()
         val now = Instant.now().toEpochMilli()
+        var updatedCount = 0
 
         val plan = database.withTransaction {
             val existingSources = dao.allLocalSources()
             val existingSourcesById = existingSources.associateBy { it.id }
             val existingTracksById = dao.allTracksWithLocalSources().associateBy { it.id }
+            val existingLocalMediaBySourceId = dao.allLocalMediaSources().associateBy { it.trackSourceId }
             val snapshots = existingSources.mapNotNull { source ->
                 source.contentUri?.let { uri ->
                     ExistingLocalSourceSnapshot(source.id, source.trackId, uri)
@@ -94,26 +106,44 @@ class LocalMusicLibraryRepository @Inject constructor(
             for (item in reconciliation.toCreate) {
                 persistScannedItem(item, null, null, now)
             }
+
+            val unchangedSourceIds = mutableListOf<String>()
             for (match in reconciliation.toUpdate) {
                 val existingSource = existingSourcesById[match.existing.sourceId] ?: continue
-                persistScannedItem(
-                    match.scanned,
-                    existingSource,
-                    existingTracksById[match.existing.trackId],
-                    now,
-                )
+                val existingTrack = existingTracksById[match.existing.trackId]
+                val existingLocalMedia = existingLocalMediaBySourceId[existingSource.id]
+                if (isUnchanged(match.scanned, existingSource, existingTrack, existingLocalMedia)) {
+                    unchangedSourceIds += existingSource.id
+                } else {
+                    persistScannedItem(
+                        match.scanned,
+                        existingSource,
+                        existingTrack,
+                        now,
+                    )
+                    updatedCount++
+                }
             }
-            for (sourceId in reconciliation.missingSourceIds) {
-                dao.updateAvailability(sourceId, SourceAvailability.MISSING, now)
-            }
+
+            updateAvailabilityInChunks(
+                unchangedSourceIds,
+                SourceAvailability.AVAILABLE_LOCAL,
+                now,
+            )
+            updateAvailabilityInChunks(
+                reconciliation.missingSourceIds,
+                SourceAvailability.MISSING,
+                now,
+            )
             reconciliation
         }
 
+        lastSuccessfulRefreshAtEpochMs = now
         return LocalLibraryRefreshResult(
-            plan.discovered,
-            plan.toCreate.size,
-            plan.toUpdate.size,
-            plan.missingSourceIds.size,
+            discovered = plan.discovered,
+            created = plan.toCreate.size,
+            updated = updatedCount,
+            markedMissing = plan.missingSourceIds.size,
         )
     }
 
@@ -230,20 +260,23 @@ class LocalMusicLibraryRepository @Inject constructor(
         }
     }
 
-    override suspend fun availableLocalTracks(): List<PlayableTrack> =
-        dao.availableLocalPlaybackRows()
-            .distinctBy { it.id }
-            .map { row ->
-                PlayableTrack(
-                    id = UUID.fromString(row.id),
-                    title = row.title,
-                    artist = row.artist,
-                    album = row.album,
-                    durationMs = row.durationMs,
-                    artworkRef = row.artworkRef,
-                    contentUri = row.contentUri,
-                )
-            }
+    override suspend fun availableLocalTracks(): List<PlayableTrack> {
+        val rows = dao.availableLocalPlaybackRows()
+        return withContext(Dispatchers.Default) {
+            rows.distinctBy { it.id }
+                .map { row ->
+                    PlayableTrack(
+                        id = UUID.fromString(row.id),
+                        title = row.title,
+                        artist = row.artist,
+                        album = row.album,
+                        durationMs = row.durationMs,
+                        artworkRef = row.artworkRef,
+                        contentUri = row.contentUri,
+                    )
+                }
+        }
+    }
 
     override suspend fun isTrackLocallyPlayable(trackId: UUID): Boolean {
         val track = dao.trackById(trackId.toString()) ?: return false
@@ -299,6 +332,16 @@ class LocalMusicLibraryRepository @Inject constructor(
                 contentUri = contentUri,
             )
         }.sortedBy { it.title.lowercase() }
+    }
+
+    private suspend fun updateAvailabilityInChunks(
+        sourceIds: List<String>,
+        availability: SourceAvailability,
+        verifiedAt: Long,
+    ) {
+        sourceIds.chunked(AVAILABILITY_UPDATE_CHUNK_SIZE).forEach { chunk ->
+            dao.updateAvailability(chunk, availability, verifiedAt)
+        }
     }
 
     private suspend fun persistScannedItem(
@@ -362,6 +405,32 @@ class LocalMusicLibraryRepository @Inject constructor(
         )
     }
 
+    private fun isUnchanged(
+        item: ScannedLocalTrack,
+        source: TrackSourceEntity,
+        track: TrackEntity?,
+        localMedia: LocalMediaSourceEntity?,
+    ): Boolean {
+        if (track == null || localMedia == null) return false
+        val artworkMatches = item.artworkRef == null || track.artworkRef == item.artworkRef
+        return source.availability == SourceAvailability.AVAILABLE_LOCAL &&
+            source.contentUri == item.contentUri &&
+            source.mimeType == item.mimeType &&
+            source.fileSizeBytes == item.fileSizeBytes &&
+            localMedia.mediaStoreId == item.mediaStoreId &&
+            localMedia.contentUri == item.contentUri &&
+            localMedia.relativePath == item.relativePath &&
+            localMedia.displayName == item.displayName &&
+            localMedia.dateModifiedSeconds == item.dateModifiedSeconds &&
+            track.title == item.title &&
+            track.artist == item.artist &&
+            track.album == item.album &&
+            track.durationMs == item.durationMs &&
+            track.trackNumber == item.trackNumber &&
+            track.year == item.year &&
+            artworkMatches
+    }
+
     private suspend fun findMatchingTrack(
         normalizedTitle: String,
         normalizedArtist: String?,
@@ -388,6 +457,11 @@ class LocalMusicLibraryRepository @Inject constructor(
             ),
             candidates,
         )
+    }
+
+    private companion object {
+        const val AUTO_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000L
+        const val AVAILABILITY_UPDATE_CHUNK_SIZE = 500
     }
 }
 

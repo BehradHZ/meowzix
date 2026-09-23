@@ -54,6 +54,7 @@ class LibraryViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
+    private var initialRefreshChecked = false
 
     init {
         viewModelScope.launch {
@@ -116,22 +117,33 @@ class LibraryViewModel @Inject constructor(
     fun refresh() {
         if (_state.value.isRefreshing) return
         viewModelScope.launch {
-            _state.update { it.copy(isRefreshing = true, errorMessage = null) }
-            runCatching { repository.refreshLocalMusic() }
-                .onSuccess { result ->
-                    _state.update {
-                        it.copy(isRefreshing = false, lastRefresh = result)
-                    }
-                }
-                .onFailure { error ->
-                    _state.update {
-                        it.copy(
-                            isRefreshing = false,
-                            errorMessage = error.message ?: "Unable to refresh local music",
-                        )
-                    }
-                }
+            if (!initialRefreshChecked) {
+                initialRefreshChecked = true
+                val shouldRefresh = runCatching { repository.shouldRefreshLocalMusic() }
+                    .getOrDefault(true)
+                if (!shouldRefresh) return@launch
+            }
+            refreshInternal()
         }
+    }
+
+    private suspend fun refreshInternal() {
+        if (_state.value.isRefreshing) return
+        _state.update { it.copy(isRefreshing = true, errorMessage = null) }
+        runCatching { repository.refreshLocalMusic() }
+            .onSuccess { result ->
+                _state.update {
+                    it.copy(isRefreshing = false, lastRefresh = result)
+                }
+            }
+            .onFailure { error ->
+                _state.update {
+                    it.copy(
+                        isRefreshing = false,
+                        errorMessage = error.message ?: "Unable to refresh local music",
+                    )
+                }
+            }
     }
 
     fun playTrack(track: Track, queueTracks: List<Track> = _state.value.tracks) {
