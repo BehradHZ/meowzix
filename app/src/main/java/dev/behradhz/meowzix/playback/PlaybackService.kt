@@ -359,7 +359,7 @@ class PlaybackService : MediaSessionService() {
                     future.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
                 }
                 progressiveQueue.replaceFuture(desiredFuture, nextMode, seed)
-                rebuildProgressiveWindow()
+                syncProgressiveFutureInPlace()
                 refreshMediaButtons()
             }
             return
@@ -403,9 +403,16 @@ class PlaybackService : MediaSessionService() {
             RepeatMode.ONE -> RepeatMode.OFF
         }
         val progressive = progressiveQueue.snapshot() != null
-        if (progressive) progressiveQueue.updateRepeatMode(next)
-        player.repeatMode = next.toPlayerRepeatMode(progressive)
-        updateQueuePolicyMetadata(currentPlaybackMode(), next)
+        if (progressive) {
+            progressiveQueue.updateRepeatMode(next)
+            player.repeatMode = next.toPlayerRepeatMode(progressive = true)
+            // Progressive queue state is authoritative. Do not replace the active MediaItem merely
+            // to update policy metadata, because that can cause an audible rebuffering step.
+            schedulePersist()
+        } else {
+            player.repeatMode = next.toPlayerRepeatMode(progressive = false)
+            updateQueuePolicyMetadata(currentPlaybackMode(), next)
+        }
         refreshMediaButtons()
     }
 
@@ -562,6 +569,35 @@ class PlaybackService : MediaSessionService() {
                 shuffleSeed = logical?.shuffleSeed,
             ),
         )
+    }
+
+    /**
+     * Replaces only the materialized future items after a progressive mode change. The current
+     * MediaItem remains attached to ExoPlayer, so changing shuffle never calls setMediaItems or
+     * prepare on the track that is already playing.
+     */
+    private fun syncProgressiveFutureInPlace() {
+        if (!progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)) return
+        val snapshot = progressiveQueue.snapshot() ?: return
+        val playerCurrentIndex = player.currentMediaItemIndex
+        if (playerCurrentIndex !in 0 until player.mediaItemCount) return
+
+        val logicalFutureStart = snapshot.currentIndex + 1
+        val logicalFutureEnd = snapshot.materializedEndExclusive
+            .coerceIn(logicalFutureStart, snapshot.tracks.size)
+        val desiredFuture = snapshot.tracks
+            .subList(logicalFutureStart, logicalFutureEnd)
+            .map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) }
+        val playerFutureStart = playerCurrentIndex + 1
+
+        if (playerFutureStart < player.mediaItemCount) {
+            player.removeMediaItems(playerFutureStart, player.mediaItemCount)
+        }
+        if (desiredFuture.isNotEmpty()) {
+            player.addMediaItems(desiredFuture)
+        }
+        player.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
+        schedulePersist()
     }
 
     private fun rebuildProgressiveWindow() {
