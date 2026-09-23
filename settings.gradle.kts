@@ -5,6 +5,7 @@ pluginManagement {
             content {
                 includeGroupByRegex("androidx\\..*")
                 includeGroupByRegex("com\\.android(\\..*)?")
+                includeGroupByRegex("com\\.google\\.testing\\.platform(\\..*)?")
             }
         }
         mavenCentral()
@@ -13,6 +14,7 @@ pluginManagement {
             content {
                 includeGroupByRegex("androidx\\..*")
                 includeGroupByRegex("com\\.android(\\..*)?")
+                includeGroupByRegex("com\\.google\\.testing\\.platform(\\..*)?")
             }
         }
     }
@@ -29,6 +31,7 @@ dependencyResolutionManagement {
                 includeGroupByRegex("com\\.android(\\..*)?")
                 includeGroupByRegex("com\\.google\\.android(\\..*)?")
                 includeGroupByRegex("com\\.google\\.dagger(\\..*)?")
+                includeGroupByRegex("com\\.google\\.testing\\.platform(\\..*)?")
             }
         }
         google {
@@ -37,6 +40,7 @@ dependencyResolutionManagement {
                 includeGroupByRegex("com\\.android(\\..*)?")
                 includeGroupByRegex("com\\.google\\.android(\\..*)?")
                 includeGroupByRegex("com\\.google\\.dagger(\\..*)?")
+                includeGroupByRegex("com\\.google\\.testing\\.platform(\\..*)?")
             }
         }
     }
