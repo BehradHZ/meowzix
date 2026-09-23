@@ -89,7 +89,31 @@ class NowPlayingViewModel @Inject constructor(
         playbackController.state.value,
     )
 
-    val queueState = queueRepository.queueState
+    /**
+     * Queue metadata is refreshed from the live library so artwork fetched after queue creation is
+     * immediately visible to the artwork pager instead of waiting for the queue to be rebuilt.
+     */
+    val queueState = combine(
+        queueRepository.queueState,
+        libraryById,
+    ) { queue, tracksById ->
+        if (queue.items.isEmpty() || tracksById.isEmpty()) return@combine queue
+        queue.copy(
+            items = queue.items.map { item ->
+                val live = tracksById[item.id] ?: return@map item
+                item.copy(
+                    title = live.title,
+                    artist = live.artist,
+                    artworkRef = live.artworkRef ?: item.artworkRef,
+                )
+            },
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        queueRepository.queueState.value,
+    )
+
     val spectrum = audioVisualizerRepository.spectrum
 
     val isFavorite = combine(
@@ -109,11 +133,32 @@ class NowPlayingViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            currentTrackId.collect { trackId ->
-                if (trackId != null) {
-                    libraryRepository.prefetchArtwork(listOf(trackId))
+            combine(
+                playbackController.state
+                    .map { it.queueIndex to it.currentTrack?.id }
+                    .distinctUntilChanged(),
+                queueState,
+            ) { (playbackIndex, currentTrackId), queue ->
+                val resolvedIndex = when {
+                    playbackIndex in queue.items.indices -> playbackIndex
+                    queue.currentIndex in queue.items.indices -> queue.currentIndex
+                    currentTrackId != null -> queue.items.indexOfFirst { it.id == currentTrackId }
+                    else -> -1
                 }
+
+                buildList {
+                    queue.items.getOrNull(resolvedIndex - 1)?.id?.let(::add)
+                    queue.items.getOrNull(resolvedIndex)?.id?.let(::add)
+                    currentTrackId?.let(::add)
+                    queue.items.getOrNull(resolvedIndex + 1)?.id?.let(::add)
+                }.distinct()
             }
+                .distinctUntilChanged()
+                .collect { trackIds ->
+                    if (trackIds.isNotEmpty()) {
+                        libraryRepository.prefetchArtwork(trackIds)
+                    }
+                }
         }
         viewModelScope.launch {
             settingsRepository.telegramForwardSettings
