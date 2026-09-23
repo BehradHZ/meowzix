@@ -231,6 +231,13 @@ private fun LibraryScreenV2(
     var selectedAlbumArtist by rememberSaveable { mutableStateOf<String?>(null) }
     var openedPlaylistKey by rememberSaveable { mutableStateOf<String?>(null) }
 
+    val onGoToArtist: (Track) -> Unit = { track ->
+        openedPlaylistKey = null
+        selectedAlbumName = null
+        selectedAlbumArtist = null
+        selectedArtist = artistNameV2(track)
+    }
+
     val availabilityFilter = AvailabilityFilterV2.entries[availabilityFilterIndex]
     val searchedTracks = remember(state.tracks, query, availabilityFilter) {
         val needle = query.trim()
@@ -279,6 +286,7 @@ private fun LibraryScreenV2(
             onPinOffline = onPinOffline,
             onFavorite = onFavorite,
             onAddToPlaylist = onAddToPlaylist,
+            onGoToArtist = onGoToArtist,
             onMove = onMovePlaylistTrack,
             onRemove = onRemovePlaylistTrack,
             onEnsureArtwork = onEnsureArtwork,
@@ -310,6 +318,7 @@ private fun LibraryScreenV2(
             onPinOffline = onPinOffline,
             onFavorite = onFavorite,
             onAddToPlaylist = onAddToPlaylist,
+            onGoToArtist = onGoToArtist,
             onEnsureArtwork = onEnsureArtwork,
         )
         return
@@ -344,6 +353,7 @@ private fun LibraryScreenV2(
             onPinOffline = onPinOffline,
             onFavorite = onFavorite,
             onAddToPlaylist = onAddToPlaylist,
+            onGoToArtist = onGoToArtist,
             onEnsureArtwork = onEnsureArtwork,
         )
         return
@@ -483,6 +493,7 @@ private fun LibraryScreenV2(
                     onPinOffline = onPinOffline,
                     onFavorite = onFavorite,
                     onAddToPlaylist = onAddToPlaylist,
+                    onGoToArtist = onGoToArtist,
                     onEnsureArtwork = onEnsureArtwork,
                 )
 
@@ -537,6 +548,7 @@ private fun PlaylistDetailScreen(
     onPinOffline: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
     onAddToPlaylist: (Track, UUID) -> Unit,
+    onGoToArtist: (Track) -> Unit,
     onMove: (Int, Int) -> Unit,
     onRemove: (Track) -> Unit,
     onEnsureArtwork: (Track) -> Unit,
@@ -742,6 +754,7 @@ private fun PlaylistDetailScreen(
                         playlists = playlists,
                         onFavorite = { onFavorite(track) },
                         onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
+                        onGoToArtist = { onGoToArtist(track) },
                         onEnsureArtwork = { onEnsureArtwork(track) },
                         onRemoveFromPlaylist = if (!isFavorites) ({ onRemove(track) }) else null,
                         onMoveUp = if (
@@ -778,6 +791,7 @@ private fun GroupDetailScreen(
     onPinOffline: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
     onAddToPlaylist: (Track, UUID) -> Unit,
+    onGoToArtist: (Track) -> Unit,
     onEnsureArtwork: (Track) -> Unit,
 ) {
     Column(
@@ -832,6 +846,7 @@ private fun GroupDetailScreen(
             onPinOffline = onPinOffline,
             onFavorite = onFavorite,
             onAddToPlaylist = onAddToPlaylist,
+            onGoToArtist = onGoToArtist,
             onEnsureArtwork = onEnsureArtwork,
         )
     }
@@ -851,6 +866,7 @@ private fun TrackListV2(
     onPinOffline: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
     onAddToPlaylist: (Track, UUID) -> Unit,
+    onGoToArtist: (Track) -> Unit,
     onEnsureArtwork: (Track) -> Unit,
 ) {
     LazyColumn(
@@ -871,6 +887,7 @@ private fun TrackListV2(
                 playlists = playlists,
                 onFavorite = { onFavorite(track) },
                 onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
+                onGoToArtist = { onGoToArtist(track) },
                 onEnsureArtwork = { onEnsureArtwork(track) },
             )
         }
@@ -890,6 +907,7 @@ private fun SwipeableTrackRowV2(
     playlists: List<PlaylistSummary>,
     onFavorite: () -> Unit,
     onAddToPlaylist: (UUID) -> Unit,
+    onGoToArtist: () -> Unit,
     onEnsureArtwork: () -> Unit,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onMoveUp: (() -> Unit)? = null,
@@ -966,6 +984,7 @@ private fun SwipeableTrackRowV2(
             playlists = playlists,
             onFavorite = onFavorite,
             onAddToPlaylist = onAddToPlaylist,
+            onGoToArtist = onGoToArtist,
             onRemoveFromPlaylist = onRemoveFromPlaylist,
             onMoveUp = onMoveUp,
             onMoveDown = onMoveDown,
@@ -987,6 +1006,7 @@ private fun TrackRowV2(
     playlists: List<PlaylistSummary>,
     onFavorite: () -> Unit,
     onAddToPlaylist: (UUID) -> Unit,
+    onGoToArtist: () -> Unit,
     onRemoveFromPlaylist: (() -> Unit)?,
     onMoveUp: (() -> Unit)?,
     onMoveDown: (() -> Unit)?,
@@ -1092,6 +1112,14 @@ private fun TrackRowV2(
                         onClick = {
                             menuExpanded = false
                             onAddToQueue()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Go to artist") },
+                        leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onGoToArtist()
                         },
                     )
                     playlists.forEach { playlist ->
