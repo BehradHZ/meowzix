@@ -384,14 +384,14 @@ private fun Modifier.cropArtwork(
                 top = 0f,
                 right = seam,
                 bottom = size.height,
-            ) { drawContent() }
+            ) { this@drawWithContent.drawContent() }
 
             ArtworkCropRole.TARGET -> clipRect(
                 left = seam,
                 top = 0f,
                 right = size.width,
                 bottom = size.height,
-            ) { drawContent() }
+            ) { this@drawWithContent.drawContent() }
         }
 
         ArtworkTransitionDirection.PREVIOUS -> when (role) {
@@ -400,14 +400,14 @@ private fun Modifier.cropArtwork(
                 top = 0f,
                 right = size.width,
                 bottom = size.height,
-            ) { drawContent() }
+            ) { this@drawWithContent.drawContent() }
 
             ArtworkCropRole.TARGET -> clipRect(
                 left = 0f,
                 top = 0f,
                 right = seam,
                 bottom = size.height,
-            ) { drawContent() }
+            ) { this@drawWithContent.drawContent() }
         }
     }
 }
