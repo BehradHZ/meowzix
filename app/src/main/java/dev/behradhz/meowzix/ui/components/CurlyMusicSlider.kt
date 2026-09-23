@@ -11,8 +11,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -112,7 +112,7 @@ fun CurlyMusicSlider(
     }
 
     Box(modifier = modifier.height(visualHeight)) {
-        Canvas(modifier = Modifier.matchParentSize()) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
             val centerY = size.height / 2f
             val startX = thumbRadiusPx
             val endX = (size.width - thumbRadiusPx).coerceAtLeast(startX)
@@ -194,7 +194,7 @@ fun CurlyMusicSlider(
             valueRange = valueRange,
             onValueChangeFinished = onValueChangeFinished,
             interactionSource = interactionSource,
-            modifier = Modifier.matchParentSize(),
+            modifier = Modifier.fillMaxSize(),
             colors = SliderDefaults.colors(
                 thumbColor = Color.Transparent,
                 activeTrackColor = Color.Transparent,
