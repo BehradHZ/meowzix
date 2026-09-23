@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.feature.nowplaying
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,13 +32,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,7 +49,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,7 +59,9 @@ import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import dev.behradhz.meowzix.ui.components.AudioSpectrum
+import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.NowPlayingArtwork
 import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -170,6 +169,8 @@ private fun NowPlayingScreen(
 
             ArtworkGestureZone(
                 state = state,
+                artworkRef = track.artworkRef,
+                artworkDescription = "${track.title} cover art",
                 onBack = onBack,
                 onPrevious = onPrevious,
                 onNext = onNext,
@@ -194,7 +195,7 @@ private fun NowPlayingScreen(
                     .height(58.dp),
             )
 
-            Slider(
+            CurlyMusicSlider(
                 value = shownPosition.toFloat(),
                 onValueChange = { pendingSeek = it },
                 onValueChangeFinished = {
@@ -203,17 +204,11 @@ private fun NowPlayingScreen(
                 },
                 valueRange = 0f..duration.toFloat(),
                 enabled = state.durationMs > 0L,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(36.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = PlayerPrimaryContent,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = PlayerPrimaryContent.copy(alpha = 0.24f),
-                    disabledThumbColor = PlayerSecondaryContent.copy(alpha = 0.45f),
-                    disabledActiveTrackColor = PlayerSecondaryContent.copy(alpha = 0.30f),
-                    disabledInactiveTrackColor = PlayerSecondaryContent.copy(alpha = 0.14f),
-                ),
+                isPlaying = state.status == PlaybackStatus.PLAYING,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = PlayerPrimaryContent.copy(alpha = 0.24f),
+                thumbColor = PlayerPrimaryContent,
+                modifier = Modifier.fillMaxWidth(),
             )
 
             Row(
@@ -293,6 +288,8 @@ private fun NowPlayingScreen(
 @Composable
 private fun ArtworkGestureZone(
     state: PlaybackState,
+    artworkRef: String?,
+    artworkDescription: String,
     onBack: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -305,7 +302,7 @@ private fun ArtworkGestureZone(
     var total by remember(state.currentTrack?.id) { mutableStateOf(Offset.Zero) }
     var axis by remember(state.currentTrack?.id) { mutableStateOf(PlayerGestureAxis.UNDECIDED) }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier.pointerInput(
             state.currentTrack?.id,
             state.canSkipPrevious,
@@ -350,7 +347,15 @@ private fun ArtworkGestureZone(
                 },
             )
         },
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
+        NowPlayingArtwork(
+            artworkRef = artworkRef,
+            description = artworkDescription,
+            modifier = Modifier.size(artworkSize),
+        )
+    }
 }
 
 @Composable

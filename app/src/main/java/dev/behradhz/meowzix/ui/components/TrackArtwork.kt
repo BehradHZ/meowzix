@@ -5,11 +5,13 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MusicNote
@@ -28,11 +30,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -240,9 +240,83 @@ fun DownloadableTrackArtwork(
 }
 
 /**
- * Full-bleed artwork used by Now Playing. The sharp cover is slightly zoomed, while a second
- * display-sized decode is blurred and alpha-masked into the lower half. The mask makes the two
- * layers blend continuously instead of creating a visible horizontal seam behind the controls.
+ * Sharp, high-resolution artwork used as the foreground cover in Now Playing.
+ * The image is decoded independently from list thumbnails so the player never reuses a tiny row
+ * bitmap. A restrained glass-like border and shadow keep it readable over its own blurred backdrop.
+ */
+@Composable
+fun NowPlayingArtwork(
+    artworkRef: String?,
+    description: String,
+    modifier: Modifier = Modifier,
+) {
+    val bitmap = rememberArtworkBitmap(artworkRef, PLAYER_ARTWORK_TARGET_PIXELS)
+    val shape = RoundedCornerShape(28.dp)
+
+    Box(
+        modifier = modifier
+            .shadow(
+                elevation = 18.dp,
+                shape = shape,
+                clip = false,
+            )
+            .clip(shape)
+            .background(Color(0xFF191817).copy(alpha = 0.72f))
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.12f),
+                shape = shape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = description,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.035f),
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.055f),
+                            ),
+                        ),
+                    ),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.34f),
+                                Color(0xFF2A2826),
+                                Color(0xFF171615),
+                            ),
+                        ),
+                    ),
+            )
+            Icon(
+                imageVector = Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.88f),
+                modifier = Modifier.size(72.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Full-screen blurred copy of the current cover for Now Playing. This intentionally uses a
+ * display-sized high-resolution decode rather than the low-resolution list thumbnail. The cover
+ * is overscanned before blur so no transparent blur edges are visible around the screen.
  */
 @Composable
 fun TrackArtworkBackdrop(
@@ -259,50 +333,14 @@ fun TrackArtworkBackdrop(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        scaleX = SHARP_ARTWORK_SCALE
-                        scaleY = SHARP_ARTWORK_SCALE
-                    },
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopCenter,
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        compositingStrategy = CompositingStrategy.Offscreen
+                        scaleX = BLURRED_ARTWORK_SCALE
+                        scaleY = BLURRED_ARTWORK_SCALE
+                        alpha = 0.92f
                     }
-                    .drawWithCache {
-                        val blurMask = Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0.00f to Color.Transparent,
-                                0.38f to Color.Transparent,
-                                0.54f to Color.Black.copy(alpha = 0.14f),
-                                0.66f to Color.Black.copy(alpha = 0.58f),
-                                0.78f to Color.Black.copy(alpha = 0.90f),
-                                1.00f to Color.Black,
-                            ),
-                        )
-                        onDrawWithContent {
-                            drawContent()
-                            drawRect(brush = blurMask, blendMode = BlendMode.DstIn)
-                        }
-                    },
-            ) {
-                Image(
-                    bitmap = bitmap,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            scaleX = BLURRED_ARTWORK_SCALE
-                            scaleY = BLURRED_ARTWORK_SCALE
-                        }
-                        .blur(PLAYER_BACKDROP_BLUR),
-                    contentScale = ContentScale.Crop,
-                    alignment = Alignment.TopCenter,
-                )
-            }
+                    .blur(PLAYER_BACKDROP_BLUR),
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.Center,
+            )
 
             Box(
                 modifier = Modifier
@@ -310,12 +348,11 @@ fun TrackArtworkBackdrop(
                     .background(
                         Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0.00f to Color.Black.copy(alpha = 0.08f),
-                                0.32f to Color.Transparent,
-                                0.50f to Color.Black.copy(alpha = 0.05f),
-                                0.66f to Color.Black.copy(alpha = 0.22f),
-                                0.80f to Color.Black.copy(alpha = 0.56f),
-                                1.00f to Color.Black.copy(alpha = 0.88f),
+                                0.00f to Color.Black.copy(alpha = 0.26f),
+                                0.34f to Color.Black.copy(alpha = 0.18f),
+                                0.58f to Color.Black.copy(alpha = 0.34f),
+                                0.78f to Color.Black.copy(alpha = 0.58f),
+                                1.00f to Color.Black.copy(alpha = 0.82f),
                             ),
                         ),
                     ),
@@ -340,10 +377,9 @@ fun TrackArtworkBackdrop(
                     .background(
                         Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0.00f to Color.Transparent,
-                                0.48f to Color.Transparent,
-                                0.72f to Color.Black.copy(alpha = 0.44f),
-                                1.00f to Color.Black.copy(alpha = 0.88f),
+                                0.00f to Color.Black.copy(alpha = 0.18f),
+                                0.50f to Color.Black.copy(alpha = 0.30f),
+                                1.00f to Color.Black.copy(alpha = 0.82f),
                             ),
                         ),
                     ),
@@ -352,7 +388,7 @@ fun TrackArtworkBackdrop(
     }
 }
 
-private val PLAYER_BACKDROP_BLUR = 46.dp
+private val PLAYER_BACKDROP_BLUR = 52.dp
+private const val PLAYER_ARTWORK_TARGET_PIXELS = 2048
 private const val BACKDROP_TARGET_PIXELS = 1800
-private const val SHARP_ARTWORK_SCALE = 1.10f
-private const val BLURRED_ARTWORK_SCALE = 1.16f
+private const val BLURRED_ARTWORK_SCALE = 1.20f
