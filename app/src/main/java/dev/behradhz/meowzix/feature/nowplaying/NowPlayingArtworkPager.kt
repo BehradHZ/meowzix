@@ -2,8 +2,10 @@ package dev.behradhz.meowzix.feature.nowplaying
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,10 +25,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.behradhz.meowzix.domain.playback.PlaybackState
+import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.NowPlayingArtwork
 import kotlin.math.abs
@@ -42,8 +47,9 @@ private enum class ArtworkGestureAxis { UNDECIDED, HORIZONTAL, VERTICAL }
  *
  * Both covers remain at exactly the same position and size for the whole gesture. Moving to Next
  * crops the current cover from the right while removing the next cover's crop from the left. Moving
- * to Previous mirrors that behavior. The only moving geometry is the shared crop seam; neither cover
- * is translated, scaled, or rotated.
+ * to Previous mirrors that behavior. A narrow undrawn strip follows the shared seam so the actual
+ * player backdrop is visible between the two covers. Neither cover translates, scales, or rotates as
+ * part of the swipe transition.
  */
 @Composable
 internal fun NowPlayingArtworkPager(
@@ -56,6 +62,10 @@ internal fun NowPlayingArtworkPager(
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // NowPlayingArtworkPager is only hosted by NowPlayingRoute, so this resolves to the same scoped
+    // view model as the route. Keeping the tap action here avoids duplicating gesture ownership.
+    val viewModel: NowPlayingViewModel = hiltViewModel()
+
     val activeIndex = remember(
         state.currentTrack?.id,
         state.queueIndex,
@@ -64,6 +74,19 @@ internal fun NowPlayingArtworkPager(
     ) {
         resolveActiveQueueIndex(state, queueState)
     }
+
+    val isPaused = state.status == PlaybackStatus.PAUSED
+    val artworkScale by animateFloatAsState(
+        targetValue = if (isPaused) 0.90f else 1f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "now-playing-artwork-scale",
+    )
+    val artworkAlpha by animateFloatAsState(
+        targetValue = if (isPaused) 0.72f else 1f,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        label = "now-playing-artwork-alpha",
+    )
+
     val queueAvailable = activeIndex in queueState.items.indices && queueState.items.isNotEmpty()
 
     if (!queueAvailable) {
@@ -72,7 +95,16 @@ internal fun NowPlayingArtworkPager(
             NowPlayingArtwork(
                 artworkRef = fallbackArtworkRef,
                 description = fallbackArtworkDescription,
-                modifier = Modifier.size(artworkSize),
+                modifier = Modifier
+                    .size(artworkSize)
+                    .graphicsLayer {
+                        scaleX = artworkScale
+                        scaleY = artworkScale
+                        alpha = artworkAlpha
+                    }
+                    .pointerInput(viewModel) {
+                        detectTapGestures(onTap = { viewModel.togglePlayPause() })
+                    },
             )
         }
         return
@@ -81,6 +113,7 @@ internal fun NowPlayingArtworkPager(
     val density = LocalDensity.current
     val axisThresholdPx = with(density) { 10.dp.toPx() }
     val closeThresholdPx = with(density) { 96.dp.toPx() }
+    val separatorGapPx = with(density) { 12.dp.toPx() }
     val scope = rememberCoroutineScope()
 
     var displayedIndex by remember { mutableIntStateOf(activeIndex) }
@@ -97,6 +130,7 @@ internal fun NowPlayingArtworkPager(
     val latestCanSkipNext by rememberUpdatedState(state.canSkipNext)
     val latestPrevious by rememberUpdatedState(onPrevious)
     val latestNext by rememberUpdatedState(onNext)
+    val latestTogglePlayPause by rememberUpdatedState(viewModel::togglePlayPause)
 
     fun resetTransition(index: Int = latestActiveIndex) {
         displayedIndex = index.coerceIn(queueState.items.indices)
@@ -131,8 +165,7 @@ internal fun NowPlayingArtworkPager(
         transitionJob = scope.launch {
             pendingUserTargetIndex = requestedTarget
 
-            // Start playback immediately once the gesture commits. The crop animation owns the
-            // visual transition until playback reports the requested adjacent queue item.
+            // Playback changes only after the gesture has crossed the halfway commitment point.
             when (transitionDirection) {
                 ArtworkTransitionDirection.NEXT -> latestNext()
                 ArtworkTransitionDirection.PREVIOUS -> latestPrevious()
@@ -284,7 +317,7 @@ internal fun NowPlayingArtworkPager(
                 onDragEnd = {
                     when (gestureAxis) {
                         ArtworkGestureAxis.HORIZONTAL -> {
-                            if (direction != null && progress >= 0.22f) {
+                            if (direction != null && progress >= 0.50f) {
                                 commitGestureTransition()
                             } else if (progress > 0f) {
                                 animateBackToCurrent()
@@ -316,7 +349,16 @@ internal fun NowPlayingArtworkPager(
         }
 
         Box(
-            modifier = Modifier.size(artworkSize),
+            modifier = Modifier
+                .size(artworkSize)
+                .graphicsLayer {
+                    scaleX = artworkScale
+                    scaleY = artworkScale
+                    alpha = artworkAlpha
+                }
+                .pointerInput(latestTogglePlayPause) {
+                    detectTapGestures(onTap = { latestTogglePlayPause() })
+                },
             contentAlignment = Alignment.Center,
         ) {
             val activeDirection = direction
@@ -336,12 +378,17 @@ internal fun NowPlayingArtworkPager(
                     null
                 }
 
-                // These two covers occupy the exact same bounds. Their complementary clip rects
-                // share one seam, so there is no pager translation or parallax at any point.
+                // These two covers occupy identical bounds. Complementary clip rects leave an
+                // undrawn strip around the seam, exposing the real player background as separator.
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .cropArtwork(activeDirection, ArtworkCropRole.CURRENT, progress),
+                        .cropArtwork(
+                            direction = activeDirection,
+                            role = ArtworkCropRole.CURRENT,
+                            progress = progress,
+                            gapPx = separatorGapPx,
+                        ),
                 ) {
                     NowPlayingArtwork(
                         artworkRef = currentArtworkRef,
@@ -353,7 +400,12 @@ internal fun NowPlayingArtworkPager(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .cropArtwork(activeDirection, ArtworkCropRole.TARGET, progress),
+                        .cropArtwork(
+                            direction = activeDirection,
+                            role = ArtworkCropRole.TARGET,
+                            progress = progress,
+                            gapPx = separatorGapPx,
+                        ),
                 ) {
                     NowPlayingArtwork(
                         artworkRef = targetArtworkRef,
@@ -370,24 +422,26 @@ private fun Modifier.cropArtwork(
     direction: ArtworkTransitionDirection,
     role: ArtworkCropRole,
     progress: Float,
+    gapPx: Float,
 ): Modifier = drawWithContent {
     val clampedProgress = progress.coerceIn(0f, 1f)
     val seam = when (direction) {
         ArtworkTransitionDirection.NEXT -> size.width * (1f - clampedProgress)
         ArtworkTransitionDirection.PREVIOUS -> size.width * clampedProgress
     }
+    val halfGap = gapPx.coerceAtLeast(0f) / 2f
 
     when (direction) {
         ArtworkTransitionDirection.NEXT -> when (role) {
             ArtworkCropRole.CURRENT -> clipRect(
                 left = 0f,
                 top = 0f,
-                right = seam,
+                right = (seam - halfGap).coerceIn(0f, size.width),
                 bottom = size.height,
             ) { this@drawWithContent.drawContent() }
 
             ArtworkCropRole.TARGET -> clipRect(
-                left = seam,
+                left = (seam + halfGap).coerceIn(0f, size.width),
                 top = 0f,
                 right = size.width,
                 bottom = size.height,
@@ -396,7 +450,7 @@ private fun Modifier.cropArtwork(
 
         ArtworkTransitionDirection.PREVIOUS -> when (role) {
             ArtworkCropRole.CURRENT -> clipRect(
-                left = seam,
+                left = (seam + halfGap).coerceIn(0f, size.width),
                 top = 0f,
                 right = size.width,
                 bottom = size.height,
@@ -405,7 +459,7 @@ private fun Modifier.cropArtwork(
             ArtworkCropRole.TARGET -> clipRect(
                 left = 0f,
                 top = 0f,
-                right = seam,
+                right = (seam - halfGap).coerceIn(0f, size.width),
                 bottom = size.height,
             ) { this@drawWithContent.drawContent() }
         }
