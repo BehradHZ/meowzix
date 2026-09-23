@@ -23,8 +23,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -48,8 +51,8 @@ private enum class ArtworkGestureAxis { UNDECIDED, HORIZONTAL, VERTICAL }
  * Both covers remain at exactly the same position and size for the whole gesture. Moving to Next
  * crops the current cover from the right while removing the next cover's crop from the left. Moving
  * to Previous mirrors that behavior. A narrow undrawn strip follows the shared seam so the actual
- * player backdrop is visible between the two covers. Neither cover translates, scales, or rotates as
- * part of the swipe transition.
+ * player backdrop is visible between the two covers. Each visible artwork fragment keeps rounded
+ * corners on both its outer edge and its separator edge throughout the gesture.
  */
 @Composable
 internal fun NowPlayingArtworkPager(
@@ -114,6 +117,7 @@ internal fun NowPlayingArtworkPager(
     val axisThresholdPx = with(density) { 10.dp.toPx() }
     val closeThresholdPx = with(density) { 96.dp.toPx() }
     val separatorGapPx = with(density) { 12.dp.toPx() }
+    val artworkCornerRadiusPx = with(density) { 28.dp.toPx() }
     val scope = rememberCoroutineScope()
 
     var displayedIndex by remember { mutableIntStateOf(activeIndex) }
@@ -378,8 +382,8 @@ internal fun NowPlayingArtworkPager(
                     null
                 }
 
-                // These two covers occupy identical bounds. Complementary clip rects leave an
-                // undrawn strip around the seam, exposing the real player background as separator.
+                // Both full-size covers stay fixed in place. Their visible fragments are masked as
+                // independent rounded cards, so the moving separator never creates square inner edges.
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -388,6 +392,7 @@ internal fun NowPlayingArtworkPager(
                             role = ArtworkCropRole.CURRENT,
                             progress = progress,
                             gapPx = separatorGapPx,
+                            cornerRadiusPx = artworkCornerRadiusPx,
                         ),
                 ) {
                     NowPlayingArtwork(
@@ -405,6 +410,7 @@ internal fun NowPlayingArtworkPager(
                             role = ArtworkCropRole.TARGET,
                             progress = progress,
                             gapPx = separatorGapPx,
+                            cornerRadiusPx = artworkCornerRadiusPx,
                         ),
                 ) {
                     NowPlayingArtwork(
@@ -423,6 +429,7 @@ private fun Modifier.cropArtwork(
     role: ArtworkCropRole,
     progress: Float,
     gapPx: Float,
+    cornerRadiusPx: Float,
 ): Modifier = drawWithContent {
     val clampedProgress = progress.coerceIn(0f, 1f)
     val seam = when (direction) {
@@ -431,37 +438,57 @@ private fun Modifier.cropArtwork(
     }
     val halfGap = gapPx.coerceAtLeast(0f) / 2f
 
+    val left: Float
+    val right: Float
     when (direction) {
         ArtworkTransitionDirection.NEXT -> when (role) {
-            ArtworkCropRole.CURRENT -> clipRect(
-                left = 0f,
-                top = 0f,
-                right = (seam - halfGap).coerceIn(0f, size.width),
-                bottom = size.height,
-            ) { this@drawWithContent.drawContent() }
+            ArtworkCropRole.CURRENT -> {
+                left = 0f
+                right = (seam - halfGap).coerceIn(0f, size.width)
+            }
 
-            ArtworkCropRole.TARGET -> clipRect(
-                left = (seam + halfGap).coerceIn(0f, size.width),
-                top = 0f,
-                right = size.width,
-                bottom = size.height,
-            ) { this@drawWithContent.drawContent() }
+            ArtworkCropRole.TARGET -> {
+                left = (seam + halfGap).coerceIn(0f, size.width)
+                right = size.width
+            }
         }
 
         ArtworkTransitionDirection.PREVIOUS -> when (role) {
-            ArtworkCropRole.CURRENT -> clipRect(
-                left = (seam + halfGap).coerceIn(0f, size.width),
-                top = 0f,
-                right = size.width,
-                bottom = size.height,
-            ) { this@drawWithContent.drawContent() }
+            ArtworkCropRole.CURRENT -> {
+                left = (seam + halfGap).coerceIn(0f, size.width)
+                right = size.width
+            }
 
-            ArtworkCropRole.TARGET -> clipRect(
-                left = 0f,
-                top = 0f,
-                right = (seam - halfGap).coerceIn(0f, size.width),
-                bottom = size.height,
-            ) { this@drawWithContent.drawContent() }
+            ArtworkCropRole.TARGET -> {
+                left = 0f
+                right = (seam - halfGap).coerceIn(0f, size.width)
+            }
+        }
+    }
+
+    if (right > left) {
+        val visibleWidth = right - left
+        val radius = cornerRadiusPx
+            .coerceAtLeast(0f)
+            .coerceAtMost(minOf(visibleWidth, size.height) / 2f)
+        val cornerRadius = CornerRadius(radius, radius)
+        val roundedMask = Path().apply {
+            addRoundRect(
+                RoundRect(
+                    left = left,
+                    top = 0f,
+                    right = right,
+                    bottom = size.height,
+                    topLeftCornerRadius = cornerRadius,
+                    topRightCornerRadius = cornerRadius,
+                    bottomRightCornerRadius = cornerRadius,
+                    bottomLeftCornerRadius = cornerRadius,
+                ),
+            )
+        }
+
+        clipPath(roundedMask) {
+            this@drawWithContent.drawContent()
         }
     }
 }
