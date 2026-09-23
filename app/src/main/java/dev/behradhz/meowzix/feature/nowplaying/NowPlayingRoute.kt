@@ -1,9 +1,7 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,10 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -56,23 +51,20 @@ import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
+import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import dev.behradhz.meowzix.ui.components.AudioSpectrum
 import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
 import dev.behradhz.meowzix.ui.components.GlassSurface
-import dev.behradhz.meowzix.ui.components.NowPlayingArtwork
 import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
-import kotlin.math.abs
 
 private val PlayerPrimaryContent = Color(0xFFF7F3EF)
 private val PlayerSecondaryContent = Color(0xFFCFC7C0)
 private val PlayerGlass = Color(0xFF171615)
-
-private enum class PlayerGestureAxis { UNDECIDED, HORIZONTAL, VERTICAL }
 
 @Composable
 fun NowPlayingRoute(
@@ -81,12 +73,14 @@ fun NowPlayingRoute(
     viewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val queueState by viewModel.queueState.collectAsStateWithLifecycle()
     val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
 
     NowPlayingScreen(
         state = state,
+        queueState = queueState,
         spectrum = spectrum,
         isFavorite = isFavorite,
         onBack = onBack,
@@ -121,6 +115,7 @@ fun NowPlayingRoute(
 @Composable
 private fun NowPlayingScreen(
     state: PlaybackState,
+    queueState: QueueState,
     spectrum: AudioSpectrumState,
     isFavorite: Boolean,
     onBack: () -> Unit,
@@ -169,6 +164,7 @@ private fun NowPlayingScreen(
 
             ArtworkGestureZone(
                 state = state,
+                queueState = queueState,
                 artworkRef = track.artworkRef,
                 artworkDescription = "${track.title} cover art",
                 onBack = onBack,
@@ -288,6 +284,7 @@ private fun NowPlayingScreen(
 @Composable
 private fun ArtworkGestureZone(
     state: PlaybackState,
+    queueState: QueueState,
     artworkRef: String?,
     artworkDescription: String,
     onBack: () -> Unit,
@@ -295,67 +292,16 @@ private fun ArtworkGestureZone(
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val density = LocalDensity.current
-    val axisThreshold = with(density) { 10.dp.toPx() }
-    val horizontalThreshold = with(density) { 72.dp.toPx() }
-    val closeThreshold = with(density) { 96.dp.toPx() }
-    var total by remember(state.currentTrack?.id) { mutableStateOf(Offset.Zero) }
-    var axis by remember(state.currentTrack?.id) { mutableStateOf(PlayerGestureAxis.UNDECIDED) }
-
-    BoxWithConstraints(
-        modifier = modifier.pointerInput(
-            state.currentTrack?.id,
-            state.canSkipPrevious,
-            state.canSkipNext,
-        ) {
-            detectDragGestures(
-                onDragStart = {
-                    total = Offset.Zero
-                    axis = PlayerGestureAxis.UNDECIDED
-                },
-                onDrag = { change, dragAmount ->
-                    change.consume()
-                    total += dragAmount
-                    if (
-                        axis == PlayerGestureAxis.UNDECIDED &&
-                        maxOf(abs(total.x), abs(total.y)) >= axisThreshold
-                    ) {
-                        axis = if (abs(total.x) > abs(total.y)) {
-                            PlayerGestureAxis.HORIZONTAL
-                        } else {
-                            PlayerGestureAxis.VERTICAL
-                        }
-                    }
-                },
-                onDragCancel = {
-                    total = Offset.Zero
-                    axis = PlayerGestureAxis.UNDECIDED
-                },
-                onDragEnd = {
-                    when (axis) {
-                        PlayerGestureAxis.HORIZONTAL -> when {
-                            total.x <= -horizontalThreshold && state.canSkipNext -> onNext()
-                            total.x >= horizontalThreshold && state.canSkipPrevious -> onPrevious()
-                        }
-                        PlayerGestureAxis.VERTICAL -> {
-                            if (total.y >= closeThreshold && abs(total.y) > abs(total.x)) onBack()
-                        }
-                        PlayerGestureAxis.UNDECIDED -> Unit
-                    }
-                    total = Offset.Zero
-                    axis = PlayerGestureAxis.UNDECIDED
-                },
-            )
-        },
-        contentAlignment = Alignment.Center,
-    ) {
-        val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
-        NowPlayingArtwork(
-            artworkRef = artworkRef,
-            description = artworkDescription,
-            modifier = Modifier.size(artworkSize),
-        )
-    }
+    NowPlayingArtworkPager(
+        state = state,
+        queueState = queueState,
+        fallbackArtworkRef = artworkRef,
+        fallbackArtworkDescription = artworkDescription,
+        onBack = onBack,
+        onPrevious = onPrevious,
+        onNext = onNext,
+        modifier = modifier,
+    )
 }
 
 @Composable
