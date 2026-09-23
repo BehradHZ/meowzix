@@ -14,11 +14,14 @@ data class AudioSpectrumState(
 interface AudioVisualizerRepository {
     val spectrum: StateFlow<AudioSpectrumState>
 
-    /**
-     * Builds a compact waveform/spectrum summary from the current media file itself. This performs
-     * no microphone or output-mix capture and therefore needs no RECORD_AUDIO permission.
-     */
+    /** Selects the current media source and resets the spectrum for the new track. */
     fun analyze(sourceUri: String?)
+
+    /** Attaches live FFT capture to the player's non-zero audio session. */
+    fun attachToAudioSession(audioSessionId: Int)
+
+    /** Retries live capture, primarily after RECORD_AUDIO permission is granted. */
+    fun refresh()
 
     fun release()
 }

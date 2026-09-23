@@ -169,6 +169,8 @@ class NowPlayingViewModel @Inject constructor(
         }
     }
 
+    fun refreshVisualizer() = audioVisualizerRepository.refresh()
+
     fun togglePlayPause() = playbackController.togglePlayPause()
 
     fun seekTo(positionMs: Long) = playbackController.seekTo(positionMs)

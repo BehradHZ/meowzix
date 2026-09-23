@@ -143,6 +143,10 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
+        override fun onAudioSessionIdChanged(audioSessionId: Int) {
+            runCatching { audioVisualizer.attachToAudioSession(audioSessionId) }
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             handlePlaybackFailure(error)
         }
