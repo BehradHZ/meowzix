@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -137,16 +138,35 @@ private fun NowPlayingScreen(
 
     val hazeState = rememberHazeState()
     var pendingSeek by remember(track.id) { mutableStateOf<Float?>(null) }
+    var backdropTransition by remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
     val duration = state.durationMs.coerceAtLeast(1L)
     val shownPosition = pendingSeek?.toLong() ?: state.positionMs.coerceIn(0L, duration)
 
     Box(Modifier.fillMaxSize()) {
-        TrackArtworkBackdrop(
-            artworkRef = track.artworkRef,
+        val activeBackdropTransition = backdropTransition
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .hazeSource(hazeState),
-        )
+        ) {
+            TrackArtworkBackdrop(
+                artworkRef = activeBackdropTransition?.fromArtworkRef ?: track.artworkRef,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            activeBackdropTransition?.let { transition ->
+                if (transition.progress > 0f) {
+                    TrackArtworkBackdrop(
+                        artworkRef = transition.toArtworkRef,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = transition.progress.coerceIn(0f, 1f)
+                            },
+                    )
+                }
+            }
+        }
 
         Column(
             modifier = Modifier
@@ -170,6 +190,7 @@ private fun NowPlayingScreen(
                 onBack = onBack,
                 onPrevious = onPrevious,
                 onNext = onNext,
+                onBackdropTransition = { backdropTransition = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
@@ -290,6 +311,7 @@ private fun ArtworkGestureZone(
     onBack: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onBackdropTransition: (ArtworkBackdropTransition?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     NowPlayingArtworkPager(
@@ -300,6 +322,7 @@ private fun ArtworkGestureZone(
         onBack = onBack,
         onPrevious = onPrevious,
         onNext = onNext,
+        onBackdropTransition = onBackdropTransition,
         modifier = modifier,
     )
 }

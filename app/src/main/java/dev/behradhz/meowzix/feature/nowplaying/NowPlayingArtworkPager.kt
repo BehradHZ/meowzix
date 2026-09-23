@@ -45,6 +45,12 @@ private enum class ArtworkTransitionDirection { PREVIOUS, NEXT }
 private enum class ArtworkCropRole { CURRENT, TARGET }
 private enum class ArtworkGestureAxis { UNDECIDED, HORIZONTAL, VERTICAL }
 
+internal data class ArtworkBackdropTransition(
+    val fromArtworkRef: String?,
+    val toArtworkRef: String?,
+    val progress: Float,
+)
+
 /**
  * Queue-backed artwork transition for Now Playing.
  *
@@ -63,6 +69,7 @@ internal fun NowPlayingArtworkPager(
     onBack: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onBackdropTransition: (ArtworkBackdropTransition?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // NowPlayingArtworkPager is only hosted by NowPlayingRoute, so this resolves to the same scoped
@@ -135,6 +142,33 @@ internal fun NowPlayingArtworkPager(
     val latestPrevious by rememberUpdatedState(onPrevious)
     val latestNext by rememberUpdatedState(onNext)
     val latestTogglePlayPause by rememberUpdatedState(viewModel::togglePlayPause)
+    val latestBackdropTransition by rememberUpdatedState(onBackdropTransition)
+
+    fun artworkRefAt(index: Int): String? {
+        val item = queueState.items.getOrNull(index) ?: return null
+        return item.artworkRef ?: if (item.id == state.currentTrack?.id) fallbackArtworkRef else null
+    }
+
+    fun publishBackdropTransition(value: Float = progress) {
+        val sourceIndex = displayedIndex
+        val destinationIndex = targetIndex
+        if (
+            direction == null ||
+            sourceIndex !in queueState.items.indices ||
+            destinationIndex !in queueState.items.indices
+        ) {
+            latestBackdropTransition(null)
+            return
+        }
+
+        latestBackdropTransition(
+            ArtworkBackdropTransition(
+                fromArtworkRef = artworkRefAt(sourceIndex),
+                toArtworkRef = artworkRefAt(destinationIndex),
+                progress = value.coerceIn(0f, 1f),
+            ),
+        )
+    }
 
     fun resetTransition(index: Int = latestActiveIndex) {
         displayedIndex = index.coerceIn(queueState.items.indices)
@@ -142,6 +176,7 @@ internal fun NowPlayingArtworkPager(
         pendingUserTargetIndex = -1
         direction = null
         progress = 0f
+        latestBackdropTransition(null)
     }
 
     fun animateBackToCurrent() {
@@ -154,10 +189,12 @@ internal fun NowPlayingArtworkPager(
                 animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
             ) { value, _ ->
                 progress = value
+                publishBackdropTransition(value)
             }
             targetIndex = -1
             direction = null
             progress = 0f
+            latestBackdropTransition(null)
         }
     }
 
@@ -182,6 +219,7 @@ internal fun NowPlayingArtworkPager(
                 animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
             ) { value, _ ->
                 progress = value
+                publishBackdropTransition(value)
             }
 
             if (latestActiveIndex == requestedTarget) {
@@ -195,15 +233,16 @@ internal fun NowPlayingArtworkPager(
                     animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
                 ) { value, _ ->
                     progress = value
+                    publishBackdropTransition(value)
                 }
                 resetTransition(latestActiveIndex)
             }
         }
     }
 
-    // Button presses, auto-advance, and other playback changes use the same stationary crop motion.
-    // A user-driven transition is already animating toward pendingUserTargetIndex, so it is not
-    // restarted when playback reports that same index.
+    // Button presses, auto-advance, and other playback changes all use the same stationary artwork
+    // crop and backdrop crossfade. A user-driven transition is already animating toward
+    // pendingUserTargetIndex, so it is not restarted when playback reports that same index.
     LaunchedEffect(activeIndex, queueState.items.size) {
         if (activeIndex !in queueState.items.indices) return@LaunchedEffect
 
@@ -231,6 +270,7 @@ internal fun NowPlayingArtworkPager(
             }
             targetIndex = activeIndex
             progress = 0f
+            publishBackdropTransition(0f)
 
             animate(
                 initialValue = 0f,
@@ -238,6 +278,7 @@ internal fun NowPlayingArtworkPager(
                 animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
             ) { value, _ ->
                 progress = value
+                publishBackdropTransition(value)
             }
 
             resetTransition(activeIndex)
@@ -296,13 +337,16 @@ internal fun NowPlayingArtworkPager(
                                 direction = null
                                 targetIndex = -1
                                 progress = 0f
+                                latestBackdropTransition(null)
                             } else {
                                 direction = requestedDirection
                                 targetIndex = when (requestedDirection) {
                                     ArtworkTransitionDirection.NEXT -> displayedIndex + 1
                                     ArtworkTransitionDirection.PREVIOUS -> displayedIndex - 1
                                 }
-                                progress = (abs(totalDrag.x) / width).coerceIn(0f, 1f)
+                                val newProgress = (abs(totalDrag.x) / width).coerceIn(0f, 1f)
+                                progress = newProgress
+                                publishBackdropTransition(newProgress)
                             }
                         }
 
