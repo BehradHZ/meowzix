@@ -44,6 +44,29 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 .getOrNull()
                 ?.let { ids.add(it.id) }
         } else {
+            // Resolve exact identifiers first so an ID or @username match appears before fuzzy
+            // title results. Numeric input may be either a TDLib chat ID or a Telegram user ID.
+            trimmed.toLongOrNull()?.let { numericId ->
+                runCatching { activeClient.send(TdApi.GetChat(numericId)) }
+                    .getOrNull()
+                    ?.let { ids.add(it.id) }
+
+                if (numericId > 0L) {
+                    runCatching { activeClient.send(TdApi.CreatePrivateChat(numericId, false)) }
+                        .getOrNull()
+                        ?.let { ids.add(it.id) }
+                }
+            }
+
+            // SearchChats already checks titles and usernames of known chats. SearchPublicChat adds
+            // an exact server-backed username resolution path, including queries written as
+            // @username, so public users/channels can still be found when they are not locally known.
+            trimmed.telegramUsernameCandidate()?.let { username ->
+                runCatching { activeClient.send(TdApi.SearchPublicChat(username)) }
+                    .getOrNull()
+                    ?.let { ids.add(it.id) }
+            }
+
             // SearchChats is an offline lookup over chats already known to TDLib.
             ids += activeClient.send(TdApi.SearchChats(trimmed, null, safeLimit)).chatIds.toList()
 
@@ -111,6 +134,12 @@ class TdLibTelegramForwardRepository @Inject constructor(
             ),
         )
     }
+}
+
+private fun String.telegramUsernameCandidate(): String? {
+    val candidate = removePrefix("@").trim()
+    if (candidate.isEmpty() || candidate.toLongOrNull() != null) return null
+    return candidate.takeIf { value -> value.all { it.isLetterOrDigit() || it == '_' } }
 }
 
 private fun TdApi.Chat.toForwardSummary(
