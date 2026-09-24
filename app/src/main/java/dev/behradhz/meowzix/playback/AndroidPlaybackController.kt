@@ -18,6 +18,8 @@ import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
+import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
+import dev.behradhz.meowzix.domain.playback.QueueActionKind
 import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.QueueState
@@ -45,6 +47,7 @@ class AndroidPlaybackController @Inject constructor(
     private val catalog: PlaybackCatalog,
     private val recommendationEngine: RecommendationEngine,
     private val progressiveQueue: ProgressiveQueue,
+    private val queueActionFeedbackBus: QueueActionFeedbackBus,
 ) : PlaybackController, QueueRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(PlaybackState(status = PlaybackStatus.PREPARING))
@@ -158,6 +161,7 @@ class AndroidPlaybackController @Inject constructor(
                         // Never replace/prepare the active MediaItem for a manual queue edit. Media3
                         // can reconcile the bounded window in place without interrupting audio.
                         syncProgressiveWindowInPlace(connected)
+                        queueActionFeedbackBus.emit(QueueActionKind.PLAY_NEXT, track.title)
                     }
                     return@withConnectedController
                 }
@@ -176,6 +180,7 @@ class AndroidPlaybackController @Inject constructor(
                     )
                 }
                 updateState(connected)
+                queueActionFeedbackBus.emit(QueueActionKind.PLAY_NEXT, track.title)
             }
         }
     }
@@ -189,21 +194,27 @@ class AndroidPlaybackController @Inject constructor(
                     if (progressiveQueue.append(track)) {
                         // Appending or repositioning must not rebuild ExoPlayer's active timeline.
                         syncProgressiveWindowInPlace(connected)
+                        queueActionFeedbackBus.emit(QueueActionKind.ADD_TO_END, track.title)
                     }
                     return@withConnectedController
                 }
 
                 val existingIndex = connected.indexOfTrack(trackId)
                 if (existingIndex != null) {
-                    if (existingIndex != connected.currentMediaItemIndex && existingIndex != connected.mediaItemCount - 1) {
-                        connected.moveMediaItem(existingIndex, connected.mediaItemCount - 1)
+                    if (
+                        existingIndex == connected.currentMediaItemIndex ||
+                        existingIndex == connected.mediaItemCount - 1
+                    ) {
+                        return@withConnectedController
                     }
+                    connected.moveMediaItem(existingIndex, connected.mediaItemCount - 1)
                 } else {
                     connected.addMediaItem(
                         track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
                     )
                 }
                 updateState(connected)
+                queueActionFeedbackBus.emit(QueueActionKind.ADD_TO_END, track.title)
             }
         }
     }
