@@ -2,6 +2,8 @@ package dev.behradhz.meowzix.feature.queue
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,15 +17,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.PlaylistAddCircle
@@ -41,15 +43,20 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
@@ -59,6 +66,8 @@ import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
 import java.util.UUID
+import kotlin.math.abs
+import kotlinx.coroutines.launch
 
 @Composable
 fun QueueRoute(
@@ -72,8 +81,7 @@ fun QueueRoute(
         aux = aux,
         onBack = onBack,
         onPlay = viewModel::play,
-        onMoveUp = viewModel::moveUp,
-        onMoveDown = viewModel::moveDown,
+        onMove = viewModel::move,
         onRemove = viewModel::remove,
         onClear = viewModel::clear,
         onPlayNext = viewModel::playNext,
@@ -90,8 +98,7 @@ private fun QueueScreen(
     aux: QueueAuxState,
     onBack: () -> Unit,
     onPlay: (Int) -> Unit,
-    onMoveUp: (Int) -> Unit,
-    onMoveDown: (Int) -> Unit,
+    onMove: (Int, Int) -> Unit,
     onRemove: (Int) -> Unit,
     onClear: () -> Unit,
     onPlayNext: (UUID) -> Unit,
@@ -100,8 +107,32 @@ private fun QueueScreen(
     onFavorite: (UUID) -> Unit,
     onAddToPlaylist: (UUID, UUID) -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var displayItems by remember { mutableStateOf(state.items) }
+    var draggedItemId by remember { mutableStateOf<UUID?>(null) }
+    var draggedDistance by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(state.items, draggedItemId) {
+        if (draggedItemId == null) displayItems = state.items
+    }
+
+    fun finishDrag(commit: Boolean) {
+        val id = draggedItemId
+        if (commit && id != null) {
+            val fromIndex = state.items.indexOfFirst { it.id == id }
+            val toIndex = displayItems.indexOfFirst { it.id == id }
+            if (fromIndex >= 0 && toIndex >= 0 && fromIndex != toIndex) {
+                onMove(fromIndex, toIndex)
+            }
+        }
+        draggedItemId = null
+        draggedDistance = 0f
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        state = listState,
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 182.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -131,19 +162,83 @@ private fun QueueScreen(
             }
         }
 
-        if (state.items.isEmpty()) {
+        if (displayItems.isEmpty()) {
             item { EmptyQueue() }
         } else {
-            itemsIndexed(state.items, key = { index, item -> "${item.id}:$index" }) { index, item ->
+            itemsIndexed(displayItems, key = { _, item -> item.id }) { index, item ->
+                val isDragging = draggedItemId == item.id
                 SwipeableQueueItem(
                     item = item,
-                    isCurrent = index == state.currentIndex,
-                    canMoveUp = index > 0,
-                    canMoveDown = index < state.items.lastIndex,
-                    onPlay = { onPlay(index) },
-                    onMoveUp = { onMoveUp(index) },
-                    onMoveDown = { onMoveDown(index) },
-                    onRemove = { onRemove(index) },
+                    isCurrent = item.id == state.items.getOrNull(state.currentIndex)?.id,
+                    isDragging = isDragging,
+                    dragOffsetY = if (isDragging) draggedDistance else 0f,
+                    onPlay = {
+                        val actualIndex = state.items.indexOfFirst { it.id == item.id }
+                        if (actualIndex >= 0) onPlay(actualIndex)
+                    },
+                    onDragStart = {
+                        draggedItemId = item.id
+                        draggedDistance = 0f
+                    },
+                    onDrag = { deltaY ->
+                        val draggedId = draggedItemId ?: return@SwipeableQueueItem
+                        val currentIndex = displayItems.indexOfFirst { it.id == draggedId }
+                        if (currentIndex < 0) return@SwipeableQueueItem
+                        draggedDistance += deltaY
+
+                        val currentInfo = listState.layoutInfo.visibleItemsInfo
+                            .firstOrNull { it.index == currentIndex + 1 }
+                            ?: return@SwipeableQueueItem
+                        val draggedCenter = currentInfo.offset + currentInfo.size / 2f + draggedDistance
+                        val targetInfo = listState.layoutInfo.visibleItemsInfo
+                            .asSequence()
+                            .filter { it.index > 0 && it.index != currentIndex + 1 }
+                            .minByOrNull { info -> abs((info.offset + info.size / 2f) - draggedCenter) }
+                        val targetIndex = targetInfo?.index?.minus(1)
+
+                        if (targetInfo != null && targetIndex != null && targetIndex in displayItems.indices && targetIndex != currentIndex) {
+                            val targetCenter = targetInfo.offset + targetInfo.size / 2f
+                            val crossedTarget = if (targetIndex > currentIndex) {
+                                draggedCenter >= targetCenter
+                            } else {
+                                draggedCenter <= targetCenter
+                            }
+                            if (crossedTarget) {
+                                val oldOffset = currentInfo.offset
+                                val reordered = displayItems.toMutableList()
+                                val moved = reordered.removeAt(currentIndex)
+                                reordered.add(targetIndex, moved)
+                                displayItems = reordered
+                                draggedDistance += oldOffset - targetInfo.offset
+                            }
+                        }
+
+                        val layout = listState.layoutInfo
+                        val draggedTop = currentInfo.offset + draggedDistance
+                        val draggedBottom = draggedTop + currentInfo.size
+                        val overscroll = when {
+                            deltaY > 0f && draggedBottom > layout.viewportEndOffset ->
+                                (draggedBottom - layout.viewportEndOffset).coerceAtMost(currentInfo.size.toFloat())
+                            deltaY < 0f && draggedTop < layout.viewportStartOffset ->
+                                (draggedTop - layout.viewportStartOffset).coerceAtLeast(-currentInfo.size.toFloat())
+                            else -> 0f
+                        }
+                        if (overscroll != 0f) {
+                            scope.launch {
+                                val consumed = listState.scrollBy(overscroll)
+                                draggedDistance += consumed
+                            }
+                        }
+                    },
+                    onDragEnd = { finishDrag(commit = true) },
+                    onDragCancel = {
+                        displayItems = state.items
+                        finishDrag(commit = false)
+                    },
+                    onRemove = {
+                        val actualIndex = state.items.indexOfFirst { it.id == item.id }
+                        if (actualIndex >= 0) onRemove(actualIndex)
+                    },
                     onPlayNext = { onPlayNext(item.id) },
                     onAddToQueue = { onAddToQueue(item.id) },
                     onPinOffline = { onPinOffline(item.id) },
@@ -164,11 +259,13 @@ private fun QueueScreen(
 private fun SwipeableQueueItem(
     item: QueueItem,
     isCurrent: Boolean,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
+    isDragging: Boolean,
+    dragOffsetY: Float,
     onPlay: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
     onRemove: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
@@ -199,9 +296,12 @@ private fun SwipeableQueueItem(
     )
 
     SwipeToDismissBox(
+        modifier = Modifier
+            .zIndex(if (isDragging) 1f else 0f)
+            .graphicsLayer { translationY = dragOffsetY },
         state = dismissState,
-        enableDismissFromStartToEnd = true,
-        enableDismissFromEndToStart = true,
+        enableDismissFromStartToEnd = !isDragging,
+        enableDismissFromEndToStart = !isDragging,
         backgroundContent = {
             val playNext = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             Surface(
@@ -233,7 +333,7 @@ private fun SwipeableQueueItem(
             modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onPlay, onLongClick = { menuExpanded = true }),
             shape = RoundedCornerShape(18.dp),
             color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-            shadowElevation = 1.dp,
+            shadowElevation = if (isDragging) 6.dp else 1.dp,
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
@@ -265,11 +365,23 @@ private fun SwipeableQueueItem(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = "Move up")
-                }
-                IconButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Move down")
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .pointerInput(item.id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { onDragStart() },
+                                onDragCancel = onDragCancel,
+                                onDragEnd = onDragEnd,
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    onDrag(dragAmount.y)
+                                },
+                            )
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.DragHandle, contentDescription = "Drag to reorder")
                 }
                 Box {
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
