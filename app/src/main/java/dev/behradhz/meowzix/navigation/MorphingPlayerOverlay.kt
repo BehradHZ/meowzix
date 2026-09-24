@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.calculateBottomPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +61,7 @@ import dev.behradhz.meowzix.ui.components.AudioSpectrum
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.chrisbanes.haze.HazeState
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 private val CollapsedPlayerHeight = 72.dp
@@ -106,6 +107,7 @@ internal fun MorphingPlayerOverlay(
 ) {
     val track = state.currentTrack ?: return
     val density = LocalDensity.current
+    val animationScope = rememberCoroutineScope()
     var expansionFraction by remember(track.id) {
         mutableFloatStateOf(if (morphState.targetExpanded) 1f else 0f)
     }
@@ -151,7 +153,11 @@ internal fun MorphingPlayerOverlay(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = horizontalInset, bottom = bottomInset)
+                .padding(
+                    start = horizontalInset,
+                    end = horizontalInset,
+                    bottom = bottomInset,
+                )
                 .height(playerHeight)
                 .pointerInput(track.id, travelPx) {
                     awaitEachGesture {
@@ -206,7 +212,9 @@ internal fun MorphingPlayerOverlay(
                             }
 
                             if (!targetChanged) {
-                                animateTo(target, durationMillis = 280)
+                                animationScope.launch {
+                                    animateTo(target, durationMillis = 280)
+                                }
                             }
                         }
                     }
