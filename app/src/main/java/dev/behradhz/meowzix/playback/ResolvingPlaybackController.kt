@@ -91,6 +91,45 @@ class ResolvingPlaybackController @Inject constructor(
         resolveAndPlayNow(trackId)
     }
 
+    override fun playAt(index: Int) {
+        val trackId = queueState.value.items.getOrNull(index)?.id ?: return
+        nextInitiator = PlaybackInitiator.USER
+        intentionalSkip = historyTrackId != null
+        scope.launch {
+            if (resolvingRemote) return@launch
+            if (isLocal(trackId)) {
+                delegate.playAt(index)
+                return@launch
+            }
+
+            resolvingRemote = true
+            _state.value = delegate.state.value.copy(
+                status = PlaybackStatus.DOWNLOADING,
+                errorMessage = null,
+            )
+            runCatching { remoteResolver.prepareForPlayback(trackId) }
+                .onSuccess { prepared ->
+                    resolvingRemote = false
+                    if (prepared == null) {
+                        _state.value = delegate.state.value.copy(
+                            status = PlaybackStatus.ERROR,
+                            errorMessage = "This Telegram track is no longer available.",
+                        )
+                    } else {
+                        delegate.playAt(index)
+                    }
+                }
+                .onFailure { error ->
+                    resolvingRemote = false
+                    _state.value = delegate.state.value.copy(
+                        status = PlaybackStatus.ERROR,
+                        errorMessage = error.message?.takeIf(String::isNotBlank)
+                            ?: "Unable to buffer this Telegram track.",
+                    )
+                }
+        }
+    }
+
     override fun playNext(trackId: UUID) = delegate.playNext(trackId)
 
     override fun addToQueue(trackId: UUID) = delegate.addToQueue(trackId)
