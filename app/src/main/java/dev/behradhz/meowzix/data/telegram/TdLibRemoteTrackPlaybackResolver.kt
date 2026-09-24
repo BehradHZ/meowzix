@@ -86,24 +86,31 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     override fun prefetch(trackId: UUID) {
         cancelPrefetch()
         prefetchJob = scope.launch {
-            runCatching {
-                if (cachedLocalTrack(trackId) != null) return@runCatching
-                val settings = settingsRepository.networkPlaybackSettings.first()
-                if (!settings.prefetchEnabled) return@runCatching
-                if (networkPolicy.blockReason(settings, NetworkUse.PREFETCH) != null) return@runCatching
-                val source = resolveSource(trackId) ?: return@runCatching
-                val client = TdLibClientAdapter.activeOrNull() ?: return@runCatching
-                ensureHighQualityArtwork(client, trackId, source.candidate)
-                prefetchedFileId = source.candidate.fileId
-                client.send(
-                    TdApi.DownloadFile(
-                        source.candidate.fileId,
-                        PREFETCH_PRIORITY,
-                        0L,
-                        PREFETCH_BYTES,
-                        true,
-                    ),
-                )
+            try {
+                runCatching {
+                    if (cachedLocalTrack(trackId) != null) return@runCatching
+                    val settings = settingsRepository.networkPlaybackSettings.first()
+                    if (!settings.prefetchEnabled) return@runCatching
+                    if (networkPolicy.blockReason(settings, NetworkUse.PREFETCH) != null) return@runCatching
+                    val source = resolveSource(trackId) ?: return@runCatching
+                    val client = TdLibClientAdapter.activeOrNull() ?: return@runCatching
+
+                    // Audio gets network priority before artwork. The next-track transition should
+                    // have the same startup prefix ready that prepareForPlayback would otherwise
+                    // wait for after the user has already pressed Next.
+                    prefetchedFileId = source.candidate.fileId
+                    client.send(
+                        TdApi.DownloadFile(
+                            source.candidate.fileId,
+                            PREFETCH_PRIORITY,
+                            0L,
+                            PREFETCH_BYTES,
+                            true,
+                        ),
+                    )
+                    ensureHighQualityArtwork(client, trackId, source.candidate)
+                }
+            } finally {
                 prefetchedFileId = null
             }
         }
@@ -112,13 +119,10 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     override fun cancelPrefetch() {
         prefetchJob?.cancel()
         prefetchJob = null
-        val fileId = prefetchedFileId
+        // Keep already-fetched TDLib bytes in place. A queue advance commonly turns the prefetched
+        // item into the current item immediately; cancelling the underlying file transfer here can
+        // race Media3's stream open and create the very rebuffer the prefetch is meant to prevent.
         prefetchedFileId = null
-        if (fileId != null && fileId !in activeFullFileIds) {
-            scope.launch {
-                runCatching { TdLibClientAdapter.activeOrNull()?.send(TdApi.CancelDownloadFile(fileId, false)) }
-            }
-        }
     }
 
     private suspend fun cachedLocalTrack(trackId: UUID): PlayableTrack? {
@@ -331,9 +335,9 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         const val PLAYBACK_PRIORITY = 32
         const val ARTWORK_PRIORITY = 31
         const val BACKGROUND_PRIORITY = 20
-        const val PREFETCH_PRIORITY = 4
+        const val PREFETCH_PRIORITY = 22
         const val INITIAL_PLAYBACK_BYTES = 1536L * 1024L
-        const val PREFETCH_BYTES = 768L * 1024L
+        const val PREFETCH_BYTES = INITIAL_PLAYBACK_BYTES
 
         fun streamUri(fileId: Int, trackId: UUID): String =
             "meowzix-tdlib://audio/$fileId?trackId=$trackId"
