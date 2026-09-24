@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -456,7 +457,14 @@ private fun PlaybackControls(
                 PlaybackMode.SMART_SHUFFLE -> "Smart shuffle on"
             },
         ) {
-            Icon(Icons.Rounded.Shuffle, contentDescription = null)
+            Icon(
+                imageVector = if (state.playbackMode == PlaybackMode.SMART_SHUFFLE) {
+                    Icons.Rounded.AutoAwesome
+                } else {
+                    Icons.Rounded.Shuffle
+                },
+                contentDescription = null,
+            )
         }
 
         IconButton(
