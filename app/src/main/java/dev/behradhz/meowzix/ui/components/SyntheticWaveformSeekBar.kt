@@ -78,9 +78,15 @@ fun SyntheticWaveformSeekBar(
     val isDragged by interactionSource.collectIsDraggedAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
     val isInteracting = isDragged || isPressed
+    var isUserSeeking by remember(trackKey) { mutableStateOf(false) }
+
+    // Do not drive the waveform morph from InteractionSource. Slider drag-stop events can arrive in
+    // a different frame than onValueChangeFinished, which previously allowed one default-waveform
+    // frame to leak through on release. onValueChange/onValueChangeFinished are the authoritative
+    // seek lifecycle, so the morph now starts and ends deterministically with those callbacks.
     val scrubBlend by animateFloatAsState(
-        targetValue = if (isInteracting) 1f else 0f,
-        animationSpec = tween(durationMillis = if (isInteracting) 280 else 360, easing = FastOutSlowInEasing),
+        targetValue = if (isUserSeeking) 1f else 0f,
+        animationSpec = tween(durationMillis = if (isUserSeeking) 280 else 360, easing = FastOutSlowInEasing),
         label = "waveformScrubBlend",
     )
     val pointerInteraction by animateFloatAsState(
@@ -221,10 +227,16 @@ fun SyntheticWaveformSeekBar(
 
         Slider(
             value = coercedValue,
-            onValueChange = onValueChange,
+            onValueChange = { newValue ->
+                if (!isUserSeeking) isUserSeeking = true
+                onValueChange(newValue)
+            },
             enabled = enabled && !isLoading,
             valueRange = valueRange,
-            onValueChangeFinished = onValueChangeFinished,
+            onValueChangeFinished = {
+                onValueChangeFinished?.invoke()
+                isUserSeeking = false
+            },
             interactionSource = interactionSource,
             modifier = Modifier.fillMaxSize(),
             colors = SliderDefaults.colors(
