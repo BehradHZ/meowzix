@@ -20,6 +20,10 @@ jobs:
     env:
       MEOWZIX_TELEGRAM_API_ID: ${{ secrets.MEOWZIX_TELEGRAM_API_ID }}
       MEOWZIX_TELEGRAM_API_HASH: ${{ secrets.MEOWZIX_TELEGRAM_API_HASH }}
+      MEOWZIX_RELEASE_KEYSTORE_BASE64: ${{ secrets.MEOWZIX_RELEASE_KEYSTORE_BASE64 }}
+      MEOWZIX_RELEASE_STORE_PASSWORD: ${{ secrets.MEOWZIX_RELEASE_STORE_PASSWORD }}
+      MEOWZIX_RELEASE_KEY_ALIAS: ${{ secrets.MEOWZIX_RELEASE_KEY_ALIAS }}
+      MEOWZIX_RELEASE_KEY_PASSWORD: ${{ secrets.MEOWZIX_RELEASE_KEY_PASSWORD }}
     steps:
       - name: Check out validated main commit
         uses: actions/checkout@v5
@@ -39,11 +43,25 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Verify release credentials
+      - name: Verify release secrets
         shell: bash
         run: |
-          if [ -z "$MEOWZIX_TELEGRAM_API_ID" ] || [ -z "$MEOWZIX_TELEGRAM_API_HASH" ]; then
-            echo "MEOWZIX_TELEGRAM_API_ID and MEOWZIX_TELEGRAM_API_HASH must be configured as GitHub Actions secrets before publishing." >&2
+          missing=0
+          for name in \
+            MEOWZIX_TELEGRAM_API_ID \
+            MEOWZIX_TELEGRAM_API_HASH \
+            MEOWZIX_RELEASE_KEYSTORE_BASE64 \
+            MEOWZIX_RELEASE_STORE_PASSWORD \
+            MEOWZIX_RELEASE_KEY_ALIAS \
+            MEOWZIX_RELEASE_KEY_PASSWORD
+          do
+            if [ -z "${!name}" ]; then
+              echo "$name is not configured." >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Release stopped: required credentials/signing secrets are missing." >&2
             exit 1
           fi
 
@@ -76,9 +94,27 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
-      - name: Build installable GitHub APK
+      - name: Restore release signing key
         if: steps.existing.outputs.exists != 'true'
-        run: gradle :app:assembleDebug --stacktrace
+        shell: bash
+        run: |
+          KEYSTORE="$RUNNER_TEMP/meowzix-release.jks"
+          printf '%s' "$MEOWZIX_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          echo "MEOWZIX_RELEASE_KEYSTORE=$KEYSTORE" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        if: steps.existing.outputs.exists != 'true'
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Verify APK signature
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify \
+            --verbose \
+            --print-certs \
+            app/build/outputs/apk/release/app-release.apk
 
       - name: Prepare release assets
         if: steps.existing.outputs.exists != 'true'
@@ -87,7 +123,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/Meowzix-v${VERSION}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "dist/Meowzix-v${VERSION}.apk"
           (cd dist && sha256sum "Meowzix-v${VERSION}.apk" > SHA256SUMS.txt)
 
       - name: Publish GitHub Release
@@ -101,7 +137,7 @@ jobs:
           cat > release-notes.md <<EOF
           # Meowzix ${VERSION}
 
-          First public GitHub build of Meowzix.
+          First public GitHub release of Meowzix.
 
           Highlights:
           - Telegram music library with incremental sync
@@ -111,7 +147,7 @@ jobs:
           - Offline downloads, queue, shuffle modes, history, and Telegram forwarding
 
           Download **Meowzix-v${VERSION}.apk** and install it on Android 8.0 or newer.
-          SHA-256 verification is included in **SHA256SUMS.txt**.
+          The APK is release-signed and **SHA256SUMS.txt** is included for verification.
           EOF
 
           gh release create "$TAG" \
