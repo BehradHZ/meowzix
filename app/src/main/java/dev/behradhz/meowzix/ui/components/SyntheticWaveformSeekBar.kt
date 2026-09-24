@@ -18,7 +18,9 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -33,11 +35,10 @@ import kotlin.math.floor
 /**
  * Lightweight deterministic waveform seek bar.
  *
- * No audio bytes are decoded for this UI. A stable synthetic waveform is derived from [trackKey],
- * so a track keeps the same visual shape across recompositions and app sessions. While playback is
- * active, only the played bars animate and the last bars decay into the seek pointer. Loading uses
- * the same waveform as the progress indicator: a red shimmer sweeps across it instead of showing a
- * separate spinner.
+ * A stable per-track waveform is used while scrubbing. During normal playback the played region is
+ * driven by the real playback spectrum, decays smoothly to zero when playback pauses, and tapers
+ * into the seek pointer. The last valid live spectrum is retained across a seek so the visual can
+ * morph back from the scrub waveform without flashing the default waveform for a frame.
  */
 @Composable
 fun SyntheticWaveformSeekBar(
@@ -65,6 +66,13 @@ fun SyntheticWaveformSeekBar(
     val waveform = remember(trackKey, resolvedBarCount) { buildSyntheticWaveform(trackKey, resolvedBarCount) }
     val liveProfile = remember(liveBands, resolvedBarCount) { expandLiveSpectrum(liveBands, resolvedBarCount) }
     val hasLiveSpectrum = remember(liveBands) { liveBands.any { it > 0.001f } }
+    var stableLiveProfile by remember(trackKey, resolvedBarCount) {
+        mutableStateOf(FloatArray(resolvedBarCount))
+    }
+
+    LaunchedEffect(trackKey, resolvedBarCount, liveBands.contentHashCode(), hasLiveSpectrum) {
+        if (hasLiveSpectrum) stableLiveProfile = liveProfile.copyOf()
+    }
 
     val interactionSource = remember { MutableInteractionSource() }
     val isDragged by interactionSource.collectIsDraggedAsState()
@@ -79,6 +87,14 @@ fun SyntheticWaveformSeekBar(
         targetValue = if (isInteracting) 1f else 0f,
         animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
         label = "waveformPointerInteraction",
+    )
+    val playbackEnergy by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isPlaying) 220 else 460,
+            easing = FastOutSlowInEasing,
+        ),
+        label = "waveformPlaybackEnergy",
     )
 
     val shimmer = remember { Animatable(-0.24f) }
@@ -158,9 +174,11 @@ fun SyntheticWaveformSeekBar(
                     val distanceFromPointer = (pointerIndex - index.toFloat()).coerceAtLeast(0f)
                     val linearDecay = (distanceFromPointer / decayWindow).coerceIn(0f, 1f)
                     val decay = smoothStep(linearDecay)
-                    val liveHeight = if (isPlaying && hasLiveSpectrum) liveProfile[index].coerceIn(0.08f, 1f) else baseHeight
+                    val liveHeight = stableLiveProfile[index].coerceIn(0f, 1f)
                     val blendedHeight = lerpFloat(liveHeight, baseHeight, scrubBlend)
-                    halfHeight = (blendedHeight * maxHalfHeight * decay).coerceAtLeast(minimumHalfHeightPx)
+                    val visibleEnergy = lerpFloat(playbackEnergy, 1f, scrubBlend)
+                    halfHeight = (blendedHeight * maxHalfHeight * decay * visibleEnergy)
+                        .coerceAtLeast(minimumHalfHeightPx)
                     color = activeBarColor
                 } else {
                     halfHeight = minimumHalfHeightPx
