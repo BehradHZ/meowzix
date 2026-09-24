@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
@@ -388,6 +390,7 @@ internal fun NowPlayingArtworkPager(
         contentAlignment = Alignment.Center,
     ) {
         val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
+        val artworkShape = RoundedCornerShape(28.dp)
         val safeDisplayedIndex = displayedIndex.coerceIn(queueState.items.indices)
         val currentItem = queueState.items[safeDisplayedIndex]
         val currentArtworkRef = currentItem.artworkRef ?: if (currentItem.id == state.currentTrack?.id) {
@@ -404,6 +407,11 @@ internal fun NowPlayingArtworkPager(
                     scaleY = artworkScale
                     alpha = artworkAlpha
                 }
+                .shadow(
+                    elevation = 18.dp,
+                    shape = artworkShape,
+                    clip = false,
+                )
                 .pointerInput(latestTogglePlayPause) {
                     detectTapGestures(onTap = { latestTogglePlayPause() })
                 },
@@ -417,6 +425,7 @@ internal fun NowPlayingArtworkPager(
                     artworkRef = currentArtworkRef,
                     description = "${currentItem.title} cover art",
                     modifier = Modifier.fillMaxSize(),
+                    showShadow = false,
                 )
             } else {
                 val targetItem = queueState.items[targetIndex]
@@ -443,6 +452,7 @@ internal fun NowPlayingArtworkPager(
                         artworkRef = currentArtworkRef,
                         description = "${currentItem.title} cover art",
                         modifier = Modifier.fillMaxSize(),
+                        showShadow = false,
                     )
                 }
 
@@ -461,6 +471,7 @@ internal fun NowPlayingArtworkPager(
                         artworkRef = targetArtworkRef,
                         description = "${targetItem.title} cover art",
                         modifier = Modifier.fillMaxSize(),
+                        showShadow = false,
                     )
                 }
             }
