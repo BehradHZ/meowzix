@@ -152,14 +152,12 @@ class ResolvingPlaybackController @Inject constructor(
 
     override fun skipToNext() {
         intentionalSkip = true
-        scope.launch {
-            val queue = delegate.queueState.value
-            val nextTrackId = queue.items.getOrNull(queue.currentIndex + 1)?.id
-            if (nextTrackId != null && !isLocal(nextTrackId)) {
-                runCatching { remoteResolver.prepareForPlayback(nextTrackId) }
-            }
-            delegate.skipToNext()
-        }
+        // The next queue item already carries a Media3-playable TDLib URI and is prefetched while
+        // the current track is playing. Do not synchronously resolve/download it again here: doing
+        // so makes an otherwise ready queue skip wait on the network before Media3 can advance.
+        // If a remote track still needs bytes, TdLibStreamingDataSource will consume the prefetched
+        // prefix first and continue the download while playback starts.
+        delegate.skipToNext()
     }
 
     private suspend fun recordHistoryTransition(playback: PlaybackState) {
