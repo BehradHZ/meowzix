@@ -154,16 +154,28 @@ class AndroidPlaybackController @Inject constructor(
             withConnectedController { connected ->
                 val active = progressiveQueue.snapshot()
                 if (active != null) {
-                    if (progressiveQueue.insertNext(track)) rebuildProgressiveWindow(connected)
+                    if (progressiveQueue.insertNext(track)) {
+                        // Never replace/prepare the active MediaItem for a manual queue edit. Media3
+                        // can reconcile the bounded window in place without interrupting audio.
+                        syncProgressiveWindowInPlace(connected)
+                    }
                     return@withConnectedController
                 }
-                if (connected.containsTrack(trackId)) return@withConnectedController
-                val insertionIndex = (connected.currentMediaItemIndex + 1)
-                    .coerceIn(0, connected.mediaItemCount)
-                connected.addMediaItem(
-                    insertionIndex,
-                    track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
-                )
+
+                val currentIndex = connected.currentMediaItemIndex
+                val existingIndex = connected.indexOfTrack(trackId)
+                if (existingIndex != null) {
+                    if (existingIndex == currentIndex) return@withConnectedController
+                    val destination = if (existingIndex < currentIndex) currentIndex else currentIndex + 1
+                    connected.moveMediaItem(existingIndex, destination.coerceIn(0, connected.mediaItemCount - 1))
+                } else {
+                    val insertionIndex = (currentIndex + 1).coerceIn(0, connected.mediaItemCount)
+                    connected.addMediaItem(
+                        insertionIndex,
+                        track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
+                    )
+                }
+                updateState(connected)
             }
         }
     }
@@ -174,13 +186,24 @@ class AndroidPlaybackController @Inject constructor(
             withConnectedController { connected ->
                 val active = progressiveQueue.snapshot()
                 if (active != null) {
-                    if (progressiveQueue.append(track)) rebuildProgressiveWindow(connected)
+                    if (progressiveQueue.append(track)) {
+                        // Appending or repositioning must not rebuild ExoPlayer's active timeline.
+                        syncProgressiveWindowInPlace(connected)
+                    }
                     return@withConnectedController
                 }
-                if (connected.containsTrack(trackId)) return@withConnectedController
-                connected.addMediaItem(
-                    track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
-                )
+
+                val existingIndex = connected.indexOfTrack(trackId)
+                if (existingIndex != null) {
+                    if (existingIndex != connected.currentMediaItemIndex && existingIndex != connected.mediaItemCount - 1) {
+                        connected.moveMediaItem(existingIndex, connected.mediaItemCount - 1)
+                    }
+                } else {
+                    connected.addMediaItem(
+                        track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
+                    )
+                }
+                updateState(connected)
             }
         }
     }
@@ -626,8 +649,11 @@ private fun Player.queuePlaybackMode(): PlaybackMode =
 private fun Player.queueRepeatMode(): RepeatMode =
     if (mediaItemCount == 0) RepeatMode.OFF else getMediaItemAt(0).repeatMode()
 
-private fun Player.containsTrack(trackId: UUID): Boolean =
-    (0 until mediaItemCount).any { index -> getMediaItemAt(index).mediaId == trackId.toString() }
+private fun Player.indexOfTrack(trackId: UUID): Int? =
+    (0 until mediaItemCount)
+        .firstOrNull { index -> getMediaItemAt(index).mediaId == trackId.toString() }
+
+private fun Player.containsTrack(trackId: UUID): Boolean = indexOfTrack(trackId) != null
 
 private fun updateQueuePolicyMetadata(player: MediaController, playbackMode: PlaybackMode, repeatMode: RepeatMode) {
     for (index in 0 until player.mediaItemCount) {
