@@ -3,11 +3,13 @@ package dev.behradhz.meowzix.feature.nowplaying
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.behradhz.meowzix.data.repository.ArtworkRepairCoordinator
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioOutputController
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
@@ -49,7 +51,11 @@ class NowPlayingViewModel @Inject constructor(
     private val libraryRepository: MusicLibraryRepository,
     private val telegramForwardRepository: TelegramForwardRepository,
     private val settingsRepository: SettingsRepository,
+    private val artworkRepairCoordinator: ArtworkRepairCoordinator,
+    queueActionFeedbackBus: QueueActionFeedbackBus,
 ) : ViewModel() {
+    val queueActionFeedback = queueActionFeedbackBus.events
+
     private val libraryTracks = libraryRepository.observeTracks()
         .catch { emit(emptyList()) }
         .stateIn(
@@ -162,7 +168,7 @@ class NowPlayingViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { trackIds ->
                     if (trackIds.isNotEmpty()) {
-                        libraryRepository.prefetchArtwork(trackIds)
+                        artworkRepairCoordinator.prefetch(trackIds)
                     }
                 }
         }
