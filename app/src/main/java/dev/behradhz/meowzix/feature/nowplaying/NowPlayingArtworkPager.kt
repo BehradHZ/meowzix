@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
@@ -114,6 +115,9 @@ internal fun NowPlayingArtworkPager(
                         scaleX = artworkScale
                         scaleY = artworkScale
                         alpha = artworkAlpha
+                        // Avoid alpha's default offscreen buffer clipping the elevated artwork shadow
+                        // to a hard rectangular layer while the paused cover is scaled down.
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
                     }
                     .pointerInput(viewModel) {
                         detectTapGestures(onTap = { viewModel.togglePlayPause() })
@@ -412,6 +416,10 @@ internal fun NowPlayingArtworkPager(
                     scaleX = artworkScale
                     scaleY = artworkScale
                     alpha = artworkAlpha
+                    // The shadow intentionally lives inside this transform so it scales with the
+                    // cover. ModulateAlpha avoids creating a rectangular offscreen buffer that would
+                    // clip that shadow when paused.
+                    compositingStrategy = CompositingStrategy.ModulateAlpha
                 }
                 .shadow(
                     elevation = 18.dp,
