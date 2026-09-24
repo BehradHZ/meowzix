@@ -1,9 +1,5 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,7 +26,6 @@ import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,34 +41,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
-import dev.behradhz.meowzix.ui.components.AudioSpectrum
-import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
 import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
-import kotlinx.coroutines.delay
 
 private val PlayerPrimaryContent = Color(0xFFF7F3EF)
 private val PlayerSecondaryContent = Color(0xFFCFC7C0)
 private val PlayerGlass = Color(0xFF171615)
+private val PlayerLoadingShimmer = Color(0xFFFF4D4D)
 
 @Composable
 fun NowPlayingRoute(
@@ -83,32 +74,11 @@ fun NowPlayingRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val queueState by viewModel.queueState.collectAsStateWithLifecycle()
-    val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val visualizerPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { granted ->
-            if (granted) viewModel.refreshVisualizer()
-        },
-    )
-
-    LaunchedEffect(Unit) {
-        if (
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            viewModel.refreshVisualizer()
-        } else {
-            visualizerPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
-
     NowPlayingScreen(
         state = state,
         queueState = queueState,
-        spectrum = spectrum,
         isFavorite = isFavorite,
         onBack = onBack,
         onTogglePlayPause = viewModel::togglePlayPause,
@@ -143,7 +113,6 @@ fun NowPlayingRoute(
 private fun NowPlayingScreen(
     state: PlaybackState,
     queueState: QueueState,
-    spectrum: AudioSpectrumState,
     isFavorite: Boolean,
     onBack: () -> Unit,
     onTogglePlayPause: () -> Unit,
@@ -167,24 +136,10 @@ private fun NowPlayingScreen(
     var backdropTransition by remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
     val duration = state.durationMs.coerceAtLeast(1L)
     val shownPosition = pendingSeek?.toLong() ?: state.positionMs.coerceIn(0L, duration)
-    val playbackLoading =
+    val isLoading =
         state.status == PlaybackStatus.DOWNLOADING ||
             state.status == PlaybackStatus.BUFFERING ||
             state.status == PlaybackStatus.PREPARING
-    var showPlaybackLoading by remember { mutableStateOf(false) }
-
-    // Media3 can report BUFFERING/PREPARING for only a few frames while moving between already
-    // prefetched queue items. Avoid flashing a full-screen spinner for those normal transitions;
-    // keep it for stalls that are long enough for the user to actually be waiting.
-    LaunchedEffect(playbackLoading) {
-        if (!playbackLoading) {
-            showPlaybackLoading = false
-            return@LaunchedEffect
-        }
-        showPlaybackLoading = false
-        delay(450L)
-        showPlaybackLoading = true
-    }
 
     Box(Modifier.fillMaxSize()) {
         val activeBackdropTransition = backdropTransition
@@ -249,14 +204,8 @@ private fun NowPlayingScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            FileWaveform(
-                spectrum = spectrum,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp),
-            )
-
-            CurlyMusicSlider(
+            SyntheticWaveformSeekBar(
+                trackKey = track.id.toString(),
                 value = shownPosition.toFloat(),
                 onValueChange = { pendingSeek = it },
                 onValueChangeFinished = {
@@ -264,11 +213,13 @@ private fun NowPlayingScreen(
                     pendingSeek = null
                 },
                 valueRange = 0f..duration.toFloat(),
-                enabled = state.durationMs > 0L,
+                enabled = state.durationMs > 0L && !isLoading,
                 isPlaying = state.status == PlaybackStatus.PLAYING,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = PlayerPrimaryContent.copy(alpha = 0.24f),
-                thumbColor = PlayerPrimaryContent,
+                isLoading = isLoading,
+                activeBarColor = MaterialTheme.colorScheme.primary,
+                inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),
+                pointerColor = PlayerPrimaryContent,
+                loadingShimmerColor = PlayerLoadingShimmer,
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -300,24 +251,6 @@ private fun NowPlayingScreen(
             )
 
             Spacer(Modifier.height(12.dp))
-        }
-
-        if (showPlaybackLoading && playbackLoading) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(64.dp),
-                shape = RoundedCornerShape(32.dp),
-                color = Color.Black.copy(alpha = 0.50f),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(
-                        color = PlayerPrimaryContent,
-                        modifier = Modifier.size(30.dp),
-                        strokeWidth = 3.dp,
-                    )
-                }
-            }
         }
 
         state.errorMessage?.let { message ->
@@ -402,27 +335,6 @@ private fun TrackIdentity(
                 contentDescription = if (favorite) "Remove from favorites" else "Add to favorites",
                 tint = if (favorite) MaterialTheme.colorScheme.primary else PlayerPrimaryContent,
                 modifier = Modifier.size(28.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun FileWaveform(
-    spectrum: AudioSpectrumState,
-    modifier: Modifier = Modifier,
-) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        AudioSpectrum(
-            bands = spectrum.bands,
-            color = PlayerPrimaryContent,
-            modifier = Modifier.fillMaxSize(),
-        )
-        if (spectrum.isAnalyzing) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(18.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary,
             )
         }
     }
