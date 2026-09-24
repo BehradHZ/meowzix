@@ -156,22 +156,54 @@ class ProgressiveQueue @Inject constructor() {
 
     @Synchronized
     fun insertNext(track: PlayableTrack): Boolean {
-        if (!trackIds.add(track.id)) return false
         if (tracks.isEmpty()) {
             tracks += track
+            trackIds += track.id
             currentIndex = 0
-        } else {
-            tracks.add((currentIndex + 1).coerceAtMost(tracks.size), track)
+            invalidateSnapshot()
+            return true
         }
+
+        val currentId = tracks.getOrNull(currentIndex)?.id ?: return false
+        val existingIndex = tracks.indexOfFirst { it.id == track.id }
+        if (existingIndex == currentIndex) return false
+
+        val item = if (existingIndex >= 0) {
+            tracks.removeAt(existingIndex)
+        } else {
+            trackIds += track.id
+            track
+        }
+        currentIndex = tracks.indexOfFirst { it.id == currentId }
+        if (currentIndex < 0) return false
+        tracks.add((currentIndex + 1).coerceAtMost(tracks.size), item)
+        currentIndex = tracks.indexOfFirst { it.id == currentId }
         invalidateSnapshot()
         return true
     }
 
     @Synchronized
     fun append(track: PlayableTrack): Boolean {
-        if (!trackIds.add(track.id)) return false
-        tracks += track
-        if (currentIndex < 0) currentIndex = 0
+        if (tracks.isEmpty()) {
+            tracks += track
+            trackIds += track.id
+            currentIndex = 0
+            invalidateSnapshot()
+            return true
+        }
+
+        val currentId = tracks.getOrNull(currentIndex)?.id ?: return false
+        val existingIndex = tracks.indexOfFirst { it.id == track.id }
+        if (existingIndex == currentIndex) return false
+
+        val item = if (existingIndex >= 0) {
+            tracks.removeAt(existingIndex)
+        } else {
+            trackIds += track.id
+            track
+        }
+        tracks += item
+        currentIndex = tracks.indexOfFirst { it.id == currentId }
         invalidateSnapshot()
         return true
     }
