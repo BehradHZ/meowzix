@@ -95,14 +95,24 @@ class ProgressiveQueueTest {
     }
 
     @Test
-    fun `duplicate canonical track IDs are rejected from manual queue mutation`() {
+    fun `manual queue actions reposition existing tracks without duplicate canonical IDs`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(20)
-        queue.start(tracks, 0, PlaybackMode.ORDERED, RepeatMode.OFF)
+        queue.start(tracks, 3, PlaybackMode.ORDERED, RepeatMode.OFF)
 
-        assertFalse(queue.insertNext(tracks[5]))
-        assertFalse(queue.append(tracks[10]))
-        assertEquals(20, queue.snapshot()?.tracks?.size)
+        assertTrue(queue.insertNext(tracks[10]))
+        var snapshot = requireNotNull(queue.snapshot())
+        assertEquals(tracks[3].id, snapshot.tracks[snapshot.currentIndex].id)
+        assertEquals(tracks[10].id, snapshot.tracks[snapshot.currentIndex + 1].id)
+        assertEquals(20, snapshot.tracks.size)
+        assertEquals(20, snapshot.tracks.map { it.id }.distinct().size)
+
+        assertTrue(queue.append(tracks[1]))
+        snapshot = requireNotNull(queue.snapshot())
+        assertEquals(tracks[3].id, snapshot.tracks[snapshot.currentIndex].id)
+        assertEquals(tracks[1].id, snapshot.tracks.last().id)
+        assertEquals(20, snapshot.tracks.size)
+        assertEquals(20, snapshot.tracks.map { it.id }.distinct().size)
     }
 
     @Test
