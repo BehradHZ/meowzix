@@ -205,6 +205,23 @@ class ProgressiveQueue @Inject constructor() {
     }
 
     @Synchronized
+    fun retainCurrentOnly(): Boolean {
+        val current = tracks.getOrNull(currentIndex) ?: return false
+        tracks.clear()
+        tracks += current
+        trackIds.clear()
+        trackIds += current.id
+        currentIndex = 0
+        materializedStartIndex = 0
+        materializedEndExclusive = 1
+        playbackMode = PlaybackMode.ORDERED
+        repeatMode = RepeatMode.OFF
+        shuffleSeed = null
+        invalidateSnapshot()
+        return true
+    }
+
+    @Synchronized
     fun replaceFuture(
         future: List<PlayableTrack>,
         mode: PlaybackMode,

@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.domain.playback
 import java.util.UUID
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -116,6 +117,24 @@ class ProgressiveQueueTest {
         assertEquals(5, snapshot.currentIndex)
         assertEquals(tracks[6].id, snapshot.tracks[snapshot.currentIndex].id)
         assertFalse(snapshot.tracks.any { it.id == tracks[5].id })
+    }
+
+    @Test
+    fun `clear semantics retain only current track and disable repeat`() {
+        val queue = ProgressiveQueue()
+        val tracks = tracks(20)
+        queue.start(tracks, 7, PlaybackMode.PURE_SHUFFLE, RepeatMode.ALL, seed = 99L)
+
+        assertTrue(queue.retainCurrentOnly())
+
+        val snapshot = requireNotNull(queue.snapshot())
+        assertEquals(listOf(tracks[7].id), snapshot.tracks.map { it.id })
+        assertEquals(0, snapshot.currentIndex)
+        assertEquals(0, snapshot.materializedStartIndex)
+        assertEquals(1, snapshot.materializedEndExclusive)
+        assertEquals(PlaybackMode.ORDERED, snapshot.playbackMode)
+        assertEquals(RepeatMode.OFF, snapshot.repeatMode)
+        assertNull(snapshot.shuffleSeed)
     }
 
     @Test

@@ -286,8 +286,29 @@ class AndroidPlaybackController @Inject constructor(
     }
 
     override fun clear() = withController { connected ->
-        progressiveQueue.clear()
-        connected.clearMediaItems()
+        val playerCurrentIndex = connected.currentMediaItemIndex
+        val hasCurrentItem = connected.currentMediaItem != null &&
+            playerCurrentIndex in 0 until connected.mediaItemCount
+        if (!hasCurrentItem) {
+            progressiveQueue.clear()
+            connected.clearMediaItems()
+            return@withController
+        }
+
+        val hasLogicalQueue = progressiveQueue.snapshot() != null
+        if (hasLogicalQueue) {
+            progressiveQueue.updateCurrent(connected.currentMediaItem?.mediaId)
+            if (!progressiveQueue.retainCurrentOnly()) progressiveQueue.clear()
+        }
+
+        if (playerCurrentIndex + 1 < connected.mediaItemCount) {
+            connected.removeMediaItems(playerCurrentIndex + 1, connected.mediaItemCount)
+        }
+        if (playerCurrentIndex > 0) {
+            connected.removeMediaItems(0, playerCurrentIndex)
+        }
+        connected.repeatMode = Player.REPEAT_MODE_OFF
+        updateState(connected)
     }
 
     override fun setPlaybackMode(mode: PlaybackMode) {
