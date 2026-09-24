@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -17,6 +19,29 @@ val telegramApiHash = providers.gradleProperty("MEOWZIX_TELEGRAM_API_HASH")
     .orElse(providers.environmentVariable("MEOWZIX_TELEGRAM_API_HASH"))
     .getOrElse("")
 
+val releaseSigningPropertiesFile = rootProject.file("keystore.properties")
+val releaseSigningProperties = Properties().apply {
+    if (releaseSigningPropertiesFile.isFile) {
+        releaseSigningPropertiesFile.inputStream().use(::load)
+    }
+}
+
+fun releaseSigningValue(name: String): String =
+    providers.gradleProperty(name)
+        .orElse(providers.environmentVariable(name))
+        .getOrElse(releaseSigningProperties.getProperty(name).orEmpty())
+
+val releaseStoreFile = releaseSigningValue("MEOWZIX_KEYSTORE_FILE")
+val releaseStorePassword = releaseSigningValue("MEOWZIX_KEYSTORE_PASSWORD")
+val releaseKeyAlias = releaseSigningValue("MEOWZIX_KEY_ALIAS")
+val releaseKeyPassword = releaseSigningValue("MEOWZIX_KEY_PASSWORD")
+val releaseSigningConfigured = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all(String::isNotBlank)
+
 android {
     namespace = "dev.behradhz.meowzix"
     // Build against the standard API 37 SDK required by current AndroidX.
@@ -32,6 +57,27 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TELEGRAM_API_ID", telegramApiId.asBuildConfigString())
         buildConfigField("String", "TELEGRAM_API_HASH", telegramApiHash.asBuildConfigString())
+    }
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isDebuggable = false
+            isMinifyEnabled = false
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     buildFeatures {
