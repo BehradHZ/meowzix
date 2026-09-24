@@ -112,9 +112,16 @@ private fun QueueScreen(
     var displayItems by remember { mutableStateOf(state.items) }
     var draggedItemId by remember { mutableStateOf<UUID?>(null) }
     var draggedDistance by remember { mutableStateOf(0f) }
+    var hasFocusedCurrent by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.items, draggedItemId) {
         if (draggedItemId == null) displayItems = state.items
+    }
+    LaunchedEffect(state.currentIndex, state.items.size) {
+        if (!hasFocusedCurrent && state.currentIndex in state.items.indices) {
+            hasFocusedCurrent = true
+            listState.scrollToItem(state.currentIndex + 1)
+        }
     }
 
     fun finishDrag(commit: Boolean) {
