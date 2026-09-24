@@ -1,7 +1,7 @@
 package dev.behradhz.meowzix.feature.queue
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.DragHandle
@@ -73,7 +72,6 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun QueueRoute(
-    onBack: () -> Unit,
     viewModel: QueueViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -81,7 +79,6 @@ fun QueueRoute(
     QueueScreen(
         state = state,
         aux = aux,
-        onBack = onBack,
         onPlay = viewModel::play,
         onMove = viewModel::move,
         onRemove = viewModel::remove,
@@ -95,11 +92,11 @@ fun QueueRoute(
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun QueueScreen(
     state: QueueState,
     aux: QueueAuxState,
-    onBack: () -> Unit,
     onPlay: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onRemove: (Int) -> Unit,
@@ -147,37 +144,36 @@ private fun QueueScreen(
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 182.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
-                }
-                Column(Modifier.weight(1f)) {
-                    Text("Queue", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        if (state.items.isEmpty()) "Nothing queued" else "${state.items.size} tracks",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
-                    )
-                }
-                if (state.items.size > 1) {
-                    val shuffleEnabled = state.playbackMode == PlaybackMode.PURE_SHUFFLE
-                    IconButton(onClick = onToggleShuffle) {
-                        Icon(
-                            Icons.Rounded.Shuffle,
-                            contentDescription = if (shuffleEnabled) "Disable shuffle" else "Shuffle queue",
-                            tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        stickyHeader {
+            Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.background) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Queue", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (state.items.isEmpty()) "Nothing queued" else "${state.items.size} tracks",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
                         )
                     }
-                }
-                if (state.items.isNotEmpty()) {
-                    Button(onClick = onClear, shape = RoundedCornerShape(16.dp)) {
-                        Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.size(6.dp))
-                        Text("Clear")
+                    if (state.items.size > 1) {
+                        val shuffleEnabled = state.playbackMode == PlaybackMode.PURE_SHUFFLE
+                        IconButton(onClick = onToggleShuffle) {
+                            Icon(
+                                Icons.Rounded.Shuffle,
+                                contentDescription = if (shuffleEnabled) "Disable shuffle" else "Shuffle queue",
+                                tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (state.items.isNotEmpty()) {
+                        Button(onClick = onClear, shape = RoundedCornerShape(16.dp)) {
+                            Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text("Clear")
+                        }
                     }
                 }
             }
@@ -351,7 +347,7 @@ private fun SwipeableQueueItem(
         },
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onPlay, onLongClick = { menuExpanded = true }),
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay),
             shape = RoundedCornerShape(18.dp),
             color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
             shadowElevation = if (isDragging) 6.dp else 1.dp,
