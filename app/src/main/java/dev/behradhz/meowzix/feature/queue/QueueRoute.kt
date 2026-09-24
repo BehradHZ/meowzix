@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.PlaylistAddCircle
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -62,6 +63,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
@@ -84,6 +86,7 @@ fun QueueRoute(
         onMove = viewModel::move,
         onRemove = viewModel::remove,
         onClear = viewModel::clear,
+        onToggleShuffle = viewModel::toggleShuffle,
         onPlayNext = viewModel::playNext,
         onAddToQueue = viewModel::addToQueue,
         onPinOffline = viewModel::pinOffline,
@@ -101,6 +104,7 @@ private fun QueueScreen(
     onMove: (Int, Int) -> Unit,
     onRemove: (Int) -> Unit,
     onClear: () -> Unit,
+    onToggleShuffle: () -> Unit,
     onPlayNext: (UUID) -> Unit,
     onAddToQueue: (UUID) -> Unit,
     onPinOffline: (UUID) -> Unit,
@@ -158,6 +162,16 @@ private fun QueueScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
                     )
+                }
+                if (state.items.size > 1) {
+                    val shuffleEnabled = state.playbackMode == PlaybackMode.PURE_SHUFFLE
+                    IconButton(onClick = onToggleShuffle) {
+                        Icon(
+                            Icons.Rounded.Shuffle,
+                            contentDescription = if (shuffleEnabled) "Disable shuffle" else "Shuffle queue",
+                            tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 if (state.items.isNotEmpty()) {
                     Button(onClick = onClear, shape = RoundedCornerShape(16.dp)) {

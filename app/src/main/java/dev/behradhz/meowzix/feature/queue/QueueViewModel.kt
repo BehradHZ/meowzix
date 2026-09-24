@@ -10,6 +10,7 @@ import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import java.util.UUID
 import javax.inject.Inject
@@ -62,6 +63,14 @@ class QueueViewModel @Inject constructor(
     fun move(fromIndex: Int, toIndex: Int) = queueRepository.move(fromIndex, toIndex)
     fun remove(index: Int) = queueRepository.removeAt(index)
     fun clear() = queueRepository.clear()
+    fun toggleShuffle() {
+        val nextMode = if (state.value.playbackMode == PlaybackMode.PURE_SHUFFLE) {
+            PlaybackMode.ORDERED
+        } else {
+            PlaybackMode.PURE_SHUFFLE
+        }
+        queueRepository.setPlaybackMode(nextMode)
+    }
     fun playNext(trackId: UUID) = queueRepository.playNext(trackId)
     fun addToQueue(trackId: UUID) = queueRepository.addToQueue(trackId)
     fun pinOffline(trackId: UUID) = downloads.pinOffline(trackId)
