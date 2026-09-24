@@ -24,9 +24,7 @@ jobs:
           git fetch origin main ui
           git checkout main
           git reset --hard origin/main
-
-          git show origin/ui:app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt \
-            > app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt
+          git show origin/ui:app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt > app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt
 
           python3 - <<'PY'
           from pathlib import Path
@@ -51,47 +49,67 @@ jobs:
               text = text.replace(line, '')
 
           anchor = 'import dev.behradhz.meowzix.ui.components.GlassSurface\n'
-          if 'import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar\n' not in text:
-              text = text.replace(anchor, anchor + 'import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar\n')
-
+          text = text.replace(anchor, anchor + 'import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar\n')
           text = text.replace(
               'private val PlayerGlass = Color(0xFF171615)\n',
               'private val PlayerGlass = Color(0xFF171615)\nprivate val PlayerLoadingShimmer = Color(0xFFFF4D4D)\n',
           )
           text = text.replace('    val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()\n', '')
 
-          permission_block = re.compile(
-              r'    val context = LocalContext\.current\n'
-              r'    val visualizerPermissionLauncher = rememberLauncherForActivityResult\([\s\S]*?'
-              r'    }\n\n'
-              r'    LaunchedEffect\(Unit\) \{[\s\S]*?'
-              r'    }\n\n'
+          permission_block = (
+              '    val context = LocalContext.current\n'
+              '    val visualizerPermissionLauncher = rememberLauncherForActivityResult(\n'
+              '        contract = ActivityResultContracts.RequestPermission(),\n'
+              '        onResult = { granted ->\n'
+              '            if (granted) viewModel.refreshVisualizer()\n'
+              '        },\n'
+              '    )\n\n'
+              '    LaunchedEffect(Unit) {\n'
+              '        if (\n'
+              '            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==\n'
+              '            PackageManager.PERMISSION_GRANTED\n'
+              '        ) {\n'
+              '            viewModel.refreshVisualizer()\n'
+              '        } else {\n'
+              '            visualizerPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)\n'
+              '        }\n'
+              '    }\n\n'
           )
-          text, n = permission_block.subn('', text, count=1)
-          if n != 1:
-              raise SystemExit('Failed to remove visualizer permission block')
-
+          if permission_block not in text:
+              raise SystemExit('Permission block changed unexpectedly')
+          text = text.replace(permission_block, '', 1)
           text = text.replace('        spectrum = spectrum,\n', '')
           text = text.replace('    spectrum: AudioSpectrumState,\n', '')
 
-          loading_block = re.compile(
-              r'    val playbackLoading =\n'
-              r'        state\.status == PlaybackStatus\.DOWNLOADING \|\|\n'
-              r'            state\.status == PlaybackStatus\.BUFFERING \|\|\n'
-              r'            state\.status == PlaybackStatus\.PREPARING\n'
-              r'    var showPlaybackLoading by remember \{ mutableStateOf\(false\) \}\n\n'
-              r'    // Media3 can report BUFFERING/PREPARING[\s\S]*?'
-              r'    }\n\n'
+          loading_block = (
+              '    val playbackLoading =\n'
+              '        state.status == PlaybackStatus.DOWNLOADING ||\n'
+              '            state.status == PlaybackStatus.BUFFERING ||\n'
+              '            state.status == PlaybackStatus.PREPARING\n'
+              '    var showPlaybackLoading by remember { mutableStateOf(false) }\n\n'
+              '    // Media3 can report BUFFERING/PREPARING for only a few frames while moving between already\n'
+              '    // prefetched queue items. Avoid flashing a full-screen spinner for those normal transitions;\n'
+              '    // keep it for stalls that are long enough for the user to actually be waiting.\n'
+              '    LaunchedEffect(playbackLoading) {\n'
+              '        if (!playbackLoading) {\n'
+              '            showPlaybackLoading = false\n'
+              '            return@LaunchedEffect\n'
+              '        }\n'
+              '        showPlaybackLoading = false\n'
+              '        delay(450L)\n'
+              '        showPlaybackLoading = true\n'
+              '    }\n\n'
           )
-          replacement = (
+          if loading_block not in text:
+              raise SystemExit('Loading block changed unexpectedly')
+          text = text.replace(
+              loading_block,
               '    val isLoading =\n'
               '        state.status == PlaybackStatus.DOWNLOADING ||\n'
               '            state.status == PlaybackStatus.BUFFERING ||\n'
-              '            state.status == PlaybackStatus.PREPARING\n\n'
+              '            state.status == PlaybackStatus.PREPARING\n\n',
+              1,
           )
-          text, n = loading_block.subn(replacement, text, count=1)
-          if n != 1:
-              raise SystemExit('Failed to replace playback loading state block')
 
           seek_block = re.compile(
               r'            FileWaveform\([\s\S]*?'
@@ -124,8 +142,7 @@ jobs:
               raise SystemExit('Failed to replace waveform/seekbar block')
 
           spinner_block = re.compile(
-              r'\n        if \(showPlaybackLoading && playbackLoading\) \{[\s\S]*?'
-              r'        }\n\n        state\.errorMessage'
+              r'\n        if \(showPlaybackLoading && playbackLoading\) \{[\s\S]*?\n        }\n\n        state\.errorMessage'
           )
           text, n = spinner_block.subn('\n        state.errorMessage', text, count=1)
           if n != 1:
@@ -141,7 +158,7 @@ jobs:
           path.write_text(text)
           PY
 
-          git add app/src/main/java/dev/behradhz/meowzix/feature/nowplaying/NowPlayingRoute.kt \
-                  app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt
+          git add app/src/main/java/dev/behradhz/meowzix/feature/nowplaying/NowPlayingRoute.kt app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt
+          git diff --cached --check
           git commit -m "feat(ui): replace player seekbar with loading waveform"
           git push origin main
