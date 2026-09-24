@@ -94,9 +94,9 @@ class AndroidAudioOutputController @Inject constructor(
         router.registerRouteCallback(
             executor,
             object : MediaRouter2.RouteCallback() {
-                override fun onRoutesAdded(router: MediaRouter2, routes: List<MediaRoute2Info>) = refreshMediaRouter2()
-                override fun onRoutesChanged(router: MediaRouter2, routes: List<MediaRoute2Info>) = refreshMediaRouter2()
-                override fun onRoutesRemoved(router: MediaRouter2, routes: List<MediaRoute2Info>) = refreshMediaRouter2()
+                override fun onRoutesAdded(routes: MutableList<MediaRoute2Info>) = refreshMediaRouter2()
+                override fun onRoutesChanged(routes: MutableList<MediaRoute2Info>) = refreshMediaRouter2()
+                override fun onRoutesRemoved(routes: MutableList<MediaRoute2Info>) = refreshMediaRouter2()
             },
             RouteDiscoveryPreference.Builder(
                 listOf(MediaRoute2Info.FEATURE_LIVE_AUDIO),
