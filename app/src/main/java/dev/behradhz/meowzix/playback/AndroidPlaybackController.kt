@@ -278,7 +278,7 @@ class AndroidPlaybackController @Inject constructor(
     override fun move(fromIndex: Int, toIndex: Int) {
         withController { connected ->
             if (progressiveQueue.snapshot() != null) {
-                if (progressiveQueue.move(fromIndex, toIndex)) rebuildProgressiveWindow(connected)
+                if (progressiveQueue.move(fromIndex, toIndex)) syncProgressiveWindowInPlace(connected)
             } else if (fromIndex in 0 until connected.mediaItemCount && toIndex in 0 until connected.mediaItemCount) {
                 connected.moveMediaItem(fromIndex, toIndex)
             }
@@ -447,6 +447,32 @@ class AndroidPlaybackController @Inject constructor(
         }
         if (desiredFuture.isNotEmpty()) {
             connected.addMediaItems(desiredFuture)
+        }
+        connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
+        updateState(connected)
+    }
+
+    /** Reconciles a reordered progressive window without resetting the active MediaItem. */
+    private fun syncProgressiveWindowInPlace(connected: MediaController) {
+        val currentMediaId = connected.currentMediaItem?.mediaId ?: return
+        if (!progressiveQueue.updateCurrent(currentMediaId)) return
+        val plan = progressiveQueue.resetWindow()
+        val snapshot = progressiveQueue.snapshot() ?: return
+        plan.tracks.forEachIndexed { targetIndex, track ->
+            val desiredId = track.id.toString()
+            if (targetIndex < connected.mediaItemCount && connected.getMediaItemAt(targetIndex).mediaId == desiredId) {
+                return@forEachIndexed
+            }
+            val existingIndex = (targetIndex + 1 until connected.mediaItemCount)
+                .firstOrNull { index -> connected.getMediaItemAt(index).mediaId == desiredId }
+            if (existingIndex != null) {
+                connected.moveMediaItem(existingIndex, targetIndex)
+            } else {
+                connected.addMediaItem(targetIndex, track.toMediaItem(snapshot.playbackMode, snapshot.repeatMode))
+            }
+        }
+        while (connected.mediaItemCount > plan.tracks.size) {
+            connected.removeMediaItem(connected.mediaItemCount - 1)
         }
         connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
         updateState(connected)

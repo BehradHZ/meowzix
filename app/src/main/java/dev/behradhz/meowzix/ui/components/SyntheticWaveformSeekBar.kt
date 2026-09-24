@@ -27,10 +27,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.floor
-import kotlin.math.sin
 
 /**
  * Lightweight deterministic waveform seek bar.
@@ -44,6 +42,7 @@ import kotlin.math.sin
 @Composable
 fun SyntheticWaveformSeekBar(
     trackKey: String,
+    liveBands: FloatArray,
     value: Float,
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
@@ -60,43 +59,27 @@ fun SyntheticWaveformSeekBar(
     barWidth: Dp = 3.dp,
     pointerRadius: Dp = 7.dp,
     decayBarCount: Int = 8,
-    animationDurationMs: Int = 820,
     shimmerDurationMs: Int = 1_050,
 ) {
     val resolvedBarCount = barCount.coerceAtLeast(12)
-    val waveform = remember(trackKey, resolvedBarCount) {
-        buildSyntheticWaveform(trackKey, resolvedBarCount)
-    }
+    val waveform = remember(trackKey, resolvedBarCount) { buildSyntheticWaveform(trackKey, resolvedBarCount) }
+    val liveProfile = remember(liveBands, resolvedBarCount) { expandLiveSpectrum(liveBands, resolvedBarCount) }
+    val hasLiveSpectrum = remember(liveBands) { liveBands.any { it > 0.001f } }
 
     val interactionSource = remember { MutableInteractionSource() }
     val isDragged by interactionSource.collectIsDraggedAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
     val isInteracting = isDragged || isPressed
-    val interactionFraction by animateFloatAsState(
+    val scrubBlend by animateFloatAsState(
         targetValue = if (isInteracting) 1f else 0f,
-        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
-        label = "waveformSeekInteraction",
+        animationSpec = tween(durationMillis = if (isInteracting) 280 else 360, easing = FastOutSlowInEasing),
+        label = "waveformScrubBlend",
     )
-
-    val phase = remember { Animatable(0f) }
-    val shouldAnimateBars = enabled && isPlaying && !isLoading && !isInteracting
-    LaunchedEffect(shouldAnimateBars, animationDurationMs) {
-        if (!shouldAnimateBars) {
-            phase.snapTo(0f)
-            return@LaunchedEffect
-        }
-        val fullCycle = (2.0 * PI).toFloat()
-        while (true) {
-            phase.snapTo(0f)
-            phase.animateTo(
-                targetValue = fullCycle,
-                animationSpec = tween(
-                    durationMillis = animationDurationMs.coerceAtLeast(1),
-                    easing = LinearEasing,
-                ),
-            )
-        }
-    }
+    val pointerInteraction by animateFloatAsState(
+        targetValue = if (isInteracting) 1f else 0f,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        label = "waveformPointerInteraction",
+    )
 
     val shimmer = remember { Animatable(-0.24f) }
     LaunchedEffect(isLoading, shimmerDurationMs) {
@@ -173,21 +156,11 @@ fun SyntheticWaveformSeekBar(
                     }
                 } else if (normalizedX <= progress && progress > 0f) {
                     val distanceFromPointer = (pointerIndex - index.toFloat()).coerceAtLeast(0f)
-                    val decay = (distanceFromPointer / decayWindow).coerceIn(0f, 1f)
-                    val activity = if (shouldAnimateBars) {
-                        val oscillator = (
-                            sin(
-                                phase.value +
-                                    index * 0.83f +
-                                    baseHeight * PI.toFloat(),
-                            ) + 1f
-                        ) / 2f
-                        0.56f + 0.44f * oscillator
-                    } else {
-                        0.10f
-                    }
-                    halfHeight = (baseHeight * maxHalfHeight * activity * decay)
-                        .coerceAtLeast(minimumHalfHeightPx)
+                    val linearDecay = (distanceFromPointer / decayWindow).coerceIn(0f, 1f)
+                    val decay = smoothStep(linearDecay)
+                    val liveHeight = if (isPlaying && hasLiveSpectrum) liveProfile[index].coerceIn(0.08f, 1f) else baseHeight
+                    val blendedHeight = lerpFloat(liveHeight, baseHeight, scrubBlend)
+                    halfHeight = (blendedHeight * maxHalfHeight * decay).coerceAtLeast(minimumHalfHeightPx)
                     color = activeBarColor
                 } else {
                     halfHeight = minimumHalfHeightPx
@@ -209,12 +182,12 @@ fun SyntheticWaveformSeekBar(
                 val pointerWidth = lerpFloat(
                     pointerRadiusPx * 2f,
                     (requestedBarWidthPx * 1.35f).coerceAtLeast(2f),
-                    interactionFraction,
+                    pointerInteraction,
                 )
                 val pointerHeight = lerpFloat(
                     pointerRadiusPx * 2f,
                     interactionPointerHeightPx,
-                    interactionFraction,
+                    pointerInteraction,
                 )
                 drawRoundRect(
                     color = if (enabled) pointerColor else pointerColor.copy(alpha = 0.45f),
@@ -279,19 +252,19 @@ private fun buildSyntheticWaveform(trackKey: String, barCount: Int): FloatArray 
         val upper = (lower + 1).coerceAtMost(template.lastIndex)
         val fraction = templatePosition - lower.toFloat()
         val interpolated = lerpFloat(template[lower], template[upper], fraction)
-        val jitter = deterministicNoise(seed, index) * 0.10f
-        output[index] = (interpolated + jitter).coerceIn(0.18f, 0.96f)
+        output[index] = interpolated.coerceIn(0.18f, 0.96f)
     }
     return output
 }
 
-private fun deterministicNoise(seed: Int, index: Int): Float {
-    var value = seed xor (index * -1_640_531_527)
-    value = value xor (value shl 13)
-    value = value xor (value ushr 17)
-    value = value xor (value shl 5)
-    val normalized = (value and Int.MAX_VALUE).toFloat() / Int.MAX_VALUE.toFloat()
-    return normalized * 2f - 1f
+private fun expandLiveSpectrum(bands: FloatArray, barCount: Int): FloatArray {
+    if (bands.isEmpty()) return FloatArray(barCount)
+    return FloatArray(barCount) { index -> bands[index % bands.size].coerceIn(0f, 1f) }
+}
+
+private fun smoothStep(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
 }
 
 private fun lerpFloat(start: Float, end: Float, fraction: Float): Float =

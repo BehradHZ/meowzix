@@ -1,5 +1,10 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
+import android.Manifest
+import android.content.pm.PackageManager
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,12 +45,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -60,6 +67,8 @@ import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlin.math.abs
+import kotlinx.coroutines.delay
 
 private val PlayerPrimaryContent = Color(0xFFF7F3EF)
 private val PlayerSecondaryContent = Color(0xFFCFC7C0)
@@ -74,11 +83,25 @@ fun NowPlayingRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val queueState by viewModel.queueState.collectAsStateWithLifecycle()
+    val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val visualizerPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted -> if (granted) viewModel.refreshVisualizer() },
+    )
+    LaunchedEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            viewModel.refreshVisualizer()
+        } else {
+            visualizerPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
     NowPlayingScreen(
         state = state,
         queueState = queueState,
+        liveBands = spectrum.bands,
         isFavorite = isFavorite,
         onBack = onBack,
         onTogglePlayPause = viewModel::togglePlayPause,
@@ -113,6 +136,7 @@ fun NowPlayingRoute(
 private fun NowPlayingScreen(
     state: PlaybackState,
     queueState: QueueState,
+    liveBands: FloatArray,
     isFavorite: Boolean,
     onBack: () -> Unit,
     onTogglePlayPause: () -> Unit,
@@ -133,9 +157,19 @@ private fun NowPlayingScreen(
 
     val hazeState = rememberHazeState()
     var pendingSeek by remember(track.id) { mutableStateOf<Float?>(null) }
+    var settlingSeekTarget by remember(track.id) { mutableStateOf<Long?>(null) }
     var backdropTransition by remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
     val duration = state.durationMs.coerceAtLeast(1L)
-    val shownPosition = pendingSeek?.toLong() ?: state.positionMs.coerceIn(0L, duration)
+    val shownPosition = pendingSeek?.toLong() ?: settlingSeekTarget ?: state.positionMs.coerceIn(0L, duration)
+    LaunchedEffect(state.positionMs, settlingSeekTarget) {
+        val target = settlingSeekTarget ?: return@LaunchedEffect
+        if (abs(state.positionMs - target) <= 900L) settlingSeekTarget = null
+    }
+    LaunchedEffect(settlingSeekTarget) {
+        val target = settlingSeekTarget ?: return@LaunchedEffect
+        delay(650L)
+        if (settlingSeekTarget == target) settlingSeekTarget = null
+    }
     val isLoading =
         state.status == PlaybackStatus.DOWNLOADING ||
             state.status == PlaybackStatus.BUFFERING ||
@@ -206,10 +240,15 @@ private fun NowPlayingScreen(
 
             SyntheticWaveformSeekBar(
                 trackKey = track.id.toString(),
+                liveBands = liveBands,
                 value = shownPosition.toFloat(),
                 onValueChange = { pendingSeek = it },
                 onValueChangeFinished = {
-                    pendingSeek?.let { onSeek(it.toLong()) }
+                    pendingSeek?.let { value ->
+                        val target = value.toLong()
+                        settlingSeekTarget = target
+                        onSeek(target)
+                    }
                     pendingSeek = null
                 },
                 valueRange = 0f..duration.toFloat(),

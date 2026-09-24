@@ -211,7 +211,7 @@ fun MeowzixApp(
                 )
             }
             composable(QUEUE_ROUTE) {
-                QueueRoute(onBack = navController::popBackStack)
+                QueueRoute()
             }
             composable(TELEGRAM_AUTH_ROUTE) {
                 TelegramAuthRoute(onBack = navController::popBackStack)
