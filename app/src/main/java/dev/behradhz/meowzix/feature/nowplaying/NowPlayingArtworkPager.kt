@@ -219,7 +219,7 @@ internal fun NowPlayingArtworkPager(
         transitionJob = scope.launch {
             pendingUserTargetIndex = requestedTarget
 
-            // Playback changes only after the gesture has crossed the halfway commitment point.
+            // Playback changes only after the gesture has crossed the 35% commitment point.
             when (transitionDirection) {
                 ArtworkTransitionDirection.NEXT -> latestNext()
                 ArtworkTransitionDirection.PREVIOUS -> latestPrevious()
@@ -378,7 +378,7 @@ internal fun NowPlayingArtworkPager(
                 onDragEnd = {
                     when (gestureAxis) {
                         ArtworkGestureAxis.HORIZONTAL -> {
-                            if (direction != null && progress >= 0.50f) {
+                            if (direction != null && progress >= 0.35f) {
                                 commitGestureTransition()
                             } else if (progress > 0f) {
                                 animateBackToCurrent()
