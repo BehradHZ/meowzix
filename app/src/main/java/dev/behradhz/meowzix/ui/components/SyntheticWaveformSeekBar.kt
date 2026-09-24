@@ -37,8 +37,8 @@ import kotlin.math.floor
  *
  * A stable per-track waveform is used while scrubbing. During normal playback the played region is
  * driven by the real playback spectrum, decays smoothly to zero when playback pauses, and tapers
- * into the seek pointer. Seek transitions keep the scrub waveform active until Media3 confirms the
- * target position, avoiding a one-frame fallback while the player is settling.
+ * into the seek pointer. The last valid live spectrum is retained across a seek so the visual can
+ * morph back from the scrub waveform without flashing the default waveform for a frame.
  */
 @Composable
 fun SyntheticWaveformSeekBar(
@@ -52,7 +52,6 @@ fun SyntheticWaveformSeekBar(
     onValueChangeFinished: (() -> Unit)? = null,
     isPlaying: Boolean = false,
     isLoading: Boolean = false,
-    isSeekTransitionActive: Boolean = false,
     activeBarColor: Color = MaterialTheme.colorScheme.primary,
     inactiveBarColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
     pointerColor: Color = MaterialTheme.colorScheme.onSurface,
@@ -79,10 +78,9 @@ fun SyntheticWaveformSeekBar(
     val isDragged by interactionSource.collectIsDraggedAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
     val isInteracting = isDragged || isPressed
-    val scrubVisualActive = isInteracting || isSeekTransitionActive
     val scrubBlend by animateFloatAsState(
-        targetValue = if (scrubVisualActive) 1f else 0f,
-        animationSpec = tween(durationMillis = if (scrubVisualActive) 280 else 360, easing = FastOutSlowInEasing),
+        targetValue = if (isInteracting) 1f else 0f,
+        animationSpec = tween(durationMillis = if (isInteracting) 280 else 360, easing = FastOutSlowInEasing),
         label = "waveformScrubBlend",
     )
     val pointerInteraction by animateFloatAsState(
