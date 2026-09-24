@@ -1,0 +1,148 @@
+name: Apply waveform UI to main
+
+on:
+  push:
+    branches:
+      - automation/apply-waveform-main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Apply waveform patch onto current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main ui
+          git checkout main
+          git reset --hard origin/main
+
+          git show origin/ui:app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt \
+            > app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('app/src/main/java/dev/behradhz/meowzix/feature/nowplaying/NowPlayingRoute.kt')
+          text = path.read_text()
+
+          # Imports no longer needed by the full-player synthetic waveform implementation.
+          for line in [
+              'import android.Manifest\n',
+              'import android.content.pm.PackageManager\n',
+              'import androidx.activity.compose.rememberLauncherForActivityResult\n',
+              'import androidx.activity.result.contract.ActivityResultContracts\n',
+              'import androidx.compose.material3.CircularProgressIndicator\n',
+              'import androidx.compose.ui.platform.LocalContext\n',
+              'import androidx.core.content.ContextCompat\n',
+              'import dev.behradhz.meowzix.domain.playback.AudioSpectrumState\n',
+              'import dev.behradhz.meowzix.ui.components.AudioSpectrum\n',
+              'import dev.behradhz.meowzix.ui.components.CurlyMusicSlider\n',
+              'import kotlinx.coroutines.delay\n',
+          ]:
+              text = text.replace(line, '')
+
+          anchor = 'import dev.behradhz.meowzix.ui.components.GlassSurface\n'
+          if 'import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar\n' not in text:
+              text = text.replace(anchor, anchor + 'import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar\n')
+
+          text = text.replace(
+              'private val PlayerGlass = Color(0xFF171615)\n',
+              'private val PlayerGlass = Color(0xFF171615)\nprivate val PlayerLoadingShimmer = Color(0xFFFF4D4D)\n',
+          )
+
+          text = text.replace('    val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()\n', '')
+
+          permission_block = re.compile(
+              r'    val context = LocalContext\.current\n'
+              r'    val visualizerPermissionLauncher = rememberLauncherForActivityResult\([\s\S]*?'
+              r'    }\n\n'
+              r'    LaunchedEffect\(Unit\) \{[\s\S]*?'
+              r'    }\n\n'
+          )
+          text, n = permission_block.subn('', text, count=1)
+          if n != 1:
+              raise SystemExit('Failed to remove visualizer permission block')
+
+          text = text.replace('        spectrum = spectrum,\n', '')
+          text = text.replace('    spectrum: AudioSpectrumState,\n', '')
+
+          loading_block = re.compile(
+              r'    val playbackLoading =\n'
+              r'        state\.status == PlaybackStatus\.DOWNLOADING \|\|\n'
+              r'            state\.status == PlaybackStatus\.BUFFERING \|\|\n'
+              r'            state\.status == PlaybackStatus\.PREPARING\n'
+              r'    var showPlaybackLoading by remember \{ mutableStateOf\(false\) \}\n\n'
+              r'    // Media3 can report BUFFERING/PREPARING[\s\S]*?'
+              r'    }\n\n'
+          )
+          replacement = (
+              '    val isLoading =\n'
+              '        state.status == PlaybackStatus.DOWNLOADING ||\n'
+              '            state.status == PlaybackStatus.BUFFERING ||\n'
+              '            state.status == PlaybackStatus.PREPARING\n\n'
+          )
+          text, n = loading_block.subn(replacement, text, count=1)
+          if n != 1:
+              raise SystemExit('Failed to replace playback loading state block')
+
+          seek_block = re.compile(
+              r'            FileWaveform\([\s\S]*?'
+              r'            CurlyMusicSlider\([\s\S]*?'
+              r'                modifier = Modifier\.fillMaxWidth\(\),\n'
+              r'            \)\n'
+          )
+          seek_replacement = '''            SyntheticWaveformSeekBar(
+                trackKey = track.id.toString(),
+                value = shownPosition.toFloat(),
+                onValueChange = { pendingSeek = it },
+                onValueChangeFinished = {
+                    pendingSeek?.let { onSeek(it.toLong()) }
+                    pendingSeek = null
+                },
+                valueRange = 0f..duration.toFloat(),
+                enabled = state.durationMs > 0L && !isLoading,
+                isPlaying = state.status == PlaybackStatus.PLAYING,
+                isLoading = isLoading,
+                activeBarColor = MaterialTheme.colorScheme.primary,
+                inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),
+                pointerColor = PlayerPrimaryContent,
+                loadingShimmerColor = PlayerLoadingShimmer,
+                modifier = Modifier.fillMaxWidth(),
+            )
+'''
+          text, n = seek_block.subn(seek_replacement, text, count=1)
+          if n != 1:
+              raise SystemExit('Failed to replace waveform/seekbar block')
+
+          spinner_block = re.compile(
+              r'\n        if \(showPlaybackLoading && playbackLoading\) \{[\s\S]*?'
+              r'        }\n\n        state\.errorMessage'
+          )
+          text, n = spinner_block.subn('\n        state.errorMessage', text, count=1)
+          if n != 1:
+              raise SystemExit('Failed to remove full-screen loading spinner')
+
+          file_waveform = re.compile(
+              r'\n@Composable\nprivate fun FileWaveform\([\s\S]*?\n}\n\n@Composable\nprivate fun PlayerHeader'
+          )
+          text, n = file_waveform.subn('\n@Composable\nprivate fun PlayerHeader', text, count=1)
+          if n != 1:
+              raise SystemExit('Failed to remove legacy FileWaveform composable')
+
+          path.write_text(text)
+          PY
+
+          git add app/src/main/java/dev/behradhz/meowzix/feature/nowplaying/NowPlayingRoute.kt \
+                  app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt
+          git commit -m "feat(ui): replace player seekbar with loading waveform"
+          git push origin main
