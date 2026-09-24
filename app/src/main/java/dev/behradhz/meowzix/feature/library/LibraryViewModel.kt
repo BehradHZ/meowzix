@@ -15,8 +15,6 @@ import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
-import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
-import dev.behradhz.meowzix.domain.playback.QueueActionKind
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
@@ -56,7 +54,6 @@ class LibraryViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val telegramRepository: TelegramRepository,
     private val artworkRepairCoordinator: ArtworkRepairCoordinator,
-    private val queueActionFeedbackBus: QueueActionFeedbackBus,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
@@ -180,15 +177,9 @@ class LibraryViewModel @Inject constructor(
         if (ids.isNotEmpty()) queueRepository.replaceAndPlay(ids, mode)
     }
 
-    fun playNext(track: Track) {
-        queueRepository.playNext(track.id)
-        queueActionFeedbackBus.emit(QueueActionKind.PLAY_NEXT, track.title)
-    }
+    fun playNext(track: Track) = queueRepository.playNext(track.id)
 
-    fun addToQueue(track: Track) {
-        queueRepository.addToQueue(track.id)
-        queueActionFeedbackBus.emit(QueueActionKind.ADD_TO_END, track.title)
-    }
+    fun addToQueue(track: Track) = queueRepository.addToQueue(track.id)
 
     fun pinOffline(track: Track) = downloadRepository.pinOffline(track.id)
 
