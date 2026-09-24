@@ -91,6 +91,7 @@ fun MeowzixApp(
 ) {
     val navController = rememberNavController()
     val hazeState = rememberHazeState()
+    val morphingPlayerState = rememberMorphingPlayerState()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
@@ -98,7 +99,7 @@ fun MeowzixApp(
 
     LaunchedEffect(openNowPlayingRequest) {
         if (openNowPlayingRequest) {
-            navController.navigate(NOW_PLAYING_ROUTE) { launchSingleTop = true }
+            morphingPlayerState.expand()
             onNowPlayingRequestConsumed()
         }
     }
@@ -175,9 +176,7 @@ fun MeowzixApp(
                             restoreState = true
                         }
                     },
-                    onOpenNowPlaying = {
-                        navController.navigate(NOW_PLAYING_ROUTE) { launchSingleTop = true }
-                    },
+                    onOpenNowPlaying = morphingPlayerState::expand,
                     onOpenTelegram = {
                         navController.navigate(TELEGRAM_AUTH_ROUTE) { launchSingleTop = true }
                     },
@@ -234,20 +233,6 @@ fun MeowzixApp(
                     .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (playbackState.currentTrack != null) {
-                    GlassMiniPlayer(
-                        hazeState = hazeState,
-                        state = playbackState,
-                        spectrum = spectrum,
-                        onOpenNowPlaying = {
-                            navController.navigate(NOW_PLAYING_ROUTE) { launchSingleTop = true }
-                        },
-                        onTogglePlayPause = playerViewModel::togglePlayPause,
-                        onPrevious = playerViewModel::previous,
-                        onNext = playerViewModel::next,
-                    )
-                }
-
                 FloatingDock(
                     hazeState = hazeState,
                     destinations = destinations,
@@ -257,6 +242,23 @@ fun MeowzixApp(
                             popUpTo(navController.graph.findStartDestination().id) {
                                 saveState = true
                             }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
+            }
+
+            if (playbackState.currentTrack != null) {
+                MorphingPlayerOverlay(
+                    hazeState = hazeState,
+                    state = playbackState,
+                    spectrum = spectrum,
+                    viewModel = playerViewModel,
+                    morphState = morphingPlayerState,
+                    onOpenQueue = {
+                        navController.navigate(QUEUE_ROUTE) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
                         }
