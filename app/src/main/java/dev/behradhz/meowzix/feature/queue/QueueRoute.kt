@@ -232,7 +232,7 @@ private fun SwipeableQueueItem(
         Surface(
             modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onPlay, onLongClick = { menuExpanded = true }),
             shape = RoundedCornerShape(18.dp),
-            color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface,
+            color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
             shadowElevation = 1.dp,
         ) {
             Row(
