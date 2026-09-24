@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,8 +47,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -87,6 +88,8 @@ fun NowPlayingRoute(
     val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
+    val audioOutputState by viewModel.audioOutputState.collectAsStateWithLifecycle()
+    val isOutputPickerOpen by viewModel.isOutputPickerOpen.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val visualizerPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -112,9 +115,19 @@ fun NowPlayingRoute(
         onToggleFavorite = viewModel::toggleFavorite,
         onTogglePlaybackMode = viewModel::togglePlaybackMode,
         onCycleRepeatMode = viewModel::cycleRepeatMode,
+        onOpenOutput = viewModel::openOutputPicker,
         onOpenForward = viewModel::openForwardPicker,
         onOpenQueue = onOpenQueue,
     )
+
+    if (isOutputPickerOpen) {
+        AudioOutputSheet(
+            state = audioOutputState,
+            onTransferTo = viewModel::transferAudioTo,
+            onSetRouteEnabled = viewModel::setAudioRouteEnabled,
+            onDismiss = viewModel::dismissOutputPicker,
+        )
+    }
 
     val track = state.currentTrack
     if (forwardState.isOpen && track != null) {
@@ -147,6 +160,7 @@ private fun NowPlayingScreen(
     onToggleFavorite: () -> Unit,
     onTogglePlaybackMode: () -> Unit,
     onCycleRepeatMode: () -> Unit,
+    onOpenOutput: () -> Unit,
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
 ) {
@@ -212,6 +226,7 @@ private fun NowPlayingScreen(
             PlayerHeader(
                 hazeState = hazeState,
                 onBack = onBack,
+                onOpenOutput = onOpenOutput,
                 onOpenForward = onOpenForward,
                 onOpenQueue = onOpenQueue,
             )
@@ -384,6 +399,7 @@ private fun TrackIdentity(
 private fun PlayerHeader(
     hazeState: HazeState,
     onBack: () -> Unit,
+    onOpenOutput: () -> Unit,
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
 ) {
@@ -416,6 +432,13 @@ private fun PlayerHeader(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.weight(1f))
+            IconButton(onClick = onOpenOutput) {
+                Icon(
+                    Icons.Rounded.VolumeUp,
+                    contentDescription = "Choose audio output",
+                    tint = PlayerPrimaryContent,
+                )
+            }
             IconButton(onClick = onOpenForward) {
                 Icon(
                     Icons.Rounded.Send,
