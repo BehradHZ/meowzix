@@ -124,7 +124,6 @@ class AndroidAudioOutputController @Inject constructor(
                 override fun onRouteSelected(router: MediaRouter, type: Int, info: MediaRouter.RouteInfo) = refreshLegacyMediaRouter()
                 override fun onRouteUnselected(router: MediaRouter, type: Int, info: MediaRouter.RouteInfo) = refreshLegacyMediaRouter()
             },
-            MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
         )
     }
 
@@ -135,7 +134,11 @@ class AndroidAudioOutputController @Inject constructor(
         val selected = controller.selectedRoutes
         val selectable = controller.selectableRoutes
         val deselectable = controller.deselectableRoutes
-        val transferable = controller.transferableRoutes
+        val transferable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            controller.transferableRoutes
+        } else {
+            emptyList()
+        }
         val selectedIds = selected.mapTo(mutableSetOf()) { it.id }
         val selectableIds = selectable.mapTo(mutableSetOf()) { it.id }
         val deselectableIds = deselectable.mapTo(mutableSetOf()) { it.id }
