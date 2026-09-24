@@ -39,6 +39,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.NowPlayingArtwork
+import dev.behradhz.meowzix.ui.components.PreloadNowPlayingArtwork
 import kotlin.math.abs
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -121,6 +122,11 @@ internal fun NowPlayingArtworkPager(
         }
         return
     }
+
+    // Warm both adjacent covers while the current track is visible. The player and backdrop use
+    // the same 2048px cache bucket, so Next/Previous can transition without flashing placeholder art.
+    PreloadNowPlayingArtwork(queueState.items.getOrNull(activeIndex - 1)?.artworkRef)
+    PreloadNowPlayingArtwork(queueState.items.getOrNull(activeIndex + 1)?.artworkRef)
 
     val density = LocalDensity.current
     val axisThresholdPx = with(density) { 10.dp.toPx() }
