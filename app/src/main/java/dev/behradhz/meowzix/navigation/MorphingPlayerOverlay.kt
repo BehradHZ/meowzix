@@ -5,11 +5,9 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -35,8 +33,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,8 +42,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -61,11 +61,12 @@ import dev.behradhz.meowzix.ui.components.AudioSpectrum
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.chrisbanes.haze.HazeState
+import kotlin.math.abs
 
 private val CollapsedPlayerHeight = 72.dp
 private val CollapsedPlayerHorizontalInset = 14.dp
 private val CollapsedPlayerDockClearance = 90.dp
-private const val PlayerExpandVelocityThresholdDp = 720f
+private val PlayerSettleDistance = 72.dp
 
 @Stable
 internal class MorphingPlayerState internal constructor(initiallyExpanded: Boolean = false) {
@@ -88,9 +89,10 @@ internal fun rememberMorphingPlayerState(): MorphingPlayerState =
 /**
  * One physical player surface shared by the mini-player and full Now Playing UI.
  *
- * The surface itself changes bounds and corner radius as [expansionFraction] changes. Vertical drag
- * writes directly to that fraction, so the UI follows the finger instead of waiting for navigation
- * to finish. Releasing the gesture settles to the nearest state with a short eased animation.
+ * The surface itself changes bounds and corner radius as [expansionFraction] changes. Vertical
+ * pointer movement is observed in the Initial event pass and is intentionally not consumed. This
+ * lets the player follow the finger even over child gesture zones such as the artwork pager, while
+ * those children can continue to own horizontal track-swipe gestures.
  */
 @Composable
 internal fun MorphingPlayerOverlay(
@@ -142,12 +144,7 @@ internal fun MorphingPlayerOverlay(
         val travelPx = with(density) {
             (maxHeight - CollapsedPlayerHeight).toPx().coerceAtLeast(1f)
         }
-        val velocityThresholdPx = with(density) {
-            PlayerExpandVelocityThresholdDp.dp.toPx()
-        }
-        val draggableState = rememberDraggableState { delta ->
-            expansionFraction = (expansionFraction - (delta / travelPx)).coerceIn(0f, 1f)
-        }
+        val settleDistancePx = with(density) { PlayerSettleDistance.toPx() }
 
         GlassSurface(
             hazeState = hazeState,
@@ -156,23 +153,64 @@ internal fun MorphingPlayerOverlay(
                 .fillMaxWidth()
                 .padding(horizontal = horizontalInset, bottom = bottomInset)
                 .height(playerHeight)
-                .draggable(
-                    state = draggableState,
-                    orientation = Orientation.Vertical,
-                    onDragStopped = { velocity ->
-                        val shouldExpand = when {
-                            velocity <= -velocityThresholdPx -> true
-                            velocity >= velocityThresholdPx -> false
-                            else -> expansionFraction >= 0.48f
+                .pointerInput(track.id, travelPx) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(
+                            requireUnconsumed = false,
+                            pass = PointerEventPass.Initial,
+                        )
+                        val startFraction = expansionFraction
+                        var lastPosition = down.position
+                        var totalDrag = Offset.Zero
+                        var axisLocked = false
+                        var verticalGesture = false
+                        var pointerPressed = true
+
+                        while (pointerPressed) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            val delta = change.position - lastPosition
+                            lastPosition = change.position
+                            totalDrag += delta
+
+                            if (
+                                !axisLocked &&
+                                maxOf(abs(totalDrag.x), abs(totalDrag.y)) >= viewConfiguration.touchSlop
+                            ) {
+                                axisLocked = true
+                                verticalGesture = abs(totalDrag.y) > abs(totalDrag.x)
+                            }
+
+                            if (axisLocked && verticalGesture) {
+                                expansionFraction = (
+                                    expansionFraction - (delta.y / travelPx)
+                                ).coerceIn(0f, 1f)
+                            }
+
+                            pointerPressed = change.pressed
                         }
-                        val target = if (shouldExpand) 1f else 0f
-                        val targetChanged = morphState.targetExpanded != shouldExpand
-                        if (shouldExpand) morphState.expand() else morphState.collapse()
-                        if (!targetChanged) {
-                            animateTo(target, durationMillis = 280)
+
+                        if (axisLocked && verticalGesture) {
+                            val shouldExpand = if (startFraction >= 0.5f) {
+                                totalDrag.y < settleDistancePx
+                            } else {
+                                totalDrag.y <= -settleDistancePx
+                            }
+                            val target = if (shouldExpand) 1f else 0f
+                            val targetChanged = morphState.targetExpanded != shouldExpand
+
+                            if (shouldExpand) {
+                                morphState.expand()
+                            } else {
+                                morphState.collapse()
+                            }
+
+                            if (!targetChanged) {
+                                animateTo(target, durationMillis = 280)
+                            }
                         }
-                    },
-                )
+                    }
+                }
                 .clickable(
                     enabled = expansionFraction < 0.08f,
                     onClick = morphState::expand,
@@ -191,7 +229,9 @@ internal fun MorphingPlayerOverlay(
                 onPrevious = viewModel::previous,
                 onNext = viewModel::next,
                 modifier = Modifier
-                    .fillMaxSize()
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(CollapsedPlayerHeight)
                     .graphicsLayer {
                         alpha = miniAlpha
                         scaleX = 1f - (0.025f * expansionFraction)
