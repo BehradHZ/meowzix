@@ -126,6 +126,28 @@ class AndroidPlaybackController @Inject constructor(
         }
     }
 
+    override fun playAt(index: Int) {
+        withController { connected ->
+            val active = progressiveQueue.snapshot()
+            if (active != null) {
+                val plan = progressiveQueue.jumpTo(index) ?: return@withController
+                val snapshot = progressiveQueue.snapshot() ?: return@withController
+                connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
+                connected.setMediaItems(
+                    plan.tracks.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) },
+                    plan.startIndexInWindow,
+                    0,
+                )
+                connected.prepare()
+                connected.play()
+            } else if (index in 0 until connected.mediaItemCount) {
+                connected.seekToDefaultPosition(index)
+                if (connected.playbackState == Player.STATE_IDLE) connected.prepare()
+                connected.play()
+            }
+        }
+    }
+
     override fun playNext(trackId: UUID) {
         scope.launch {
             val track = findTrack(trackId) ?: return@launch

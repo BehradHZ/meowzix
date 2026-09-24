@@ -24,6 +24,23 @@ class ProgressiveQueueTest {
     }
 
     @Test
+    fun `jumping to a queue index preserves queue order and recenters the media window`() {
+        val queue = ProgressiveQueue()
+        val tracks = tracks(30)
+        queue.start(tracks, 2, PlaybackMode.PURE_SHUFFLE, RepeatMode.ALL, seed = 42L)
+
+        val plan = requireNotNull(queue.jumpTo(15))
+        val snapshot = requireNotNull(queue.snapshot())
+
+        assertEquals(15, snapshot.currentIndex)
+        assertEquals(tracks[15].id, snapshot.tracks[snapshot.currentIndex].id)
+        assertEquals(tracks.map { it.id }, snapshot.tracks.map { it.id })
+        assertEquals(PlaybackMode.PURE_SHUFFLE, snapshot.playbackMode)
+        assertEquals(RepeatMode.ALL, snapshot.repeatMode)
+        assertEquals(ProgressiveQueue.PREVIOUS_WINDOW_SIZE, plan.startIndexInWindow)
+    }
+
+    @Test
     fun `forward window refills ten when only three remain`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(100)

@@ -58,6 +58,7 @@ class QueueViewModel @Inject constructor(
         }
     }
 
+    fun play(index: Int) = queueRepository.playAt(index)
     fun moveUp(index: Int) = queueRepository.move(index, index - 1)
     fun moveDown(index: Int) = queueRepository.move(index, index + 1)
     fun remove(index: Int) = queueRepository.removeAt(index)

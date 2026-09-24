@@ -21,6 +21,7 @@ interface QueueRepository {
     val queueState: StateFlow<QueueState>
 
     fun playNow(trackId: UUID)
+    fun playAt(index: Int)
     fun playNext(trackId: UUID)
     fun addToQueue(trackId: UUID)
     fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode)

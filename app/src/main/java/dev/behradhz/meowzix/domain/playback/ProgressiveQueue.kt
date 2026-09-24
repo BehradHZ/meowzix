@@ -145,6 +145,16 @@ class ProgressiveQueue @Inject constructor() {
     }
 
     @Synchronized
+    fun jumpTo(index: Int): QueueWindowPlan? {
+        if (index !in tracks.indices) return null
+        if (currentIndex != index) {
+            currentIndex = index
+            invalidateSnapshot()
+        }
+        return resetWindowLocked()
+    }
+
+    @Synchronized
     fun insertNext(track: PlayableTrack): Boolean {
         if (!trackIds.add(track.id)) return false
         if (tracks.isEmpty()) {
