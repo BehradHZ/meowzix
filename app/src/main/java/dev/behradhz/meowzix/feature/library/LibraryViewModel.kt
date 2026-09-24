@@ -15,6 +15,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.util.UUID
@@ -116,6 +117,17 @@ class LibraryViewModel @Inject constructor(
 
     fun refresh() {
         if (_state.value.isRefreshing) return
+
+        // A library refresh must reconcile every active source, not just MediaStore. Telegram sync
+        // is incremental, so this also recovers a new-message update that was missed while the app
+        // process was starting or reconnecting.
+        if (
+            telegramRepository.authState.value.step == TelegramAuthStep.Ready &&
+            telegramRepository.musicSourceState.value.selectedChatIds.isNotEmpty()
+        ) {
+            telegramRepository.syncSelectedSources()
+        }
+
         viewModelScope.launch {
             if (!initialRefreshChecked) {
                 initialRefreshChecked = true

@@ -265,7 +265,14 @@ class TdLibTelegramRepository @Inject constructor(
         runCatching { activeClient.send(TdApi.GetMe()) }
             .onSuccess { me ->
                 currentUserId = me.id
-                reloadPersistedSelection(me.id.toString())
+                val accountId = me.id.toString()
+                reloadPersistedSelection(accountId)
+                // Reconcile incrementally whenever the TDLib session becomes ready. This catches
+                // messages that arrived while the process was stopped or before account state was
+                // fully restored, without rebuilding the chat history.
+                if (telegramDao.selectedSources(accountId).isNotEmpty()) {
+                    syncSelectedSources()
+                }
                 refreshSelectableChats()
             }
             .onFailure { showMusicSourceError(safeMessage(it)) }
@@ -284,15 +291,15 @@ class TdLibTelegramRepository @Inject constructor(
 
     private fun handleNewMessage(message: TdApi.Message) {
         val accountId = currentUserId?.toString() ?: return
-        if (message.chatId !in _musicSourceState.value.selectedChatIds) return
         scope.launch {
+            // Room is authoritative for source selection. Avoid dropping a live TDLib update just
+            // because the in-memory StateFlow has not caught up yet during startup/reconnect.
             val selected = telegramDao.selectedSource(accountId, message.chatId) ?: return@launch
             val imported = persistTelegramMessage(accountId, message)
             val newest = maxOf(selected.newestMessageId ?: 0L, message.id)
             telegramDao.updateSyncCheckpoint(accountId, message.chatId, newest, selected.initialScanComplete, Instant.now().toEpochMilli())
             if (imported != null) {
-                val title = selected.title
-                syncChatPlaylist(accountId, message.chatId, title)
+                syncChatPlaylist(accountId, message.chatId, selected.title)
                 reloadPersistedSelection(accountId)
             }
         }
@@ -300,15 +307,13 @@ class TdLibTelegramRepository @Inject constructor(
 
     private fun handleMessageContentChanged(chatId: Long, messageId: Long) {
         val accountId = currentUserId?.toString() ?: return
-        if (chatId !in _musicSourceState.value.selectedChatIds) return
         val activeClient = client ?: return
         scope.launch {
+            val selected = telegramDao.selectedSource(accountId, chatId) ?: return@launch
             runCatching { activeClient.send(TdApi.GetMessage(chatId, messageId)) }
                 .onSuccess {
                     persistTelegramMessage(accountId, it)
-                    telegramDao.selectedSource(accountId, chatId)?.let { selected ->
-                        syncChatPlaylist(accountId, chatId, selected.title)
-                    }
+                    syncChatPlaylist(accountId, chatId, selected.title)
                 }
         }
     }
@@ -316,13 +321,11 @@ class TdLibTelegramRepository @Inject constructor(
     private fun handleDeletedMessages(update: TdApi.UpdateDeleteMessages) {
         if (update.fromCache && !update.isPermanent) return
         val accountId = currentUserId?.toString() ?: return
-        if (update.chatId !in _musicSourceState.value.selectedChatIds) return
         scope.launch {
+            val selected = telegramDao.selectedSource(accountId, update.chatId) ?: return@launch
             val ids = telegramDao.trackSourceIdsForMessages(accountId, update.chatId, update.messageIds.toList())
             if (ids.isNotEmpty()) libraryDao.updateAvailability(ids, SourceAvailability.MISSING, Instant.now().toEpochMilli())
-            telegramDao.selectedSource(accountId, update.chatId)?.let { selected ->
-                syncChatPlaylist(accountId, update.chatId, selected.title)
-            }
+            syncChatPlaylist(accountId, update.chatId, selected.title)
         }
     }
 
