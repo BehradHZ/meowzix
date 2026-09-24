@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -22,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.playback.AudioOutputRoute
 import dev.behradhz.meowzix.domain.playback.AudioOutputState
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AudioOutputSheet(
     state: AudioOutputState,
