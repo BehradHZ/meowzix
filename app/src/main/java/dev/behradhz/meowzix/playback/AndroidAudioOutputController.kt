@@ -117,7 +117,7 @@ class AndroidAudioOutputController @Inject constructor(
         legacyMediaRouter = router
         router.addCallback(
             MediaRouter.ROUTE_TYPE_LIVE_AUDIO,
-            object : MediaRouter.Callback() {
+            object : MediaRouter.SimpleCallback() {
                 override fun onRouteAdded(router: MediaRouter, info: MediaRouter.RouteInfo) = refreshLegacyMediaRouter()
                 override fun onRouteRemoved(router: MediaRouter, info: MediaRouter.RouteInfo) = refreshLegacyMediaRouter()
                 override fun onRouteChanged(router: MediaRouter, info: MediaRouter.RouteInfo) = refreshLegacyMediaRouter()
