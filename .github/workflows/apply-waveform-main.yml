@@ -35,7 +35,6 @@ jobs:
           path = Path('app/src/main/java/dev/behradhz/meowzix/feature/nowplaying/NowPlayingRoute.kt')
           text = path.read_text()
 
-          # Imports no longer needed by the full-player synthetic waveform implementation.
           for line in [
               'import android.Manifest\n',
               'import android.content.pm.PackageManager\n',
@@ -59,7 +58,6 @@ jobs:
               'private val PlayerGlass = Color(0xFF171615)\n',
               'private val PlayerGlass = Color(0xFF171615)\nprivate val PlayerLoadingShimmer = Color(0xFFFF4D4D)\n',
           )
-
           text = text.replace('    val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()\n', '')
 
           permission_block = re.compile(
@@ -101,25 +99,26 @@ jobs:
               r'                modifier = Modifier\.fillMaxWidth\(\),\n'
               r'            \)\n'
           )
-          seek_replacement = '''            SyntheticWaveformSeekBar(
-                trackKey = track.id.toString(),
-                value = shownPosition.toFloat(),
-                onValueChange = { pendingSeek = it },
-                onValueChangeFinished = {
-                    pendingSeek?.let { onSeek(it.toLong()) }
-                    pendingSeek = null
-                },
-                valueRange = 0f..duration.toFloat(),
-                enabled = state.durationMs > 0L && !isLoading,
-                isPlaying = state.status == PlaybackStatus.PLAYING,
-                isLoading = isLoading,
-                activeBarColor = MaterialTheme.colorScheme.primary,
-                inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),
-                pointerColor = PlayerPrimaryContent,
-                loadingShimmerColor = PlayerLoadingShimmer,
-                modifier = Modifier.fillMaxWidth(),
-            )
-'''
+          seek_replacement = (
+              '            SyntheticWaveformSeekBar(\n'
+              '                trackKey = track.id.toString(),\n'
+              '                value = shownPosition.toFloat(),\n'
+              '                onValueChange = { pendingSeek = it },\n'
+              '                onValueChangeFinished = {\n'
+              '                    pendingSeek?.let { onSeek(it.toLong()) }\n'
+              '                    pendingSeek = null\n'
+              '                },\n'
+              '                valueRange = 0f..duration.toFloat(),\n'
+              '                enabled = state.durationMs > 0L && !isLoading,\n'
+              '                isPlaying = state.status == PlaybackStatus.PLAYING,\n'
+              '                isLoading = isLoading,\n'
+              '                activeBarColor = MaterialTheme.colorScheme.primary,\n'
+              '                inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),\n'
+              '                pointerColor = PlayerPrimaryContent,\n'
+              '                loadingShimmerColor = PlayerLoadingShimmer,\n'
+              '                modifier = Modifier.fillMaxWidth(),\n'
+              '            )\n'
+          )
           text, n = seek_block.subn(seek_replacement, text, count=1)
           if n != 1:
               raise SystemExit('Failed to replace waveform/seekbar block')
