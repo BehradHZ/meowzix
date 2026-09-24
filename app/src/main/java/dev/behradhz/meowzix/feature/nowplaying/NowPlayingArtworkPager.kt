@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -408,6 +409,18 @@ internal fun NowPlayingArtworkPager(
         } else {
             null
         }
+        val activeDirection = direction
+        val hasTarget = activeDirection != null && targetIndex in queueState.items.indices
+        val artworkShadowShape = if (hasTarget) {
+            artworkTransitionShadowShape(
+                direction = activeDirection,
+                progress = progress,
+                gapPx = separatorGapPx,
+                cornerRadiusPx = artworkCornerRadiusPx,
+            )
+        } else {
+            artworkShape
+        }
 
         Box(
             modifier = Modifier
@@ -423,7 +436,7 @@ internal fun NowPlayingArtworkPager(
                 }
                 .shadow(
                     elevation = 18.dp,
-                    shape = artworkShape,
+                    shape = artworkShadowShape,
                     clip = false,
                 )
                 .pointerInput(latestTogglePlayPause) {
@@ -431,9 +444,6 @@ internal fun NowPlayingArtworkPager(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            val activeDirection = direction
-            val hasTarget = activeDirection != null && targetIndex in queueState.items.indices
-
             if (!hasTarget) {
                 NowPlayingArtwork(
                     artworkRef = currentArtworkRef,
@@ -493,6 +503,66 @@ internal fun NowPlayingArtworkPager(
     }
 }
 
+private fun artworkTransitionShadowShape(
+    direction: ArtworkTransitionDirection,
+    progress: Float,
+    gapPx: Float,
+    cornerRadiusPx: Float,
+) = GenericShape { size, _ ->
+    val clampedProgress = progress.coerceIn(0f, 1f)
+    val seam = when (direction) {
+        ArtworkTransitionDirection.NEXT -> size.width * (1f - clampedProgress)
+        ArtworkTransitionDirection.PREVIOUS -> size.width * clampedProgress
+    }
+    val halfGap = animatedSeparatorHalfGap(gapPx, clampedProgress)
+    val path = this
+
+    fun addFragment(left: Float, right: Float) {
+        if (right <= left) return
+        val visibleWidth = right - left
+        val radius = cornerRadiusPx
+            .coerceAtLeast(0f)
+            .coerceAtMost(minOf(visibleWidth, size.height) / 2f)
+        val cornerRadius = CornerRadius(radius, radius)
+        path.addRoundRect(
+            RoundRect(
+                left = left,
+                top = 0f,
+                right = right,
+                bottom = size.height,
+                topLeftCornerRadius = cornerRadius,
+                topRightCornerRadius = cornerRadius,
+                bottomRightCornerRadius = cornerRadius,
+                bottomLeftCornerRadius = cornerRadius,
+            ),
+        )
+    }
+
+    when (direction) {
+        ArtworkTransitionDirection.NEXT -> {
+            addFragment(
+                left = 0f,
+                right = (seam - halfGap).coerceIn(0f, size.width),
+            )
+            addFragment(
+                left = (seam + halfGap).coerceIn(0f, size.width),
+                right = size.width,
+            )
+        }
+
+        ArtworkTransitionDirection.PREVIOUS -> {
+            addFragment(
+                left = (seam + halfGap).coerceIn(0f, size.width),
+                right = size.width,
+            )
+            addFragment(
+                left = 0f,
+                right = (seam - halfGap).coerceIn(0f, size.width),
+            )
+        }
+    }
+}
+
 private fun Modifier.cropArtwork(
     direction: ArtworkTransitionDirection,
     role: ArtworkCropRole,
@@ -505,7 +575,7 @@ private fun Modifier.cropArtwork(
         ArtworkTransitionDirection.NEXT -> size.width * (1f - clampedProgress)
         ArtworkTransitionDirection.PREVIOUS -> size.width * clampedProgress
     }
-    val halfGap = gapPx.coerceAtLeast(0f) / 2f
+    val halfGap = animatedSeparatorHalfGap(gapPx, clampedProgress)
 
     val left: Float
     val right: Float
@@ -560,6 +630,12 @@ private fun Modifier.cropArtwork(
             this@drawWithContent.drawContent()
         }
     }
+}
+
+private fun animatedSeparatorHalfGap(gapPx: Float, progress: Float): Float {
+    val clampedProgress = progress.coerceIn(0f, 1f)
+    val visibility = (4f * clampedProgress * (1f - clampedProgress)).coerceIn(0f, 1f)
+    return gapPx.coerceAtLeast(0f) * visibility / 2f
 }
 
 private fun resolveActiveQueueIndex(
