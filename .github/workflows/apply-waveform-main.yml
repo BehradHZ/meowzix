@@ -1,4 +1,4 @@
-name: Apply waveform UI to main
+name: Prepare queue and equalizer polish
 
 on:
   push:
@@ -15,150 +15,541 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Apply waveform patch onto current main
+      - name: Build patch branch from current main
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main ui
-          git checkout main
-          git reset --hard origin/main
-          git show origin/ui:app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt > app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt
+          git fetch origin main
+          git checkout -B fix/queue-waveform-polish-20260924 origin/main
 
           python3 - <<'PY'
           from pathlib import Path
           import re
 
+          # --- Queue UI: pinned header, no back action, drag handle owns long-press. ---
+          path = Path('app/src/main/java/dev/behradhz/meowzix/feature/queue/QueueRoute.kt')
+          text = path.read_text()
+          text = text.replace('import androidx.compose.foundation.combinedClickable\n', 'import androidx.compose.foundation.clickable\n')
+          text = text.replace('import androidx.compose.material.icons.rounded.ArrowBack\n', '')
+          text = text.replace(
+              'fun QueueRoute(\n    onBack: () -> Unit,\n    viewModel: QueueViewModel = hiltViewModel(),\n)',
+              'fun QueueRoute(\n    viewModel: QueueViewModel = hiltViewModel(),\n)',
+          )
+          text = text.replace('        onBack = onBack,\n', '', 1)
+          text = text.replace('    onBack: () -> Unit,\n', '', 1)
+          text = text.replace('@Composable\nprivate fun QueueScreen(', '@OptIn(ExperimentalFoundationApi::class)\n@Composable\nprivate fun QueueScreen(', 1)
+
+          lazy_anchor = text.index('    LazyColumn(')
+          header_start = text.index('        item {\n            Row(', lazy_anchor)
+          header_end = text.index('\n\n        if (displayItems.isEmpty())', header_start)
+          pinned_header = '''        stickyHeader {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Queue", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (state.items.isEmpty()) "Nothing queued" else "${state.items.size} tracks",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
+                        )
+                    }
+                    if (state.items.size > 1) {
+                        val shuffleEnabled = state.playbackMode == PlaybackMode.PURE_SHUFFLE
+                        IconButton(onClick = onToggleShuffle) {
+                            Icon(
+                                Icons.Rounded.Shuffle,
+                                contentDescription = if (shuffleEnabled) "Disable shuffle" else "Shuffle queue",
+                                tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (state.items.isNotEmpty()) {
+                        Button(onClick = onClear, shape = RoundedCornerShape(16.dp)) {
+                            Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text("Clear")
+                        }
+                    }
+                }
+            }
+        }'''
+          text = text[:header_start] + pinned_header + text[header_end:]
+          text = text.replace(
+              '.fillMaxWidth().combinedClickable(onClick = onPlay, onLongClick = { menuExpanded = true })',
+              '.fillMaxWidth().clickable(onClick = onPlay)',
+          )
+          path.write_text(text)
+
+          # Queue is a top-level tab; remove obsolete back callback at the navigation call site.
+          path = Path('app/src/main/java/dev/behradhz/meowzix/navigation/MeowzixApp.kt')
+          text = path.read_text()
+          text, count = re.subn(
+              r'QueueRoute\(\s*onBack\s*=\s*navController::popBackStack\s*\)',
+              'QueueRoute()',
+              text,
+          )
+          if count == 0:
+              raise SystemExit('QueueRoute call site changed unexpectedly')
+          path.write_text(text)
+
+          # --- Playback: reconcile progressive queue in-place instead of resetting Media3. ---
+          path = Path('app/src/main/java/dev/behradhz/meowzix/playback/AndroidPlaybackController.kt')
+          text = path.read_text()
+          old_move = '''    override fun move(fromIndex: Int, toIndex: Int) {
+        withController { connected ->
+            if (progressiveQueue.snapshot() != null) {
+                if (progressiveQueue.move(fromIndex, toIndex)) rebuildProgressiveWindow(connected)
+            } else if (fromIndex in 0 until connected.mediaItemCount && toIndex in 0 until connected.mediaItemCount) {
+                connected.moveMediaItem(fromIndex, toIndex)
+            }
+        }
+    }
+'''
+          new_move = '''    override fun move(fromIndex: Int, toIndex: Int) {
+        withController { connected ->
+            if (progressiveQueue.snapshot() != null) {
+                if (progressiveQueue.move(fromIndex, toIndex)) {
+                    syncProgressiveWindowInPlace(connected)
+                }
+            } else if (fromIndex in 0 until connected.mediaItemCount && toIndex in 0 until connected.mediaItemCount) {
+                connected.moveMediaItem(fromIndex, toIndex)
+            }
+        }
+    }
+'''
+          if old_move not in text:
+              raise SystemExit('Playback move implementation changed unexpectedly')
+          text = text.replace(old_move, new_move, 1)
+
+          helper_anchor = '    private fun rebuildProgressiveWindow(\n'
+          helper = '''    /**
+     * Reconciles the bounded Media3 window after a logical reorder without replacing the active
+     * MediaItem. move/add/remove operations preserve the decoder and current playback position, so
+     * dragging queue rows does not create a prepare/buffer gap.
+     */
+    private fun syncProgressiveWindowInPlace(connected: MediaController) {
+        val currentMediaId = connected.currentMediaItem?.mediaId ?: return
+        if (!progressiveQueue.updateCurrent(currentMediaId)) return
+        val plan = progressiveQueue.resetWindow()
+        val snapshot = progressiveQueue.snapshot() ?: return
+
+        plan.tracks.forEachIndexed { targetIndex, track ->
+            val desiredId = track.id.toString()
+            if (
+                targetIndex < connected.mediaItemCount &&
+                connected.getMediaItemAt(targetIndex).mediaId == desiredId
+            ) {
+                return@forEachIndexed
+            }
+
+            val existingIndex = (targetIndex + 1 until connected.mediaItemCount)
+                .firstOrNull { index -> connected.getMediaItemAt(index).mediaId == desiredId }
+            if (existingIndex != null) {
+                connected.moveMediaItem(existingIndex, targetIndex)
+            } else {
+                connected.addMediaItem(
+                    targetIndex,
+                    track.toMediaItem(snapshot.playbackMode, snapshot.repeatMode),
+                )
+            }
+        }
+
+        while (connected.mediaItemCount > plan.tracks.size) {
+            connected.removeMediaItem(connected.mediaItemCount - 1)
+        }
+        connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
+        updateState(connected)
+    }
+
+'''
+          if helper_anchor not in text:
+              raise SystemExit('rebuildProgressiveWindow anchor missing')
+          text = text.replace(helper_anchor, helper + helper_anchor, 1)
+          path.write_text(text)
+
+          # --- Now Playing: reconnect real FFT spectrum and keep seek target stable until Media3 catches up. ---
           path = Path('app/src/main/java/dev/behradhz/meowzix/feature/nowplaying/NowPlayingRoute.kt')
           text = path.read_text()
+          import_pairs = [
+              ('package dev.behradhz.meowzix.feature.nowplaying\n', 'package dev.behradhz.meowzix.feature.nowplaying\n\nimport android.Manifest\nimport android.content.pm.PackageManager\n'),
+              ('import androidx.compose.foundation.layout.Arrangement\n', 'import androidx.activity.compose.rememberLauncherForActivityResult\nimport androidx.activity.result.contract.ActivityResultContracts\nimport androidx.compose.foundation.layout.Arrangement\n'),
+              ('import androidx.compose.runtime.Composable\n', 'import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.LaunchedEffect\n'),
+              ('import androidx.compose.ui.graphics.Color\n', 'import androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.platform.LocalContext\n'),
+              ('import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel\n', 'import androidx.core.content.ContextCompat\nimport androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel\n'),
+              ('import dev.chrisbanes.haze.rememberHazeState\n', 'import dev.chrisbanes.haze.rememberHazeState\nimport kotlin.math.abs\nimport kotlinx.coroutines.delay\n'),
+          ]
+          for anchor, replacement in import_pairs:
+              if replacement.split('\n')[1] not in text:
+                  if anchor not in text:
+                      raise SystemExit(f'NowPlaying import anchor missing: {anchor!r}')
+                  text = text.replace(anchor, replacement, 1)
 
-          for line in [
-              'import android.Manifest\n',
-              'import android.content.pm.PackageManager\n',
-              'import androidx.activity.compose.rememberLauncherForActivityResult\n',
-              'import androidx.activity.result.contract.ActivityResultContracts\n',
-              'import androidx.compose.material3.CircularProgressIndicator\n',
-              'import androidx.compose.ui.platform.LocalContext\n',
-              'import androidx.core.content.ContextCompat\n',
-              'import dev.behradhz.meowzix.domain.playback.AudioSpectrumState\n',
-              'import dev.behradhz.meowzix.ui.components.AudioSpectrum\n',
-              'import dev.behradhz.meowzix.ui.components.CurlyMusicSlider\n',
-              'import kotlinx.coroutines.delay\n',
-          ]:
-              text = text.replace(line, '')
+          state_anchor = '    val queueState by viewModel.queueState.collectAsStateWithLifecycle()\n'
+          if '    val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()\n' not in text:
+              text = text.replace(state_anchor, state_anchor + '    val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()\n', 1)
 
-          anchor = 'import dev.behradhz.meowzix.ui.components.GlassSurface\n'
-          text = text.replace(anchor, anchor + 'import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar\n')
-          text = text.replace(
-              'private val PlayerGlass = Color(0xFF171615)\n',
-              'private val PlayerGlass = Color(0xFF171615)\nprivate val PlayerLoadingShimmer = Color(0xFFFF4D4D)\n',
-          )
-          text = text.replace('    val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()\n', '')
+          permission_anchor = '    val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()\n'
+          if 'visualizerPermissionLauncher' not in text:
+              permission_block = '''    val context = LocalContext.current
+    val visualizerPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted ->
+            if (granted) viewModel.refreshVisualizer()
+        },
+    )
 
-          permission_block = (
-              '    val context = LocalContext.current\n'
-              '    val visualizerPermissionLauncher = rememberLauncherForActivityResult(\n'
-              '        contract = ActivityResultContracts.RequestPermission(),\n'
-              '        onResult = { granted ->\n'
-              '            if (granted) viewModel.refreshVisualizer()\n'
-              '        },\n'
-              '    )\n\n'
-              '    LaunchedEffect(Unit) {\n'
-              '        if (\n'
-              '            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==\n'
-              '            PackageManager.PERMISSION_GRANTED\n'
-              '        ) {\n'
-              '            viewModel.refreshVisualizer()\n'
-              '        } else {\n'
-              '            visualizerPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)\n'
-              '        }\n'
-              '    }\n\n'
-          )
-          if permission_block not in text:
-              raise SystemExit('Permission block changed unexpectedly')
-          text = text.replace(permission_block, '', 1)
-          text = text.replace('        spectrum = spectrum,\n', '')
-          text = text.replace('    spectrum: AudioSpectrumState,\n', '')
+    LaunchedEffect(Unit) {
+        if (
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            viewModel.refreshVisualizer()
+        } else {
+            visualizerPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+'''
+              text = text.replace(permission_anchor, permission_anchor + permission_block, 1)
 
-          loading_block = (
-              '    val playbackLoading =\n'
-              '        state.status == PlaybackStatus.DOWNLOADING ||\n'
-              '            state.status == PlaybackStatus.BUFFERING ||\n'
-              '            state.status == PlaybackStatus.PREPARING\n'
-              '    var showPlaybackLoading by remember { mutableStateOf(false) }\n\n'
-              '    // Media3 can report BUFFERING/PREPARING for only a few frames while moving between already\n'
-              '    // prefetched queue items. Avoid flashing a full-screen spinner for those normal transitions;\n'
-              '    // keep it for stalls that are long enough for the user to actually be waiting.\n'
-              '    LaunchedEffect(playbackLoading) {\n'
-              '        if (!playbackLoading) {\n'
-              '            showPlaybackLoading = false\n'
-              '            return@LaunchedEffect\n'
-              '        }\n'
-              '        showPlaybackLoading = false\n'
-              '        delay(450L)\n'
-              '        showPlaybackLoading = true\n'
-              '    }\n\n'
-          )
-          if loading_block not in text:
-              raise SystemExit('Loading block changed unexpectedly')
-          text = text.replace(
-              loading_block,
-              '    val isLoading =\n'
-              '        state.status == PlaybackStatus.DOWNLOADING ||\n'
-              '            state.status == PlaybackStatus.BUFFERING ||\n'
-              '            state.status == PlaybackStatus.PREPARING\n\n',
-              1,
-          )
+          if '        liveBands = spectrum.bands,\n' not in text:
+              text = text.replace('        queueState = queueState,\n', '        queueState = queueState,\n        liveBands = spectrum.bands,\n', 1)
+          screen_sig = '    queueState: QueueState,\n'
+          if '    liveBands: FloatArray,\n' not in text:
+              text = text.replace(screen_sig, screen_sig + '    liveBands: FloatArray,\n', 1)
 
-          seek_block = re.compile(
-              r'            FileWaveform\([\s\S]*?'
-              r'            CurlyMusicSlider\([\s\S]*?'
-              r'                modifier = Modifier\.fillMaxWidth\(\),\n'
-              r'            \)\n'
-          )
-          seek_replacement = (
-              '            SyntheticWaveformSeekBar(\n'
-              '                trackKey = track.id.toString(),\n'
-              '                value = shownPosition.toFloat(),\n'
-              '                onValueChange = { pendingSeek = it },\n'
-              '                onValueChangeFinished = {\n'
-              '                    pendingSeek?.let { onSeek(it.toLong()) }\n'
-              '                    pendingSeek = null\n'
-              '                },\n'
-              '                valueRange = 0f..duration.toFloat(),\n'
-              '                enabled = state.durationMs > 0L && !isLoading,\n'
-              '                isPlaying = state.status == PlaybackStatus.PLAYING,\n'
-              '                isLoading = isLoading,\n'
-              '                activeBarColor = MaterialTheme.colorScheme.primary,\n'
-              '                inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),\n'
-              '                pointerColor = PlayerPrimaryContent,\n'
-              '                loadingShimmerColor = PlayerLoadingShimmer,\n'
-              '                modifier = Modifier.fillMaxWidth(),\n'
-              '            )\n'
-          )
-          text, n = seek_block.subn(seek_replacement, text, count=1)
-          if n != 1:
-              raise SystemExit('Failed to replace waveform/seekbar block')
+          old_seek_state = '''    var pendingSeek by remember(track.id) { mutableStateOf<Float?>(null) }
+    var backdropTransition by remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
+    val duration = state.durationMs.coerceAtLeast(1L)
+    val shownPosition = pendingSeek?.toLong() ?: state.positionMs.coerceIn(0L, duration)
+'''
+          new_seek_state = '''    var pendingSeek by remember(track.id) { mutableStateOf<Float?>(null) }
+    var settlingSeekTarget by remember(track.id) { mutableStateOf<Long?>(null) }
+    var backdropTransition by remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
+    val duration = state.durationMs.coerceAtLeast(1L)
+    val shownPosition = pendingSeek?.toLong()
+        ?: settlingSeekTarget
+        ?: state.positionMs.coerceIn(0L, duration)
 
-          spinner_block = re.compile(
-              r'\n        if \(showPlaybackLoading && playbackLoading\) \{[\s\S]*?\n        }\n\n        state\.errorMessage'
-          )
-          text, n = spinner_block.subn('\n        state.errorMessage', text, count=1)
-          if n != 1:
-              raise SystemExit('Failed to remove full-screen loading spinner')
+    LaunchedEffect(state.positionMs, settlingSeekTarget) {
+        val target = settlingSeekTarget ?: return@LaunchedEffect
+        if (abs(state.positionMs - target) <= 900L) settlingSeekTarget = null
+    }
+    LaunchedEffect(settlingSeekTarget) {
+        val target = settlingSeekTarget ?: return@LaunchedEffect
+        delay(650L)
+        if (settlingSeekTarget == target) settlingSeekTarget = null
+    }
+'''
+          if old_seek_state not in text:
+              raise SystemExit('NowPlaying seek state changed unexpectedly')
+          text = text.replace(old_seek_state, new_seek_state, 1)
 
-          file_waveform = re.compile(
-              r'\n@Composable\nprivate fun FileWaveform\([\s\S]*?\n}\n\n@Composable\nprivate fun PlayerHeader'
-          )
-          text, n = file_waveform.subn('\n@Composable\nprivate fun PlayerHeader', text, count=1)
-          if n != 1:
-              raise SystemExit('Failed to remove legacy FileWaveform composable')
-
+          old_finished = '''                onValueChangeFinished = {
+                    pendingSeek?.let { onSeek(it.toLong()) }
+                    pendingSeek = null
+                },
+'''
+          new_finished = '''                onValueChangeFinished = {
+                    pendingSeek?.let { value ->
+                        val target = value.toLong()
+                        settlingSeekTarget = target
+                        onSeek(target)
+                    }
+                    pendingSeek = null
+                },
+'''
+          if old_finished not in text:
+              raise SystemExit('Seek finish callback changed unexpectedly')
+          text = text.replace(old_finished, new_finished, 1)
+          if '                liveBands = liveBands,\n' not in text:
+              text = text.replace('                trackKey = track.id.toString(),\n', '                trackKey = track.id.toString(),\n                liveBands = liveBands,\n', 1)
           path.write_text(text)
+
+          # --- Equalizer seekbar: actual FFT drives live bars; scrub transitions are continuous. ---
+          path = Path('app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt')
+          path.write_text(r'''package dev.behradhz.meowzix.ui.components
+
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import kotlin.math.abs
+import kotlin.math.floor
+
+/**
+ * Seek bar that uses the real playback FFT for its live equalizer state.
+ *
+ * The static profile is stable for a track and is used only for loading, pause/fallback, and as the
+ * scrub target. Starting a scrub morphs the current FFT heights into that profile; releasing it
+ * morphs back into the live spectrum. No procedural time-based equalizer animation is used.
+ */
+@Composable
+fun SyntheticWaveformSeekBar(
+    trackKey: String,
+    liveBands: FloatArray,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    onValueChangeFinished: (() -> Unit)? = null,
+    isPlaying: Boolean = false,
+    isLoading: Boolean = false,
+    activeBarColor: Color = MaterialTheme.colorScheme.primary,
+    inactiveBarColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
+    pointerColor: Color = MaterialTheme.colorScheme.onSurface,
+    loadingShimmerColor: Color = Color(0xFFFF4D4D),
+    barCount: Int = 64,
+    barWidth: Dp = 3.dp,
+    pointerRadius: Dp = 7.dp,
+    decayBarCount: Int = 8,
+    shimmerDurationMs: Int = 1_050,
+) {
+    val resolvedBarCount = barCount.coerceAtLeast(12)
+    val defaultProfile = remember(trackKey, resolvedBarCount) {
+        buildStableTrackProfile(trackKey, resolvedBarCount)
+    }
+    val liveProfile = remember(liveBands, resolvedBarCount) {
+        expandLiveSpectrum(liveBands, resolvedBarCount)
+    }
+    val hasLiveSpectrum = remember(liveBands) { liveBands.any { it > 0.001f } }
+
+    val interactionSource = remember { MutableInteractionSource() }
+    val isDragged by interactionSource.collectIsDraggedAsState()
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val isInteracting = isDragged || isPressed
+
+    // Never branch abruptly between live and default heights. The same blend value is used on every
+    // frame, preventing the one-frame default/zero flash when the pointer goes down or comes up.
+    val scrubBlend by animateFloatAsState(
+        targetValue = if (isInteracting) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isInteracting) 280 else 360,
+            easing = FastOutSlowInEasing,
+        ),
+        label = "waveformScrubBlend",
+    )
+    val pointerInteraction by animateFloatAsState(
+        targetValue = if (isInteracting) 1f else 0f,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        label = "waveformPointerInteraction",
+    )
+
+    val shimmer = remember { Animatable(-0.24f) }
+    LaunchedEffect(isLoading, shimmerDurationMs) {
+        if (!isLoading) {
+            shimmer.snapTo(-0.24f)
+            return@LaunchedEffect
+        }
+        while (true) {
+            shimmer.snapTo(-0.24f)
+            shimmer.animateTo(
+                targetValue = 1.24f,
+                animationSpec = tween(
+                    durationMillis = shimmerDurationMs.coerceAtLeast(1),
+                    easing = LinearEasing,
+                ),
+            )
+        }
+    }
+
+    val density = LocalDensity.current
+    val requestedBarWidthPx = with(density) { barWidth.toPx() }
+    val pointerRadiusPx = with(density) { pointerRadius.toPx() }
+    val minimumHalfHeightPx = with(density) { 1.15.dp.toPx() }
+    val interactionPointerHeightPx = with(density) { 23.dp.toPx() }
+    val visualHeight = 58.dp
+
+    val coercedValue = value.coerceIn(valueRange.start, valueRange.endInclusive)
+    val rangeLength = valueRange.endInclusive - valueRange.start
+    val progress = if (rangeLength <= 0f) 0f else
+        ((coercedValue - valueRange.start) / rangeLength).coerceIn(0f, 1f)
+
+    Box(modifier = modifier.height(visualHeight)) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val centerY = size.height / 2f
+            val startX = pointerRadiusPx
+            val endX = (size.width - pointerRadiusPx).coerceAtLeast(startX)
+            val drawableWidth = (endX - startX).coerceAtLeast(0f)
+            val slotWidth = if (resolvedBarCount > 1) {
+                drawableWidth / (resolvedBarCount - 1).toFloat()
+            } else drawableWidth
+            val actualBarWidth = requestedBarWidthPx
+                .coerceAtMost((slotWidth * 0.58f).coerceAtLeast(1f))
+                .coerceAtLeast(1f)
+            val maxHalfHeight = size.height * 0.42f
+            val pointerX = startX + drawableWidth * progress
+            val pointerIndex = progress * (resolvedBarCount - 1).toFloat()
+            val decayWindow = decayBarCount.coerceAtLeast(1).toFloat()
+
+            defaultProfile.forEachIndexed { index, defaultHeight ->
+                val normalizedX = if (resolvedBarCount <= 1) 0f
+                    else index.toFloat() / (resolvedBarCount - 1).toFloat()
+                val x = startX + drawableWidth * normalizedX
+
+                val halfHeight: Float
+                val color: Color
+                if (isLoading) {
+                    halfHeight = (defaultHeight * maxHalfHeight * 0.72f)
+                        .coerceAtLeast(minimumHalfHeightPx)
+                    val shimmerDistance = abs(normalizedX - shimmer.value)
+                    val shimmerStrength = (1f - shimmerDistance / 0.16f).coerceIn(0f, 1f)
+                    color = if (shimmerStrength > 0.001f) {
+                        loadingShimmerColor.copy(alpha = 0.28f + 0.72f * shimmerStrength)
+                    } else {
+                        inactiveBarColor.copy(alpha = 0.34f)
+                    }
+                } else if (normalizedX <= progress && progress > 0f) {
+                    val distanceFromPointer = (pointerIndex - index.toFloat()).coerceAtLeast(0f)
+                    val linearDecay = (distanceFromPointer / decayWindow).coerceIn(0f, 1f)
+                    val decay = smoothStep(linearDecay)
+                    val liveHeight = if (isPlaying && hasLiveSpectrum) {
+                        liveProfile[index].coerceIn(0.08f, 1f)
+                    } else {
+                        defaultHeight
+                    }
+                    val blendedHeight = lerpFloat(liveHeight, defaultHeight, scrubBlend)
+                    halfHeight = (blendedHeight * maxHalfHeight * decay)
+                        .coerceAtLeast(minimumHalfHeightPx)
+                    color = activeBarColor
+                } else {
+                    halfHeight = minimumHalfHeightPx
+                    color = inactiveBarColor
+                }
+
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(x - actualBarWidth / 2f, centerY - halfHeight),
+                    size = Size(actualBarWidth, halfHeight * 2f),
+                    cornerRadius = CornerRadius(actualBarWidth / 2f),
+                )
+            }
+
+            if (!isLoading) {
+                val pointerWidth = lerpFloat(
+                    pointerRadiusPx * 2f,
+                    (requestedBarWidthPx * 1.35f).coerceAtLeast(2f),
+                    pointerInteraction,
+                )
+                val pointerHeight = lerpFloat(
+                    pointerRadiusPx * 2f,
+                    interactionPointerHeightPx,
+                    pointerInteraction,
+                )
+                drawRoundRect(
+                    color = if (enabled) pointerColor else pointerColor.copy(alpha = 0.45f),
+                    topLeft = Offset(pointerX - pointerWidth / 2f, centerY - pointerHeight / 2f),
+                    size = Size(pointerWidth, pointerHeight),
+                    cornerRadius = CornerRadius(pointerWidth / 2f),
+                )
+            }
+        }
+
+        Slider(
+            value = coercedValue,
+            onValueChange = onValueChange,
+            enabled = enabled && !isLoading,
+            valueRange = valueRange,
+            onValueChangeFinished = onValueChangeFinished,
+            interactionSource = interactionSource,
+            modifier = Modifier.fillMaxSize(),
+            colors = SliderDefaults.colors(
+                thumbColor = Color.Transparent,
+                activeTrackColor = Color.Transparent,
+                inactiveTrackColor = Color.Transparent,
+                disabledThumbColor = Color.Transparent,
+                disabledActiveTrackColor = Color.Transparent,
+                disabledInactiveTrackColor = Color.Transparent,
+            ),
+        )
+    }
+}
+
+private val StableProfiles = arrayOf(
+    floatArrayOf(
+        0.24f, 0.38f, 0.62f, 0.84f, 0.56f, 0.34f, 0.68f, 0.92f,
+        0.74f, 0.42f, 0.58f, 0.78f, 0.48f, 0.30f, 0.64f, 0.86f,
+    ),
+    floatArrayOf(
+        0.54f, 0.82f, 0.66f, 0.36f, 0.72f, 0.46f, 0.88f, 0.60f,
+        0.34f, 0.52f, 0.76f, 0.94f, 0.62f, 0.40f, 0.70f, 0.50f,
+    ),
+    floatArrayOf(
+        0.30f, 0.46f, 0.58f, 0.76f, 0.90f, 0.72f, 0.52f, 0.64f,
+        0.82f, 0.56f, 0.38f, 0.68f, 0.84f, 0.60f, 0.44f, 0.74f,
+    ),
+)
+
+private fun buildStableTrackProfile(trackKey: String, barCount: Int): FloatArray {
+    val stableIndex = (trackKey.hashCode() and Int.MAX_VALUE) % StableProfiles.size
+    return resample(StableProfiles[stableIndex], barCount)
+}
+
+private fun expandLiveSpectrum(bands: FloatArray, barCount: Int): FloatArray {
+    if (bands.isEmpty()) return FloatArray(barCount)
+    if (bands.size == 1) return FloatArray(barCount) { bands[0] }
+    // Repeat the current real FFT across the played timeline; heights still come only from audio.
+    return FloatArray(barCount) { index -> bands[index % bands.size].coerceIn(0f, 1f) }
+}
+
+private fun resample(source: FloatArray, outputSize: Int): FloatArray {
+    if (source.isEmpty()) return FloatArray(outputSize)
+    if (outputSize == 1) return floatArrayOf(source.first())
+    return FloatArray(outputSize) { index ->
+        val position = index.toFloat() / (outputSize - 1).toFloat() * (source.size - 1).toFloat()
+        val lower = floor(position).toInt().coerceIn(0, source.lastIndex)
+        val upper = (lower + 1).coerceAtMost(source.lastIndex)
+        lerpFloat(source[lower], source[upper], position - lower.toFloat())
+    }
+}
+
+private fun smoothStep(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
+}
+
+private fun lerpFloat(start: Float, end: Float, fraction: Float): Float =
+    start + (end - start) * fraction.coerceIn(0f, 1f)
+''')
           PY
 
-          git add app/src/main/java/dev/behradhz/meowzix/feature/nowplaying/NowPlayingRoute.kt app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt
+          git add \
+            app/src/main/java/dev/behradhz/meowzix/feature/queue/QueueRoute.kt \
+            app/src/main/java/dev/behradhz/meowzix/navigation/MeowzixApp.kt \
+            app/src/main/java/dev/behradhz/meowzix/playback/AndroidPlaybackController.kt \
+            app/src/main/java/dev/behradhz/meowzix/feature/nowplaying/NowPlayingRoute.kt \
+            app/src/main/java/dev/behradhz/meowzix/ui/components/SyntheticWaveformSeekBar.kt
           git diff --cached --check
-          git commit -m "feat(ui): replace player seekbar with loading waveform"
-          git push origin main
+          git commit -m "fix(ui): polish queue reorder and equalizer seeking"
+          git push --force origin fix/queue-waveform-polish-20260924
