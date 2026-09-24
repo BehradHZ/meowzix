@@ -5,10 +5,11 @@ import android.os.Build
 
 object AudioPermission {
     /**
-     * Telegram-only mode does not read device media, so the Library route uses an
-     * already-granted normal permission and never prompts for local audio access.
+     * Device media access changed in Android 13 (API 33). Older Android versions
+     * require the legacy external-storage permission, while Android 13+ uses the
+     * granular audio permission.
      */
-    fun requiredPermission(): String = Manifest.permission.INTERNET
+    fun requiredPermission(): String = requiredPermissionForSdk(Build.VERSION.SDK_INT)
 
     internal fun requiredPermissionForSdk(sdkInt: Int): String =
         if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
