@@ -102,6 +102,11 @@ private object ArtworkBitmapCache {
         "$artworkRef#${artworkTargetBucket(targetPixels)}"
 }
 
+private data class LoadedArtwork(
+    val artworkRef: String?,
+    val bitmap: ImageBitmap?,
+)
+
 private fun artworkTargetBucket(targetPixels: Int): Int {
     val target = targetPixels.coerceAtLeast(64)
     return ARTWORK_SIZE_BUCKETS.firstOrNull { it >= target } ?: ARTWORK_SIZE_BUCKETS.last()
@@ -111,39 +116,57 @@ private fun artworkTargetBucket(targetPixels: Int): Int {
 private fun rememberArtworkBitmap(
     artworkRef: String?,
     targetPixels: Int,
+    retainPreviousWhileLoading: Boolean = false,
 ): ImageBitmap? {
     val context = LocalContext.current
-    var bitmap by remember(targetPixels) {
-        mutableStateOf<ImageBitmap?>(null)
+    val normalizedRef = artworkRef?.takeIf { it.isNotBlank() }
+    var loadedArtwork by remember(targetPixels) {
+        mutableStateOf(LoadedArtwork(artworkRef = null, bitmap = null))
     }
-    val cachedBitmap = remember(artworkRef, targetPixels) {
-        artworkRef
-            ?.takeIf { it.isNotBlank() }
-            ?.let { ArtworkBitmapCache.getCached(it, targetPixels) }
+    val cachedBitmap = remember(normalizedRef, targetPixels) {
+        normalizedRef?.let { ArtworkBitmapCache.getCached(it, targetPixels) }
     }
 
-    LaunchedEffect(artworkRef, targetPixels) {
-        if (artworkRef.isNullOrBlank()) {
-            bitmap = null
+    LaunchedEffect(normalizedRef, targetPixels, retainPreviousWhileLoading) {
+        if (normalizedRef == null) {
+            loadedArtwork = LoadedArtwork(artworkRef = null, bitmap = null)
             return@LaunchedEffect
         }
 
         if (cachedBitmap != null) {
-            bitmap = cachedBitmap
+            loadedArtwork = LoadedArtwork(artworkRef = normalizedRef, bitmap = cachedBitmap)
             return@LaunchedEffect
         }
 
-        // Keep the previously rendered bitmap while the replacement decodes. This avoids the
-        // single-frame default artwork flash when playback advances to another track.
-        bitmap = ArtworkBitmapCache.getOrDecode(
+        if (!retainPreviousWhileLoading) {
+            loadedArtwork = LoadedArtwork(artworkRef = normalizedRef, bitmap = null)
+        }
+
+        val decoded = ArtworkBitmapCache.getOrDecode(
             context = context.applicationContext,
-            artworkRef = artworkRef,
+            artworkRef = normalizedRef,
             targetPixels = targetPixels,
         )
+        loadedArtwork = LoadedArtwork(artworkRef = normalizedRef, bitmap = decoded)
     }
 
-    if (artworkRef.isNullOrBlank()) return null
-    return cachedBitmap ?: bitmap
+    return when {
+        normalizedRef == null -> null
+        cachedBitmap != null -> cachedBitmap
+        loadedArtwork.artworkRef == normalizedRef -> loadedArtwork.bitmap
+        retainPreviousWhileLoading -> loadedArtwork.bitmap
+        else -> null
+    }
+}
+
+/** Pre-decodes adjacent Now Playing covers into the shared artwork cache without rendering them. */
+@Composable
+internal fun PreloadNowPlayingArtwork(artworkRef: String?) {
+    rememberArtworkBitmap(
+        artworkRef = artworkRef,
+        targetPixels = PLAYER_ARTWORK_TARGET_PIXELS,
+        retainPreviousWhileLoading = false,
+    )
 }
 
 private suspend fun decodeSampledArtwork(
@@ -326,7 +349,11 @@ fun NowPlayingArtwork(
     modifier: Modifier = Modifier,
     showShadow: Boolean = true,
 ) {
-    val bitmap = rememberArtworkBitmap(artworkRef, PLAYER_ARTWORK_TARGET_PIXELS)
+    val bitmap = rememberArtworkBitmap(
+        artworkRef = artworkRef,
+        targetPixels = PLAYER_ARTWORK_TARGET_PIXELS,
+        retainPreviousWhileLoading = true,
+    )
     val shape = RoundedCornerShape(28.dp)
     val artworkModifier = if (showShadow) {
         modifier.shadow(
@@ -403,7 +430,11 @@ fun TrackArtworkBackdrop(
     artworkRef: String?,
     modifier: Modifier = Modifier,
 ) {
-    val bitmap = rememberArtworkBitmap(artworkRef, BACKDROP_TARGET_PIXELS)
+    val bitmap = rememberArtworkBitmap(
+        artworkRef = artworkRef,
+        targetPixels = BACKDROP_TARGET_PIXELS,
+        retainPreviousWhileLoading = true,
+    )
 
     Box(modifier = modifier.background(Color(0xFF101010))) {
         if (bitmap != null) {
