@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.floor
+import kotlinx.coroutines.delay
 
 /**
  * Lightweight deterministic waveform seek bar.
@@ -80,6 +81,19 @@ fun SyntheticWaveformSeekBar(
     val isPressed by interactionSource.collectIsPressedAsState()
     val isInteracting = isDragged || isPressed
     var isUserSeeking by remember(trackKey) { mutableStateOf(false) }
+    var suppressLoadingWaveform by remember(trackKey) { mutableStateOf(false) }
+    var seekReleaseGeneration by remember(trackKey) { mutableStateOf(0) }
+
+    // Media3 commonly reports a short BUFFERING state immediately after seekTo(). If loading visuals
+    // are allowed to react to that transient state, the full default waveform replaces the current
+    // seek visual for one frame. Keep loading visuals suppressed from the first seek movement until
+    // the post-seek player state has had time to settle.
+    LaunchedEffect(trackKey, seekReleaseGeneration) {
+        if (seekReleaseGeneration == 0) return@LaunchedEffect
+        delay(750L)
+        suppressLoadingWaveform = false
+    }
+    val effectiveLoading = isLoading && !suppressLoadingWaveform
 
     // Slider callbacks own the seek lifecycle. The enter morph can remain smooth while dragging, but
     // drawing is hard-gated to live FFT as soon as seeking finishes. This prevents the tail of the
@@ -105,8 +119,8 @@ fun SyntheticWaveformSeekBar(
     )
 
     val shimmer = remember { Animatable(-0.24f) }
-    LaunchedEffect(isLoading, shimmerDurationMs) {
-        if (!isLoading) {
+    LaunchedEffect(effectiveLoading, shimmerDurationMs) {
+        if (!effectiveLoading) {
             shimmer.snapTo(-0.24f)
             return@LaunchedEffect
         }
@@ -167,7 +181,7 @@ fun SyntheticWaveformSeekBar(
                 val halfHeight: Float
                 val color: Color
 
-                if (isLoading) {
+                if (effectiveLoading) {
                     halfHeight = (baseHeight * maxHalfHeight * 0.72f)
                         .coerceAtLeast(minimumHalfHeightPx)
                     val shimmerDistance = abs(normalizedX - shimmer.value)
@@ -203,7 +217,7 @@ fun SyntheticWaveformSeekBar(
                 )
             }
 
-            if (!isLoading) {
+            if (!effectiveLoading) {
                 val pointerWidth = lerpFloat(
                     pointerRadiusPx * 2f,
                     (requestedBarWidthPx * 1.35f).coerceAtLeast(2f),
@@ -230,13 +244,15 @@ fun SyntheticWaveformSeekBar(
             value = coercedValue,
             onValueChange = { newValue ->
                 if (!isUserSeeking) isUserSeeking = true
+                suppressLoadingWaveform = true
                 onValueChange(newValue)
             },
-            enabled = enabled && !isLoading,
+            enabled = enabled && !effectiveLoading,
             valueRange = valueRange,
             onValueChangeFinished = {
                 onValueChangeFinished?.invoke()
                 isUserSeeking = false
+                seekReleaseGeneration += 1
             },
             interactionSource = interactionSource,
             modifier = Modifier.fillMaxSize(),
