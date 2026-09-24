@@ -37,8 +37,9 @@ import kotlin.math.floor
  *
  * A stable per-track waveform is used while scrubbing. During normal playback the played region is
  * driven by the real playback spectrum, decays smoothly to zero when playback pauses, and tapers
- * into the seek pointer. The last valid live spectrum is retained across a seek so the visual can
- * morph back from the scrub waveform without flashing the default waveform for a frame.
+ * into the seek pointer. The last valid live spectrum is retained across a seek and the scrub
+ * waveform is hard-gated off on release so the fixed per-track profile never leaks into a
+ * post-release frame.
  */
 @Composable
 fun SyntheticWaveformSeekBar(
@@ -80,15 +81,15 @@ fun SyntheticWaveformSeekBar(
     val isInteracting = isDragged || isPressed
     var isUserSeeking by remember(trackKey) { mutableStateOf(false) }
 
-    // Do not drive the waveform morph from InteractionSource. Slider drag-stop events can arrive in
-    // a different frame than onValueChangeFinished, which previously allowed one default-waveform
-    // frame to leak through on release. onValueChange/onValueChangeFinished are the authoritative
-    // seek lifecycle, so the morph now starts and ends deterministically with those callbacks.
+    // Slider callbacks own the seek lifecycle. The enter morph can remain smooth while dragging, but
+    // drawing is hard-gated to live FFT as soon as seeking finishes. This prevents the tail of the
+    // scrub animation from leaving even one fixed/default waveform frame visible after release.
     val scrubBlend by animateFloatAsState(
         targetValue = if (isUserSeeking) 1f else 0f,
         animationSpec = tween(durationMillis = if (isUserSeeking) 280 else 360, easing = FastOutSlowInEasing),
         label = "waveformScrubBlend",
     )
+    val visibleScrubBlend = if (isUserSeeking) scrubBlend else 0f
     val pointerInteraction by animateFloatAsState(
         targetValue = if (isInteracting) 1f else 0f,
         animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
@@ -181,8 +182,8 @@ fun SyntheticWaveformSeekBar(
                     val linearDecay = (distanceFromPointer / decayWindow).coerceIn(0f, 1f)
                     val decay = smoothStep(linearDecay)
                     val liveHeight = stableLiveProfile[index].coerceIn(0f, 1f)
-                    val blendedHeight = lerpFloat(liveHeight, baseHeight, scrubBlend)
-                    val visibleEnergy = lerpFloat(playbackEnergy, 1f, scrubBlend)
+                    val blendedHeight = lerpFloat(liveHeight, baseHeight, visibleScrubBlend)
+                    val visibleEnergy = lerpFloat(playbackEnergy, 1f, visibleScrubBlend)
                     halfHeight = (blendedHeight * maxHalfHeight * decay * visibleEnergy)
                         .coerceAtLeast(minimumHalfHeightPx)
                     color = activeBarColor
