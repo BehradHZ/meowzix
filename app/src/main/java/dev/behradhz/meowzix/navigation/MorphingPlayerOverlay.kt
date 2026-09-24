@@ -1,6 +1,11 @@
 package dev.behradhz.meowzix.navigation
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
@@ -55,12 +60,16 @@ import androidx.compose.ui.unit.lerp
 import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
+import dev.behradhz.meowzix.domain.playback.QueueActionFeedback
+import dev.behradhz.meowzix.domain.playback.QueueActionKind
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.ui.components.AudioSpectrum
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.chrisbanes.haze.HazeState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -111,6 +120,8 @@ internal fun MorphingPlayerOverlay(
     var expansionFraction by remember(track.id) {
         mutableFloatStateOf(if (morphState.targetExpanded) 1f else 0f)
     }
+    var queueFeedback by remember { mutableStateOf<QueueActionFeedback?>(null) }
+    var queueFeedbackVisible by remember { mutableStateOf(false) }
 
     suspend fun animateTo(target: Float, durationMillis: Int = 360) {
         animate(
@@ -124,6 +135,17 @@ internal fun MorphingPlayerOverlay(
 
     LaunchedEffect(morphState.targetExpanded, track.id) {
         animateTo(if (morphState.targetExpanded) 1f else 0f)
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.queueActionFeedback.collectLatest { event ->
+            queueFeedback = event
+            queueFeedbackVisible = true
+            delay(1_550)
+            queueFeedbackVisible = false
+            delay(260)
+            if (queueFeedback == event) queueFeedback = null
+        }
     }
 
     BackHandler(enabled = morphState.targetExpanded || expansionFraction > 0.02f) {
@@ -266,6 +288,69 @@ internal fun MorphingPlayerOverlay(
                     )
                 }
             }
+        }
+
+        AnimatedVisibility(
+            visible = queueFeedbackVisible && queueFeedback != null && expansionFraction < 0.16f,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(
+                    start = 30.dp,
+                    end = 30.dp,
+                    bottom = collapsedBottom + CollapsedPlayerHeight + 10.dp,
+                ),
+            enter = slideInVertically(
+                animationSpec = tween(260, easing = FastOutSlowInEasing),
+                initialOffsetY = { it / 2 },
+            ) + fadeIn(animationSpec = tween(180)),
+            exit = slideOutVertically(
+                animationSpec = tween(240, easing = FastOutSlowInEasing),
+                targetOffsetY = { it / 2 },
+            ) + fadeOut(animationSpec = tween(170)),
+        ) {
+            queueFeedback?.let { feedback ->
+                QueueActionFeedbackPill(
+                    hazeState = hazeState,
+                    feedback = feedback,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QueueActionFeedbackPill(
+    hazeState: HazeState,
+    feedback: QueueActionFeedback,
+) {
+    val prefix = when (feedback.kind) {
+        QueueActionKind.PLAY_NEXT -> "Playing next"
+        QueueActionKind.ADD_TO_END -> "Added to queue"
+    }
+    GlassSurface(
+        hazeState = hazeState,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "✓",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = "$prefix · ${feedback.trackTitle}",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
