@@ -150,9 +150,12 @@ class LibraryViewModel @Inject constructor(
         val queue = queueTracks.distinctBy { it.id }
         if (queue.isEmpty()) {
             playbackController.playTrack(track.id)
-        } else {
-            queueRepository.replaceAndPlay(queue.map { it.id }, track.id, PlaybackMode.ORDERED)
+            return
         }
+
+        val selectedIndex = queue.indexOfFirst { it.id == track.id }
+        val queueFromSelection = if (selectedIndex >= 0) queue.drop(selectedIndex) else listOf(track)
+        queueRepository.replaceAndPlay(queueFromSelection.map { it.id }, track.id, PlaybackMode.ORDERED)
     }
 
     fun playCollection(tracks: List<Track>, mode: PlaybackMode) {
