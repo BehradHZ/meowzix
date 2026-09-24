@@ -62,13 +62,21 @@ private object ArtworkBitmapCache {
     }
     private val decodeLocks = ConcurrentHashMap<String, Mutex>()
 
+    fun getCached(
+        artworkRef: String,
+        targetPixels: Int,
+    ): ImageBitmap? {
+        val key = cacheKey(artworkRef, targetPixels)
+        return synchronized(cache) { cache.get(key) }
+    }
+
     suspend fun getOrDecode(
         context: Context,
         artworkRef: String,
         targetPixels: Int,
     ): ImageBitmap? {
         val bucket = artworkTargetBucket(targetPixels)
-        val key = "$artworkRef#$bucket"
+        val key = cacheKey(artworkRef, bucket)
         synchronized(cache) { cache.get(key) }?.let { return it }
 
         val mutex = decodeLocks.getOrPut(key) { Mutex() }
@@ -89,6 +97,9 @@ private object ArtworkBitmapCache {
             if (!mutex.isLocked) decodeLocks.remove(key, mutex)
         }
     }
+
+    private fun cacheKey(artworkRef: String, targetPixels: Int): String =
+        "$artworkRef#${artworkTargetBucket(targetPixels)}"
 }
 
 private fun artworkTargetBucket(targetPixels: Int): Int {
@@ -102,22 +113,37 @@ private fun rememberArtworkBitmap(
     targetPixels: Int,
 ): ImageBitmap? {
     val context = LocalContext.current
-    var bitmap by remember(artworkRef, targetPixels) {
+    var bitmap by remember(targetPixels) {
         mutableStateOf<ImageBitmap?>(null)
+    }
+    val cachedBitmap = remember(artworkRef, targetPixels) {
+        artworkRef
+            ?.takeIf { it.isNotBlank() }
+            ?.let { ArtworkBitmapCache.getCached(it, targetPixels) }
     }
 
     LaunchedEffect(artworkRef, targetPixels) {
-        bitmap = if (artworkRef.isNullOrBlank()) {
-            null
-        } else {
-            ArtworkBitmapCache.getOrDecode(
-                context = context.applicationContext,
-                artworkRef = artworkRef,
-                targetPixels = targetPixels,
-            )
+        if (artworkRef.isNullOrBlank()) {
+            bitmap = null
+            return@LaunchedEffect
         }
+
+        if (cachedBitmap != null) {
+            bitmap = cachedBitmap
+            return@LaunchedEffect
+        }
+
+        // Keep the previously rendered bitmap while the replacement decodes. This avoids the
+        // single-frame default artwork flash when playback advances to another track.
+        bitmap = ArtworkBitmapCache.getOrDecode(
+            context = context.applicationContext,
+            artworkRef = artworkRef,
+            targetPixels = targetPixels,
+        )
     }
-    return bitmap
+
+    if (artworkRef.isNullOrBlank()) return null
+    return cachedBitmap ?: bitmap
 }
 
 private suspend fun decodeSampledArtwork(
@@ -298,17 +324,22 @@ fun NowPlayingArtwork(
     artworkRef: String?,
     description: String,
     modifier: Modifier = Modifier,
+    showShadow: Boolean = true,
 ) {
     val bitmap = rememberArtworkBitmap(artworkRef, PLAYER_ARTWORK_TARGET_PIXELS)
     val shape = RoundedCornerShape(28.dp)
+    val artworkModifier = if (showShadow) {
+        modifier.shadow(
+            elevation = 18.dp,
+            shape = shape,
+            clip = false,
+        )
+    } else {
+        modifier
+    }
 
     Box(
-        modifier = modifier
-            .shadow(
-                elevation = 18.dp,
-                shape = shape,
-                clip = false,
-            )
+        modifier = artworkModifier
             .clip(shape)
             .background(Color(0xFF191817).copy(alpha = 0.72f))
             .border(
