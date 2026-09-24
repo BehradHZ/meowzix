@@ -16,6 +16,24 @@ val telegramApiId = providers.gradleProperty("MEOWZIX_TELEGRAM_API_ID")
 val telegramApiHash = providers.gradleProperty("MEOWZIX_TELEGRAM_API_HASH")
     .orElse(providers.environmentVariable("MEOWZIX_TELEGRAM_API_HASH"))
     .getOrElse("")
+val releaseKeystorePath = providers.gradleProperty("MEOWZIX_RELEASE_KEYSTORE")
+    .orElse(providers.environmentVariable("MEOWZIX_RELEASE_KEYSTORE"))
+    .getOrElse("")
+val releaseStorePassword = providers.gradleProperty("MEOWZIX_RELEASE_STORE_PASSWORD")
+    .orElse(providers.environmentVariable("MEOWZIX_RELEASE_STORE_PASSWORD"))
+    .getOrElse("")
+val releaseKeyAlias = providers.gradleProperty("MEOWZIX_RELEASE_KEY_ALIAS")
+    .orElse(providers.environmentVariable("MEOWZIX_RELEASE_KEY_ALIAS"))
+    .getOrElse("")
+val releaseKeyPassword = providers.gradleProperty("MEOWZIX_RELEASE_KEY_PASSWORD")
+    .orElse(providers.environmentVariable("MEOWZIX_RELEASE_KEY_PASSWORD"))
+    .getOrElse("")
+val releaseSigningConfigured = listOf(
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all(String::isNotBlank)
 
 android {
     namespace = "dev.behradhz.meowzix"
@@ -32,6 +50,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TELEGRAM_API_ID", telegramApiId.asBuildConfigString())
         buildConfigField("String", "TELEGRAM_API_HASH", telegramApiHash.asBuildConfigString())
+    }
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            isDebuggable = false
+        }
     }
 
     buildFeatures {
