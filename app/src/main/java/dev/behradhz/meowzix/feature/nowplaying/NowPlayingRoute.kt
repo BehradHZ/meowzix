@@ -69,6 +69,7 @@ import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.delay
 
 private val PlayerPrimaryContent = Color(0xFFF7F3EF)
 private val PlayerSecondaryContent = Color(0xFFCFC7C0)
@@ -166,6 +167,24 @@ private fun NowPlayingScreen(
     var backdropTransition by remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
     val duration = state.durationMs.coerceAtLeast(1L)
     val shownPosition = pendingSeek?.toLong() ?: state.positionMs.coerceIn(0L, duration)
+    val playbackLoading =
+        state.status == PlaybackStatus.DOWNLOADING ||
+            state.status == PlaybackStatus.BUFFERING ||
+            state.status == PlaybackStatus.PREPARING
+    var showPlaybackLoading by remember { mutableStateOf(false) }
+
+    // Media3 can report BUFFERING/PREPARING for only a few frames while moving between already
+    // prefetched queue items. Avoid flashing a full-screen spinner for those normal transitions;
+    // keep it for stalls that are long enough for the user to actually be waiting.
+    LaunchedEffect(playbackLoading) {
+        if (!playbackLoading) {
+            showPlaybackLoading = false
+            return@LaunchedEffect
+        }
+        showPlaybackLoading = false
+        delay(450L)
+        showPlaybackLoading = true
+    }
 
     Box(Modifier.fillMaxSize()) {
         val activeBackdropTransition = backdropTransition
@@ -283,11 +302,7 @@ private fun NowPlayingScreen(
             Spacer(Modifier.height(12.dp))
         }
 
-        if (
-            state.status == PlaybackStatus.DOWNLOADING ||
-            state.status == PlaybackStatus.BUFFERING ||
-            state.status == PlaybackStatus.PREPARING
-        ) {
+        if (showPlaybackLoading && playbackLoading) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.Center)
