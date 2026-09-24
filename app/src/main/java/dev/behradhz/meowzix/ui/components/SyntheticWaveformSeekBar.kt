@@ -30,17 +30,15 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
-import kotlin.math.floor
 import kotlinx.coroutines.delay
 
 /**
- * Lightweight deterministic waveform seek bar.
+ * Waveform seek bar driven by the live playback spectrum.
  *
- * A stable per-track waveform is used while scrubbing. During normal playback the played region is
- * driven by the real playback spectrum, decays smoothly to zero when playback pauses, and tapers
- * into the seek pointer. The last valid live spectrum is retained across a seek and the scrub
- * waveform is hard-gated off on release so the fixed per-track profile never leaks into a
- * post-release frame.
+ * During playback and scrubbing the played region keeps using the continuously updating live FFT;
+ * dragging the pointer only changes where that equalizer is cropped and tapered to zero. No fixed
+ * per-track waveform is introduced during seek. Loading is represented by a traveling equalizer
+ * peak whose neighboring bars gradually decrease in height, with a short pause between passes.
  */
 @Composable
 fun SyntheticWaveformSeekBar(
@@ -65,13 +63,16 @@ fun SyntheticWaveformSeekBar(
     shimmerDurationMs: Int = 1_050,
 ) {
     val resolvedBarCount = barCount.coerceAtLeast(12)
-    val waveform = remember(trackKey, resolvedBarCount) { buildSyntheticWaveform(trackKey, resolvedBarCount) }
-    val liveProfile = remember(liveBands, resolvedBarCount) { expandLiveSpectrum(liveBands, resolvedBarCount) }
+    val liveProfile = remember(liveBands, resolvedBarCount) {
+        expandLiveSpectrum(liveBands, resolvedBarCount)
+    }
     val hasLiveSpectrum = remember(liveBands) { liveBands.any { it > 0.001f } }
     var stableLiveProfile by remember(trackKey, resolvedBarCount) {
         mutableStateOf(FloatArray(resolvedBarCount))
     }
 
+    // Retain the last valid FFT when Media3 briefly stops producing bands around a seek/buffer.
+    // While valid bands keep arriving, this profile continues updating during the drag itself.
     LaunchedEffect(trackKey, resolvedBarCount, liveBands.contentHashCode(), hasLiveSpectrum) {
         if (hasLiveSpectrum) stableLiveProfile = liveProfile.copyOf()
     }
@@ -80,14 +81,12 @@ fun SyntheticWaveformSeekBar(
     val isDragged by interactionSource.collectIsDraggedAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
     val isInteracting = isDragged || isPressed
-    var isUserSeeking by remember(trackKey) { mutableStateOf(false) }
     var suppressLoadingWaveform by remember(trackKey) { mutableStateOf(false) }
     var seekReleaseGeneration by remember(trackKey) { mutableStateOf(0) }
 
-    // Media3 commonly reports a short BUFFERING state immediately after seekTo(). If loading visuals
-    // are allowed to react to that transient state, the full default waveform replaces the current
-    // seek visual for one frame. Keep loading visuals suppressed from the first seek movement until
-    // the post-seek player state has had time to settle.
+    // Media3 commonly reports a short BUFFERING state immediately after seekTo(). Keep the loading
+    // animation suppressed across that transient state so releasing the pointer stays on the live
+    // equalizer and returns smoothly to the post-seek FFT instead of switching visual modes.
     LaunchedEffect(trackKey, seekReleaseGeneration) {
         if (seekReleaseGeneration == 0) return@LaunchedEffect
         delay(750L)
@@ -95,15 +94,6 @@ fun SyntheticWaveformSeekBar(
     }
     val effectiveLoading = isLoading && !suppressLoadingWaveform
 
-    // Slider callbacks own the seek lifecycle. The enter morph can remain smooth while dragging, but
-    // drawing is hard-gated to live FFT as soon as seeking finishes. This prevents the tail of the
-    // scrub animation from leaving even one fixed/default waveform frame visible after release.
-    val scrubBlend by animateFloatAsState(
-        targetValue = if (isUserSeeking) 1f else 0f,
-        animationSpec = tween(durationMillis = if (isUserSeeking) 280 else 360, easing = FastOutSlowInEasing),
-        label = "waveformScrubBlend",
-    )
-    val visibleScrubBlend = if (isUserSeeking) scrubBlend else 0f
     val pointerInteraction by animateFloatAsState(
         targetValue = if (isInteracting) 1f else 0f,
         animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
@@ -118,21 +108,25 @@ fun SyntheticWaveformSeekBar(
         label = "waveformPlaybackEnergy",
     )
 
-    val shimmer = remember { Animatable(-0.24f) }
+    // The loading indicator is height-driven only: one tall bar with symmetric, progressively
+    // shorter neighbors travels from the first bar to the last, pauses, then repeats. The old red
+    // shimmer color is intentionally not used.
+    val loadingTravel = remember { Animatable(0f) }
     LaunchedEffect(effectiveLoading, shimmerDurationMs) {
         if (!effectiveLoading) {
-            shimmer.snapTo(-0.24f)
+            loadingTravel.snapTo(0f)
             return@LaunchedEffect
         }
         while (true) {
-            shimmer.snapTo(-0.24f)
-            shimmer.animateTo(
-                targetValue = 1.24f,
+            loadingTravel.snapTo(0f)
+            loadingTravel.animateTo(
+                targetValue = 1f,
                 animationSpec = tween(
                     durationMillis = shimmerDurationMs.coerceAtLeast(1),
                     easing = LinearEasing,
                 ),
             )
+            delay(320L)
         }
     }
 
@@ -169,8 +163,10 @@ fun SyntheticWaveformSeekBar(
             val pointerX = startX + drawableWidth * progress
             val pointerIndex = progress * (resolvedBarCount - 1).toFloat()
             val decayWindow = decayBarCount.coerceAtLeast(1).toFloat()
+            val loadingCenterIndex = loadingTravel.value * (resolvedBarCount - 1).toFloat()
+            val loadingWingSpan = 5.5f
 
-            waveform.forEachIndexed { index, baseHeight ->
+            for (index in 0 until resolvedBarCount) {
                 val normalizedX = if (resolvedBarCount <= 1) {
                     0f
                 } else {
@@ -182,23 +178,23 @@ fun SyntheticWaveformSeekBar(
                 val color: Color
 
                 if (effectiveLoading) {
-                    halfHeight = (baseHeight * maxHalfHeight * 0.72f)
-                        .coerceAtLeast(minimumHalfHeightPx)
-                    val shimmerDistance = abs(normalizedX - shimmer.value)
-                    val shimmerStrength = (1f - shimmerDistance / 0.16f).coerceIn(0f, 1f)
-                    color = if (shimmerStrength > 0.001f) {
-                        loadingShimmerColor.copy(alpha = 0.28f + 0.72f * shimmerStrength)
+                    val distanceFromLoadingPeak = abs(index.toFloat() - loadingCenterIndex)
+                    val linearStrength =
+                        (1f - distanceFromLoadingPeak / loadingWingSpan).coerceIn(0f, 1f)
+                    val loadingStrength = smoothStep(linearStrength)
+                    halfHeight = if (loadingStrength > 0f) {
+                        minimumHalfHeightPx +
+                            (maxHalfHeight * 0.92f - minimumHalfHeightPx) * loadingStrength
                     } else {
-                        inactiveBarColor.copy(alpha = 0.34f)
+                        minimumHalfHeightPx
                     }
+                    color = if (loadingStrength > 0f) activeBarColor else inactiveBarColor
                 } else if (normalizedX <= progress && progress > 0f) {
                     val distanceFromPointer = (pointerIndex - index.toFloat()).coerceAtLeast(0f)
                     val linearDecay = (distanceFromPointer / decayWindow).coerceIn(0f, 1f)
                     val decay = smoothStep(linearDecay)
                     val liveHeight = stableLiveProfile[index].coerceIn(0f, 1f)
-                    val blendedHeight = lerpFloat(liveHeight, baseHeight, visibleScrubBlend)
-                    val visibleEnergy = lerpFloat(playbackEnergy, 1f, visibleScrubBlend)
-                    halfHeight = (blendedHeight * maxHalfHeight * decay * visibleEnergy)
+                    halfHeight = (liveHeight * maxHalfHeight * decay * playbackEnergy)
                         .coerceAtLeast(minimumHalfHeightPx)
                     color = activeBarColor
                 } else {
@@ -243,7 +239,6 @@ fun SyntheticWaveformSeekBar(
         Slider(
             value = coercedValue,
             onValueChange = { newValue ->
-                if (!isUserSeeking) isUserSeeking = true
                 suppressLoadingWaveform = true
                 onValueChange(newValue)
             },
@@ -251,7 +246,6 @@ fun SyntheticWaveformSeekBar(
             valueRange = valueRange,
             onValueChangeFinished = {
                 onValueChangeFinished?.invoke()
-                isUserSeeking = false
                 seekReleaseGeneration += 1
             },
             interactionSource = interactionSource,
@@ -266,42 +260,6 @@ fun SyntheticWaveformSeekBar(
             ),
         )
     }
-}
-
-private val WaveformTemplates = arrayOf(
-    floatArrayOf(
-        0.24f, 0.38f, 0.62f, 0.84f, 0.56f, 0.34f, 0.68f, 0.92f,
-        0.74f, 0.42f, 0.58f, 0.78f, 0.48f, 0.30f, 0.64f, 0.86f,
-    ),
-    floatArrayOf(
-        0.54f, 0.82f, 0.66f, 0.36f, 0.72f, 0.46f, 0.88f, 0.60f,
-        0.34f, 0.52f, 0.76f, 0.94f, 0.62f, 0.40f, 0.70f, 0.50f,
-    ),
-    floatArrayOf(
-        0.30f, 0.46f, 0.58f, 0.76f, 0.90f, 0.72f, 0.52f, 0.64f,
-        0.82f, 0.56f, 0.38f, 0.68f, 0.84f, 0.60f, 0.44f, 0.74f,
-    ),
-)
-
-private fun buildSyntheticWaveform(trackKey: String, barCount: Int): FloatArray {
-    val seed = trackKey.hashCode()
-    val template = WaveformTemplates[(seed and Int.MAX_VALUE) % WaveformTemplates.size]
-    val output = FloatArray(barCount)
-    if (barCount == 1) {
-        output[0] = template.first()
-        return output
-    }
-
-    for (index in 0 until barCount) {
-        val templatePosition =
-            index.toFloat() / (barCount - 1).toFloat() * (template.size - 1).toFloat()
-        val lower = floor(templatePosition).toInt().coerceIn(0, template.lastIndex)
-        val upper = (lower + 1).coerceAtMost(template.lastIndex)
-        val fraction = templatePosition - lower.toFloat()
-        val interpolated = lerpFloat(template[lower], template[upper], fraction)
-        output[index] = interpolated.coerceIn(0.18f, 0.96f)
-    }
-    return output
 }
 
 private fun expandLiveSpectrum(bands: FloatArray, barCount: Int): FloatArray {
