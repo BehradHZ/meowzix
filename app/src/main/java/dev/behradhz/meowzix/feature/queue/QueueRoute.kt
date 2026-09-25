@@ -363,13 +363,12 @@ private fun SwipeableQueueItem(
                         } else {
                             -actionExitProgress * actionExitDistance
                         }
-                        alpha = 1f - actionExitProgress
                     },
                 shape = RoundedCornerShape(18.dp),
                 color = if (swipingRight) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+                    MaterialTheme.colorScheme.primaryContainer
                 } else {
-                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
+                    MaterialTheme.colorScheme.tertiaryContainer
                 },
                 tonalElevation = 2.dp,
             ) {
