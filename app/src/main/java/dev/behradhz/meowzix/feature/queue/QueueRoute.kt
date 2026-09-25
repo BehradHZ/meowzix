@@ -317,7 +317,6 @@ private fun SwipeableQueueItem(
         animationSpec = tween(durationMillis = 190),
         label = "queue-action-exit",
     )
-    val actionExitDistance = with(density) { 170.dp.toPx() }
 
     Box(
         modifier = Modifier
@@ -326,8 +325,7 @@ private fun SwipeableQueueItem(
             .graphicsLayer { translationY = dragOffsetY },
     ) {
         if (swipeMagnitude > 0.5f) {
-            // Remove stays underneath for the whole gesture. The first-stage action is a separate
-            // card above it and leaves only after the second threshold is crossed.
+            // Remove stays underneath for the whole gesture. The first-stage action sits above it.
             Surface(
                 modifier = Modifier.matchParentSize(),
                 shape = RoundedCornerShape(18.dp),
@@ -351,18 +349,15 @@ private fun SwipeableQueueItem(
                 }
             }
 
-            // Play next / Add to queue remains unchanged throughout the enlarged first-stage range.
-            // Crossing the remove threshold starts this fixed-duration animation; its progress is
-            // independent from subsequent finger movement.
+            // Once the remove threshold is crossed, carry the first-stage action with the track
+            // card. It therefore slides underneath the card instead of remaining exposed beside it,
+            // making the gesture feel like the track and Play next / Add to queue are being pulled
+            // together while Remove is revealed underneath.
             Surface(
                 modifier = Modifier
                     .matchParentSize()
                     .graphicsLayer {
-                        translationX = if (swipingRight) {
-                            actionExitProgress * actionExitDistance
-                        } else {
-                            -actionExitProgress * actionExitDistance
-                        }
+                        translationX = actionExitProgress * visualOffsetX
                     },
                 shape = RoundedCornerShape(18.dp),
                 color = if (swipingRight) {
