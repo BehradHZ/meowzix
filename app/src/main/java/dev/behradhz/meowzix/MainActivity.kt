@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.core.performance.PerformanceMetrics
 import dev.behradhz.meowzix.navigation.MeowzixApp
+import dev.behradhz.meowzix.ui.haptics.meowzixInteractionHaptics
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 
 @AndroidEntryPoint
@@ -39,7 +40,9 @@ class MainActivity : ComponentActivity() {
                     if (BuildConfig.DEBUG) Log.d(PERF_TAG, PerformanceMetrics.report())
                 }
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .meowzixInteractionHaptics(),
                     color = MaterialTheme.colorScheme.background,
                     contentColor = MaterialTheme.colorScheme.onBackground,
                 ) {
