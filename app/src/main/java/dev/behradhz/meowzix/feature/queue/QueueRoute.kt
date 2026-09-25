@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -310,8 +311,21 @@ private fun SwipeableQueueItem(
         label = "queue-two-stage-swipe",
     )
     val swipeMagnitude = abs(visualOffsetX)
-    val removeStage = swipeMagnitude >= removeThreshold
     val swipingRight = visualOffsetX >= 0f
+    val removeMorphProgress = (
+        (swipeMagnitude - actionThreshold) / (removeThreshold - actionThreshold)
+    ).coerceIn(0f, 1f)
+    val morphTravelPx = with(density) { 34.dp.toPx() }
+    val actionBackground = if (swipingRight) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+    } else {
+        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
+    }
+    val swipeBackground = lerp(
+        actionBackground,
+        MaterialTheme.colorScheme.error.copy(alpha = 0.22f),
+        removeMorphProgress,
+    )
 
     Box(
         modifier = Modifier
@@ -323,38 +337,77 @@ private fun SwipeableQueueItem(
             Surface(
                 modifier = Modifier.matchParentSize(),
                 shape = RoundedCornerShape(18.dp),
-                color = when {
-                    removeStage -> MaterialTheme.colorScheme.error.copy(alpha = 0.20f)
-                    swipingRight -> MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
-                    else -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
-                },
+                color = swipeBackground,
                 tonalElevation = 2.dp,
             ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
-                    horizontalArrangement = if (swipingRight) Arrangement.Start else Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 18.dp),
                 ) {
-                    when {
-                        removeStage && swipingRight -> {
-                            Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                            Spacer(Modifier.size(8.dp))
-                            Text("Remove", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
-                        }
-                        removeStage -> {
-                            Text("Remove", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.size(8.dp))
-                            Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        }
-                        swipingRight -> {
+                    Row(
+                        modifier = Modifier
+                            .align(if (swipingRight) Alignment.CenterStart else Alignment.CenterEnd)
+                            .graphicsLayer {
+                                alpha = 1f - removeMorphProgress
+                                translationX = if (swipingRight) {
+                                    removeMorphProgress * morphTravelPx
+                                } else {
+                                    -removeMorphProgress * morphTravelPx
+                                }
+                                scaleX = 1f + (removeMorphProgress * 0.10f)
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (swipingRight) {
                             Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
                             Spacer(Modifier.size(8.dp))
                             Text("Play next", fontWeight = FontWeight.SemiBold)
-                        }
-                        else -> {
+                        } else {
                             Text("Add to queue", fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.size(8.dp))
                             Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .align(if (swipingRight) Alignment.CenterStart else Alignment.CenterEnd)
+                            .graphicsLayer {
+                                alpha = removeMorphProgress
+                                translationX = if (swipingRight) {
+                                    -(1f - removeMorphProgress) * morphTravelPx
+                                } else {
+                                    (1f - removeMorphProgress) * morphTravelPx
+                                }
+                                scaleX = 0.90f + (removeMorphProgress * 0.10f)
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (swipingRight) {
+                            Icon(
+                                Icons.Rounded.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                "Remove",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        } else {
+                            Text(
+                                "Remove",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Icon(
+                                Icons.Rounded.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
                         }
                     }
                 }
