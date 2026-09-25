@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.repository.ArtworkRepairCoordinator
+import dev.behradhz.meowzix.data.settings.PlaybackContextKeys
+import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
@@ -16,6 +18,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
@@ -27,6 +30,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -54,6 +59,7 @@ class LibraryViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val telegramRepository: TelegramRepository,
     private val artworkRepairCoordinator: ArtworkRepairCoordinator,
+    private val playbackContextPolicyStore: PlaybackContextPolicyStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
@@ -169,12 +175,20 @@ class LibraryViewModel @Inject constructor(
 
         val selectedIndex = queue.indexOfFirst { it.id == track.id }
         val queueFromSelection = if (selectedIndex >= 0) queue.drop(selectedIndex) else listOf(track)
-        queueRepository.replaceAndPlay(queueFromSelection.map { it.id }, track.id, PlaybackMode.ORDERED)
+        val contextKey = playbackContextFor(queueTracks)
+        startContextQueue(
+            tracks = queueFromSelection,
+            startTrackId = track.id,
+            contextKey = contextKey,
+        )
     }
 
     fun playCollection(tracks: List<Track>, mode: PlaybackMode) {
-        val ids = tracks.distinctBy { it.id }.map { it.id }
-        if (ids.isNotEmpty()) queueRepository.replaceAndPlay(ids, mode)
+        startContextQueue(
+            tracks = tracks,
+            explicitMode = mode,
+            contextKey = PlaybackContextKeys.LIBRARY,
+        )
     }
 
     fun playNext(track: Track) = queueRepository.playNext(track.id)
@@ -247,7 +261,12 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun playSelectedPlaylist(mode: PlaybackMode) {
-        playCollection(_state.value.selectedPlaylistTracks, mode)
+        val playlistId = _state.value.selectedPlaylistId ?: return
+        startContextQueue(
+            tracks = _state.value.selectedPlaylistTracks,
+            explicitMode = mode,
+            contextKey = PlaybackContextKeys.playlist(playlistId),
+        )
     }
 
     fun saveQueueToPlaylist() = viewModelScope.launch {
@@ -259,6 +278,53 @@ class LibraryViewModel @Inject constructor(
             id
         }.onSuccess(::selectPlaylist)
             .onFailure { reportLoadError(it, "Unable to save queue") }
+    }
+
+    private fun startContextQueue(
+        tracks: List<Track>,
+        startTrackId: UUID? = null,
+        explicitMode: PlaybackMode? = null,
+        contextKey: String,
+    ) {
+        val ids = tracks.distinctBy { it.id }.map { it.id }
+        if (ids.isEmpty()) return
+
+        playbackContextPolicyStore.activate(contextKey)
+        val storedPolicy = playbackContextPolicyStore.policy(contextKey)
+        val playbackMode = explicitMode ?: storedPolicy.playbackMode
+        if (explicitMode != null) {
+            playbackContextPolicyStore.savePlaybackMode(contextKey, explicitMode)
+        }
+
+        if (startTrackId == null) {
+            queueRepository.replaceAndPlay(ids, playbackMode)
+        } else {
+            queueRepository.replaceAndPlay(ids, startTrackId, playbackMode)
+        }
+        restoreRepeatModeAfterQueueStarts(ids.toSet(), storedPolicy.repeatMode)
+    }
+
+    private fun restoreRepeatModeAfterQueueStarts(expectedTrackIds: Set<UUID>, repeatMode: RepeatMode) {
+        if (repeatMode == RepeatMode.OFF) return
+        viewModelScope.launch {
+            queueRepository.queueState
+                .drop(1)
+                .first { queue ->
+                    queue.items.isNotEmpty() && queue.items.map { it.id }.toSet() == expectedTrackIds
+                }
+            queueRepository.setRepeatMode(repeatMode)
+        }
+    }
+
+    private fun playbackContextFor(queueTracks: List<Track>): String {
+        val playlistId = _state.value.selectedPlaylistId ?: return PlaybackContextKeys.LIBRARY
+        val selectedPlaylistIds = _state.value.selectedPlaylistTracks.map { it.id }
+        val queueIds = queueTracks.map { it.id }
+        return if (selectedPlaylistIds.isNotEmpty() && queueIds == selectedPlaylistIds) {
+            PlaybackContextKeys.playlist(playlistId)
+        } else {
+            PlaybackContextKeys.LIBRARY
+        }
     }
 
     private fun reportLoadError(error: Throwable, fallback: String) {
