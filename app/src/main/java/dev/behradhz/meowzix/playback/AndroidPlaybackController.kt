@@ -191,9 +191,33 @@ class AndroidPlaybackController @Inject constructor(
             withConnectedController { connected ->
                 val active = progressiveQueue.snapshot()
                 if (active != null) {
+                    val existingIndex = active.tracks.indexOfFirst { it.id == trackId }
+                    val affectsMaterializedWindow =
+                        existingIndex >= 0 && existingIndex < active.materializedEndExclusive
                     if (progressiveQueue.append(track)) {
-                        // Appending or repositioning must not rebuild ExoPlayer's active timeline.
-                        syncProgressiveWindowInPlace(connected)
+                        if (affectsMaterializedWindow) {
+                            // Repositioning an item that Media3 already materialized must reconcile
+                            // that bounded window, but the currently playing item stays untouched.
+                            syncProgressiveWindowInPlace(connected)
+                        } else {
+                            // A normal Add to queue targets the logical tail, usually far beyond the
+                            // active Media3 window. Do not send any timeline command in that case:
+                            // it can cause a tiny audible hiccup even though playback itself is not
+                            // being replaced. Only materialize more items when the forward window is
+                            // actually close to running out.
+                            val forwardBatch = progressiveQueue.takeForwardBatchIfNeeded()
+                            if (forwardBatch.isNotEmpty()) {
+                                val snapshot = progressiveQueue.snapshot()
+                                if (snapshot != null) {
+                                    connected.addMediaItems(
+                                        forwardBatch.map {
+                                            it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode)
+                                        },
+                                    )
+                                }
+                            }
+                            updateState(connected)
+                        }
                         queueActionFeedbackBus.emit(QueueActionKind.ADD_TO_END, track.title)
                     }
                     return@withConnectedController
