@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.feature.library
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -143,11 +144,20 @@ private fun PlaylistMorphCardV3(
     onClick: () -> Unit,
 ) {
     var opening by remember { mutableStateOf(false) }
-    val artworkSize by animateDpAsState(if (opening) 86.dp else 72.dp, label = "playlist-card-morph")
+    val artworkSize by animateDpAsState(
+        targetValue = if (opening) 176.dp else 72.dp,
+        label = "playlist-card-artwork-morph",
+    )
+    val cardPadding by animateDpAsState(
+        targetValue = if (opening) 18.dp else 8.dp,
+        label = "playlist-card-padding-morph",
+    )
 
     LaunchedEffect(opening) {
         if (opening) {
-            delay(120)
+            // Keep the source card alive long enough for its bounds, artwork, and title to
+            // visibly transform into the same visual hierarchy used by the detail hero.
+            delay(260)
             onClick()
             opening = false
         }
@@ -156,30 +166,56 @@ private fun PlaylistMorphCardV3(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .animateContentSize()
             .clickable(enabled = !opening) { opening = true },
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(if (opening) 26.dp else 20.dp),
-        tonalElevation = if (opening) 4.dp else 0.dp,
+        shape = RoundedCornerShape(if (opening) 30.dp else 20.dp),
+        tonalElevation = if (opening) 6.dp else 0.dp,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PlaylistArtworkV3(
-                artworkRef = artworkRef,
-                title = title,
-                favorite = favorite,
-                size = artworkSize,
-            )
-            Spacer(Modifier.size(14.dp))
-            Text(
-                title,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+        if (opening) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(cardPadding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                PlaylistArtworkV3(
+                    artworkRef = artworkRef,
+                    title = title,
+                    favorite = favorite,
+                    size = artworkSize,
+                )
+                Text(
+                    title,
+                    modifier = Modifier.padding(top = 14.dp),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.padding(horizontal = cardPadding, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PlaylistArtworkV3(
+                    artworkRef = artworkRef,
+                    title = title,
+                    favorite = favorite,
+                    size = artworkSize,
+                )
+                Spacer(Modifier.size(14.dp))
+                Text(
+                    title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
