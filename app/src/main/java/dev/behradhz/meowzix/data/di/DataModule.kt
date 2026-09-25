@@ -20,6 +20,7 @@ import dev.behradhz.meowzix.data.db.MIGRATION_5_6
 import dev.behradhz.meowzix.data.db.MIGRATION_6_7
 import dev.behradhz.meowzix.data.db.MIGRATION_7_8
 import dev.behradhz.meowzix.data.db.MIGRATION_8_9
+import dev.behradhz.meowzix.data.db.MIGRATION_9_10
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.PlaylistDao
 import dev.behradhz.meowzix.data.db.TelegramDao
@@ -145,6 +146,7 @@ object DatabaseModule {
                 MIGRATION_6_7,
                 MIGRATION_7_8,
                 MIGRATION_8_9,
+                MIGRATION_9_10,
             )
             .build()
 

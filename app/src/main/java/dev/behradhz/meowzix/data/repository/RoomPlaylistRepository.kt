@@ -22,7 +22,16 @@ class RoomPlaylistRepository @Inject constructor(
     private val dao: PlaylistDao,
 ) : PlaylistRepository {
     override fun observePlaylists(): Flow<List<PlaylistSummary>> = dao.observePlaylists().map { rows ->
-        rows.map { PlaylistSummary(UUID.fromString(it.id), it.title, it.trackCount) }
+        rows.map { row ->
+            PlaylistSummary(
+                id = UUID.fromString(row.id),
+                title = row.title,
+                trackCount = row.trackCount,
+                description = row.description,
+                artworkRef = row.artworkRef,
+                updatedAt = Instant.ofEpochMilli(row.updatedAtEpochMs),
+            )
+        }
     }
 
     override fun observeTracks(playlistId: UUID): Flow<List<Track>> =
@@ -32,7 +41,16 @@ class RoomPlaylistRepository @Inject constructor(
         val normalized = title.trim().takeIf(String::isNotEmpty) ?: "New playlist"
         val now = Instant.now().toEpochMilli()
         val id = UUID.randomUUID()
-        dao.upsertPlaylist(PlaylistEntity(id.toString(), normalized, now, now))
+        dao.upsertPlaylist(
+            PlaylistEntity(
+                id = id.toString(),
+                title = normalized,
+                description = null,
+                artworkRef = null,
+                createdAtEpochMs = now,
+                updatedAtEpochMs = now,
+            ),
+        )
         return id
     }
 
@@ -45,11 +63,27 @@ class RoomPlaylistRepository @Inject constructor(
         )
     }
 
+    override suspend fun updateMetadata(
+        playlistId: UUID,
+        title: String,
+        description: String?,
+        artworkRef: String?,
+    ) {
+        val normalizedTitle = title.trim().takeIf(String::isNotEmpty) ?: return
+        dao.updatePlaylistMetadata(
+            playlistId = playlistId.toString(),
+            title = normalizedTitle,
+            description = description?.trim()?.takeIf(String::isNotEmpty),
+            artworkRef = artworkRef?.trim()?.takeIf(String::isNotEmpty),
+            updatedAt = Instant.now().toEpochMilli(),
+        )
+    }
+
     override suspend fun delete(playlistId: UUID) = dao.deletePlaylist(playlistId.toString())
 
     override suspend fun addTrack(playlistId: UUID, trackId: UUID) {
         val entries = dao.entries(playlistId.toString())
-        dao.insertTrack(
+        val inserted = dao.insertTrack(
             PlaylistTrackEntity(
                 playlistId = playlistId.toString(),
                 trackId = trackId.toString(),
@@ -57,6 +91,9 @@ class RoomPlaylistRepository @Inject constructor(
                 addedAtEpochMs = Instant.now().toEpochMilli(),
             ),
         )
+        if (inserted != -1L) {
+            dao.touchPlaylist(playlistId.toString(), Instant.now().toEpochMilli())
+        }
     }
 
     override suspend fun removeTrack(playlistId: UUID, trackId: UUID) = database.withTransaction {
@@ -83,6 +120,7 @@ class RoomPlaylistRepository @Inject constructor(
                 PlaylistTrackEntity(playlistId.toString(), trackId.toString(), index, now)
             },
         )
+        dao.touchPlaylist(playlistId.toString(), now)
     }
 }
 

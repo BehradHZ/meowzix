@@ -223,6 +223,17 @@ class LibraryViewModel @Inject constructor(
             .onFailure { reportLoadError(it, "Unable to rename playlist") }
     }
 
+    fun updatePlaylistMetadata(
+        playlistId: UUID,
+        title: String,
+        description: String?,
+        artworkRef: String?,
+    ) = viewModelScope.launch {
+        runCatching {
+            playlistRepository.updateMetadata(playlistId, title, description, artworkRef)
+        }.onFailure { reportLoadError(it, "Unable to update playlist") }
+    }
+
     fun addToPlaylist(track: Track, playlistId: UUID) = viewModelScope.launch {
         runCatching { playlistRepository.addTrack(playlistId, track.id) }
             .onFailure { reportLoadError(it, "Unable to update playlist") }

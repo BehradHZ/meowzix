@@ -644,6 +644,8 @@ CANCELED
 Playlist
 - id: UUID
 - name: String
+- description: String?
+- artworkRef: String?
 - createdAt: Instant
 - updatedAt: Instant
 ```
@@ -2404,6 +2406,9 @@ Make the application usable as a daily music player.
 - local search;
 - playlists;
 - add/remove/reorder playlist tracks;
+- dedicated playlist detail view with editable name, description, and artwork;
+- playlist track sorting by name or modified time with reversible direction;
+- custom drag ordering and grouping by artist, album, or year;
 - queue-to-playlist;
 - source availability filters.
 

@@ -190,6 +190,7 @@ internal fun LibraryRouteV2(
         onCreatePlaylist = viewModel::createPlaylist,
         onSelectPlaylist = viewModel::selectPlaylist,
         onRenamePlaylist = viewModel::renamePlaylist,
+        onUpdatePlaylistMetadata = viewModel::updatePlaylistMetadata,
         onMovePlaylistTrack = viewModel::movePlaylistTrack,
         onRemovePlaylistTrack = viewModel::removePlaylistTrack,
         onSaveQueue = viewModel::saveQueueToPlaylist,
@@ -216,6 +217,7 @@ private fun LibraryScreenV2(
     onCreatePlaylist: () -> Unit,
     onSelectPlaylist: (UUID) -> Unit,
     onRenamePlaylist: (UUID, String) -> Unit,
+    onUpdatePlaylistMetadata: (UUID, String, String?, String?) -> Unit,
     onMovePlaylistTrack: (Int, Int) -> Unit,
     onRemovePlaylistTrack: (Track) -> Unit,
     onSaveQueue: () -> Unit,
@@ -266,10 +268,12 @@ private fun LibraryScreenV2(
         val title = if (isFavorites) "Favorites" else summary?.title ?: "Playlist"
         val telegramManaged = playlistId != null && state.playlistArtwork.containsKey(playlistId)
 
-        PlaylistDetailScreen(
+        PlaylistDetailScreenV3(
+            playlist = summary,
             title = title,
             tracks = tracks,
-            playlistArtworkRef = playlistId?.let(state.playlistArtwork::get)
+            artworkRef = summary?.artworkRef
+                ?: playlistId?.let(state.playlistArtwork::get)
                 ?: tracks.firstOrNull()?.artworkRef,
             editable = playlistId != null && !telegramManaged,
             isFavorites = isFavorites,
@@ -278,7 +282,11 @@ private fun LibraryScreenV2(
             downloads = state.downloads,
             playlists = state.playlists,
             onBack = { openedPlaylistKey = null },
-            onRename = { newTitle -> if (playlistId != null) onRenamePlaylist(playlistId, newTitle) },
+            onSaveMetadata = { newTitle, description, artwork ->
+                if (playlistId != null) {
+                    onUpdatePlaylistMetadata(playlistId, newTitle, description, artwork)
+                }
+            },
             onPlay = onPlayCollection,
             onPlayTrack = onPlayTrack,
             onPlayNext = onPlayNext,
@@ -510,12 +518,10 @@ private fun LibraryScreenV2(
                     },
                 )
 
-                LibrarySectionV2.PLAYLISTS -> PlaylistsSectionV2(
+                LibrarySectionV2.PLAYLISTS -> PlaylistsSectionV3(
                     playlists = state.playlists,
                     playlistArtwork = state.playlistArtwork,
                     favoriteTracks = state.tracks.filter(Track::favorite),
-                    onCreate = onCreatePlaylist,
-                    onSaveQueue = onSaveQueue,
                     onOpenFavorites = { openedPlaylistKey = FAVORITES_KEY },
                     onOpenPlaylist = { id ->
                         onSelectPlaylist(id)
@@ -895,7 +901,7 @@ private fun TrackListV2(
 }
 
 @Composable
-private fun SwipeableTrackRowV2(
+internal fun SwipeableTrackRowV2(
     track: Track,
     isCurrent: Boolean,
     onClick: () -> Unit,

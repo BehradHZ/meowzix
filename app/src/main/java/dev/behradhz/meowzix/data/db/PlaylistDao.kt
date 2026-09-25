@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PlaylistDao {
-    @Query("SELECT p.id, p.title, COUNT(pt.trackId) AS trackCount FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id GROUP BY p.id ORDER BY p.title COLLATE NOCASE")
+    @Query("SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, COUNT(pt.trackId) AS trackCount FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id GROUP BY p.id ORDER BY p.title COLLATE NOCASE")
     fun observePlaylists(): Flow<List<PlaylistSummaryRow>>
 
     @Query("SELECT t.* FROM playlist_tracks pt INNER JOIN tracks t ON t.id = pt.trackId WHERE pt.playlistId = :playlistId ORDER BY pt.position")
@@ -23,6 +23,18 @@ interface PlaylistDao {
 
     @Query("UPDATE playlists SET title = :title, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
     suspend fun renamePlaylist(playlistId: String, title: String, updatedAt: Long)
+
+    @Query("UPDATE playlists SET title = :title, description = :description, artworkRef = :artworkRef, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
+    suspend fun updatePlaylistMetadata(
+        playlistId: String,
+        title: String,
+        description: String?,
+        artworkRef: String?,
+        updatedAt: Long,
+    )
+
+    @Query("UPDATE playlists SET updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
+    suspend fun touchPlaylist(playlistId: String, updatedAt: Long)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTrack(entry: PlaylistTrackEntity): Long
@@ -40,4 +52,11 @@ interface PlaylistDao {
     suspend fun deletePlaylist(playlistId: String)
 }
 
-data class PlaylistSummaryRow(val id: String, val title: String, val trackCount: Int)
+data class PlaylistSummaryRow(
+    val id: String,
+    val title: String,
+    val description: String?,
+    val artworkRef: String?,
+    val updatedAtEpochMs: Long,
+    val trackCount: Int,
+)

@@ -7,6 +7,8 @@ import androidx.room.PrimaryKey
 data class PlaylistEntity(
     @PrimaryKey val id: String,
     val title: String,
+    val description: String? = null,
+    val artworkRef: String? = null,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
 )
