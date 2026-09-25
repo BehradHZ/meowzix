@@ -2,7 +2,11 @@ package dev.behradhz.meowzix.feature.queue
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,13 +42,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -53,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -295,59 +298,99 @@ private fun SwipeableQueueItem(
     onAddToPlaylist: (UUID) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-    val dismissState = rememberSwipeToDismissBoxState(
-        positionalThreshold = { distance -> distance * 0.22f },
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    onPlayNext()
-                    false
-                }
-                SwipeToDismissBoxValue.EndToStart -> {
-                    onRemove()
-                    true
-                }
-                SwipeToDismissBoxValue.Settled -> true
-            }
-        },
+    val density = LocalDensity.current
+    val actionThreshold = with(density) { 68.dp.toPx() }
+    val removeThreshold = with(density) { 148.dp.toPx() }
+    val maximumSwipe = with(density) { 220.dp.toPx() }
+    var swipeOffsetX by remember(item.id) { mutableFloatStateOf(0f) }
+    var horizontalDragActive by remember(item.id) { mutableStateOf(false) }
+    val visualOffsetX by animateFloatAsState(
+        targetValue = swipeOffsetX,
+        animationSpec = if (horizontalDragActive) snap() else tween(190),
+        label = "queue-two-stage-swipe",
     )
+    val swipeMagnitude = abs(visualOffsetX)
+    val removeStage = swipeMagnitude >= removeThreshold
+    val swipingRight = visualOffsetX >= 0f
 
-    SwipeToDismissBox(
+    Box(
         modifier = Modifier
+            .fillMaxWidth()
             .zIndex(if (isDragging) 1f else 0f)
             .graphicsLayer { translationY = dragOffsetY },
-        state = dismissState,
-        enableDismissFromStartToEnd = !isDragging,
-        enableDismissFromEndToStart = !isDragging,
-        backgroundContent = {
-            val playNext = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+    ) {
+        if (swipeMagnitude > 0.5f) {
             Surface(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.matchParentSize(),
                 shape = RoundedCornerShape(18.dp),
-                color = if (playNext) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
-                else MaterialTheme.colorScheme.error.copy(alpha = 0.18f),
+                color = when {
+                    removeStage -> MaterialTheme.colorScheme.error.copy(alpha = 0.20f)
+                    swipingRight -> MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+                    else -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
+                },
                 tonalElevation = 2.dp,
             ) {
                 Row(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
-                    horizontalArrangement = if (playNext) Arrangement.Start else Arrangement.End,
+                    horizontalArrangement = if (swipingRight) Arrangement.Start else Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (playNext) {
-                        Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
-                        Spacer(Modifier.size(8.dp))
-                        Text("Play next", fontWeight = FontWeight.SemiBold)
-                    } else {
-                        Text("Delete from queue", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.size(8.dp))
-                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                    when {
+                        removeStage && swipingRight -> {
+                            Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.size(8.dp))
+                            Text("Remove", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                        }
+                        removeStage -> {
+                            Text("Remove", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.size(8.dp))
+                            Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        }
+                        swipingRight -> {
+                            Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
+                            Spacer(Modifier.size(8.dp))
+                            Text("Play next", fontWeight = FontWeight.SemiBold)
+                        }
+                        else -> {
+                            Text("Add to queue", fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.size(8.dp))
+                            Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
+                        }
                     }
                 }
             }
-        },
-    ) {
+        }
+
         Surface(
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay),
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { translationX = visualOffsetX }
+                .pointerInput(item.id, isDragging) {
+                    if (!isDragging) {
+                        detectHorizontalDragGestures(
+                            onDragStart = { horizontalDragActive = true },
+                            onHorizontalDrag = { change, amount ->
+                                change.consume()
+                                swipeOffsetX = (swipeOffsetX + amount).coerceIn(-maximumSwipe, maximumSwipe)
+                            },
+                            onDragCancel = {
+                                horizontalDragActive = false
+                                swipeOffsetX = 0f
+                            },
+                            onDragEnd = {
+                                val releasedOffset = swipeOffsetX
+                                horizontalDragActive = false
+                                swipeOffsetX = 0f
+                                when {
+                                    abs(releasedOffset) >= removeThreshold -> onRemove()
+                                    abs(releasedOffset) >= actionThreshold && releasedOffset > 0f -> onPlayNext()
+                                    abs(releasedOffset) >= actionThreshold -> onAddToQueue()
+                                }
+                            },
+                        )
+                    }
+                }
+                .clickable(onClick = onPlay),
             shape = RoundedCornerShape(18.dp),
             color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
             shadowElevation = if (isDragging) 6.dp else 1.dp,
@@ -453,7 +496,7 @@ private fun EmptyQueue() {
         ) {
             Icon(Icons.Rounded.QueueMusic, contentDescription = null, modifier = Modifier.size(52.dp), tint = MaterialTheme.colorScheme.primary)
             Text("Queue is empty", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Add tracks from your library. Swipe a queue card right for Play next or left to remove it.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f))
+            Text("Add tracks from your library. Swipe a little for Play next / Add to queue, or keep pulling to remove.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f))
         }
     }
 }
