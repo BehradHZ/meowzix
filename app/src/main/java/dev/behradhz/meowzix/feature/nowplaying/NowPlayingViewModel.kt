@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.data.repository.ArtworkRepairCoordinator
+import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioOutputController
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
@@ -52,6 +53,7 @@ class NowPlayingViewModel @Inject constructor(
     private val telegramForwardRepository: TelegramForwardRepository,
     private val settingsRepository: SettingsRepository,
     private val artworkRepairCoordinator: ArtworkRepairCoordinator,
+    private val playbackContextPolicyStore: PlaybackContextPolicyStore,
     queueActionFeedbackBus: QueueActionFeedbackBus,
 ) : ViewModel() {
     val queueActionFeedback = queueActionFeedbackBus.events
@@ -198,21 +200,25 @@ class NowPlayingViewModel @Inject constructor(
         }
     }
 
-    fun togglePlaybackMode() = queueRepository.setPlaybackMode(
-        when (state.value.playbackMode) {
+    fun togglePlaybackMode() {
+        val nextMode = when (state.value.playbackMode) {
             PlaybackMode.ORDERED -> PlaybackMode.PURE_SHUFFLE
             PlaybackMode.PURE_SHUFFLE -> PlaybackMode.SMART_SHUFFLE
             PlaybackMode.SMART_SHUFFLE -> PlaybackMode.ORDERED
-        },
-    )
+        }
+        queueRepository.setPlaybackMode(nextMode)
+        playbackContextPolicyStore.savePlaybackModeForActiveContext(nextMode)
+    }
 
-    fun cycleRepeatMode() = queueRepository.setRepeatMode(
-        when (state.value.repeatMode) {
+    fun cycleRepeatMode() {
+        val nextMode = when (state.value.repeatMode) {
             RepeatMode.OFF -> RepeatMode.ONE
             RepeatMode.ONE -> RepeatMode.ALL
             RepeatMode.ALL -> RepeatMode.OFF
-        },
-    )
+        }
+        queueRepository.setRepeatMode(nextMode)
+        playbackContextPolicyStore.saveRepeatModeForActiveContext(nextMode)
+    }
 
     fun openOutputPicker() {
         audioOutputController.refresh()
