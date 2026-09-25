@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -72,8 +73,11 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
+import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import java.util.UUID
 import kotlin.math.abs
 import kotlinx.coroutines.launch
@@ -119,6 +123,7 @@ private fun QueueScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val feedbackHazeState = rememberHazeState()
     var displayItems by remember { mutableStateOf(state.items) }
     var draggedItemId by remember { mutableStateOf<UUID?>(null) }
     var draggedDistance by remember { mutableStateOf(0f) }
@@ -147,7 +152,11 @@ private fun QueueScreen(
         draggedDistance = 0f
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .hazeSource(feedbackHazeState),
+    ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
             state = listState,
@@ -275,7 +284,7 @@ private fun QueueScreen(
                                     onRemove(actualIndex)
                                     scope.launch {
                                         snackbarHostState.currentSnackbarData?.dismiss()
-                                        snackbarHostState.showSnackbar("${item.title} removed from queue")
+                                        snackbarHostState.showSnackbar("Removed from queue · ${item.title}")
                                     }
                                 }
                             },
@@ -299,8 +308,35 @@ private fun QueueScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, bottom = 166.dp),
-        )
+                .padding(start = 30.dp, end = 30.dp, bottom = 166.dp),
+        ) { data ->
+            GlassSurface(
+                hazeState = feedbackHazeState,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "✓",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = data.visuals.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
     }
 }
 
