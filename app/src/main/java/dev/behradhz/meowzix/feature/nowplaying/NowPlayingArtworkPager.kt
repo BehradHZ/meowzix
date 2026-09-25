@@ -42,6 +42,8 @@ import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.NowPlayingArtwork
 import dev.behradhz.meowzix.ui.components.PreloadNowPlayingArtwork
+import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
+import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
 import kotlin.math.abs
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -49,6 +51,7 @@ import kotlinx.coroutines.launch
 private enum class ArtworkTransitionDirection { PREVIOUS, NEXT }
 private enum class ArtworkCropRole { CURRENT, TARGET }
 private enum class ArtworkGestureAxis { UNDECIDED, HORIZONTAL, VERTICAL }
+private const val ArtworkCommitThreshold = 0.35f
 
 internal data class ArtworkBackdropTransition(
     val fromArtworkRef: String?,
@@ -80,6 +83,7 @@ internal fun NowPlayingArtworkPager(
     // NowPlayingArtworkPager is only hosted by NowPlayingRoute, so this resolves to the same scoped
     // view model as the route. Keeping the tap action here avoids duplicating gesture ownership.
     val viewModel: NowPlayingViewModel = hiltViewModel()
+    val haptics = rememberMeowzixHaptics()
 
     val activeIndex = remember(
         state.currentTrack?.id,
@@ -147,6 +151,7 @@ internal fun NowPlayingArtworkPager(
     var progress by remember { mutableFloatStateOf(0f) }
     var totalDrag by remember { mutableStateOf(Offset.Zero) }
     var gestureAxis by remember { mutableStateOf(ArtworkGestureAxis.UNDECIDED) }
+    var thresholdDirection by remember { mutableIntStateOf(0) }
     var transitionJob by remember { mutableStateOf<Job?>(null) }
 
     val latestActiveIndex by rememberUpdatedState(activeIndex)
@@ -219,7 +224,7 @@ internal fun NowPlayingArtworkPager(
         transitionJob = scope.launch {
             pendingUserTargetIndex = requestedTarget
 
-            // Playback changes only after the gesture has crossed the 35% commitment point.
+            // Playback changes only after the gesture has crossed the shared commitment threshold.
             when (transitionDirection) {
                 ArtworkTransitionDirection.NEXT -> latestNext()
                 ArtworkTransitionDirection.PREVIOUS -> latestPrevious()
@@ -313,6 +318,7 @@ internal fun NowPlayingArtworkPager(
                     }
                     totalDrag = Offset.Zero
                     gestureAxis = ArtworkGestureAxis.UNDECIDED
+                    thresholdDirection = 0
                 },
                 onDrag = { change, dragAmount ->
                     totalDrag += dragAmount
@@ -347,6 +353,7 @@ internal fun NowPlayingArtworkPager(
                             }
 
                             if (requestedDirection == null) {
+                                thresholdDirection = 0
                                 direction = null
                                 targetIndex = -1
                                 progress = 0f
@@ -358,6 +365,18 @@ internal fun NowPlayingArtworkPager(
                                     ArtworkTransitionDirection.PREVIOUS -> displayedIndex - 1
                                 }
                                 val newProgress = (abs(totalDrag.x) / width).coerceIn(0f, 1f)
+                                val nextThresholdDirection = if (newProgress >= ArtworkCommitThreshold) {
+                                    when (requestedDirection) {
+                                        ArtworkTransitionDirection.NEXT -> 1
+                                        ArtworkTransitionDirection.PREVIOUS -> -1
+                                    }
+                                } else {
+                                    0
+                                }
+                                if (nextThresholdDirection != 0 && nextThresholdDirection != thresholdDirection) {
+                                    haptics.perform(MeowzixHapticCue.Threshold)
+                                }
+                                thresholdDirection = nextThresholdDirection
                                 progress = newProgress
                                 publishBackdropTransition(newProgress)
                             }
@@ -372,13 +391,14 @@ internal fun NowPlayingArtworkPager(
                 },
                 onDragCancel = {
                     if (direction != null && progress > 0f) animateBackToCurrent()
+                    thresholdDirection = 0
                     totalDrag = Offset.Zero
                     gestureAxis = ArtworkGestureAxis.UNDECIDED
                 },
                 onDragEnd = {
                     when (gestureAxis) {
                         ArtworkGestureAxis.HORIZONTAL -> {
-                            if (direction != null && progress >= 0.35f) {
+                            if (direction != null && progress >= ArtworkCommitThreshold) {
                                 commitGestureTransition()
                             } else if (progress > 0f) {
                                 animateBackToCurrent()
@@ -393,6 +413,7 @@ internal fun NowPlayingArtworkPager(
 
                         ArtworkGestureAxis.UNDECIDED -> Unit
                     }
+                    thresholdDirection = 0
                     totalDrag = Offset.Zero
                     gestureAxis = ArtworkGestureAxis.UNDECIDED
                 },
