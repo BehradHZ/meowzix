@@ -114,16 +114,15 @@ fun rememberMeowzixHaptics(): MeowzixHaptics {
  *
  * It never consumes pointer input. Child controls keep full gesture ownership. Feedback is emitted
  * only after a child actually consumes the gesture, so tapping inert/empty UI does not vibrate.
- * Vertical scrolling is deliberately silent. Horizontal action gestures get one threshold tick and
- * one soft settle tick. A vertical drag that starts after a long press is treated as reorder/drag
- * affordance, which covers queue reordering without making ordinary list scrolling vibrate.
+ * Vertical scrolling is deliberately silent. Horizontal gestures are also silent here because
+ * their meaningful activation thresholds belong to the component that owns each gesture. A
+ * vertical drag that starts after a long press is treated as reorder/drag affordance.
  */
 fun Modifier.meowzixInteractionHaptics(): Modifier = composed {
     val haptics = rememberMeowzixHaptics()
 
     pointerInput(haptics) {
         val tapSlop = 12.dp.toPx()
-        val horizontalThreshold = 56.dp.toPx()
         val longPressDragSlop = 8.dp.toPx()
         val longPressMillis = 430L
 
@@ -135,7 +134,6 @@ fun Modifier.meowzixInteractionHaptics(): Modifier = composed {
             var totalX = 0f
             var totalY = 0f
             var childConsumed = false
-            var horizontalThresholdSent = false
             var longPressDragStarted = false
             var pressed = true
             var lastUptimeMillis = down.uptimeMillis
@@ -150,18 +148,7 @@ fun Modifier.meowzixInteractionHaptics(): Modifier = composed {
                 childConsumed = childConsumed || change.isConsumed
 
                 val elapsed = lastUptimeMillis - down.uptimeMillis
-                val horizontalIntent = abs(totalX) > abs(totalY) * 1.15f
                 val verticalIntent = abs(totalY) > abs(totalX) * 1.15f
-
-                if (
-                    childConsumed &&
-                    !horizontalThresholdSent &&
-                    horizontalIntent &&
-                    abs(totalX) >= horizontalThreshold
-                ) {
-                    horizontalThresholdSent = true
-                    haptics.perform(MeowzixHapticCue.Threshold)
-                }
 
                 if (
                     childConsumed &&
@@ -183,7 +170,6 @@ fun Modifier.meowzixInteractionHaptics(): Modifier = composed {
             val duration = lastUptimeMillis - down.uptimeMillis
             when {
                 longPressDragStarted -> haptics.perform(MeowzixHapticCue.DragDrop)
-                horizontalThresholdSent -> haptics.perform(MeowzixHapticCue.DragDrop)
                 maxMovement <= tapSlop && duration >= longPressMillis -> {
                     haptics.perform(MeowzixHapticCue.LongPress)
                 }
