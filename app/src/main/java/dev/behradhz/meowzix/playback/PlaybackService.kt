@@ -222,18 +222,23 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun mediaButtons(): List<CommandButton> = listOf(
+        CommandButton.Builder(CommandButton.ICON_PREVIOUS)
+            .setDisplayName("Previous")
+            .setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+            .setSlots(CommandButton.SLOT_BACK)
+            .build(),
+        CommandButton.Builder(CommandButton.ICON_NEXT)
+            .setDisplayName("Next")
+            .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+            .setSlots(CommandButton.SLOT_FORWARD)
+            .build(),
         CommandButton.Builder(
             if (currentPlaybackMode() == PlaybackMode.PURE_SHUFFLE) CommandButton.ICON_SHUFFLE_ON
             else CommandButton.ICON_SHUFFLE_OFF,
         )
             .setDisplayName("Shuffle")
             .setSessionCommand(shuffleCommand)
-            .setSlots(CommandButton.SLOT_BACK)
-            .build(),
-        CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_15)
-            .setDisplayName("Forward 15 seconds")
-            .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
-            .setSlots(CommandButton.SLOT_FORWARD)
+            .setSlots(CommandButton.SLOT_OVERFLOW)
             .build(),
         CommandButton.Builder(
             when (currentRepeatMode()) {
