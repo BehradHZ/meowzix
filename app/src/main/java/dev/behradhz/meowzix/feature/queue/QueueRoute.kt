@@ -54,7 +54,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -301,8 +300,8 @@ private fun SwipeableQueueItem(
     var menuExpanded by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val actionThreshold = with(density) { 68.dp.toPx() }
-    val removeThreshold = with(density) { 148.dp.toPx() }
-    val maximumSwipe = with(density) { 220.dp.toPx() }
+    val removeThreshold = with(density) { 220.dp.toPx() }
+    val maximumSwipe = with(density) { 300.dp.toPx() }
     var swipeOffsetX by remember(item.id) { mutableFloatStateOf(0f) }
     var horizontalDragActive by remember(item.id) { mutableStateOf(false) }
     val visualOffsetX by animateFloatAsState(
@@ -312,20 +311,13 @@ private fun SwipeableQueueItem(
     )
     val swipeMagnitude = abs(visualOffsetX)
     val swipingRight = visualOffsetX >= 0f
-    val removeMorphProgress = (
-        (swipeMagnitude - actionThreshold) / (removeThreshold - actionThreshold)
-    ).coerceIn(0f, 1f)
-    val morphTravelPx = with(density) { 34.dp.toPx() }
-    val actionBackground = if (swipingRight) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
-    } else {
-        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
-    }
-    val swipeBackground = lerp(
-        actionBackground,
-        MaterialTheme.colorScheme.error.copy(alpha = 0.22f),
-        removeMorphProgress,
+    val removeStage = swipeMagnitude >= removeThreshold
+    val actionExitProgress by animateFloatAsState(
+        targetValue = if (removeStage) 1f else 0f,
+        animationSpec = tween(durationMillis = 190),
+        label = "queue-action-exit",
     )
+    val actionExitDistance = with(density) { 170.dp.toPx() }
 
     Box(
         modifier = Modifier
@@ -334,81 +326,66 @@ private fun SwipeableQueueItem(
             .graphicsLayer { translationY = dragOffsetY },
     ) {
         if (swipeMagnitude > 0.5f) {
+            // Remove stays underneath for the whole gesture. The first-stage action is a separate
+            // card above it and leaves only after the second threshold is crossed.
             Surface(
                 modifier = Modifier.matchParentSize(),
                 shape = RoundedCornerShape(18.dp),
-                color = swipeBackground,
+                color = MaterialTheme.colorScheme.error.copy(alpha = 0.22f),
                 tonalElevation = 2.dp,
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 18.dp),
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
+                    horizontalArrangement = if (swipingRight) Arrangement.Start else Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .align(if (swipingRight) Alignment.CenterStart else Alignment.CenterEnd)
-                            .graphicsLayer {
-                                alpha = 1f - removeMorphProgress
-                                translationX = if (swipingRight) {
-                                    removeMorphProgress * morphTravelPx
-                                } else {
-                                    -removeMorphProgress * morphTravelPx
-                                }
-                                scaleX = 1f + (removeMorphProgress * 0.10f)
-                            },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (swipingRight) {
-                            Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
-                            Spacer(Modifier.size(8.dp))
-                            Text("Play next", fontWeight = FontWeight.SemiBold)
-                        } else {
-                            Text("Add to queue", fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.size(8.dp))
-                            Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
-                        }
+                    if (swipingRight) {
+                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.size(8.dp))
+                        Text("Remove", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Text("Remove", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.size(8.dp))
+                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                     }
+                }
+            }
 
-                    Row(
-                        modifier = Modifier
-                            .align(if (swipingRight) Alignment.CenterStart else Alignment.CenterEnd)
-                            .graphicsLayer {
-                                alpha = removeMorphProgress
-                                translationX = if (swipingRight) {
-                                    -(1f - removeMorphProgress) * morphTravelPx
-                                } else {
-                                    (1f - removeMorphProgress) * morphTravelPx
-                                }
-                                scaleX = 0.90f + (removeMorphProgress * 0.10f)
-                            },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (swipingRight) {
-                            Icon(
-                                Icons.Rounded.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                            Spacer(Modifier.size(8.dp))
-                            Text(
-                                "Remove",
-                                color = MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.SemiBold,
-                            )
+            // Play next / Add to queue remains unchanged throughout the enlarged first-stage range.
+            // Crossing the remove threshold starts this fixed-duration animation; its progress is
+            // independent from subsequent finger movement.
+            Surface(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        translationX = if (swipingRight) {
+                            actionExitProgress * actionExitDistance
                         } else {
-                            Text(
-                                "Remove",
-                                color = MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Spacer(Modifier.size(8.dp))
-                            Icon(
-                                Icons.Rounded.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                            )
+                            -actionExitProgress * actionExitDistance
                         }
+                        alpha = 1f - actionExitProgress
+                    },
+                shape = RoundedCornerShape(18.dp),
+                color = if (swipingRight) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+                } else {
+                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
+                },
+                tonalElevation = 2.dp,
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
+                    horizontalArrangement = if (swipingRight) Arrangement.Start else Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (swipingRight) {
+                        Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
+                        Spacer(Modifier.size(8.dp))
+                        Text("Play next", fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Text("Add to queue", fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.size(8.dp))
+                        Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
                     }
                 }
             }
