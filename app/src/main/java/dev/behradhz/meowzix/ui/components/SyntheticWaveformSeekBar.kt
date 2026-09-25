@@ -2,7 +2,6 @@ package dev.behradhz.meowzix.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -60,7 +59,7 @@ fun SyntheticWaveformSeekBar(
     barWidth: Dp = 3.dp,
     pointerRadius: Dp = 7.dp,
     decayBarCount: Int = 8,
-    shimmerDurationMs: Int = 1_050,
+    shimmerDurationMs: Int = 1_400,
 ) {
     val resolvedBarCount = barCount.coerceAtLeast(12)
     val liveProfile = remember(liveBands, resolvedBarCount) {
@@ -108,9 +107,9 @@ fun SyntheticWaveformSeekBar(
         label = "waveformPlaybackEnergy",
     )
 
-    // The loading indicator is height-driven only: one tall bar with symmetric, progressively
-    // shorter neighbors travels from the first bar to the last, pauses, then repeats. The old red
-    // shimmer color is intentionally not used.
+    // The loading equalizer travels fully in from beyond the left edge and fully out beyond the
+    // right edge. Its wider falloff keeps more neighboring bars involved in each pass, while the
+    // ease-in/ease-out curve removes the mechanical linear sweep.
     val loadingTravel = remember { Animatable(0f) }
     LaunchedEffect(effectiveLoading, shimmerDurationMs) {
         if (!effectiveLoading) {
@@ -123,7 +122,7 @@ fun SyntheticWaveformSeekBar(
                 targetValue = 1f,
                 animationSpec = tween(
                     durationMillis = shimmerDurationMs.coerceAtLeast(1),
-                    easing = LinearEasing,
+                    easing = FastOutSlowInEasing,
                 ),
             )
             delay(320L)
@@ -163,8 +162,11 @@ fun SyntheticWaveformSeekBar(
             val pointerX = startX + drawableWidth * progress
             val pointerIndex = progress * (resolvedBarCount - 1).toFloat()
             val decayWindow = decayBarCount.coerceAtLeast(1).toFloat()
-            val loadingCenterIndex = loadingTravel.value * (resolvedBarCount - 1).toFloat()
-            val loadingWingSpan = 5.5f
+            val loadingWingSpan = (resolvedBarCount * 0.16f).coerceIn(8f, 12f)
+            val loadingStartIndex = -loadingWingSpan
+            val loadingEndIndex = (resolvedBarCount - 1).toFloat() + loadingWingSpan
+            val loadingCenterIndex =
+                loadingStartIndex + (loadingEndIndex - loadingStartIndex) * loadingTravel.value
 
             for (index in 0 until resolvedBarCount) {
                 val normalizedX = if (resolvedBarCount <= 1) {
