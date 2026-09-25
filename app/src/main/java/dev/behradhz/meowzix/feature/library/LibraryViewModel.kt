@@ -24,6 +24,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -173,11 +174,16 @@ class LibraryViewModel @Inject constructor(
             return
         }
 
-        val selectedIndex = queue.indexOfFirst { it.id == track.id }
-        val queueFromSelection = if (selectedIndex >= 0) queue.drop(selectedIndex) else listOf(track)
         val contextKey = playbackContextFor(queueTracks)
+        val rememberedMode = playbackContextPolicyStore.policy(contextKey).playbackMode
+        val selectedIndex = queue.indexOfFirst { it.id == track.id }
+        val tracksToPlay = when {
+            selectedIndex < 0 -> listOf(track)
+            rememberedMode == PlaybackMode.ORDERED -> queue.drop(selectedIndex)
+            else -> queue
+        }
         startContextQueue(
-            tracks = queueFromSelection,
+            tracks = tracksToPlay,
             startTrackId = track.id,
             contextKey = contextKey,
         )
@@ -296,17 +302,19 @@ class LibraryViewModel @Inject constructor(
             playbackContextPolicyStore.savePlaybackMode(contextKey, explicitMode)
         }
 
+        prepareRepeatRestore(ids.toSet(), storedPolicy.repeatMode)
         if (startTrackId == null) {
             queueRepository.replaceAndPlay(ids, playbackMode)
         } else {
             queueRepository.replaceAndPlay(ids, startTrackId, playbackMode)
         }
-        restoreRepeatModeAfterQueueStarts(ids.toSet(), storedPolicy.repeatMode)
     }
 
-    private fun restoreRepeatModeAfterQueueStarts(expectedTrackIds: Set<UUID>, repeatMode: RepeatMode) {
+    private fun prepareRepeatRestore(expectedTrackIds: Set<UUID>, repeatMode: RepeatMode) {
         if (repeatMode == RepeatMode.OFF) return
-        viewModelScope.launch {
+        // Subscribe before replaceAndPlay so even a very fast queue replacement cannot race past
+        // the repeat restoration listener.
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             queueRepository.queueState
                 .drop(1)
                 .first { queue ->
