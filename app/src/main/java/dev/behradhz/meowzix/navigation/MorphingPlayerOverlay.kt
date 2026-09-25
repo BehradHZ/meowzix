@@ -1,7 +1,11 @@
 package dev.behradhz.meowzix.navigation
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -47,6 +51,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -389,6 +394,14 @@ private fun MiniPlayerContent(
     val swipeThreshold = with(density) { 64.dp.toPx() }
     val visualLimit = with(density) { 24.dp.toPx() }
     var dragDistance by remember(track.id) { mutableFloatStateOf(0f) }
+    var transitionDirection by remember { mutableStateOf(1) }
+
+    // A direct Previous gesture reverses the transition once. Automatic advances and normal Next
+    // gestures always use the requested right-to-left reveal.
+    LaunchedEffect(track.id) {
+        delay(340)
+        transitionDirection = 1
+    }
 
     Column(
         modifier = modifier
@@ -400,8 +413,14 @@ private fun MiniPlayerContent(
                     onDragCancel = { dragDistance = 0f },
                     onDragEnd = {
                         when {
-                            dragDistance <= -swipeThreshold && state.canSkipNext -> onNext()
-                            dragDistance >= swipeThreshold && state.canSkipPrevious -> onPrevious()
+                            dragDistance <= -swipeThreshold && state.canSkipNext -> {
+                                transitionDirection = 1
+                                onNext()
+                            }
+                            dragDistance >= swipeThreshold && state.canSkipPrevious -> {
+                                transitionDirection = -1
+                                onPrevious()
+                            }
                         }
                         dragDistance = 0f
                     },
@@ -415,39 +434,77 @@ private fun MiniPlayerContent(
                 .padding(start = 10.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TrackArtwork(
-                artworkRef = track.artworkRef,
-                description = track.title,
-                size = 50.dp,
-            )
-            Spacer(Modifier.size(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = track.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = track.artist ?: "Unknown artist",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            AnimatedContent(
+                targetState = track,
+                contentKey = { it.id },
+                transitionSpec = {
+                    if (transitionDirection >= 0) {
+                        (slideInHorizontally(
+                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> fullWidth },
+                        ) + fadeIn(animationSpec = tween(180)))
+                            .togetherWith(
+                                shrinkHorizontally(
+                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
+                                    shrinkTowards = Alignment.Start,
+                                ) + fadeOut(animationSpec = tween(150)),
+                            )
+                    } else {
+                        (slideInHorizontally(
+                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> -fullWidth },
+                        ) + fadeIn(animationSpec = tween(180)))
+                            .togetherWith(
+                                shrinkHorizontally(
+                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
+                                    shrinkTowards = Alignment.End,
+                                ) + fadeOut(animationSpec = tween(150)),
+                            )
+                    }
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .clipToBounds(),
+            ) { animatedTrack ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TrackArtwork(
+                        artworkRef = animatedTrack.artworkRef,
+                        description = animatedTrack.title,
+                        size = 50.dp,
+                    )
+                    Spacer(Modifier.size(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = animatedTrack.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = animatedTrack.artist ?: "Unknown artist",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
 
-            if (hasWaveform && state.status == PlaybackStatus.PLAYING) {
-                AudioSpectrum(
-                    bands = compactBands,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .width(44.dp)
-                        .height(22.dp)
-                        .padding(horizontal = 2.dp),
-                )
-                Spacer(Modifier.width(4.dp))
+                    if (hasWaveform && state.status == PlaybackStatus.PLAYING) {
+                        AudioSpectrum(
+                            bands = compactBands,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .width(44.dp)
+                                .height(22.dp)
+                                .padding(horizontal = 2.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
+                }
             }
 
             IconButton(onClick = onTogglePlayPause) {
