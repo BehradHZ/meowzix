@@ -90,20 +90,16 @@ class MeowzixHaptics internal constructor(
     private fun fallbackFeedback(cue: MeowzixHapticCue): Int = when (cue) {
         MeowzixHapticCue.Selection,
         MeowzixHapticCue.Threshold,
-        MeowzixHapticCue.DragStart,
-        -> HapticFeedbackConstants.CLOCK_TICK
+        MeowzixHapticCue.DragStart -> HapticFeedbackConstants.CLOCK_TICK
 
         MeowzixHapticCue.LightClick,
-        MeowzixHapticCue.Success,
-        -> HapticFeedbackConstants.KEYBOARD_TAP
+        MeowzixHapticCue.Success -> HapticFeedbackConstants.KEYBOARD_TAP
 
         MeowzixHapticCue.Toggle,
-        MeowzixHapticCue.DragDrop,
-        -> HapticFeedbackConstants.CONTEXT_CLICK
+        MeowzixHapticCue.DragDrop -> HapticFeedbackConstants.CONTEXT_CLICK
 
         MeowzixHapticCue.LongPress,
-        MeowzixHapticCue.Reject,
-        -> HapticFeedbackConstants.LONG_PRESS
+        MeowzixHapticCue.Reject -> HapticFeedbackConstants.LONG_PRESS
     }
 }
 
