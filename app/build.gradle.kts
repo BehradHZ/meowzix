@@ -126,6 +126,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.hilt:hilt-lifecycle-viewmodel-compose:1.3.0")
     implementation("androidx.navigation:navigation-compose:2.9.8")
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.10.2")
 
