@@ -24,6 +24,7 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.MainActivity
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
@@ -86,11 +87,66 @@ class PlaybackService : MediaSessionService() {
                 .add(repeatCommand)
                 .add(favoriteCommand)
                 .build()
+            val defaultResult = AcceptedResultBuilder(session, controller)
+                .setAvailableSessionCommands(sessionCommands)
+                .build()
+            val playerCommands = defaultResult.availablePlayerCommands.buildUpon()
+                .addAll(
+                    Player.COMMAND_PLAY_PAUSE,
+                    Player.COMMAND_PREPARE,
+                    Player.COMMAND_STOP,
+                    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_PREVIOUS,
+                    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_NEXT,
+                    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                )
+                .build()
             return Futures.immediateFuture(
                 AcceptedResultBuilder(session, controller)
                     .setAvailableSessionCommands(sessionCommands)
+                    .setAvailablePlayerCommands(playerCommands)
                     .build(),
             )
+        }
+
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: ControllerInfo,
+            isForPlayback: Boolean,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val saved = stateStore.load()
+                    if (saved.items.isEmpty()) {
+                        future.setException(IllegalStateException("No saved playback session"))
+                        return@launch
+                    }
+                    val currentIndex = saved.currentIndex.coerceIn(saved.items.indices)
+                    val restoredItems = saved.items.map { it.toMediaItem(saved.playbackMode, saved.repeatMode) }
+                    val resumption = if (isForPlayback) {
+                        MediaSession.MediaItemsWithStartPosition(
+                            restoredItems,
+                            currentIndex,
+                            saved.positionMs.coerceAtLeast(0),
+                        )
+                    } else {
+                        MediaSession.MediaItemsWithStartPosition(
+                            listOf(restoredItems[currentIndex]),
+                            0,
+                            C.TIME_UNSET,
+                        )
+                    }
+                    future.set(resumption)
+                } catch (cancelled: CancellationException) {
+                    future.cancel(false)
+                    throw cancelled
+                } catch (error: Throwable) {
+                    future.setException(error)
+                }
+            }
+            return future
         }
 
         override fun onCustomCommand(
