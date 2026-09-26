@@ -31,6 +31,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
 import java.util.UUID
@@ -67,6 +68,7 @@ class PlaybackService : MediaSessionService() {
     private var isExpandingWindow = false
     private var currentFavorite = false
 
+    private val forwardCommand = SessionCommand(ACTION_OPEN_TELEGRAM_FORWARD, Bundle.EMPTY)
     private val shuffleCommand = SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY)
     private val repeatCommand = SessionCommand(ACTION_CYCLE_REPEAT, Bundle.EMPTY)
     private val favoriteCommand = SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY)
@@ -77,6 +79,7 @@ class PlaybackService : MediaSessionService() {
             controller: ControllerInfo,
         ): ListenableFuture<ConnectionResult> {
             val sessionCommands = ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+                .add(forwardCommand)
                 .add(shuffleCommand)
                 .add(repeatCommand)
                 .add(favoriteCommand)
@@ -95,6 +98,7 @@ class PlaybackService : MediaSessionService() {
             args: Bundle,
         ): ListenableFuture<SessionResult> {
             when (customCommand.customAction) {
+                ACTION_OPEN_TELEGRAM_FORWARD -> openTelegramForwardPicker()
                 ACTION_TOGGLE_SHUFFLE -> toggleSystemShuffle()
                 ACTION_CYCLE_REPEAT -> cycleSystemRepeat()
                 ACTION_TOGGLE_FAVORITE -> toggleSystemFavorite()
@@ -232,6 +236,11 @@ class PlaybackService : MediaSessionService() {
             .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
             .setSlots(CommandButton.SLOT_FORWARD)
             .build(),
+        CommandButton.Builder(CommandButton.ICON_SHARE)
+            .setDisplayName("Forward on Telegram")
+            .setSessionCommand(forwardCommand)
+            .setSlots(CommandButton.SLOT_OVERFLOW)
+            .build(),
         CommandButton.Builder(
             if (currentPlaybackMode() == PlaybackMode.PURE_SHUFFLE) CommandButton.ICON_SHUFFLE_ON
             else CommandButton.ICON_SHUFFLE_OFF,
@@ -262,6 +271,24 @@ class PlaybackService : MediaSessionService() {
 
     private fun refreshMediaButtons() {
         if (::mediaSession.isInitialized) mediaSession.setMediaButtonPreferences(mediaButtons())
+    }
+
+    private fun openTelegramForwardPicker() {
+        if (player.currentMediaItem == null) return
+        val forwardIntent = PendingIntent.getActivity(
+            this,
+            1,
+            Intent(this, TelegramForwardActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        runCatching { forwardIntent.send() }
+            .onFailure { error -> Log.w(TAG, "Unable to open Telegram forward picker", error) }
     }
 
     private fun expandProgressiveWindow() {
@@ -709,6 +736,7 @@ class PlaybackService : MediaSessionService() {
     private companion object {
         const val TAG = "MeowzixPlayback"
         const val TDLIB_SCHEME = "meowzix-tdlib"
+        const val ACTION_OPEN_TELEGRAM_FORWARD = "dev.behradhz.meowzix.action.OPEN_TELEGRAM_FORWARD"
         const val ACTION_TOGGLE_SHUFFLE = "dev.behradhz.meowzix.action.TOGGLE_SHUFFLE"
         const val ACTION_CYCLE_REPEAT = "dev.behradhz.meowzix.action.CYCLE_REPEAT"
         const val ACTION_TOGGLE_FAVORITE = "dev.behradhz.meowzix.action.TOGGLE_FAVORITE"
