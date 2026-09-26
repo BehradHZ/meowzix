@@ -28,6 +28,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".feature.telegram.TelegramForwardActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.Meowzix.ForwardOverlay" />
+
         <service
             android:name=".playback.PlaybackService"
             android:exported="true"
