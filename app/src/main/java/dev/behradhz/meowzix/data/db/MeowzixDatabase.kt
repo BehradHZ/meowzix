@@ -11,6 +11,7 @@ import androidx.room.TypeConverters
         LocalMediaSourceEntity::class,
         TelegramTrackSourceEntity::class,
         TelegramSelectedSourceEntity::class,
+        TelegramSendJobEntity::class,
         DownloadRecordEntity::class,
         PlaylistEntity::class,
         PlaylistTrackEntity::class,
@@ -20,13 +21,14 @@ import androidx.room.TypeConverters
         TrackTimePreferenceEntity::class,
         AudioFeatureVectorEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 @TypeConverters(DbConverters::class)
 abstract class MeowzixDatabase : RoomDatabase() {
     abstract fun libraryDao(): LibraryDao
     abstract fun telegramDao(): TelegramDao
+    abstract fun telegramSendDao(): TelegramSendDao
     abstract fun downloadDao(): DownloadDao
     abstract fun playlistDao(): PlaylistDao
     abstract fun historyDao(): HistoryDao

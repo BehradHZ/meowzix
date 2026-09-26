@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.domain.telegram
 
 import java.util.UUID
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
 sealed interface TelegramAuthStep {
@@ -58,17 +59,50 @@ data class TelegramMusicSourceState(
     val errorMessage: String? = null,
 )
 
-/**
- * Controls how a Telegram-backed track is sent to another Telegram chat.
- *
- * `includeSourceAttribution = true` performs a real Telegram forward and therefore keeps the
- * original sender/source information. Telegram only allows caption removal when sending a copy,
- * so `keepCaption` is ignored by TDLib while source attribution is retained.
- */
+/** Controls how a Telegram-backed track is represented when it is sent to another Telegram chat. */
 data class TelegramForwardOptions(
     val includeSourceAttribution: Boolean = true,
     val keepCaption: Boolean = true,
 )
+
+/** Persistent state of one outbound Telegram operation. */
+enum class TelegramSendState {
+    QUEUED,
+    CHECKING,
+    WAITING_FOR_NETWORK,
+    WAITING_FOR_TELEGRAM,
+    PREPARING_FILE,
+    UPLOADING,
+    SENDING,
+    VERIFYING,
+    RETRYING,
+    SENT,
+    FAILED,
+    CANCELED,
+}
+
+data class TelegramSendJob(
+    val id: UUID,
+    val trackId: UUID,
+    val targetChatId: Long,
+    val targetTitle: String?,
+    val state: TelegramSendState,
+    val progressPercent: Int = 0,
+    val attemptCount: Int = 0,
+    val sentMessageId: Long? = null,
+    val errorMessage: String? = null,
+    val createdAtEpochMs: Long,
+    val updatedAtEpochMs: Long,
+) {
+    val isTerminal: Boolean
+        get() = state == TelegramSendState.SENT || state == TelegramSendState.CANCELED
+}
+
+sealed interface TelegramSendEnqueueResult {
+    data class Queued(val job: TelegramSendJob) : TelegramSendEnqueueResult
+    data class AlreadyQueued(val job: TelegramSendJob) : TelegramSendEnqueueResult
+    data class AlreadyInChat(val targetTitle: String?) : TelegramSendEnqueueResult
+}
 
 /** Domain boundary that keeps TDLib types and threading out of UI consumers. */
 interface TelegramRepository {
@@ -92,25 +126,30 @@ interface TelegramRepository {
 }
 
 /**
- * Telegram message forwarding is deliberately its own capability. This keeps importing/syncing
- * music independent from outbound messaging and lets UI hide the action when Telegram is absent.
+ * Reliable outbound Telegram capability. Enqueueing is deliberately separate from delivery:
+ * callers get immediate acknowledgement, while persistent queue processing owns preflight,
+ * upload/forward, retry, and final TDLib delivery confirmation.
  */
 interface TelegramForwardRepository {
-    /**
-     * Returns chats suitable for a Telegram-style forward picker. Implementations should prefer
-     * TDLib's local chat index so typing stays immediate and may supplement it with server search.
-     */
+    val sendJobs: Flow<List<TelegramSendJob>>
+
+    /** Starts/resumes persistent queue processing. Safe to call repeatedly. */
+    fun initialize()
+
     suspend fun searchChats(query: String, limit: Int = 50): List<TelegramChatSummary>
 
-    /**
-     * Forwards the Telegram message backing [trackId] to [targetChatId]. Local-only tracks are not
-     * uploaded as substitutes: this operation intentionally preserves Telegram message identity.
-     */
-    suspend fun forwardTrack(
+    suspend fun enqueueTrack(
         trackId: UUID,
         targetChatId: Long,
+        targetTitle: String? = null,
         options: TelegramForwardOptions = TelegramForwardOptions(),
-    )
+    ): TelegramSendEnqueueResult
+
+    suspend fun retrySend(jobId: UUID)
+    suspend fun cancelSend(jobId: UUID)
+
+    /** Used by background work to resume durable jobs after process recreation. */
+    suspend fun processPendingSends()
 }
 
 fun telegramPlaylistId(accountId: String, chatId: Long): UUID =

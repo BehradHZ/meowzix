@@ -21,9 +21,11 @@ import dev.behradhz.meowzix.data.db.MIGRATION_6_7
 import dev.behradhz.meowzix.data.db.MIGRATION_7_8
 import dev.behradhz.meowzix.data.db.MIGRATION_8_9
 import dev.behradhz.meowzix.data.db.MIGRATION_9_10
+import dev.behradhz.meowzix.data.db.MIGRATION_10_11
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.PlaylistDao
 import dev.behradhz.meowzix.data.db.TelegramDao
+import dev.behradhz.meowzix.data.db.TelegramSendDao
 import dev.behradhz.meowzix.data.downloads.TdLibDownloadRepository
 import dev.behradhz.meowzix.data.history.RoomListeningHistoryRepository
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
@@ -147,6 +149,7 @@ object DatabaseModule {
                 MIGRATION_7_8,
                 MIGRATION_8_9,
                 MIGRATION_9_10,
+                MIGRATION_10_11,
             )
             .build()
 
@@ -155,6 +158,9 @@ object DatabaseModule {
 
     @Provides
     fun provideTelegramDao(database: MeowzixDatabase): TelegramDao = database.telegramDao()
+
+    @Provides
+    fun provideTelegramSendDao(database: MeowzixDatabase): TelegramSendDao = database.telegramSendDao()
 
     @Provides
     fun provideDownloadDao(database: MeowzixDatabase): DownloadDao = database.downloadDao()
