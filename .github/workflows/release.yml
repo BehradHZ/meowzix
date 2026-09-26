@@ -137,7 +137,7 @@ jobs:
           cat > release-notes.md <<EOF
           # Meowzix ${VERSION}
 
-          First public GitHub release of Meowzix.
+          GitHub release of Meowzix.
 
           Highlights:
           - Telegram music library with incremental sync
