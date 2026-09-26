@@ -173,6 +173,7 @@ fun MeowzixApp(
 
     fun goHome() {
         dismissSearchKeyboard()
+        searchQuery = ""
         navigateTopLevel(HOME_ROUTE)
     }
 
@@ -184,7 +185,8 @@ fun MeowzixApp(
     }
 
     BackHandler(
-        enabled = currentRoute != HOME_ROUTE || searchFieldFocused || searchQuery.isNotBlank(),
+        enabled = currentRoute != HOME_ROUTE ||
+            (currentRoute == SEARCH_ROUTE && (searchFieldFocused || searchQuery.isNotBlank())),
     ) {
         when {
             morphingPlayerState.targetExpanded -> morphingPlayerState.collapse()
@@ -205,9 +207,16 @@ fun MeowzixApp(
         ) {
             composable(HOME_ROUTE) {
                 HomeRoute(
-                    currentTrack = playbackState.currentTrack,
+                    currentTrack = libraryState.tracks.firstOrNull { track ->
+                        track.id == playbackState.currentTrack?.id
+                    },
                     onPlayTrack = { track, queue -> libraryViewModel.playTrack(track, queue) },
-                    onPlayCollection = { tracks -> libraryViewModel.playCollection(tracks, dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED) },
+                    onPlayCollection = { tracks ->
+                        libraryViewModel.playCollection(
+                            tracks,
+                            dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED,
+                        )
+                    },
                     onOpenLibrary = { navigateTopLevel(LIBRARY_ROUTE) },
                 )
             }
@@ -228,11 +237,17 @@ fun MeowzixApp(
                     },
                     onPlayArtist = { tracks ->
                         dismissSearchKeyboard()
-                        libraryViewModel.playCollection(tracks, dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED)
+                        libraryViewModel.playCollection(
+                            tracks,
+                            dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED,
+                        )
                     },
                     onPlayAlbum = { tracks ->
                         dismissSearchKeyboard()
-                        libraryViewModel.playCollection(tracks, dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED)
+                        libraryViewModel.playCollection(
+                            tracks,
+                            dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED,
+                        )
                     },
                 )
             }
@@ -274,7 +289,10 @@ fun MeowzixApp(
                 onSearchQueryChange = { searchQuery = it },
                 onSearchFocusChanged = { searchFieldFocused = it },
                 onSelect = { route ->
-                    if (route != SEARCH_ROUTE) dismissSearchKeyboard()
+                    if (route != SEARCH_ROUTE) {
+                        dismissSearchKeyboard()
+                        searchQuery = ""
+                    }
                     navigateTopLevel(route)
                 },
                 onCloseSearch = {
