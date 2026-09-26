@@ -89,6 +89,21 @@ class MigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun migrateTenToElevenAddsTelegramSendQueue() {
+        helper.createDatabase(TEST_DATABASE_10_11, 10).close()
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DATABASE_10_11,
+            11,
+            true,
+            MIGRATION_10_11,
+        )
+        migrated.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'telegram_send_jobs'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"
@@ -97,5 +112,6 @@ class MigrationTest {
         const val TEST_DATABASE_5_6 = "migration-test-5-6"
         const val TEST_DATABASE_6_8 = "migration-test-6-8"
         const val TEST_DATABASE_7_8_REPAIR = "migration-test-7-8-repair"
+        const val TEST_DATABASE_10_11 = "migration-test-10-11"
     }
 }
