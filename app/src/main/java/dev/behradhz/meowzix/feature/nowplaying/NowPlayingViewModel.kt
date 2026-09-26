@@ -18,6 +18,7 @@ import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardOptions
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramSendEnqueueResult
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -66,8 +67,6 @@ class NowPlayingViewModel @Inject constructor(
             emptyList(),
         )
 
-    // Playback position changes several times a second. Build the lookup table only when the
-    // library itself changes so metadata/favorite resolution stays O(1) on the hot playback path.
     private val libraryById = libraryTracks
         .map { tracks -> tracks.associateBy { it.id } }
         .stateIn(
@@ -99,10 +98,6 @@ class NowPlayingViewModel @Inject constructor(
         playbackController.state.value,
     )
 
-    /**
-     * Queue metadata is refreshed from the live library so artwork fetched after queue creation is
-     * immediately visible to the artwork pager instead of waiting for the queue to be rebuilt.
-     */
     val queueState = combine(
         queueRepository.queueState,
         libraryById,
@@ -191,7 +186,6 @@ class NowPlayingViewModel @Inject constructor(
 
     fun previous() = playbackController.skipToPrevious()
 
-    /** Artwork swipes are explicit queue navigation and must not restart the current track first. */
     fun playQueueItemAt(index: Int) {
         if (index in queueState.value.items.indices) queueRepository.playAt(index)
     }
@@ -302,9 +296,9 @@ class NowPlayingViewModel @Inject constructor(
         rememberDefaults: Boolean,
     ) {
         val trackId = state.value.currentTrack?.id ?: return
-        if (_forwardState.value.isSending) return
+        val targetTitle = _forwardState.value.chats.firstOrNull { it.chatId == targetChatId }?.title
         viewModelScope.launch {
-            _forwardState.update { it.copy(isSending = true, errorMessage = null) }
+            _forwardState.update { it.copy(errorMessage = null, isSending = false) }
             runCatching {
                 if (rememberDefaults) {
                     settingsRepository.setTelegramForwardDefaults(
@@ -312,14 +306,26 @@ class NowPlayingViewModel @Inject constructor(
                         keepCaption = options.keepCaption,
                     )
                 }
-                telegramForwardRepository.forwardTrack(trackId, targetChatId, options)
-            }.onSuccess {
-                dismissForwardPicker()
+                telegramForwardRepository.enqueueTrack(
+                    trackId = trackId,
+                    targetChatId = targetChatId,
+                    targetTitle = targetTitle,
+                    options = options,
+                )
+            }.onSuccess { result ->
+                val message = when (result) {
+                    is TelegramSendEnqueueResult.Queued -> null
+                    is TelegramSendEnqueueResult.AlreadyQueued ->
+                        "Already queued for ${result.job.targetTitle ?: "this Telegram chat"}."
+                    is TelegramSendEnqueueResult.AlreadyInChat ->
+                        "Already sent to ${result.targetTitle ?: "this Telegram chat"}."
+                }
+                _forwardState.update { it.copy(errorMessage = message, isSending = false) }
             }.onFailure { error ->
                 _forwardState.update {
                     it.copy(
                         isSending = false,
-                        errorMessage = error.message ?: "Unable to forward this track.",
+                        errorMessage = error.message ?: "Unable to queue this Telegram send.",
                     )
                 }
             }
