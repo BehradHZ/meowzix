@@ -1,7 +1,9 @@
 package dev.behradhz.meowzix.playback
 
+import android.app.ActivityOptions
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.annotation.OptIn
@@ -273,6 +275,7 @@ class PlaybackService : MediaSessionService() {
         if (::mediaSession.isInitialized) mediaSession.setMediaButtonPreferences(mediaButtons())
     }
 
+    @Suppress("DEPRECATION")
     private fun openTelegramForwardPicker() {
         if (player.currentMediaItem == null) return
         val forwardIntent = PendingIntent.getActivity(
@@ -287,8 +290,28 @@ class PlaybackService : MediaSessionService() {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        runCatching { forwardIntent.send() }
-            .onFailure { error -> Log.w(TAG, "Unable to open Telegram forward picker", error) }
+        val launchOptions = if (Build.VERSION.SDK_INT >= 34) {
+            ActivityOptions.makeBasic()
+                .setPendingIntentBackgroundActivityStartMode(
+                    if (Build.VERSION.SDK_INT >= 36) {
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS
+                    } else {
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                    },
+                )
+                .toBundle()
+        } else {
+            null
+        }
+        runCatching {
+            if (launchOptions == null) {
+                forwardIntent.send()
+            } else {
+                forwardIntent.send(this, 0, null, null, null, null, launchOptions)
+            }
+        }.onFailure { error ->
+            Log.w(TAG, "Unable to open Telegram forward picker", error)
+        }
     }
 
     private fun expandProgressiveWindow() {
