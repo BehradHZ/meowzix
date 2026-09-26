@@ -6,6 +6,11 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.webkit.MimeTypeMap
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
@@ -251,6 +256,17 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
     private fun scheduleProcessing() {
         scope.launch { processPendingSends() }
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val request = OneTimeWorkRequestBuilder<TelegramSendQueueWorker>()
+            .setConstraints(constraints)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            TELEGRAM_SEND_WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            request,
+        )
     }
 
     private suspend fun processOne(job: TelegramSendJobEntity, client: TdLibClientAdapter) {
@@ -437,9 +453,11 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 val cacheDir = File(context.cacheDir, "telegram-send").apply { mkdirs() }
                 val output = File(cacheDir, "${job.id}.$extension")
                 val copied = runCatching {
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        output.outputStream().use(input::copyTo)
-                    } ?: false
+                    val input = context.contentResolver.openInputStream(uri) ?: return@runCatching false
+                    input.use { inputStream ->
+                        output.outputStream().use { outputStream -> inputStream.copyTo(outputStream) }
+                    }
+                    true
                 }.getOrDefault(false)
                 if (copied && output.isFile && output.length() > 0L) {
                     return PreparedLocalAudio(output, temporary = true)
@@ -570,6 +588,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
     private companion object {
         const val MAX_AUTO_ATTEMPTS = 3
         const val SEND_CONFIRMATION_TIMEOUT_MS = 30L * 60L * 1_000L
+        const val TELEGRAM_SEND_WORK_NAME = "telegram-send-queue"
     }
 }
 
