@@ -4,8 +4,12 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
+import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
+import dev.behradhz.meowzix.domain.settings.LibrarySortMode
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
@@ -43,6 +47,17 @@ class DataStoreSettingsRepository @Inject constructor(
         )
     }
 
+    override val libraryDisplaySettings: Flow<LibraryDisplaySettings> = safeData.map { values ->
+        LibraryDisplaySettings(
+            sortMode = values[LIBRARY_SORT_MODE]
+                ?.let { saved -> runCatching { LibrarySortMode.valueOf(saved) }.getOrNull() }
+                ?: LibrarySortMode.RECENTLY_ADDED,
+            groupMode = values[LIBRARY_GROUP_MODE]
+                ?.let { saved -> runCatching { LibraryGroupMode.valueOf(saved) }.getOrNull() }
+                ?: LibraryGroupMode.NONE,
+        )
+    }
+
     override suspend fun setOfflineMode(enabled: Boolean) = set(OFFLINE_MODE, enabled)
     override suspend fun setWifiOnlyDownloads(enabled: Boolean) = set(WIFI_ONLY, enabled)
     override suspend fun setPrefetchEnabled(enabled: Boolean) = set(PREFETCH, enabled)
@@ -54,6 +69,14 @@ class DataStoreSettingsRepository @Inject constructor(
             it[FORWARD_INCLUDE_SOURCE] = includeSourceAttribution
             it[FORWARD_KEEP_CAPTION] = if (includeSourceAttribution) true else keepCaption
         }
+    }
+
+    override suspend fun setLibrarySortMode(mode: LibrarySortMode) {
+        context.settingsDataStore.edit { it[LIBRARY_SORT_MODE] = mode.name }
+    }
+
+    override suspend fun setLibraryGroupMode(mode: LibraryGroupMode) {
+        context.settingsDataStore.edit { it[LIBRARY_GROUP_MODE] = mode.name }
     }
 
     private suspend fun set(key: androidx.datastore.preferences.core.Preferences.Key<Boolean>, value: Boolean) {
@@ -68,5 +91,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val LISTENING_HISTORY = booleanPreferencesKey("listening_history_enabled")
         val FORWARD_INCLUDE_SOURCE = booleanPreferencesKey("telegram_forward_include_source")
         val FORWARD_KEEP_CAPTION = booleanPreferencesKey("telegram_forward_keep_caption")
+        val LIBRARY_SORT_MODE = stringPreferencesKey("library_sort_mode")
+        val LIBRARY_GROUP_MODE = stringPreferencesKey("library_group_mode")
     }
 }

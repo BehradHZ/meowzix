@@ -15,9 +15,30 @@ data class TelegramForwardSettings(
     val keepCaption: Boolean = true,
 )
 
+enum class LibrarySortMode {
+    RECENTLY_ADDED,
+    OLDEST_ADDED,
+    TITLE_ASC,
+    TITLE_DESC,
+    ARTIST_ASC,
+}
+
+enum class LibraryGroupMode {
+    NONE,
+    ARTIST,
+    ALBUM,
+    YEAR,
+}
+
+data class LibraryDisplaySettings(
+    val sortMode: LibrarySortMode = LibrarySortMode.RECENTLY_ADDED,
+    val groupMode: LibraryGroupMode = LibraryGroupMode.NONE,
+)
+
 interface SettingsRepository {
     val networkPlaybackSettings: Flow<NetworkPlaybackSettings>
     val telegramForwardSettings: Flow<TelegramForwardSettings>
+    val libraryDisplaySettings: Flow<LibraryDisplaySettings>
 
     suspend fun setOfflineMode(enabled: Boolean)
     suspend fun setWifiOnlyDownloads(enabled: Boolean)
@@ -25,4 +46,6 @@ interface SettingsRepository {
     suspend fun setPrefetchOnMetered(enabled: Boolean)
     suspend fun setListeningHistoryEnabled(enabled: Boolean)
     suspend fun setTelegramForwardDefaults(includeSourceAttribution: Boolean, keepCaption: Boolean)
+    suspend fun setLibrarySortMode(mode: LibrarySortMode)
+    suspend fun setLibraryGroupMode(mode: LibraryGroupMode)
 }
