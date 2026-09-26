@@ -1,11 +1,18 @@
 package dev.behradhz.meowzix.navigation
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,16 +24,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Cloud
-import androidx.compose.material.icons.rounded.DownloadForOffline
-import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,18 +40,23 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -54,30 +64,33 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
-import dev.behradhz.meowzix.domain.playback.PlaybackState
-import dev.behradhz.meowzix.domain.playback.PlaybackStatus
+import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.feature.downloads.DownloadsRoute
 import dev.behradhz.meowzix.feature.history.HistoryRoute
+import dev.behradhz.meowzix.feature.home.HomeRoute
 import dev.behradhz.meowzix.feature.library.LibraryRoute
-import dev.behradhz.meowzix.feature.nowplaying.NowPlayingRoute
+import dev.behradhz.meowzix.feature.library.LibraryViewModel
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
+import dev.behradhz.meowzix.feature.profile.ProfileRoute
 import dev.behradhz.meowzix.feature.queue.QueueRoute
+import dev.behradhz.meowzix.feature.search.SearchRoute
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
-import dev.behradhz.meowzix.ui.components.AudioSpectrum
 import dev.behradhz.meowzix.ui.components.GlassSurface
-import dev.behradhz.meowzix.ui.components.TrackArtwork
+import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.delay
 
+private const val HOME_ROUTE = "home"
 private const val LIBRARY_ROUTE = "library"
-private const val NOW_PLAYING_ROUTE = "now-playing"
+private const val SEARCH_ROUTE = "search"
 private const val QUEUE_ROUTE = "queue"
+private const val PROFILE_ROUTE = "profile"
 private const val TELEGRAM_AUTH_ROUTE = "telegram-auth"
 private const val DOWNLOADS_ROUTE = "downloads"
 private const val HISTORY_ROUTE = "history"
 
-private data class TopLevelDestination(
+private data class DockDestination(
     val route: String,
     val label: String,
     val icon: @Composable () -> Unit,
@@ -92,10 +105,76 @@ fun MeowzixApp(
     val navController = rememberNavController()
     val hazeState = rememberHazeState()
     val morphingPlayerState = rememberMorphingPlayerState()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
+    val libraryViewModel: LibraryViewModel = hiltViewModel()
+    val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
     val spectrum by playerViewModel.spectrum.collectAsStateWithLifecycle()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route ?: HOME_ROUTE
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var searchFieldFocused by remember { mutableStateOf(false) }
+
+    val destinations = remember {
+        listOf(
+            DockDestination(
+                route = HOME_ROUTE,
+                label = "Home",
+                icon = { Icon(Icons.Rounded.Home, contentDescription = null) },
+            ),
+            DockDestination(
+                route = LIBRARY_ROUTE,
+                label = "Library",
+                icon = { Icon(Icons.Rounded.LibraryMusic, contentDescription = null) },
+            ),
+            DockDestination(
+                route = SEARCH_ROUTE,
+                label = "Search",
+                icon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+            ),
+            DockDestination(
+                route = QUEUE_ROUTE,
+                label = "Queue",
+                icon = { Icon(Icons.Rounded.QueueMusic, contentDescription = null) },
+            ),
+            DockDestination(
+                route = PROFILE_ROUTE,
+                label = "Profile",
+                icon = {
+                    Image(
+                        painter = painterResource(R.drawable.meowzix_logo),
+                        contentDescription = null,
+                        modifier = Modifier.size(25.dp),
+                    )
+                },
+            ),
+        )
+    }
+
+    val secondaryProfileRoutes = remember { setOf(DOWNLOADS_ROUTE, HISTORY_ROUTE, TELEGRAM_AUTH_ROUTE) }
+    val selectedDockRoute = if (currentRoute in secondaryProfileRoutes) PROFILE_ROUTE else currentRoute
+    val searchActive = currentRoute == SEARCH_ROUTE
+
+    fun dismissSearchKeyboard() {
+        keyboardController?.hide()
+        focusManager.clearFocus(force = true)
+        searchFieldFocused = false
+    }
+
+    fun navigateTopLevel(route: String) {
+        navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    fun goHome() {
+        dismissSearchKeyboard()
+        navigateTopLevel(HOME_ROUTE)
+    }
 
     LaunchedEffect(openNowPlayingRequest) {
         if (openNowPlayingRequest) {
@@ -104,114 +183,68 @@ fun MeowzixApp(
         }
     }
 
-    // Keep capture ownership
-    val destinations = remember {
-        listOf(
-            TopLevelDestination(
-                route = LIBRARY_ROUTE,
-                label = "Library",
-                icon = { Icon(Icons.Rounded.LibraryMusic, contentDescription = null) },
-            ),
-            TopLevelDestination(
-                route = QUEUE_ROUTE,
-                label = "Queue",
-                icon = { Icon(Icons.Rounded.QueueMusic, contentDescription = null) },
-            ),
-            TopLevelDestination(
-                route = DOWNLOADS_ROUTE,
-                label = "Offline",
-                icon = { Icon(Icons.Rounded.DownloadForOffline, contentDescription = null) },
-            ),
-            TopLevelDestination(
-                route = HISTORY_ROUTE,
-                label = "History",
-                icon = { Icon(Icons.Rounded.History, contentDescription = null) },
-            ),
-            TopLevelDestination(
-                route = TELEGRAM_AUTH_ROUTE,
-                label = "Telegram",
-                icon = { Icon(Icons.Rounded.Cloud, contentDescription = null) },
-            ),
-        )
+    BackHandler(
+        enabled = currentRoute != HOME_ROUTE || searchFieldFocused || searchQuery.isNotBlank(),
+    ) {
+        when {
+            morphingPlayerState.targetExpanded -> morphingPlayerState.collapse()
+            currentRoute == SEARCH_ROUTE && searchFieldFocused -> dismissSearchKeyboard()
+            currentRoute == SEARCH_ROUTE && searchQuery.isNotBlank() -> searchQuery = ""
+            currentRoute in secondaryProfileRoutes -> navController.popBackStack()
+            currentRoute != HOME_ROUTE -> goHome()
+        }
     }
-    val isTopLevelDestination = destinations.any { it.route == currentRoute }
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
-            startDestination = LIBRARY_ROUTE,
+            startDestination = HOME_ROUTE,
             modifier = Modifier
                 .fillMaxSize()
-                .horizontalSwipeNavigation(
-                    enabled = isTopLevelDestination && currentRoute != LIBRARY_ROUTE,
-                    onSwipeLeft = {
-                        val index = destinations.indexOfFirst { it.route == currentRoute }
-                        if (index in 0 until destinations.lastIndex) {
-                            navController.navigate(destinations[index + 1].route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    },
-                    onSwipeRight = {
-                        val index = destinations.indexOfFirst { it.route == currentRoute }
-                        if (index > 0) {
-                            navController.navigate(destinations[index - 1].route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    },
-                )
                 .hazeSource(hazeState),
         ) {
-            composable(LIBRARY_ROUTE) {
-                LibraryRoute(
-                    onSwipePastEnd = {
-                        navController.navigate(QUEUE_ROUTE) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    onOpenNowPlaying = morphingPlayerState::expand,
-                    onOpenTelegram = {
-                        navController.navigate(TELEGRAM_AUTH_ROUTE) { launchSingleTop = true }
-                    },
+            composable(HOME_ROUTE) {
+                HomeRoute(
+                    currentTrack = playbackState.currentTrack,
+                    onPlayTrack = { track, queue -> libraryViewModel.playTrack(track, queue) },
+                    onPlayCollection = { tracks -> libraryViewModel.playCollection(tracks, dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED) },
+                    onOpenLibrary = { navigateTopLevel(LIBRARY_ROUTE) },
                 )
             }
-            composable(
-                route = NOW_PLAYING_ROUTE,
-                enterTransition = {
-                    slideInVertically(
-                        initialOffsetY = { fullHeight -> fullHeight },
-                        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
-                    )
-                },
-                exitTransition = {
-                    slideOutVertically(
-                        targetOffsetY = { fullHeight -> fullHeight },
-                        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
-                    )
-                },
-                popExitTransition = {
-                    slideOutVertically(
-                        targetOffsetY = { fullHeight -> fullHeight },
-                        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
-                    )
-                },
-            ) {
-                NowPlayingRoute(
-                    onBack = navController::popBackStack,
-                    onOpenQueue = {
-                        navController.navigate(QUEUE_ROUTE) { launchSingleTop = true }
+            composable(LIBRARY_ROUTE) {
+                LibraryRoute(
+                    onOpenNowPlaying = morphingPlayerState::expand,
+                    viewModel = libraryViewModel,
+                )
+            }
+            composable(SEARCH_ROUTE) {
+                SearchRoute(
+                    query = searchQuery,
+                    tracks = libraryState.tracks,
+                    currentTrackId = playbackState.currentTrack?.id,
+                    onPlayTrack = { track, queue ->
+                        dismissSearchKeyboard()
+                        libraryViewModel.playTrack(track, queue)
+                    },
+                    onPlayArtist = { tracks ->
+                        dismissSearchKeyboard()
+                        libraryViewModel.playCollection(tracks, dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED)
+                    },
+                    onPlayAlbum = { tracks ->
+                        dismissSearchKeyboard()
+                        libraryViewModel.playCollection(tracks, dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED)
                     },
                 )
             }
             composable(QUEUE_ROUTE) {
                 QueueRoute()
+            }
+            composable(PROFILE_ROUTE) {
+                ProfileRoute(
+                    onOpenOffline = { navController.navigate(DOWNLOADS_ROUTE) },
+                    onOpenHistory = { navController.navigate(HISTORY_ROUTE) },
+                    onOpenTelegram = { navController.navigate(TELEGRAM_AUTH_ROUTE) },
+                )
             }
             composable(TELEGRAM_AUTH_ROUTE) {
                 TelegramAuthRoute(onBack = navController::popBackStack)
@@ -224,105 +257,149 @@ fun MeowzixApp(
             }
         }
 
-        if (isTopLevelDestination) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FloatingDock(
-                    hazeState = hazeState,
-                    destinations = destinations,
-                    currentRoute = currentRoute,
-                    onSelect = { route ->
-                        navController.navigate(route) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
-                            }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                )
-            }
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            MorphingDock(
+                hazeState = hazeState,
+                destinations = destinations,
+                selectedRoute = selectedDockRoute,
+                searchActive = searchActive,
+                searchQuery = searchQuery,
+                onSearchQueryChange = { searchQuery = it },
+                onSearchFocusChanged = { searchFieldFocused = it },
+                onSelect = { route ->
+                    if (route != SEARCH_ROUTE) dismissSearchKeyboard()
+                    navigateTopLevel(route)
+                },
+                onCloseSearch = {
+                    dismissSearchKeyboard()
+                    if (searchQuery.isNotBlank()) searchQuery = "" else goHome()
+                },
+            )
+        }
 
-            if (playbackState.currentTrack != null) {
-                MorphingPlayerOverlay(
-                    hazeState = hazeState,
-                    state = playbackState,
-                    spectrum = spectrum,
-                    viewModel = playerViewModel,
-                    morphState = morphingPlayerState,
-                    onOpenQueue = {
-                        navController.navigate(QUEUE_ROUTE) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                )
-            }
+        if (playbackState.currentTrack != null) {
+            MorphingPlayerOverlay(
+                hazeState = hazeState,
+                state = playbackState,
+                spectrum = spectrum,
+                viewModel = playerViewModel,
+                morphState = morphingPlayerState,
+                onOpenQueue = { navigateTopLevel(QUEUE_ROUTE) },
+            )
         }
     }
 }
 
 @Composable
-private fun FloatingDock(
-    hazeState: dev.chrisbanes.haze.HazeState,
-    destinations: List<TopLevelDestination>,
-    currentRoute: String?,
+private fun MorphingDock(
+    hazeState: HazeState,
+    destinations: List<DockDestination>,
+    selectedRoute: String,
+    searchActive: Boolean,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onSearchFocusChanged: (Boolean) -> Unit,
     onSelect: (String) -> Unit,
+    onCloseSearch: () -> Unit,
 ) {
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(searchActive) {
+        if (searchActive) {
+            delay(110)
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
+
     GlassSurface(
         hazeState = hazeState,
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp),
+            .height(72.dp)
+            .animateContentSize(animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f)),
         shape = RoundedCornerShape(36.dp),
-        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
-        tint = Color.White.copy(alpha = 0.09f),
+        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = if (searchActive) 0.86f else 0.78f),
+        tint = Color.White.copy(alpha = if (searchActive) 0.13f else 0.09f),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 8.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            destinations.forEach { destination ->
-                val selected = currentRoute == destination.route
-                Surface(
+        AnimatedContent(
+            targetState = searchActive,
+            transitionSpec = {
+                (fadeIn(tween(210, easing = FastOutSlowInEasing)) + scaleIn(initialScale = 0.96f)) togetherWith
+                    (fadeOut(tween(150)) + scaleOut(targetScale = 0.98f))
+            },
+            label = "dock-search-morph",
+        ) { isSearch ->
+            if (isSearch) {
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(58.dp)
-                        .clickable { onSelect(destination.route) },
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                    } else {
-                        Color.Transparent
-                    },
-                    contentColor = if (selected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
-                    },
-                    shape = RoundedCornerShape(28.dp),
+                        .fillMaxSize()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
+                    Surface(
+                        modifier = Modifier.size(46.dp),
+                        shape = RoundedCornerShape(23.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        contentColor = MaterialTheme.colorScheme.primary,
                     ) {
-                        Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                            destination.icon()
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Search, contentDescription = null)
                         }
-                        Text(
-                            text = destination.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                            modifier = Modifier.padding(top = 2.dp),
+                    }
+                    Spacer(Modifier.size(10.dp))
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { onSearchFocusChanged(it.isFocused) },
+                        decorationBox = { innerField ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "Search songs, artists, albums…",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
+                                    )
+                                }
+                                innerField()
+                            }
+                        },
+                    )
+                    IconButton(onClick = onCloseSearch) {
+                        Icon(
+                            Icons.Rounded.Clear,
+                            contentDescription = if (searchQuery.isBlank()) "Close search" else "Clear search",
+                        )
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 7.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    destinations.forEach { destination ->
+                        DockItem(
+                            destination = destination,
+                            selected = selectedRoute == destination.route,
+                            onClick = { onSelect(destination.route) },
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
@@ -332,138 +409,35 @@ private fun FloatingDock(
 }
 
 @Composable
-private fun GlassMiniPlayer(
-    hazeState: dev.chrisbanes.haze.HazeState,
-    state: PlaybackState,
-    spectrum: AudioSpectrumState,
-    onOpenNowPlaying: () -> Unit,
-    onTogglePlayPause: () -> Unit,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
+private fun DockItem(
+    destination: DockDestination,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val track = state.currentTrack ?: return
-    val progress = if (state.durationMs > 0) {
-        (state.positionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-    val compactBands = remember(spectrum.bands) {
-        val source = spectrum.bands
-        FloatArray(8) { compactIndex ->
-            val start = compactIndex * source.size / 8
-            val endExclusive = ((compactIndex + 1) * source.size / 8)
-                .coerceAtLeast(start + 1)
-                .coerceAtMost(source.size)
-            var peak = 0f
-            for (index in start until endExclusive) {
-                if (source[index] > peak) peak = source[index]
-            }
-            peak
-        }
-    }
-    val hasWaveform = remember(compactBands) { compactBands.any { it > 0.001f } }
-    val density = LocalDensity.current
-    val swipeThreshold = with(density) { 64.dp.toPx() }
-    val visualLimit = with(density) { 24.dp.toPx() }
-    var dragDistance by remember(track.id) { mutableFloatStateOf(0f) }
-
-    GlassSurface(
-        hazeState = hazeState,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(72.dp)
-            .graphicsLayer { translationX = dragDistance.coerceIn(-visualLimit, visualLimit) }
-            .pointerInput(track.id, state.canSkipPrevious, state.canSkipNext) {
-                detectHorizontalDragGestures(
-                    onDragStart = { dragDistance = 0f },
-                    onHorizontalDrag = { _, amount -> dragDistance += amount },
-                    onDragCancel = { dragDistance = 0f },
-                    onDragEnd = {
-                        when {
-                            dragDistance <= -swipeThreshold && state.canSkipNext -> onNext()
-                            dragDistance >= swipeThreshold && state.canSkipPrevious -> onPrevious()
-                        }
-                        dragDistance = 0f
-                    },
-                )
-            }
-            .clickable(onClick = onOpenNowPlaying),
+    Surface(
+        modifier = modifier
+            .height(58.dp)
+            .clickable(onClick = onClick),
+        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent,
+        contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
         shape = RoundedCornerShape(28.dp),
-        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
-        tint = Color.White.copy(alpha = 0.10f),
     ) {
-        Column(Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(start = 10.dp, end = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TrackArtwork(
-                    artworkRef = track.artworkRef,
-                    description = track.title,
-                    size = 50.dp,
-                )
-                Spacer(Modifier.size(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = track.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = track.artist ?: "Unknown artist",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                if (hasWaveform && state.status == PlaybackStatus.PLAYING) {
-                    AudioSpectrum(
-                        bands = compactBands,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .width(44.dp)
-                            .height(22.dp)
-                            .padding(horizontal = 2.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                }
-
-                IconButton(onClick = onTogglePlayPause) {
-                    Icon(
-                        imageVector = if (state.status == PlaybackStatus.PLAYING) {
-                            Icons.Rounded.Pause
-                        } else {
-                            Icons.Rounded.PlayArrow
-                        },
-                        contentDescription = if (state.status == PlaybackStatus.PLAYING) "Pause" else "Play",
-                    )
-                }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Box(Modifier.size(25.dp), contentAlignment = Alignment.Center) {
+                destination.icon()
             }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(progress)
-                        .height(2.dp)
-                        .align(Alignment.CenterStart),
-                ) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.88f),
-                    ) {}
-                }
-            }
+            Text(
+                text = destination.label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }
