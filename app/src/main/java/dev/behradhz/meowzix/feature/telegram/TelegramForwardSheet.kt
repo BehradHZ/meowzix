@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.feature.telegram
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,13 +67,16 @@ import dev.behradhz.meowzix.domain.telegram.TelegramSendJob
 import dev.behradhz.meowzix.domain.telegram.TelegramSendState
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.rememberHazeState
 import java.util.UUID
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val TelegramGlass = Color(0xFF151413)
 private val TelegramGlassStroke = Color.White.copy(alpha = 0.10f)
 private val TelegramGlassFill = Color.White.copy(alpha = 0.055f)
+private const val SentStatusVisibilityMillis = 3_000L
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)
@@ -139,7 +144,30 @@ fun TelegramForwardSheet(
         ).telegramForwardRepository()
     }
     val sendJobs by repository.sendJobs.collectAsState(initial = emptyList())
-    val trackJobs = remember(sendJobs, trackId) { sendJobs.filter { it.trackId == trackId }.take(4) }
+    var sentVisibilityClockMs by remember(trackId) { mutableStateOf(System.currentTimeMillis()) }
+
+    LaunchedEffect(sendJobs, trackId) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            sentVisibilityClockMs = now
+            val nextExpiry = sendJobs
+                .asSequence()
+                .filter { it.trackId == trackId && it.state == TelegramSendState.SENT }
+                .map { it.updatedAtEpochMs + SentStatusVisibilityMillis }
+                .filter { it > now }
+                .minOrNull()
+                ?: break
+            delay((nextExpiry - now).coerceAtLeast(1L))
+        }
+    }
+
+    val trackJobs = remember(sendJobs, trackId, sentVisibilityClockMs) {
+        sendJobs.filter { job ->
+            job.trackId == trackId &&
+                (job.state != TelegramSendState.SENT ||
+                    sentVisibilityClockMs - job.updatedAtEpochMs < SentStatusVisibilityMillis)
+        }.take(4)
+    }
     val scope = rememberCoroutineScope()
     val hazeState = rememberHazeState()
 
@@ -197,6 +225,7 @@ fun TelegramForwardSheet(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         trackJobs.forEach { job ->
                             TelegramSendStatusCard(
+                                hazeState = hazeState,
                                 job = job,
                                 onRetry = {
                                     scope.launch {
@@ -377,10 +406,12 @@ private fun GlassOptionGroup(
 @Composable
 private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJob?, onClick: () -> Unit) {
     val blocksNewSend = job != null && job.state != TelegramSendState.CANCELED
+    val rowShape = RoundedCornerShape(20.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color.White.copy(alpha = 0.055f), RoundedCornerShape(20.dp))
+            .background(TelegramGlass.copy(alpha = 0.28f), rowShape)
+            .border(1.dp, Color.White.copy(alpha = 0.055f), rowShape)
             .clickable(enabled = !blocksNewSend) { onClick() }
             .padding(horizontal = 10.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -422,7 +453,12 @@ private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJ
 }
 
 @Composable
-private fun TelegramSendStatusCard(job: TelegramSendJob, onRetry: () -> Unit, onCancel: () -> Unit) {
+private fun TelegramSendStatusCard(
+    hazeState: HazeState,
+    job: TelegramSendJob,
+    onRetry: () -> Unit,
+    onCancel: () -> Unit,
+) {
     val canRetry = job.state == TelegramSendState.FAILED || job.state == TelegramSendState.VERIFYING
     val canCancel = job.state in setOf(
         TelegramSendState.QUEUED,
@@ -432,11 +468,14 @@ private fun TelegramSendStatusCard(job: TelegramSendJob, onRetry: () -> Unit, on
         TelegramSendState.FAILED,
         TelegramSendState.VERIFYING,
     )
+    val cardShape = RoundedCornerShape(18.dp)
 
-    Surface(
-        modifier = Modifier.fillMaxWidth().border(1.dp, TelegramGlassStroke, RoundedCornerShape(18.dp)),
-        shape = RoundedCornerShape(18.dp),
-        color = TelegramGlassFill,
+    GlassSurface(
+        hazeState = hazeState,
+        modifier = Modifier.fillMaxWidth().border(1.dp, TelegramGlassStroke, cardShape),
+        shape = cardShape,
+        fallbackColor = TelegramGlass.copy(alpha = 0.86f),
+        tint = Color.White.copy(alpha = 0.085f),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
