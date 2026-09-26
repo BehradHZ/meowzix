@@ -55,7 +55,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
      * MediaSessionService (PlaybackService), so the widget, notification, hardware keys and in-app
      * controls all operate the exact same player timeline and queue.
      */
-    @OptIn(UnstableApi::class)
+    @UnstableApi
     private fun mediaButtonIntent(context: Context, keyCode: Int, requestCode: Int): PendingIntent {
         val intent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
             component = ComponentName(context, MediaButtonReceiver::class.java)
