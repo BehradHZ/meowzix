@@ -191,6 +191,11 @@ class NowPlayingViewModel @Inject constructor(
 
     fun previous() = playbackController.skipToPrevious()
 
+    /** Artwork swipes are explicit queue navigation and must not restart the current track first. */
+    fun playQueueItemAt(index: Int) {
+        if (index in queueState.value.items.indices) queueRepository.playAt(index)
+    }
+
     fun next() = playbackController.skipToNext()
 
     fun toggleFavorite() {

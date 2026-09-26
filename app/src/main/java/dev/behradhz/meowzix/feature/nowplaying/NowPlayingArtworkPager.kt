@@ -157,7 +157,6 @@ internal fun NowPlayingArtworkPager(
     val latestActiveIndex by rememberUpdatedState(activeIndex)
     val latestCanSkipPrevious by rememberUpdatedState(state.canSkipPrevious)
     val latestCanSkipNext by rememberUpdatedState(state.canSkipNext)
-    val latestPrevious by rememberUpdatedState(onPrevious)
     val latestNext by rememberUpdatedState(onNext)
     val latestTogglePlayPause by rememberUpdatedState(viewModel::togglePlayPause)
     val latestBackdropTransition by rememberUpdatedState(onBackdropTransition)
@@ -224,10 +223,11 @@ internal fun NowPlayingArtworkPager(
         transitionJob = scope.launch {
             pendingUserTargetIndex = requestedTarget
 
-            // Playback changes only after the gesture has crossed the shared commitment threshold.
+            // A right-swipe is explicit track navigation, so it must bypass seekToPrevious's
+            // restart-current behavior. The Previous button still uses the regular previous action.
             when (transitionDirection) {
                 ArtworkTransitionDirection.NEXT -> latestNext()
-                ArtworkTransitionDirection.PREVIOUS -> latestPrevious()
+                ArtworkTransitionDirection.PREVIOUS -> viewModel.playQueueItemAt(requestedTarget)
             }
 
             val start = progress
