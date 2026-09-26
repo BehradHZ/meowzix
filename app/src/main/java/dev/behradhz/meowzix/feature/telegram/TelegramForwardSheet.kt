@@ -51,10 +51,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.EntryPoint
-import androidx.hilt.InstallIn
-import androidx.hilt.android.EntryPointAccessors
-import androidx.hilt.components.SingletonComponent
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
@@ -132,16 +132,14 @@ fun TelegramForwardSheet(
     var actionError by remember(trackId) { mutableStateOf<String?>(null) }
 
     val appContext = LocalContext.current.applicationContext
-    val repository = remember(appContext) {
+    val repository: TelegramForwardRepository = remember(appContext) {
         EntryPointAccessors.fromApplication(
             appContext,
             TelegramForwardSheetEntryPoint::class.java,
         ).telegramForwardRepository()
     }
     val sendJobs by repository.sendJobs.collectAsState(initial = emptyList())
-    val trackJobs = remember(sendJobs, trackId) {
-        sendJobs.filter { it.trackId == trackId }.take(4)
-    }
+    val trackJobs = remember(sendJobs, trackId) { sendJobs.filter { it.trackId == trackId }.take(4) }
     val scope = rememberCoroutineScope()
     val hazeState = rememberHazeState()
 
@@ -160,9 +158,7 @@ fun TelegramForwardSheet(
             tint = Color.White.copy(alpha = 0.075f),
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
             ) {
                 Box(
                     modifier = Modifier
@@ -170,7 +166,6 @@ fun TelegramForwardSheet(
                         .size(width = 42.dp, height = 4.dp)
                         .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(99.dp)),
                 )
-
                 Spacer(Modifier.height(14.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -184,16 +179,8 @@ fun TelegramForwardSheet(
                             Icon(Icons.Rounded.Send, contentDescription = null)
                         }
                     }
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 12.dp),
-                    ) {
-                        Text(
-                            "Send to Telegram",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text("Send to Telegram", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text(
                             "$title · ${artist ?: "Unknown artist"}",
                             style = MaterialTheme.typography.bodyMedium,
@@ -202,9 +189,7 @@ fun TelegramForwardSheet(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    if (isSending) {
-                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                    }
+                    if (isSending) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                 }
 
                 if (trackJobs.isNotEmpty()) {
@@ -237,21 +222,14 @@ fun TelegramForwardSheet(
                         visibleMessage.startsWith("Added", ignoreCase = true)
                     Surface(
                         shape = RoundedCornerShape(18.dp),
-                        color = if (informational) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                        } else {
-                            MaterialTheme.colorScheme.error.copy(alpha = 0.13f)
-                        },
+                        color = if (informational) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        else MaterialTheme.colorScheme.error.copy(alpha = 0.13f),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            text = visibleMessage,
+                            visibleMessage,
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (informational) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.error
-                            },
+                            color = if (informational) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                         )
                     }
@@ -279,17 +257,13 @@ fun TelegramForwardSheet(
                     modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
                 )
 
-                // Search intentionally sits immediately above account/chat names.
+                // Keep search immediately above the account/chat names.
                 TextField(
                     value = query,
                     onValueChange = onQueryChange,
                     singleLine = true,
                     leadingIcon = {
-                        Icon(
-                            Icons.Rounded.Search,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.62f),
-                        )
+                        Icon(Icons.Rounded.Search, contentDescription = null, tint = Color.White.copy(alpha = 0.62f))
                     },
                     placeholder = { Text("Search accounts and chats") },
                     shape = RoundedCornerShape(22.dp),
@@ -304,27 +278,19 @@ fun TelegramForwardSheet(
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
                     ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, TelegramGlassStroke, RoundedCornerShape(22.dp)),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, TelegramGlassStroke, RoundedCornerShape(22.dp)),
                 )
-
                 Spacer(Modifier.height(8.dp))
 
                 when {
                     isSearching && chats.isEmpty() -> Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp),
+                        modifier = Modifier.fillMaxWidth().height(150.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
                     }
-
                     chats.isEmpty() -> Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(130.dp),
+                        modifier = Modifier.fillMaxWidth().height(130.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -332,11 +298,8 @@ fun TelegramForwardSheet(
                             color = Color.White.copy(alpha = 0.58f),
                         )
                     }
-
                     else -> LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 120.dp, max = 330.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 330.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         items(chats, key = { it.chatId }) { chat ->
@@ -361,7 +324,6 @@ fun TelegramForwardSheet(
                         }
                     }
                 }
-
                 Spacer(Modifier.height(14.dp))
             }
         }
@@ -378,9 +340,7 @@ private fun GlassOptionGroup(
     onRememberDefaultsChange: (Boolean) -> Unit,
 ) {
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, TelegramGlassStroke, RoundedCornerShape(22.dp)),
+        modifier = Modifier.fillMaxWidth().border(1.dp, TelegramGlassStroke, RoundedCornerShape(22.dp)),
         shape = RoundedCornerShape(22.dp),
         color = TelegramGlassFill,
     ) {
@@ -415,11 +375,7 @@ private fun GlassOptionGroup(
 }
 
 @Composable
-private fun TelegramDestinationRow(
-    chat: TelegramChatSummary,
-    job: TelegramSendJob?,
-    onClick: () -> Unit,
-) {
+private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJob?, onClick: () -> Unit) {
     val blocksNewSend = job != null && job.state != TelegramSendState.CANCELED
     Row(
         modifier = Modifier
@@ -432,54 +388,30 @@ private fun TelegramDestinationRow(
         if (chat.profilePhotoRef != null) {
             ChatAvatar(chat.profilePhotoRef, chat.title, size = 46.dp)
         } else {
-            Surface(
-                modifier = Modifier.size(46.dp),
-                shape = CircleShape,
-                color = TelegramGlassFill,
-            ) {
+            Surface(modifier = Modifier.size(46.dp), shape = CircleShape, color = TelegramGlassFill) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.Person, contentDescription = null, tint = Color.White.copy(alpha = 0.70f))
                 }
             }
         }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 12.dp),
-        ) {
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                chat.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                if (chat.kind == TelegramChatKind.SAVED_MESSAGES) {
-                    "Saved Messages"
-                } else {
-                    chat.kind.name.replace('_', ' ').lowercase().replaceFirstChar { it.titlecase() }
-                },
+                if (chat.kind == TelegramChatKind.SAVED_MESSAGES) "Saved Messages"
+                else chat.kind.name.replace('_', ' ').lowercase().replaceFirstChar { it.titlecase() },
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.50f),
             )
         }
 
         when (job?.state) {
-            TelegramSendState.SENT -> Icon(
-                Icons.Rounded.Check,
-                contentDescription = "Sent",
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            TelegramSendState.FAILED,
-            TelegramSendState.VERIFYING,
-            -> Icon(
+            TelegramSendState.SENT -> Icon(Icons.Rounded.Check, contentDescription = "Sent", tint = MaterialTheme.colorScheme.primary)
+            TelegramSendState.FAILED, TelegramSendState.VERIFYING -> Icon(
                 Icons.Rounded.ErrorOutline,
                 contentDescription = "Send needs attention",
                 tint = MaterialTheme.colorScheme.error,
             )
-            null,
-            TelegramSendState.CANCELED,
-            -> Icon(
+            null, TelegramSendState.CANCELED -> Icon(
                 Icons.Rounded.Send,
                 contentDescription = "Send to ${chat.title}",
                 tint = MaterialTheme.colorScheme.primary,
@@ -490,23 +422,19 @@ private fun TelegramDestinationRow(
 }
 
 @Composable
-private fun TelegramSendStatusCard(
-    job: TelegramSendJob,
-    onRetry: () -> Unit,
-    onCancel: () -> Unit,
-) {
+private fun TelegramSendStatusCard(job: TelegramSendJob, onRetry: () -> Unit, onCancel: () -> Unit) {
     val canRetry = job.state == TelegramSendState.FAILED || job.state == TelegramSendState.VERIFYING
-    val canCancel = job.state == TelegramSendState.QUEUED ||
-        job.state == TelegramSendState.RETRYING ||
-        job.state == TelegramSendState.WAITING_FOR_NETWORK ||
-        job.state == TelegramSendState.WAITING_FOR_TELEGRAM ||
-        job.state == TelegramSendState.FAILED ||
-        job.state == TelegramSendState.VERIFYING
+    val canCancel = job.state in setOf(
+        TelegramSendState.QUEUED,
+        TelegramSendState.RETRYING,
+        TelegramSendState.WAITING_FOR_NETWORK,
+        TelegramSendState.WAITING_FOR_TELEGRAM,
+        TelegramSendState.FAILED,
+        TelegramSendState.VERIFYING,
+    )
 
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, TelegramGlassStroke, RoundedCornerShape(18.dp)),
+        modifier = Modifier.fillMaxWidth().border(1.dp, TelegramGlassStroke, RoundedCornerShape(18.dp)),
         shape = RoundedCornerShape(18.dp),
         color = TelegramGlassFill,
     ) {
@@ -531,23 +459,13 @@ private fun TelegramSendStatusCard(
                     )
                 }
                 when (job.state) {
-                    TelegramSendState.SENT -> Icon(
-                        Icons.Rounded.Check,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                    TelegramSendState.FAILED,
-                    TelegramSendState.VERIFYING,
-                    -> Icon(
+                    TelegramSendState.SENT -> Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    TelegramSendState.FAILED, TelegramSendState.VERIFYING -> Icon(
                         Icons.Rounded.ErrorOutline,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.error,
                     )
-                    TelegramSendState.CANCELED -> Icon(
-                        Icons.Rounded.Close,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.50f),
-                    )
+                    TelegramSendState.CANCELED -> Icon(Icons.Rounded.Close, contentDescription = null, tint = Color.White.copy(alpha = 0.50f))
                     else -> CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 }
             }
@@ -559,7 +477,6 @@ private fun TelegramSendStatusCard(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-
             if (!job.errorMessage.isNullOrBlank() && job.state != TelegramSendState.SENT) {
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -570,15 +487,9 @@ private fun TelegramSendStatusCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-
             if (canRetry || canCancel) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    if (canCancel) {
-                        TextButton(onClick = onCancel) { Text("Cancel") }
-                    }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    if (canCancel) TextButton(onClick = onCancel) { Text("Cancel") }
                     if (canRetry) {
                         TextButton(onClick = onRetry) {
                             Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -615,24 +526,14 @@ private fun ForwardOptionRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 7.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.48f),
-            )
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.48f))
         }
-        Switch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = onCheckedChange,
-        )
+        Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
     }
 }
