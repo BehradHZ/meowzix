@@ -20,6 +20,13 @@ interface TelegramSendDao {
     @Query("SELECT * FROM telegram_send_jobs WHERE activeDedupeKey = :dedupeKey LIMIT 1")
     suspend fun activeByDedupeKey(dedupeKey: String): TelegramSendJobEntity?
 
+    @Query("SELECT * FROM telegram_send_jobs WHERE accountId = :accountId AND targetChatId = :targetChatId AND trackId = :trackId AND state = 'SENT' ORDER BY updatedAtEpochMs DESC LIMIT 1")
+    suspend fun sentForTrackDestination(
+        accountId: String,
+        targetChatId: Long,
+        trackId: String,
+    ): TelegramSendJobEntity?
+
     @Query(
         """
         SELECT * FROM telegram_send_jobs
