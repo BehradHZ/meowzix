@@ -7,13 +7,11 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 fun LibraryRoute(
     onSwipePastEnd: () -> Unit = {},
     onOpenNowPlaying: () -> Unit,
-    onOpenTelegram: () -> Unit,
+    onOpenTelegram: () -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
-    LibraryRouteV2(
-        onSwipePastEnd = onSwipePastEnd,
+    LibraryRouteV3(
         onOpenNowPlaying = onOpenNowPlaying,
-        onOpenTelegram = onOpenTelegram,
         viewModel = viewModel,
     )
 }
