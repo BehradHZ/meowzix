@@ -22,7 +22,6 @@ import org.drinkless.tdlib.TdApi
 
 private const val TDLIB_SCHEME = "meowzix-tdlib"
 
-/** Routes normal Android URIs through Media3 and Telegram cloud URIs through the growing-file reader. */
 @OptIn(UnstableApi::class)
 class MeowzixDataSourceFactory(context: Context) : DataSource.Factory {
     private val defaultFactory = DefaultDataSource.Factory(context)
@@ -74,9 +73,9 @@ private class RoutingDataSource(
 /**
  * Random-access reader over TDLib's growing local file.
  *
- * The Media3 loader thread is allowed to block because DataSource is synchronous, but the wait is
- * notification-driven: UpdateFile changes wake the registry waiter. GetFile is used once to seed
- * process-local state and then only as a bounded, low-frequency recovery if an update is lost.
+ * Media3's loader thread is synchronous, so it may block, but waiting is notification-driven:
+ * UpdateFile wakes the registry waiter. GetFile is used once to seed process-local state and then
+ * only as a bounded low-frequency recovery path if an update appears to have been lost.
  */
 @OptIn(UnstableApi::class)
 private class TdLibStreamingDataSource : BaseDataSource(true) {
@@ -189,6 +188,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         position: Long,
     ): TdApi.File {
         var state = client.fileStates.current(fileId) ?: client.seedFileState(fileId)
+        var recoveryAttempts = 0
         while (true) {
             if (state.readableEndAt(position) > position || state.local.isDownloadingCompleted) {
                 return state
@@ -204,15 +204,22 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
                 },
             )
 
-            // Normal path: suspend until TDLib pushes UpdateFile. The timeout is deliberately
-            // seconds, not milliseconds; it exists only to recover if an update was missed.
-            state = withTimeoutOrNull(LOST_UPDATE_RECOVERY_MS) {
+            val pushedState = withTimeoutOrNull(LOST_UPDATE_RECOVERY_MS) {
                 client.fileStates.awaitReadableOrCompleted(fileId, position)
-            } ?: runCatching {
-                client.refreshFileState(fileId)
-            }.getOrElse { error ->
-                throw IOException("Timed out waiting for Telegram audio data", error)
             }
+            if (pushedState != null) {
+                state = pushedState
+                recoveryAttempts = 0
+                continue
+            }
+
+            if (++recoveryAttempts > MAX_LOST_UPDATE_RECOVERIES) {
+                throw IOException("Timed out waiting for Telegram audio data at offset $position")
+            }
+            state = runCatching { client.refreshFileState(fileId) }
+                .getOrElse { error ->
+                    throw IOException("Unable to refresh Telegram audio state", error)
+                }
         }
     }
 
@@ -259,11 +266,12 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     private fun isAtEnd(state: TdApi.File, position: Long): Boolean {
         if (!state.local.isDownloadingCompleted) return false
         val knownSize = state.size.toLong().takeIf { it > 0L }
-        return knownSize?.let { position >= it } ?: state.readableEndAt(position) <= position
+        return knownSize?.let { position >= it } ?: (state.readableEndAt(position) <= position)
     }
 
     private companion object {
-        const val STREAM_WINDOW_BYTES = 4L * 1024L * 1024L
+        const val STREAM_WINDOW_BYTES: Long = 4L * 1024L * 1024L
         const val LOST_UPDATE_RECOVERY_MS = 5_000L
+        const val MAX_LOST_UPDATE_RECOVERIES = 6
     }
 }
