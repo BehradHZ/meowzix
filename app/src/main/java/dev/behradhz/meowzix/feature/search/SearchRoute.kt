@@ -41,6 +41,7 @@ import dev.behradhz.meowzix.ui.components.TrackArtwork
 @Composable
 fun SearchRoute(
     query: String,
+    @Suppress("UNUSED_PARAMETER") tracks: List<Track> = emptyList(),
     currentTrackId: java.util.UUID?,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onPlayArtist: (List<Track>) -> Unit,
@@ -52,7 +53,8 @@ fun SearchRoute(
     val normalizedQuery = TextNormalizer.normalize(query)
 
     // These groups are intentionally derived only from the bounded FTS result set (<=80), never
-    // from the complete library.
+    // from the complete library. The legacy tracks parameter is accepted temporarily so callers
+    // can migrate independently; it is deliberately not used for search work.
     val artists = remember(matchingTracks) {
         matchingTracks
             .filter { !it.artist.isNullOrBlank() }
