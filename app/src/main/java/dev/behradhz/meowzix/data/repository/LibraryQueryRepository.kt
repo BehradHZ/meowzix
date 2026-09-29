@@ -6,6 +6,7 @@ import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.db.AlbumSummaryRow
 import dev.behradhz.meowzix.data.db.ArtistSummaryRow
 import dev.behradhz.meowzix.data.db.LibraryBrowseDao
+import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.SearchTrackRow
 import dev.behradhz.meowzix.data.db.TrackAvailabilityRow
 import dev.behradhz.meowzix.data.db.TrackEntity
@@ -35,6 +36,7 @@ data class AlbumSummary(
 @Singleton
 class LibraryQueryRepository @Inject constructor(
     private val dao: LibraryBrowseDao,
+    private val libraryDao: LibraryDao,
 ) {
     suspend fun search(query: String, limit: Int = 80): List<Track> {
         val normalized = TextNormalizer.normalize(query) ?: return emptyList()
@@ -76,6 +78,10 @@ class LibraryQueryRepository @Inject constructor(
             ),
         ).map(SearchTrackRow::toDomain)
     }
+
+    /** Single-row lookup for surfaces that already know the canonical track UUID. */
+    suspend fun track(trackId: UUID): Track? =
+        libraryDao.trackById(trackId.toString())?.toDomainTrack()
 
     fun availability(): Flow<Map<UUID, LibraryTrackAvailability>> =
         dao.observeAvailabilityRows().map { rows ->
