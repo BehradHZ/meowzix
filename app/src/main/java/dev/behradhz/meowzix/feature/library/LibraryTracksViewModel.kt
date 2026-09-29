@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.repository.AlbumSummary
 import dev.behradhz.meowzix.data.repository.ArtistSummary
 import dev.behradhz.meowzix.data.repository.LibraryAvailabilityFilter
@@ -26,8 +27,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+sealed interface LibraryAggregateSelection {
+    data class Artist(val name: String, val normalizedName: String) : LibraryAggregateSelection
+    data class Album(val name: String, val artist: String, val normalizedArtist: String) : LibraryAggregateSelection
+    data object Favorites : LibraryAggregateSelection
+}
 
 @HiltViewModel
 class LibraryTracksViewModel @Inject constructor(
@@ -38,14 +46,11 @@ class LibraryTracksViewModel @Inject constructor(
     private val playbackContextPolicyStore: PlaybackContextPolicyStore,
 ) : ViewModel() {
     private val availability = MutableStateFlow(LibraryAvailabilityFilter.ALL)
+    private val aggregateSelection = MutableStateFlow<LibraryAggregateSelection?>(null)
 
     val displaySettings: StateFlow<LibraryDisplaySettings> = settingsRepository.libraryDisplaySettings
         .distinctUntilChanged()
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            LibraryDisplaySettings(),
-        )
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryDisplaySettings())
 
     val tracks: Flow<PagingData<LibraryTrack>> = combine(
         displaySettings,
@@ -66,14 +71,40 @@ class LibraryTracksViewModel @Inject constructor(
     val albums: StateFlow<List<AlbumSummary>> = queryRepository.albums()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val selectedAggregate: StateFlow<LibraryAggregateSelection?> = aggregateSelection
+
+    val aggregateTracks: StateFlow<List<Track>> = aggregateSelection
+        .flatMapLatest { selected ->
+            when (selected) {
+                is LibraryAggregateSelection.Artist -> queryRepository.artistTracks(selected.normalizedName)
+                is LibraryAggregateSelection.Album -> queryRepository.albumTracks(selected.name, selected.normalizedArtist)
+                LibraryAggregateSelection.Favorites -> queryRepository.favoriteTracks()
+                null -> flowOf(emptyList())
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     fun setAvailability(filter: LibraryAvailabilityFilter) {
         availability.value = filter
     }
 
-    /**
-     * Materializes only UUIDs, and only after an explicit play action. The library screen itself
-     * remains page-backed while queue semantics continue to cover the full selected sort/filter.
-     */
+    fun openArtist(summary: ArtistSummary) {
+        aggregateSelection.value = LibraryAggregateSelection.Artist(summary.name, summary.normalizedName)
+    }
+
+    fun openAlbum(summary: AlbumSummary) {
+        aggregateSelection.value = LibraryAggregateSelection.Album(summary.name, summary.artist, summary.normalizedArtist)
+    }
+
+    fun openFavorites() {
+        aggregateSelection.value = LibraryAggregateSelection.Favorites
+    }
+
+    fun closeAggregate() {
+        aggregateSelection.value = null
+    }
+
+    /** Materialize only UUIDs, and only after an explicit play action. */
     fun playTrack(trackId: UUID) {
         viewModelScope.launch {
             val filter = availability.value
