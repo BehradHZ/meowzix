@@ -44,28 +44,11 @@ class LibraryQueryRepository @Inject constructor(
         if (matchExpression.isBlank()) return emptyList()
 
         val sql = """
-            SELECT
-                t.id, t.title, t.normalizedTitle, t.artist, t.normalizedArtist, t.album,
-                t.durationMs, t.trackNumber, t.year, t.artworkRef, t.favorite, t.hidden,
-                t.createdAtEpochMs, t.updatedAtEpochMs
+            ${TRACK_PROJECTION.trimIndent()}
             FROM track_search_fts
             INNER JOIN tracks t ON t.rowid = track_search_fts.rowid
             WHERE track_search_fts MATCH ?
-              AND t.hidden = 0
-              AND (
-                  EXISTS (
-                      SELECT 1 FROM track_sources local
-                      WHERE local.trackId = t.id AND local.availability = 'AVAILABLE_LOCAL'
-                  )
-                  OR EXISTS (
-                      SELECT 1
-                      FROM telegram_track_sources tg
-                      INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                      INNER JOIN telegram_selected_sources selected
-                        ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
-                      WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
-                  )
-              )
+              AND $AVAILABLE_TRACK_WHERE
             ORDER BY
                 CASE WHEN t.normalizedTitle = ? THEN 0 ELSE 1 END,
                 t.normalizedTitle ASC
@@ -82,6 +65,53 @@ class LibraryQueryRepository @Inject constructor(
     /** Single-row lookup for surfaces that already know the canonical track UUID. */
     suspend fun track(trackId: UUID): Track? =
         libraryDao.trackById(trackId.toString())?.toDomainTrack()
+
+    /**
+     * Full eligibility set as UUIDs only. Recommendation can consider the complete library without
+     * Home retaining thousands of Track objects and their strings/artwork metadata.
+     */
+    suspend fun availableTrackIds(): List<UUID> = dao.libraryTrackIds(
+        SimpleSQLiteQuery(
+            """
+            SELECT t.id
+            FROM tracks t
+            WHERE $AVAILABLE_TRACK_WHERE
+            ORDER BY t.id ASC
+            """.trimIndent(),
+        ),
+    ).map { UUID.fromString(it.id) }
+
+    /** Fetch full rows only for the small set a surface is actually going to render. */
+    suspend fun tracks(trackIds: List<UUID>): List<Track> {
+        val distinctIds = trackIds.distinct()
+        if (distinctIds.isEmpty()) return emptyList()
+        val placeholders = distinctIds.joinToString(",") { "?" }
+        val rows = dao.searchTracks(
+            SimpleSQLiteQuery(
+                """
+                $TRACK_PROJECTION
+                FROM tracks t
+                WHERE t.id IN ($placeholders) AND t.hidden = 0
+                """.trimIndent(),
+                distinctIds.map(UUID::toString).toTypedArray(),
+            ),
+        ).map(SearchTrackRow::toDomain)
+        val byId = rows.associateBy(Track::id)
+        return distinctIds.mapNotNull(byId::get)
+    }
+
+    suspend fun recentlyAdded(limit: Int = 12): List<Track> = boundedAvailableTracks(
+        orderBy = "t.createdAtEpochMs DESC, t.id ASC",
+        limit = limit,
+    )
+
+    suspend fun homeFallback(limit: Int = 14): List<Track> = boundedAvailableTracks(
+        orderBy = "t.favorite DESC, t.updatedAtEpochMs DESC, t.id ASC",
+        limit = limit,
+    )
+
+    /** Cheap Room invalidation signal for Home; consumers re-fetch only bounded projections. */
+    fun invalidations(): Flow<Unit> = dao.observeFavoriteCount().map { Unit }
 
     fun availability(): Flow<Map<UUID, LibraryTrackAvailability>> =
         dao.observeAvailabilityRows().map { rows ->
@@ -106,6 +136,47 @@ class LibraryQueryRepository @Inject constructor(
 
     fun favoriteTracks(): Flow<List<Track>> =
         dao.observeFavoriteTracks().map { rows -> rows.map(TrackEntity::toDomainTrack) }
+
+    private suspend fun boundedAvailableTracks(orderBy: String, limit: Int): List<Track> =
+        dao.searchTracks(
+            SimpleSQLiteQuery(
+                """
+                $TRACK_PROJECTION
+                FROM tracks t
+                WHERE $AVAILABLE_TRACK_WHERE
+                ORDER BY $orderBy
+                LIMIT ?
+                """.trimIndent(),
+                arrayOf<Any>(limit.coerceIn(1, 200)),
+            ),
+        ).map(SearchTrackRow::toDomain)
+
+    private companion object {
+        val TRACK_PROJECTION = """
+            SELECT
+                t.id, t.title, t.normalizedTitle, t.artist, t.normalizedArtist, t.album,
+                t.durationMs, t.trackNumber, t.year, t.artworkRef, t.favorite, t.hidden,
+                t.createdAtEpochMs, t.updatedAtEpochMs
+        """.trimIndent()
+
+        val AVAILABLE_TRACK_WHERE = """
+            t.hidden = 0
+            AND (
+                EXISTS (
+                    SELECT 1 FROM track_sources local
+                    WHERE local.trackId = t.id AND local.availability = 'AVAILABLE_LOCAL'
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM telegram_track_sources tg
+                    INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                    INNER JOIN telegram_selected_sources selected
+                      ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
+                    WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                )
+            )
+        """.trimIndent()
+    }
 }
 
 internal fun buildTrackFtsMatchExpression(normalizedQuery: String): String = normalizedQuery
