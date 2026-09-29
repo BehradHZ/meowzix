@@ -17,6 +17,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
+import dev.behradhz.meowzix.domain.playback.ProgressiveQueueSnapshot
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueActionKind
@@ -59,6 +60,7 @@ class AndroidPlaybackController @Inject constructor(
         SessionToken(context, ComponentName(context, PlaybackService::class.java)),
     ).buildAsync()
     private var controller: MediaController? = null
+    private var lastPublishedLogicalQueue: ProgressiveQueueSnapshot? = null
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
@@ -97,13 +99,12 @@ class AndroidPlaybackController @Inject constructor(
 
     override fun playNow(trackId: UUID) {
         scope.launch {
-            val tracks = runCatching { catalog.availableTracks().distinctBy(PlayableTrack::id) }
+            val track = runCatching { catalog.playableTrack(trackId) }
                 .getOrElse { error ->
-                    showError(error.message ?: "Unable to load the playback queue")
+                    showError(error.message ?: "Unable to load the track")
                     return@launch
                 }
-            val startIndex = tracks.indexOfFirst { it.id == trackId }
-            if (startIndex < 0) {
+            if (track == null) {
                 showError("This track is no longer available")
                 return@launch
             }
@@ -113,8 +114,8 @@ class AndroidPlaybackController @Inject constructor(
                     return@launch
                 }
             val window = progressiveQueue.start(
-                orderedTracks = tracks,
-                requestedStartIndex = startIndex,
+                orderedTracks = listOf(track),
+                requestedStartIndex = 0,
                 mode = PlaybackMode.ORDERED,
                 repeat = RepeatMode.OFF,
             )
@@ -257,12 +258,11 @@ class AndroidPlaybackController @Inject constructor(
         mode: PlaybackMode,
     ) {
         scope.launch {
-            val byId = runCatching { catalog.availableTracks().associateBy { it.id } }
+            val requested = runCatching { catalog.availableTracks(trackIds) }
                 .getOrElse { error ->
                     showError(error.message ?: "Unable to load playlist")
                     return@launch
                 }
-            val requested = trackIds.distinct().mapNotNull(byId::get)
             var shuffleSeed: Long? = null
             var tracks = when (mode) {
                 PlaybackMode.ORDERED -> requested
@@ -280,7 +280,8 @@ class AndroidPlaybackController @Inject constructor(
                     ).trackIds.distinct()
                     val requestedById = requested.associateBy { it.id }
                     val ranked = ids.mapNotNull(requestedById::get)
-                    ranked + requested.filterNot { track -> ranked.any { it.id == track.id } }
+                    val rankedSet = ranked.mapTo(hashSetOf(), PlayableTrack::id)
+                    ranked + requested.filterNot { track -> track.id in rankedSet }
                 }
             }
             if (tracks.isEmpty()) return@launch showError("No playlist tracks are available")
@@ -408,7 +409,8 @@ class AndroidPlaybackController @Inject constructor(
                         timeBucket = currentTimeBucket(),
                     ).trackIds.distinct()
                     val ranked = rankedIds.mapNotNull(byId::get)
-                    ranked + future.filterNot { candidate -> ranked.any { it.id == candidate.id } }
+                    val rankedSet = ranked.mapTo(hashSetOf(), PlayableTrack::id)
+                    ranked + future.filterNot { candidate -> candidate.id in rankedSet }
                 }
             }
             progressiveQueue.replaceFuture(desiredFuture, mode, seed)
@@ -631,35 +633,44 @@ class AndroidPlaybackController @Inject constructor(
             canSkipNext = logical?.let { it.currentIndex < it.tracks.lastIndex } ?: player.hasNextMediaItem(),
             errorMessage = errorMessage,
         )
-        _queueState.value = logical?.let { snapshot ->
-            QueueState(
-                items = snapshot.tracks.map(PlayableTrack::toQueueItem),
-                currentIndex = snapshot.currentIndex,
-                playbackMode = snapshot.playbackMode,
-                repeatMode = snapshot.repeatMode,
+
+        if (logical != null) {
+            // ProgressiveQueue caches its immutable snapshot until queue structure/policy/current
+            // index changes. Position/buffer ticks therefore keep the same reference and must not
+            // remap a 10k logical queue into QueueItems twice per second.
+            if (logical !== lastPublishedLogicalQueue) {
+                _queueState.value = QueueState(
+                    items = logical.tracks.map(PlayableTrack::toQueueItem),
+                    currentIndex = logical.currentIndex,
+                    playbackMode = logical.playbackMode,
+                    repeatMode = logical.repeatMode,
+                )
+                lastPublishedLogicalQueue = logical
+            }
+        } else {
+            lastPublishedLogicalQueue = null
+            _queueState.value = QueueState(
+                items = (0 until player.mediaItemCount).mapNotNull { index ->
+                    val item = player.getMediaItemAt(index)
+                    runCatching { UUID.fromString(item.mediaId) }.getOrNull()?.let { id ->
+                        QueueItem(
+                            id = id,
+                            title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { "Unknown Track" },
+                            artist = item.mediaMetadata.artist?.toString(),
+                            artworkRef = item.mediaMetadata.artworkUri?.toString(),
+                        )
+                    }
+                },
+                currentIndex = player.currentMediaItemIndex,
+                playbackMode = playbackMode,
+                repeatMode = repeatMode,
             )
-        } ?: QueueState(
-            items = (0 until player.mediaItemCount).mapNotNull { index ->
-                val item = player.getMediaItemAt(index)
-                runCatching { UUID.fromString(item.mediaId) }.getOrNull()?.let { id ->
-                    QueueItem(
-                        id = id,
-                        title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { "Unknown Track" },
-                        artist = item.mediaMetadata.artist?.toString(),
-                        artworkRef = item.mediaMetadata.artworkUri?.toString(),
-                    )
-                }
-            },
-            currentIndex = player.currentMediaItemIndex,
-            playbackMode = playbackMode,
-            repeatMode = repeatMode,
-        )
+        }
     }
 
-    private suspend fun findTrack(trackId: UUID) = runCatching { catalog.availableTracks() }
-        .onFailure { error -> showError(error.message ?: "Unable to load the playback queue") }
+    private suspend fun findTrack(trackId: UUID) = runCatching { catalog.playableTrack(trackId) }
+        .onFailure { error -> showError(error.message ?: "Unable to load the track") }
         .getOrNull()
-        ?.firstOrNull { it.id == trackId }
         .also { if (it == null) showError("This track is no longer available") }
 
     private fun showError(message: String) {
