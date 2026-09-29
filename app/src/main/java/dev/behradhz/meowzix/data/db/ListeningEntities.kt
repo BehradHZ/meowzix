@@ -20,7 +20,9 @@ data class ListeningSessionEntity(
         ForeignKey(entity = ListeningSessionEntity::class, parentColumns = ["id"], childColumns = ["sessionId"], onDelete = ForeignKey.CASCADE),
     ],
     indices = [
-        Index("trackId"), Index("sessionId"),
+        Index("trackId"),
+        Index("sessionId"),
+        Index("occurredAtEpochMs"),
         Index(value = ["playbackInstanceId", "type"], unique = true),
     ],
 )
