@@ -10,7 +10,7 @@ fun LibraryRoute(
     onOpenTelegram: () -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
-    LibraryRouteV3(
+    LibraryRouteV4(
         onOpenNowPlaying = onOpenNowPlaying,
         viewModel = viewModel,
     )
