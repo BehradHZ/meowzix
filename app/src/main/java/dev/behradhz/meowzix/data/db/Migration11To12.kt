@@ -5,11 +5,19 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
- * FTS is intentionally an auxiliary table rather than a canonical entity. Track remains the source
- * of truth; triggers keep the index synchronized and make the search structure rebuildable.
+ * Adds only indexes backed by concrete hot query patterns and installs the auxiliary FTS search
+ * index. Track remains the canonical source of truth; triggers keep FTS synchronized.
  */
 val MIGRATION_11_12 = object : Migration(11, 12) {
     override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_tracks_normalizedTitle_normalizedArtist_durationMs` " +
+                "ON `tracks` (`normalizedTitle`, `normalizedArtist`, `durationMs`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_track_sources_contentHashSha256` " +
+                "ON `track_sources` (`contentHashSha256`)",
+        )
         ensureTrackSearchInfrastructure(db)
     }
 }
@@ -68,8 +76,6 @@ private fun ensureTrackSearchInfrastructure(db: SupportSQLiteDatabase) {
         """.trimIndent(),
     )
 
-    // Handles both migration backfill and a fresh DB where the callback is installed after tables
-    // are created. rowid is stable for a Track row and avoids an expensive text-key delete path.
     db.execSQL(
         """
         INSERT OR REPLACE INTO `track_search_fts`(`rowid`, `trackId`, `normalizedTitle`, `normalizedArtist`, `album`)
