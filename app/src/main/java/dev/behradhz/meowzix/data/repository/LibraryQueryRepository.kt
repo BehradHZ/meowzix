@@ -7,7 +7,9 @@ import dev.behradhz.meowzix.data.db.AlbumSummaryRow
 import dev.behradhz.meowzix.data.db.ArtistSummaryRow
 import dev.behradhz.meowzix.data.db.LibraryBrowseDao
 import dev.behradhz.meowzix.data.db.SearchTrackRow
+import dev.behradhz.meowzix.data.db.TrackAvailabilityRow
 import dev.behradhz.meowzix.data.db.TrackEntity
+import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -75,6 +77,13 @@ class LibraryQueryRepository @Inject constructor(
         ).map(SearchTrackRow::toDomain)
     }
 
+    fun availability(): Flow<Map<UUID, LibraryTrackAvailability>> =
+        dao.observeAvailabilityRows().map { rows ->
+            rows.associate { row -> UUID.fromString(row.trackId) to row.toAvailability() }
+        }
+
+    fun favoriteCount(): Flow<Int> = dao.observeFavoriteCount()
+
     fun artists(): Flow<List<ArtistSummary>> = dao.observeArtistSummaries().map { rows ->
         rows.map(ArtistSummaryRow::toSummary)
     }
@@ -103,6 +112,12 @@ internal fun buildTrackFtsMatchExpression(normalizedQuery: String): String = nor
 private fun ftsPrefixToken(token: String): String {
     val escaped = token.replace("\"", "\"\"")
     return "\"$escaped\"*"
+}
+
+private fun TrackAvailabilityRow.toAvailability(): LibraryTrackAvailability = when {
+    hasOfflineSource -> LibraryTrackAvailability.OFFLINE
+    hasCloudSource -> LibraryTrackAvailability.CLOUD
+    else -> LibraryTrackAvailability.UNAVAILABLE
 }
 
 private fun ArtistSummaryRow.toSummary() = ArtistSummary(name, normalizedName, trackCount, artworkRef)
