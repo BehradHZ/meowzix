@@ -1,10 +1,9 @@
 package dev.behradhz.meowzix.data.recommendation
 
 import dev.behradhz.meowzix.core.model.SourceAvailability
-import dev.behradhz.meowzix.data.db.AudioFeatureDao
 import dev.behradhz.meowzix.data.db.AudioFeatureVectorEntity
 import dev.behradhz.meowzix.data.db.HistoryDao
-import dev.behradhz.meowzix.data.db.LibraryDao
+import dev.behradhz.meowzix.data.db.RecommendationDao
 import dev.behradhz.meowzix.domain.history.ListeningEventType
 import dev.behradhz.meowzix.domain.history.TimeBucket
 import dev.behradhz.meowzix.domain.recommendation.AdaptiveScorer
@@ -32,9 +31,8 @@ import kotlinx.coroutines.flow.first
 
 @Singleton
 class HeuristicRecommendationEngine @Inject constructor(
-    private val libraryDao: LibraryDao,
+    private val recommendationDao: RecommendationDao,
     private val historyDao: HistoryDao,
-    private val audioFeatureDao: AudioFeatureDao,
     private val audioFeatureExtractor: AudioFeatureExtractor,
     private val audioFeatureExtractionCoordinator: AudioFeatureExtractionCoordinator,
     private val settings: SettingsRepository,
@@ -51,21 +49,46 @@ class HeuristicRecommendationEngine @Inject constructor(
     ): SmartQueue {
         val now = Instant.now()
         val localNow = ZonedDateTime.now()
-        val allowed = allowedTrackIds?.mapTo(mutableSetOf(), UUID::toString)
-        val tracks = libraryDao.allTracks().filter { allowed == null || it.id in allowed }
-        val sources = libraryDao.allSources().groupBy { it.trackId }
-        val global = historyDao.allTrackStats().associateBy { it.trackId }
-        val time = historyDao.timeStatsForBucket(timeBucket.name).associateBy { it.trackId }
-        val recentEvents = historyDao.recentSelectionEvents(50)
-        val recentTrackIds = recentEvents.filter { it.type == ListeningEventType.PLAY_STARTED.name }.map { it.trackId }
+        val recentEvents = historyDao.recentSelectionEvents(RECENT_EVENT_LIMIT)
+
+        val priorityIds = buildList {
+            recentEvents.mapNotNullTo(this) { it.trackId.toUuidOrNull() }
+            recommendationDao.favoriteTrackIds(PRIORITY_BUCKET_LIMIT)
+                .mapNotNullTo(this) { it.toUuidOrNull() }
+            recommendationDao.preferredTrackIds(PRIORITY_BUCKET_LIMIT)
+                .mapNotNullTo(this) { it.toUuidOrNull() }
+        }
+        val allowed = allowedTrackIds ?: buildList {
+            addAll(priorityIds)
+            recommendationDao.discoveryTrackIds(DISCOVERY_POOL_LIMIT)
+                .mapNotNullTo(this) { it.toUuidOrNull() }
+        }
+        val candidateIds = reduceRecommendationCandidateIds(
+            allowedTrackIds = allowed,
+            priorityTrackIds = priorityIds,
+            limit = CANDIDATE_LIMIT,
+            seed = seed,
+        )
+        if (candidateIds.isEmpty()) return SmartQueue(emptyList(), emptyMap())
+
+        val candidateIdStrings = candidateIds.map(UUID::toString)
+        val tracks = recommendationDao.tracksByIds(candidateIdStrings)
+        val sources = recommendationDao.activeSourcesForTracks(candidateIdStrings).groupBy { it.trackId }
+        val global = recommendationDao.trackStatsForTracks(candidateIdStrings).associateBy { it.trackId }
+        val time = recommendationDao.timeStatsForTracks(candidateIdStrings, timeBucket.name).associateBy { it.trackId }
+
+        val recentTrackIds = recentEvents
+            .filter { it.type == ListeningEventType.PLAY_STARTED.name }
+            .map { it.trackId }
         val trackById = tracks.associateBy { it.id }
         val recentArtists = recentTrackIds.mapNotNull { trackById[it]?.normalizedArtist }.take(5)
         val sessionCutoff = now.minusSeconds(30 * 60).toEpochMilli()
         val skips = recentEvents.filter {
             it.type == ListeningEventType.SKIPPED_EARLY.name && it.occurredAtEpochMs >= sessionCutoff
         }.groupingBy { it.trackId }.eachCount()
+
         val candidates = tracks.map { track ->
-            val trackSources = sources[track.id].orEmpty().filter { it.availability != SourceAvailability.MISSING }
+            val trackSources = sources[track.id].orEmpty()
             val trackStats = global[track.id]
             val bucketStats = time[track.id]
             SmartCandidate(
@@ -95,11 +118,14 @@ class HeuristicRecommendationEngine @Inject constructor(
         }
         val offlineOnly = settings.networkPlaybackSettings.first().offlineMode
         val valid = CandidateGenerator.generate(candidates, currentTrackId, offlineOnly)
+        if (valid.isEmpty()) return SmartQueue(emptyList(), emptyMap())
 
         // Missing acoustic features are optional. Extraction is queued in a serial background lane
-        // and this queue generation uses whatever compatible vectors already exist right now.
+        // and this generation uses whatever compatible vectors already exist right now.
         audioFeatureExtractionCoordinator.schedule(valid.map { it.trackId })
-        val audio = audioFeatureDao.compatibleVectors(
+        val validIds = valid.map { it.trackId.toString() }
+        val audio = recommendationDao.compatibleAudioVectorsForTracks(
+            validIds,
             audioFeatureExtractor.extractorName,
             audioFeatureExtractor.extractorVersion,
             audioFeatureExtractor.schemaVersion,
@@ -137,4 +163,13 @@ class HeuristicRecommendationEngine @Inject constructor(
     private fun AudioFeatureVectorEntity.decodeValues(): DoubleArray? = runCatching {
         AudioFeatureVectorCodec.decode(vectorBlob, AudioVectorFormat.valueOf(vectorFormat))
     }.getOrNull()
+
+    private fun String.toUuidOrNull(): UUID? = runCatching(UUID::fromString).getOrNull()
+
+    private companion object {
+        const val CANDIDATE_LIMIT = 800
+        const val PRIORITY_BUCKET_LIMIT = 96
+        const val RECENT_EVENT_LIMIT = 100
+        const val DISCOVERY_POOL_LIMIT = 2_400
+    }
 }
