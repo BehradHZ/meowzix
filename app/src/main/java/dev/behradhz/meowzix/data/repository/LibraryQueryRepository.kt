@@ -36,12 +36,7 @@ class LibraryQueryRepository @Inject constructor(
 ) {
     suspend fun search(query: String, limit: Int = 80): List<Track> {
         val normalized = TextNormalizer.normalize(query) ?: return emptyList()
-        val matchExpression = normalized
-            .split(' ')
-            .asSequence()
-            .filter(String::isNotBlank)
-            .map(::ftsPrefixToken)
-            .joinToString(" AND ")
+        val matchExpression = buildTrackFtsMatchExpression(normalized)
         if (matchExpression.isBlank()) return emptyList()
 
         val sql = """
@@ -73,7 +68,10 @@ class LibraryQueryRepository @Inject constructor(
             LIMIT ?
         """.trimIndent()
         return dao.searchTracks(
-            SimpleSQLiteQuery(sql, arrayOf(matchExpression, normalized, limit.coerceIn(1, 200))),
+            SimpleSQLiteQuery(
+                sql,
+                arrayOf<Any>(matchExpression, normalized, limit.coerceIn(1, 200)),
+            ),
         ).map(SearchTrackRow::toDomain)
     }
 
@@ -94,6 +92,13 @@ class LibraryQueryRepository @Inject constructor(
     fun favoriteTracks(): Flow<List<Track>> =
         dao.observeFavoriteTracks().map { rows -> rows.map(TrackEntity::toDomainTrack) }
 }
+
+internal fun buildTrackFtsMatchExpression(normalizedQuery: String): String = normalizedQuery
+    .split(' ')
+    .asSequence()
+    .filter(String::isNotBlank)
+    .map(::ftsPrefixToken)
+    .joinToString(" AND ")
 
 private fun ftsPrefixToken(token: String): String {
     val escaped = token.replace("\"", "\"\"")
