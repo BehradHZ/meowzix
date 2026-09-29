@@ -27,7 +27,9 @@ import java.time.ZonedDateTime
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 @Singleton
 class HeuristicRecommendationEngine @Inject constructor(
@@ -42,6 +44,21 @@ class HeuristicRecommendationEngine @Inject constructor(
     private val scorer = AdaptiveScorer()
 
     override suspend fun generate(
+        allowedTrackIds: List<UUID>?,
+        currentTrackId: UUID?,
+        timeBucket: TimeBucket,
+        seed: Long,
+    ): SmartQueue = withContext(Dispatchers.Default) {
+        generateBounded(allowedTrackIds, currentTrackId, timeBucket, seed)
+    }
+
+    /**
+     * The playback controller is Main-immediate, so keep all candidate materialization, feature
+     * vectorization, model scoring, heuristic scoring, and SmartSelector work on a worker dispatcher.
+     * Room may hop its own suspend queries, but the CPU work around those queries otherwise resumes
+     * on the caller dispatcher.
+     */
+    private suspend fun generateBounded(
         allowedTrackIds: List<UUID>?,
         currentTrackId: UUID?,
         timeBucket: TimeBucket,
