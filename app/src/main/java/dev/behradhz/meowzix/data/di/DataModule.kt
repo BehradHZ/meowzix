@@ -25,6 +25,7 @@ import dev.behradhz.meowzix.data.db.MIGRATION_10_11
 import dev.behradhz.meowzix.data.db.MIGRATION_11_12
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.PlaylistDao
+import dev.behradhz.meowzix.data.db.RecommendationDao
 import dev.behradhz.meowzix.data.db.TRACK_SEARCH_DATABASE_CALLBACK
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramSendDao
@@ -159,6 +160,9 @@ object DatabaseModule {
 
     @Provides
     fun provideLibraryDao(database: MeowzixDatabase): LibraryDao = database.libraryDao()
+
+    @Provides
+    fun provideRecommendationDao(database: MeowzixDatabase): RecommendationDao = database.recommendationDao()
 
     @Provides
     fun provideTelegramDao(database: MeowzixDatabase): TelegramDao = database.telegramDao()
