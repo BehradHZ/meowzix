@@ -15,7 +15,7 @@ import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.library.LibraryTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueRepository
-import dev.behradhz.meowzix.domain.settings.LibrarySortMode
+import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.util.UUID
 import javax.inject.Inject
@@ -26,7 +26,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -40,20 +39,22 @@ class LibraryTracksViewModel @Inject constructor(
 ) : ViewModel() {
     private val availability = MutableStateFlow(LibraryAvailabilityFilter.ALL)
 
-    private val sortMode: StateFlow<LibrarySortMode> = settingsRepository.libraryDisplaySettings
-        .map { it.sortMode }
+    val displaySettings: StateFlow<LibraryDisplaySettings> = settingsRepository.libraryDisplaySettings
         .distinctUntilChanged()
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            LibrarySortMode.RECENTLY_ADDED,
+            LibraryDisplaySettings(),
         )
 
-    val tracks: Flow<PagingData<LibraryTrack>> = combine(sortMode, availability) { sort, filter ->
-        sort to filter
-    }
+    val tracks: Flow<PagingData<LibraryTrack>> = combine(
+        displaySettings,
+        availability,
+    ) { settings, filter -> settings to filter }
         .distinctUntilChanged()
-        .flatMapLatest { (sort, filter) -> pagedLibrary.flow(sort, filter) }
+        .flatMapLatest { (settings, filter) ->
+            pagedLibrary.flow(settings.sortMode, settings.groupMode, filter)
+        }
         .cachedIn(viewModelScope)
 
     val trackCount: StateFlow<Int> = pagedLibrary.count()
@@ -76,8 +77,12 @@ class LibraryTracksViewModel @Inject constructor(
     fun playTrack(trackId: UUID) {
         viewModelScope.launch {
             val filter = availability.value
-            val sort = sortMode.value
-            val ids = pagedLibrary.orderedTrackIds(sort, filter).distinct()
+            val display = displaySettings.value
+            val ids = pagedLibrary.orderedTrackIds(
+                display.sortMode,
+                display.groupMode,
+                filter,
+            ).distinct()
             if (ids.isEmpty()) return@launch
 
             val contextKey = PlaybackContextKeys.LIBRARY
