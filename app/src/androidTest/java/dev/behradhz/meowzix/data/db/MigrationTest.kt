@@ -4,6 +4,7 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -104,6 +105,53 @@ class MigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun migrateElevenToTwelveBackfillsUnicodeFtsAndCandidateIndexes() {
+        val database = helper.createDatabase(TEST_DATABASE_11_12, 11)
+        database.execSQL(
+            "INSERT INTO `tracks` (`id`, `title`, `normalizedTitle`, `artist`, `normalizedArtist`, `album`, " +
+                "`durationMs`, `trackNumber`, `year`, `artworkRef`, `favorite`, `hidden`, `createdAtEpochMs`, `updatedAtEpochMs`) " +
+                "VALUES ('english-track', 'Radiohead Song', 'radiohead song', 'Radiohead', 'radiohead', 'Album', 180000, NULL, NULL, NULL, 0, 0, 1, 1)",
+        )
+        database.execSQL(
+            "INSERT INTO `tracks` (`id`, `title`, `normalizedTitle`, `artist`, `normalizedArtist`, `album`, " +
+                "`durationMs`, `trackNumber`, `year`, `artworkRef`, `favorite`, `hidden`, `createdAtEpochMs`, `updatedAtEpochMs`) " +
+                "VALUES ('persian-track', 'موسیقی شب', 'موسیقی شب', 'هنرمند', 'هنرمند', 'آلبوم', 200000, NULL, NULL, NULL, 0, 0, 1, 1)",
+        )
+        database.close()
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DATABASE_11_12,
+            12,
+            true,
+            MIGRATION_11_12,
+        )
+
+        migrated.query(
+            "SELECT name FROM sqlite_master WHERE type = 'index' " +
+                "AND name = 'index_tracks_normalizedTitle_normalizedArtist_durationMs'",
+        ).use { cursor -> assertTrue(cursor.moveToFirst()) }
+        migrated.query(
+            "SELECT name FROM sqlite_master WHERE type = 'index' " +
+                "AND name = 'index_track_sources_contentHashSha256'",
+        ).use { cursor -> assertTrue(cursor.moveToFirst()) }
+        migrated.query(
+            "SELECT trackId FROM track_search_fts WHERE track_search_fts MATCH ?",
+            arrayOf("\"radio\"*"),
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("english-track", cursor.getString(0))
+        }
+        migrated.query(
+            "SELECT trackId FROM track_search_fts WHERE track_search_fts MATCH ?",
+            arrayOf("\"موسی\"*"),
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("persian-track", cursor.getString(0))
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"
@@ -113,5 +161,6 @@ class MigrationTest {
         const val TEST_DATABASE_6_8 = "migration-test-6-8"
         const val TEST_DATABASE_7_8_REPAIR = "migration-test-7-8-repair"
         const val TEST_DATABASE_10_11 = "migration-test-10-11"
+        const val TEST_DATABASE_11_12 = "migration-test-11-12"
     }
 }
