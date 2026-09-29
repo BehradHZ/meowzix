@@ -37,6 +37,7 @@ import dev.behradhz.meowzix.data.recommendation.AndroidPcmAudioFeatureExtractor
 import dev.behradhz.meowzix.data.recommendation.HeuristicRecommendationEngine
 import dev.behradhz.meowzix.data.recommendation.LocalLinearPersonalizationModel
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
+import dev.behradhz.meowzix.data.repository.RoomPlaybackCatalog
 import dev.behradhz.meowzix.data.repository.RoomPlaylistRepository
 import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
 import dev.behradhz.meowzix.data.telegram.TdLibRemoteTrackPlaybackResolver
@@ -72,7 +73,7 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindPlaybackCatalog(impl: LocalMusicLibraryRepository): PlaybackCatalog
+    abstract fun bindPlaybackCatalog(impl: RoomPlaybackCatalog): PlaybackCatalog
 
     @Binds
     @Singleton
