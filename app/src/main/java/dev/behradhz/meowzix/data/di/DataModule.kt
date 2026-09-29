@@ -22,8 +22,10 @@ import dev.behradhz.meowzix.data.db.MIGRATION_7_8
 import dev.behradhz.meowzix.data.db.MIGRATION_8_9
 import dev.behradhz.meowzix.data.db.MIGRATION_9_10
 import dev.behradhz.meowzix.data.db.MIGRATION_10_11
+import dev.behradhz.meowzix.data.db.MIGRATION_11_12
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.PlaylistDao
+import dev.behradhz.meowzix.data.db.TRACK_SEARCH_DATABASE_CALLBACK
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramSendDao
 import dev.behradhz.meowzix.data.downloads.TdLibDownloadRepository
@@ -150,7 +152,9 @@ object DatabaseModule {
                 MIGRATION_8_9,
                 MIGRATION_9_10,
                 MIGRATION_10_11,
+                MIGRATION_11_12,
             )
+            .addCallback(TRACK_SEARCH_DATABASE_CALLBACK)
             .build()
 
     @Provides
