@@ -151,14 +151,14 @@ class MigrationTest {
         ).use { cursor -> assertTrue(cursor.moveToFirst()) }
         migrated.query(
             "SELECT trackId FROM track_search_fts WHERE track_search_fts MATCH ?",
-            arrayOf("\"radio\"*"),
+            arrayOf("\"radio*\""),
         ).use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals("english-track", cursor.getString(0))
         }
         migrated.query(
             "SELECT trackId FROM track_search_fts WHERE track_search_fts MATCH ?",
-            arrayOf("\"موسی\"*"),
+            arrayOf("\"موسی*\""),
         ).use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals("persian-track", cursor.getString(0))
