@@ -20,6 +20,7 @@ import dev.behradhz.meowzix.core.model.TrackSourceType
         Index(value = ["contentUri"], unique = true),
         Index(value = ["trackId", "availability"]),
         Index(value = ["type", "availability", "trackId"]),
+        Index("contentHashSha256"),
     ],
 )
 data class TrackSourceEntity(
