@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.LibraryTrackRow
 import dev.behradhz.meowzix.domain.library.LibraryTrack
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
+import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
 import dev.behradhz.meowzix.domain.settings.LibrarySortMode
 import java.time.Instant
 import java.util.UUID
@@ -20,18 +21,14 @@ import kotlinx.coroutines.flow.map
 
 enum class LibraryAvailabilityFilter { ALL, OFFLINE, CLOUD }
 
-/**
- * True database-backed paging for the main Tracks surface.
- *
- * The query projects only list fields and two availability booleans. It never materializes every
- * TrackSource just to decide whether a row is local/cloud, and sort/filter work stays in SQLite.
- */
+/** True database-backed paging for the main Tracks surface. */
 class PagedLibraryTracks @Inject constructor(
     private val dao: LibraryDao,
     private val browseDao: LibraryBrowseDao,
 ) {
     fun flow(
         sortMode: LibrarySortMode,
+        groupMode: LibraryGroupMode,
         availability: LibraryAvailabilityFilter,
         favoritesOnly: Boolean = false,
         pageSize: Int = 80,
@@ -43,24 +40,14 @@ class PagedLibraryTracks @Inject constructor(
             enablePlaceholders = false,
         ),
         pagingSourceFactory = {
-            val parts = queryParts(sortMode, availability, favoritesOnly)
+            val parts = queryParts(sortMode, groupMode, availability, favoritesOnly)
             dao.pagingLibraryRows(
                 SimpleSQLiteQuery(
                     """
                     SELECT
-                        t.id,
-                        t.title,
-                        t.normalizedTitle,
-                        t.artist,
-                        t.normalizedArtist,
-                        t.album,
-                        t.durationMs,
-                        t.trackNumber,
-                        t.year,
-                        t.artworkRef,
-                        t.favorite,
-                        t.createdAtEpochMs,
-                        t.updatedAtEpochMs,
+                        t.id, t.title, t.normalizedTitle, t.artist, t.normalizedArtist, t.album,
+                        t.durationMs, t.trackNumber, t.year, t.artworkRef, t.favorite,
+                        t.createdAtEpochMs, t.updatedAtEpochMs,
                         CASE WHEN ${parts.offlineExists} THEN 1 ELSE 0 END AS hasOfflineSource,
                         CASE WHEN ${parts.cloudExists} THEN 1 ELSE 0 END AS hasCloudSource
                     FROM tracks t
@@ -72,17 +59,14 @@ class PagedLibraryTracks @Inject constructor(
         },
     ).flow.map { data -> data.map(LibraryTrackRow::toDomain) }
 
-    /**
-     * Build only the logical queue identity/order on explicit Play. This is intentionally not used
-     * for screen rendering; a 10k-track library therefore does not require 10k Track objects in
-     * memory just to open or scroll the library.
-     */
+    /** Build the full logical queue identity only after an explicit Play action. */
     suspend fun orderedTrackIds(
         sortMode: LibrarySortMode,
+        groupMode: LibraryGroupMode,
         availability: LibraryAvailabilityFilter,
         favoritesOnly: Boolean = false,
     ): List<UUID> {
-        val parts = queryParts(sortMode, availability, favoritesOnly)
+        val parts = queryParts(sortMode, groupMode, availability, favoritesOnly)
         return browseDao.libraryTrackIds(
             SimpleSQLiteQuery(
                 """
@@ -99,6 +83,7 @@ class PagedLibraryTracks @Inject constructor(
 
     private fun queryParts(
         sortMode: LibrarySortMode,
+        groupMode: LibraryGroupMode,
         availability: LibraryAvailabilityFilter,
         favoritesOnly: Boolean,
     ): QueryParts {
@@ -127,12 +112,18 @@ class PagedLibraryTracks @Inject constructor(
             LibraryAvailabilityFilter.CLOUD -> "(NOT $offlineExists AND $selectedCloudExists)"
         }
         val favoriteClause = if (favoritesOnly) " AND t.favorite = 1" else ""
-        val orderBy = when (sortMode) {
+        val baseSort = when (sortMode) {
             LibrarySortMode.RECENTLY_ADDED -> "t.createdAtEpochMs DESC, t.id ASC"
             LibrarySortMode.OLDEST_ADDED -> "t.createdAtEpochMs ASC, t.id ASC"
             LibrarySortMode.TITLE_ASC -> "t.normalizedTitle ASC, t.id ASC"
             LibrarySortMode.TITLE_DESC -> "t.normalizedTitle DESC, t.id ASC"
             LibrarySortMode.ARTIST_ASC -> "COALESCE(t.normalizedArtist, '') ASC, t.normalizedTitle ASC, t.id ASC"
+        }
+        val orderBy = when (groupMode) {
+            LibraryGroupMode.NONE -> baseSort
+            LibraryGroupMode.ARTIST -> "COALESCE(t.normalizedArtist, 'unknown artist') ASC, $baseSort"
+            LibraryGroupMode.ALBUM -> "COALESCE(NULLIF(LOWER(TRIM(t.album)), ''), 'unknown album') ASC, COALESCE(t.normalizedArtist, '') ASC, $baseSort"
+            LibraryGroupMode.YEAR -> "COALESCE(t.year, 0) DESC, $baseSort"
         }
         return QueryParts(
             offlineExists = offlineExists,
