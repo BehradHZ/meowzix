@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.data.recommendation.reduceRecommendationCandidateIds
 import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
+import dev.behradhz.meowzix.domain.recommendation.ScoreBreakdown
 import dev.behradhz.meowzix.domain.recommendation.SmartSelector
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -94,7 +95,16 @@ class ScaleTest {
         assertTrue("10k-track candidate reduction took ${reduceMs}ms", reduceMs < CPU_BUDGET_MS)
 
         val scores = reduced.associateWith { id ->
-            ((id.leastSignificantBits ushr 1) % 10_000L).toDouble() / 10_000.0
+            val total = ((id.leastSignificantBits ushr 1) % 10_000L).toDouble() / 10_000.0
+            ScoreBreakdown(
+                total = total,
+                globalAffinity = total,
+                timeAffinity = total,
+                exploration = 0.0,
+                recencyPenalty = 0.0,
+                artistPenalty = 0.0,
+                sessionSkipPenalty = 0.0,
+            )
         }
         val scoringMs = measureMs {
             assertEquals(reduced.size, SmartSelector.order(scores, seed = 42L).size)
