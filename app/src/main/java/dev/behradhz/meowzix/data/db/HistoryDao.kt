@@ -12,6 +12,13 @@ interface HistoryDao {
     @Query("SELECT * FROM listening_events ORDER BY occurredAtEpochMs DESC")
     fun observeEvents(): Flow<List<ListeningEventEntity>>
 
+    @Query(
+        "SELECT * FROM listening_events " +
+            "WHERE type IN ('PLAY_STARTED', 'MANUAL_SELECTED') " +
+            "ORDER BY occurredAtEpochMs DESC LIMIT :limit",
+    )
+    fun observeRecentHomeSelections(limit: Int): Flow<List<ListeningEventEntity>>
+
     @Query("SELECT * FROM track_preference_stats ORDER BY lastPlayedAtEpochMs DESC")
     fun observeTrackStats(): Flow<List<TrackPreferenceStatsEntity>>
 
