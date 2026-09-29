@@ -20,6 +20,7 @@ import androidx.room.TypeConverters
         TrackPreferenceStatsEntity::class,
         TrackTimePreferenceEntity::class,
         AudioFeatureVectorEntity::class,
+        TrackSearchFtsEntity::class,
     ],
     version = 12,
     exportSchema = true,
