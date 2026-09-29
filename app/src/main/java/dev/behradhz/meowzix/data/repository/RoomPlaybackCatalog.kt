@@ -30,10 +30,10 @@ class RoomPlaybackCatalog @Inject constructor(
     private val recommendationDao: RecommendationDao,
     private val telegramDao: TelegramDao,
 ) : PlaybackCatalog {
-    override suspend fun availableLocalTracks(): List<PlayableTrack> {
-        val rows = libraryDao.availableLocalPlaybackRows()
-        return withContext(Dispatchers.Default) {
-            rows.distinctBy { it.id }.map { row ->
+    override suspend fun availableLocalTracks(): List<PlayableTrack> = withContext(Dispatchers.Default) {
+        libraryDao.availableLocalPlaybackRows()
+            .distinctBy { it.id }
+            .map { row ->
                 PlayableTrack(
                     id = UUID.fromString(row.id),
                     title = row.title,
@@ -44,13 +44,12 @@ class RoomPlaybackCatalog @Inject constructor(
                     contentUri = row.contentUri,
                 )
             }
-        }
     }
 
-    override suspend fun isTrackLocallyPlayable(trackId: UUID): Boolean {
-        val track = libraryDao.trackById(trackId.toString()) ?: return false
-        if (track.hidden) return false
-        return libraryDao.sourcesForTrack(trackId.toString()).any { source ->
+    override suspend fun isTrackLocallyPlayable(trackId: UUID): Boolean = withContext(Dispatchers.Default) {
+        val track = libraryDao.trackById(trackId.toString()) ?: return@withContext false
+        if (track.hidden) return@withContext false
+        libraryDao.sourcesForTrack(trackId.toString()).any { source ->
             source.availability == SourceAvailability.AVAILABLE_LOCAL && when {
                 !source.contentUri.isNullOrBlank() -> true
                 !source.localPath.isNullOrBlank() -> source.localPath?.let { File(it).isFile } == true
@@ -62,9 +61,9 @@ class RoomPlaybackCatalog @Inject constructor(
     override suspend fun playableTrack(trackId: UUID): PlayableTrack? =
         availableTracks(listOf(trackId)).firstOrNull()
 
-    override suspend fun availableTracks(trackIds: List<UUID>): List<PlayableTrack> {
+    override suspend fun availableTracks(trackIds: List<UUID>): List<PlayableTrack> = withContext(Dispatchers.Default) {
         val orderedIds = trackIds.distinct()
-        if (orderedIds.isEmpty()) return emptyList()
+        if (orderedIds.isEmpty()) return@withContext emptyList()
 
         val resolved = HashMap<UUID, PlayableTrack>(orderedIds.size)
         orderedIds.chunked(QUERY_CHUNK_SIZE).forEach { chunk ->
@@ -79,12 +78,12 @@ class RoomPlaybackCatalog @Inject constructor(
                     ?.let { resolved[it.id] = it }
             }
         }
-        return orderedIds.mapNotNull(resolved::get)
+        orderedIds.mapNotNull(resolved::get)
     }
 
-    override suspend fun availableTracks(): List<PlayableTrack> {
+    override suspend fun availableTracks(): List<PlayableTrack> = withContext(Dispatchers.Default) {
         val ids = libraryDao.availableTracks().map { UUID.fromString(it.id) }
-        return availableTracks(ids).sortedBy { it.title.lowercase() }
+        availableTracks(ids).sortedBy { it.title.lowercase() }
     }
 
     private fun resolvePlayableTrack(
