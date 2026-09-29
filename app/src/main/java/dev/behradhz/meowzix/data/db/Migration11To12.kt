@@ -18,18 +18,23 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
             "CREATE INDEX IF NOT EXISTS `index_track_sources_contentHashSha256` " +
                 "ON `track_sources` (`contentHashSha256`)",
         )
-        ensureTrackSearchInfrastructure(db)
+        ensureTrackSearchInfrastructure(db, backfill = true)
     }
 }
 
 val TRACK_SEARCH_DATABASE_CALLBACK = object : RoomDatabase.Callback() {
     override fun onOpen(db: SupportSQLiteDatabase) {
         super.onOpen(db)
-        ensureTrackSearchInfrastructure(db)
+        // Fresh databases are empty when Room creates them, and migrated databases were backfilled
+        // exactly once in MIGRATION_11_12. Never scan the full Track table during ordinary startup.
+        ensureTrackSearchInfrastructure(db, backfill = false)
     }
 }
 
-private fun ensureTrackSearchInfrastructure(db: SupportSQLiteDatabase) {
+private fun ensureTrackSearchInfrastructure(
+    db: SupportSQLiteDatabase,
+    backfill: Boolean,
+) {
     db.execSQL(
         """
         CREATE VIRTUAL TABLE IF NOT EXISTS `track_search_fts`
@@ -76,14 +81,13 @@ private fun ensureTrackSearchInfrastructure(db: SupportSQLiteDatabase) {
         """.trimIndent(),
     )
 
-    db.execSQL(
-        """
-        INSERT OR REPLACE INTO `track_search_fts`(`rowid`, `trackId`, `normalizedTitle`, `normalizedArtist`, `album`)
-        SELECT t.rowid, t.id, t.normalizedTitle, COALESCE(t.normalizedArtist, ''), COALESCE(t.album, '')
-        FROM `tracks` t
-        WHERE NOT EXISTS (
-            SELECT 1 FROM `track_search_fts` f WHERE f.rowid = t.rowid
+    if (backfill) {
+        db.execSQL(
+            """
+            INSERT OR REPLACE INTO `track_search_fts`(`rowid`, `trackId`, `normalizedTitle`, `normalizedArtist`, `album`)
+            SELECT t.rowid, t.id, t.normalizedTitle, COALESCE(t.normalizedArtist, ''), COALESCE(t.album, '')
+            FROM `tracks` t
+            """.trimIndent(),
         )
-        """.trimIndent(),
-    )
+    }
 }
