@@ -24,12 +24,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.core.common.TextNormalizer
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.ui.components.TrackArtwork
@@ -37,24 +41,18 @@ import dev.behradhz.meowzix.ui.components.TrackArtwork
 @Composable
 fun SearchRoute(
     query: String,
-    tracks: List<Track>,
     currentTrackId: java.util.UUID?,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onPlayArtist: (List<Track>) -> Unit,
     onPlayAlbum: (List<Track>) -> Unit,
+    viewModel: SearchViewModel = hiltViewModel(),
 ) {
+    LaunchedEffect(query) { viewModel.setQuery(query) }
+    val matchingTracks by viewModel.results.collectAsStateWithLifecycle()
     val normalizedQuery = TextNormalizer.normalize(query)
-    val matchingTracks = remember(tracks, normalizedQuery) {
-        if (normalizedQuery == null) {
-            emptyList()
-        } else {
-            tracks.filter { track ->
-                listOf(track.title, track.artist, track.album)
-                    .mapNotNull(TextNormalizer::normalize)
-                    .any { it.contains(normalizedQuery) }
-            }.take(80)
-        }
-    }
+
+    // These groups are intentionally derived only from the bounded FTS result set (<=80), never
+    // from the complete library.
     val artists = remember(matchingTracks) {
         matchingTracks
             .filter { !it.artist.isNullOrBlank() }
@@ -120,8 +118,12 @@ fun SearchRoute(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (artists.isNotEmpty()) {
-                item("artists-title") { SearchSectionTitle("Artists") }
-                items(artists, key = { "artist:${it.key}" }) { (artist, artistTracks) ->
+                item(key = "artists-title", contentType = "header") { SearchSectionTitle("Artists") }
+                items(
+                    items = artists,
+                    key = { "artist:${it.key}" },
+                    contentType = { "artist" },
+                ) { (artist, artistTracks) ->
                     SearchGroupRow(
                         title = artist,
                         subtitle = "${artistTracks.size} matching tracks",
@@ -131,8 +133,12 @@ fun SearchRoute(
                 }
             }
             if (albums.isNotEmpty()) {
-                item("albums-title") { SearchSectionTitle("Albums") }
-                items(albums, key = { "album:${it.key.first}:${it.key.second}" }) { entry ->
+                item(key = "albums-title", contentType = "header") { SearchSectionTitle("Albums") }
+                items(
+                    items = albums,
+                    key = { "album:${it.key.first}:${it.key.second}" },
+                    contentType = { "album" },
+                ) { entry ->
                     SearchGroupRow(
                         title = entry.key.first,
                         subtitle = entry.key.second,
@@ -142,8 +148,12 @@ fun SearchRoute(
                 }
             }
             if (matchingTracks.isNotEmpty()) {
-                item("songs-title") { SearchSectionTitle("Songs") }
-                items(matchingTracks, key = { it.id.toString() }) { track ->
+                item(key = "songs-title", contentType = "header") { SearchSectionTitle("Songs") }
+                items(
+                    items = matchingTracks,
+                    key = { it.id.toString() },
+                    contentType = { "track" },
+                ) { track ->
                     SearchTrackRow(
                         track = track,
                         isCurrent = currentTrackId == track.id,
