@@ -188,7 +188,9 @@ internal fun buildTrackFtsMatchExpression(normalizedQuery: String): String = nor
 
 private fun ftsPrefixToken(token: String): String {
     val escaped = token.replace("\"", "\"\"")
-    return "\"$escaped\"*"
+    // In FTS4 the wildcard must be inside a quoted token. `"radio"*` is an exact quoted
+    // token followed by a no-op wildcard and does not match `radiohead`; `"radio*"` does.
+    return "\"$escaped*\""
 }
 
 private fun TrackAvailabilityRow.toAvailability(): LibraryTrackAvailability = when {
