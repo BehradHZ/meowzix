@@ -7,7 +7,7 @@ class LibraryQueryRepositoryTest {
     @Test
     fun englishPrefixQueryUsesAllTokens() {
         assertEquals(
-            "\"radio\"* AND \"head\"*",
+            "\"radio*\" AND \"head*\"",
             buildTrackFtsMatchExpression("radio head"),
         )
     }
@@ -15,7 +15,7 @@ class LibraryQueryRepositoryTest {
     @Test
     fun persianPrefixQueryPreservesUnicodeTokens() {
         assertEquals(
-            "\"موسی\"* AND \"شب\"*",
+            "\"موسی*\" AND \"شب*\"",
             buildTrackFtsMatchExpression("موسی شب"),
         )
     }
@@ -23,7 +23,7 @@ class LibraryQueryRepositoryTest {
     @Test
     fun repeatedWhitespaceDoesNotProduceEmptyTerms() {
         assertEquals(
-            "\"one\"* AND \"two\"*",
+            "\"one*\" AND \"two*\"",
             buildTrackFtsMatchExpression("one   two"),
         )
     }
