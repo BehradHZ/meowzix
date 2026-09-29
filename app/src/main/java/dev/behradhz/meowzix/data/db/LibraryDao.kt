@@ -82,11 +82,6 @@ interface LibraryDao {
     )
     fun pagingAvailableTracks(): PagingSource<Int, TrackEntity>
 
-    /**
-     * Main library list projection. SQL text is assembled only from closed enum values in
-     * PagedLibraryTracks, so sort/filter selection stays database-backed without duplicating five
-     * near-identical Room queries.
-     */
     @RawQuery(
         observedEntities = [
             TrackEntity::class,
@@ -169,7 +164,6 @@ interface LibraryDao {
     )
     suspend fun matchingTracks(normalizedTitle: String, normalizedArtist: String): List<TrackEntity>
 
-    /** Bounded SQL candidate set for the expensive UnifiedTrackMatcher. */
     @Query(
         """
         SELECT id, normalizedTitle, normalizedArtist, durationMs
@@ -240,19 +234,19 @@ interface LibraryDao {
     suspend fun upsertTrack(track: TrackEntity)
 
     @Upsert
-    suspend fun upsertTracks(tracks: List<TrackEntity>)
+    fun upsertTracks(tracks: List<TrackEntity>)
 
     @Upsert
     suspend fun upsertSource(source: TrackSourceEntity)
 
     @Upsert
-    suspend fun upsertSources(sources: List<TrackSourceEntity>)
+    fun upsertSources(sources: List<TrackSourceEntity>)
 
     @Upsert
     suspend fun upsertLocalMediaSource(source: LocalMediaSourceEntity)
 
     @Upsert
-    suspend fun upsertLocalMediaSources(sources: List<LocalMediaSourceEntity>)
+    fun upsertLocalMediaSources(sources: List<LocalMediaSourceEntity>)
 
     @Query("UPDATE track_sources SET availability = :availability, lastVerifiedAtEpochMs = :verifiedAt WHERE id = :sourceId")
     suspend fun updateAvailability(sourceId: String, availability: SourceAvailability, verifiedAt: Long)
