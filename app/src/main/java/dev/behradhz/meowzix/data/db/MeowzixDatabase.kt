@@ -27,6 +27,7 @@ import androidx.room.TypeConverters
 @TypeConverters(DbConverters::class)
 abstract class MeowzixDatabase : RoomDatabase() {
     abstract fun libraryDao(): LibraryDao
+    abstract fun libraryBrowseDao(): LibraryBrowseDao
     abstract fun telegramDao(): TelegramDao
     abstract fun telegramSendDao(): TelegramSendDao
     abstract fun downloadDao(): DownloadDao
