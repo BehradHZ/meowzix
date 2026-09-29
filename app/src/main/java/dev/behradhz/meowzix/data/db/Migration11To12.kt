@@ -5,7 +5,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
- * Adds only indexes backed by concrete hot query patterns and installs the auxiliary FTS search
+ * Adds only indexes backed by concrete hot query patterns and installs the Room-declared FTS search
  * index. Track remains the canonical source of truth; triggers keep FTS synchronized.
  */
 val MIGRATION_11_12 = object : Migration(11, 12) {
@@ -25,8 +25,9 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
 val TRACK_SEARCH_DATABASE_CALLBACK = object : RoomDatabase.Callback() {
     override fun onOpen(db: SupportSQLiteDatabase) {
         super.onOpen(db)
-        // Fresh databases are empty when Room creates them, and migrated databases were backfilled
-        // exactly once in MIGRATION_11_12. Never scan the full Track table during ordinary startup.
+        // Room creates the declared FTS table for fresh databases. Migrated databases are backfilled
+        // exactly once in MIGRATION_11_12. The callback only makes the sync triggers idempotent and
+        // keeps recovery safe if an older development database is missing the auxiliary table.
         ensureTrackSearchInfrastructure(db, backfill = false)
     }
 }
@@ -35,17 +36,19 @@ private fun ensureTrackSearchInfrastructure(
     db: SupportSQLiteDatabase,
     backfill: Boolean,
 ) {
+    // Keep this DDL aligned with TrackSearchFtsEntity. Room validates FTS columns/options as part of
+    // the v12 schema contract, so the migration must create the same virtual-table definition.
     db.execSQL(
         """
         CREATE VIRTUAL TABLE IF NOT EXISTS `track_search_fts`
-        USING fts4(
-            `trackId`,
-            `normalizedTitle`,
-            `normalizedArtist`,
-            `album`,
+        USING FTS4(
+            `trackId` TEXT NOT NULL,
+            `normalizedTitle` TEXT NOT NULL,
+            `normalizedArtist` TEXT NOT NULL,
+            `album` TEXT NOT NULL,
             tokenize=unicode61,
-            prefix='2,3',
-            notindexed=`trackId`
+            notindexed=`trackId`,
+            prefix=`2,3`
         )
         """.trimIndent(),
     )
