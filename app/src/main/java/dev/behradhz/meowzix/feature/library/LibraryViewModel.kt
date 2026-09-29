@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.repository.ArtworkRepairCoordinator
+import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
 import dev.behradhz.meowzix.data.settings.PlaybackContextKeys
 import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
@@ -38,6 +39,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class LibraryUiState(
+    /**
+     * Compatibility slice for legacy callers: favorites plus the active track only. The primary
+     * Library surface is paged from Room and must never depend on this as a complete library list.
+     */
     val tracks: List<Track> = emptyList(),
     val availability: Map<UUID, LibraryTrackAvailability> = emptyMap(),
     val downloads: Map<UUID, OfflineDownload> = emptyMap(),
@@ -54,6 +59,7 @@ data class LibraryUiState(
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val repository: MusicLibraryRepository,
+    private val queryRepository: LibraryQueryRepository,
     private val playbackController: PlaybackController,
     private val queueRepository: QueueRepository,
     private val downloadRepository: DownloadRepository,
@@ -65,21 +71,26 @@ class LibraryViewModel @Inject constructor(
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
     private var initialRefreshChecked = false
+    private var favoriteTracksSnapshot: List<Track> = emptyList()
+    private var activeTrackSnapshot: Track? = null
 
     init {
+        // Do not subscribe to observeLibraryTracks() here. That materialized every Track and every
+        // availability entry even while the V4 screen rendered only a Paging window. Keep only the
+        // two tiny compatibility slices still required by shared/legacy UI code.
         viewModelScope.launch {
-            repository.observeLibraryTracks()
-                .catch { error -> reportLoadError(error, "Unable to load music") }
-                .collect { tracks ->
-                    _state.update {
-                        it.copy(
-                            tracks = tracks.map { row -> row.track },
-                            availability = tracks.associate { row -> row.track.id to row.availability },
-                            errorMessage = null,
-                        )
-                    }
-                    // Artwork is deliberately not prefetched for the whole library. Visible rows
-                    // and Now Playing request the high-quality image only when they need it.
+            queryRepository.favoriteTracks()
+                .catch { error -> reportLoadError(error, "Unable to load favorites") }
+                .collect { favorites ->
+                    favoriteTracksSnapshot = favorites
+                    _state.update { it.copy(tracks = compatibilityTracks(), errorMessage = null) }
+                }
+        }
+        viewModelScope.launch {
+            queryRepository.availability()
+                .catch { error -> reportLoadError(error, "Unable to load availability") }
+                .collect { availability ->
+                    _state.update { it.copy(availability = availability) }
                 }
         }
         viewModelScope.launch {
@@ -119,7 +130,15 @@ class LibraryViewModel @Inject constructor(
                 .map { playback -> PlaybackState(currentTrack = playback.currentTrack) }
                 .distinctUntilChanged()
                 .collect { playback ->
-                    _state.update { it.copy(playback = playback) }
+                    activeTrackSnapshot = playback.currentTrack?.id?.let { trackId ->
+                        runCatching { queryRepository.track(trackId) }.getOrNull()
+                    }
+                    _state.update {
+                        it.copy(
+                            playback = playback,
+                            tracks = compatibilityTracks(),
+                        )
+                    }
                 }
         }
     }
@@ -167,7 +186,7 @@ class LibraryViewModel @Inject constructor(
             }
     }
 
-    fun playTrack(track: Track, queueTracks: List<Track> = _state.value.tracks) {
+    fun playTrack(track: Track, queueTracks: List<Track> = listOf(track)) {
         val queue = queueTracks.distinctBy { it.id }
         if (queue.isEmpty()) {
             playbackController.playTrack(track.id)
@@ -345,6 +364,11 @@ class LibraryViewModel @Inject constructor(
             PlaybackContextKeys.LIBRARY
         }
     }
+
+    private fun compatibilityTracks(): List<Track> = buildList {
+        addAll(favoriteTracksSnapshot)
+        activeTrackSnapshot?.let(::add)
+    }.distinctBy(Track::id)
 
     private fun reportLoadError(error: Throwable, fallback: String) {
         _state.update {

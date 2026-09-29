@@ -22,8 +22,11 @@ import dev.behradhz.meowzix.data.db.MIGRATION_7_8
 import dev.behradhz.meowzix.data.db.MIGRATION_8_9
 import dev.behradhz.meowzix.data.db.MIGRATION_9_10
 import dev.behradhz.meowzix.data.db.MIGRATION_10_11
+import dev.behradhz.meowzix.data.db.MIGRATION_11_12
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.PlaylistDao
+import dev.behradhz.meowzix.data.db.RecommendationDao
+import dev.behradhz.meowzix.data.db.TRACK_SEARCH_DATABASE_CALLBACK
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramSendDao
 import dev.behradhz.meowzix.data.downloads.TdLibDownloadRepository
@@ -34,6 +37,7 @@ import dev.behradhz.meowzix.data.recommendation.AndroidPcmAudioFeatureExtractor
 import dev.behradhz.meowzix.data.recommendation.HeuristicRecommendationEngine
 import dev.behradhz.meowzix.data.recommendation.LocalLinearPersonalizationModel
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
+import dev.behradhz.meowzix.data.repository.RoomPlaybackCatalog
 import dev.behradhz.meowzix.data.repository.RoomPlaylistRepository
 import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
 import dev.behradhz.meowzix.data.telegram.TdLibRemoteTrackPlaybackResolver
@@ -69,7 +73,7 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindPlaybackCatalog(impl: LocalMusicLibraryRepository): PlaybackCatalog
+    abstract fun bindPlaybackCatalog(impl: RoomPlaybackCatalog): PlaybackCatalog
 
     @Binds
     @Singleton
@@ -150,11 +154,16 @@ object DatabaseModule {
                 MIGRATION_8_9,
                 MIGRATION_9_10,
                 MIGRATION_10_11,
+                MIGRATION_11_12,
             )
+            .addCallback(TRACK_SEARCH_DATABASE_CALLBACK)
             .build()
 
     @Provides
     fun provideLibraryDao(database: MeowzixDatabase): LibraryDao = database.libraryDao()
+
+    @Provides
+    fun provideRecommendationDao(database: MeowzixDatabase): RecommendationDao = database.recommendationDao()
 
     @Provides
     fun provideTelegramDao(database: MeowzixDatabase): TelegramDao = database.telegramDao()

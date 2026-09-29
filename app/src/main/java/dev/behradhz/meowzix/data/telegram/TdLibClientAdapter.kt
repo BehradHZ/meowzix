@@ -16,6 +16,7 @@ class TdLibClientAdapter {
     private val failureChannel = MutableSharedFlow<Throwable>(replay = 1, extraBufferCapacity = 8)
     val updates: Flow<TdApi.Object> = updateChannel.asSharedFlow()
     val failures: Flow<Throwable> = failureChannel.asSharedFlow()
+    internal val fileStates = TdFileStateRegistry()
 
     private val readyGate = AuthorizationReadyGate()
     private val client: Client
@@ -24,6 +25,12 @@ class TdLibClientAdapter {
         Client.setLogMessageHandler(0, null)
         client = Client.create(
             { update ->
+                // Streaming is a latency-sensitive consumer of UpdateFile. Publish synchronously
+                // into the registry before best-effort SharedFlow fan-out so a full update buffer
+                // cannot force the Media3 loader back into polling.
+                if (update is TdApi.UpdateFile) {
+                    fileStates.publish(update.file)
+                }
                 val shouldForward = if (update is TdApi.UpdateAuthorizationState) {
                     readyGate.shouldForward(update.authorizationState is TdApi.AuthorizationStateReady)
                 } else {
@@ -55,6 +62,19 @@ class TdLibClientAdapter {
                 },
             )
         }
+
+    /** One GetFile seed is allowed when a stream has not observed this file in the current process. */
+    internal suspend fun seedFileState(fileId: Int): TdApi.File {
+        fileStates.current(fileId)?.let { return it }
+        return send(TdApi.GetFile(fileId)).also(fileStates::publish)
+    }
+
+    /**
+     * Low-frequency recovery path for a missed/lost UpdateFile. Streaming code deliberately calls
+     * this only after an event wait times out, never on every read/poll interval.
+     */
+    internal suspend fun refreshFileState(fileId: Int): TdApi.File =
+        send(TdApi.GetFile(fileId)).also(fileStates::publish)
 
     companion object {
         @Volatile
