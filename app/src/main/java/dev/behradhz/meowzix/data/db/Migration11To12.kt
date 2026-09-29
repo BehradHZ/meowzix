@@ -18,6 +18,10 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
             "CREATE INDEX IF NOT EXISTS `index_track_sources_contentHashSha256` " +
                 "ON `track_sources` (`contentHashSha256`)",
         )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_listening_events_occurredAtEpochMs` " +
+                "ON `listening_events` (`occurredAtEpochMs`)",
+        )
         ensureTrackSearchInfrastructure(db, backfill = true)
     }
 }
