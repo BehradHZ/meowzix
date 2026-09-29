@@ -115,22 +115,34 @@ class AdaptiveScorer(private val weights: AdaptiveScoreWeights = AdaptiveScoreWe
 
 object SmartSelector {
     fun order(scores: Map<UUID, ScoreBreakdown>, seed: Long): List<UUID> {
+        if (scores.isEmpty()) return emptyList()
         val random = Random(seed)
-        val remaining = scores.toMutableMap()
-        return buildList {
-            while (remaining.isNotEmpty()) {
-                val window = remaining.entries.sortedByDescending { it.value.total }.take(10)
+        val ranked = scores.entries.sortedByDescending { it.value.total }
+        val window = ArrayList<Map.Entry<UUID, ScoreBreakdown>>(minOf(SELECTION_WINDOW, ranked.size))
+        var cursor = 0
+        while (cursor < ranked.size && window.size < SELECTION_WINDOW) {
+            window += ranked[cursor++]
+        }
+
+        return buildList(scores.size) {
+            while (window.isNotEmpty()) {
                 val floor = window.minOf { it.value.total }
                 val weights = window.map { (it.value.total - floor + 0.05).coerceAtLeast(0.01) }
                 var roll = random.nextDouble() * weights.sum()
-                var selected = window.last()
+                var selectedIndex = window.lastIndex
                 for (index in window.indices) {
                     roll -= weights[index]
-                    if (roll <= 0.0) { selected = window[index]; break }
+                    if (roll <= 0.0) {
+                        selectedIndex = index
+                        break
+                    }
                 }
+                val selected = window.removeAt(selectedIndex)
                 add(selected.key)
-                remaining.remove(selected.key)
+                if (cursor < ranked.size) window += ranked[cursor++]
             }
         }
     }
+
+    private const val SELECTION_WINDOW = 10
 }
