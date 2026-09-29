@@ -13,6 +13,7 @@ import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
 import java.time.Instant
 import java.time.ZoneId
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -67,7 +68,7 @@ class HomeViewModel @Inject constructor(
 
     private suspend fun rebuildHomeFeed(
         playlistRows: List<PlaylistSummary>,
-        recentTrackIds: List<java.util.UUID>,
+        recentTrackIds: List<UUID>,
     ) {
         // Full-library eligibility stays as compact UUIDs. Full Track objects are fetched only for
         // the bounded sets that Home will actually render.
@@ -106,8 +107,8 @@ class HomeViewModel @Inject constructor(
             .take(8)
             .toList()
         val artists = artistKeys.mapNotNull { (normalized, display) ->
-            val tracks = library.artistTracks(normalized).first()
-            tracks.takeIf(List<Track>::isNotEmpty)?.let { SuggestedArtist(display, it) }
+            val artistTracks = library.artistTracks(normalized).first()
+            if (artistTracks.isEmpty()) null else SuggestedArtist(display, artistTracks)
         }
 
         _state.update {
