@@ -10,6 +10,7 @@ import androidx.room.PrimaryKey
         Index(value = ["hidden", "normalizedTitle"]),
         Index("normalizedArtist"),
         Index("favorite"),
+        Index(value = ["normalizedTitle", "normalizedArtist", "durationMs"]),
     ],
 )
 data class TrackEntity(
