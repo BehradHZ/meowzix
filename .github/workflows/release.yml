@@ -140,11 +140,12 @@ jobs:
           GitHub release of Meowzix.
 
           Highlights:
-          - Telegram music library with incremental sync
-          - Local and Telegram artwork recovery
-          - Interruption-free Play Next and Add to Queue
-          - Swipe queue actions with mini-player confirmation
-          - Offline downloads, queue, shuffle modes, history, and Telegram forwarding
+          - Play Next now moves an existing queue occurrence to the real next position
+          - Playing current/already-next with Play Next adds an intentional duplicate occurrence
+          - Faster top-level tab transitions
+          - Resilient offline downloads with persistent network-aware retry and recovery
+          - Morphing mini-player / Now Playing experience with queue-action feedback
+          - Telegram music library, artwork recovery, shuffle modes, history, and forwarding
 
           Download **Meowzix-v${VERSION}.apk** and install it on Android 8.0 or newer.
           The APK is release-signed and **SHA256SUMS.txt** is included for verification.
