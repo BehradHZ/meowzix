@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -349,17 +350,25 @@ private fun PagedTrackListV4(
     viewModel: LibraryViewModel,
     onGoToArtist: (Track) -> Unit,
 ) {
-    when (val refresh = items.loadState.refresh) {
-        is LoadState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
-        is LoadState.Error -> PermissionPanelV4(
+    val listState = rememberLazyListState()
+    val refresh = items.loadState.refresh
+    val hasPresentedItems = items.itemCount > 0
+
+    when {
+        refresh is LoadState.Error && !hasPresentedItems -> PermissionPanelV4(
             "Unable to load library",
             refresh.error.message ?: "The library query failed.",
             "Retry",
             items::retry,
         )
-        is LoadState.NotLoading -> LazyColumn(
+        refresh is LoadState.Loading && !hasPresentedItems -> Box(
+            Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator()
+        }
+        else -> LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 188.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
