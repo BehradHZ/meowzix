@@ -59,7 +59,6 @@ class PagedLibraryTracks @Inject constructor(
         },
     ).flow.map { data -> data.map(LibraryTrackRow::toDomain) }
 
-    /** Build the full logical queue identity only after an explicit Play action. */
     suspend fun orderedTrackIds(
         sortMode: LibrarySortMode,
         groupMode: LibraryGroupMode,
@@ -94,22 +93,19 @@ class PagedLibraryTracks @Inject constructor(
                   AND offline.availability = 'AVAILABLE_LOCAL'
             )
         """.trimIndent()
-        val selectedCloudExists = """
+        val cloudExists = """
             EXISTS (
                 SELECT 1
                 FROM telegram_track_sources tg
                 INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                INNER JOIN telegram_selected_sources selected
-                    ON selected.accountId = tg.accountId
-                   AND selected.chatId = tg.chatId
                 WHERE origin.trackId = t.id
                   AND origin.availability != 'MISSING'
             )
         """.trimIndent()
         val availabilityClause = when (availability) {
-            LibraryAvailabilityFilter.ALL -> "($offlineExists OR $selectedCloudExists)"
+            LibraryAvailabilityFilter.ALL -> "($offlineExists OR $cloudExists)"
             LibraryAvailabilityFilter.OFFLINE -> offlineExists
-            LibraryAvailabilityFilter.CLOUD -> "(NOT $offlineExists AND $selectedCloudExists)"
+            LibraryAvailabilityFilter.CLOUD -> "(NOT $offlineExists AND $cloudExists)"
         }
         val favoriteClause = if (favoritesOnly) " AND t.favorite = 1" else ""
         val baseSort = when (sortMode) {
@@ -127,7 +123,7 @@ class PagedLibraryTracks @Inject constructor(
         }
         return QueryParts(
             offlineExists = offlineExists,
-            cloudExists = selectedCloudExists,
+            cloudExists = cloudExists,
             whereClause = "t.hidden = 0 AND $availabilityClause$favoriteClause",
             orderBy = orderBy,
         )
