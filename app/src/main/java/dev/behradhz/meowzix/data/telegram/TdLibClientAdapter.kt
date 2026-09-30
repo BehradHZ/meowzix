@@ -1,8 +1,12 @@
 package dev.behradhz.meowzix.data.telegram
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
@@ -12,10 +16,12 @@ import kotlin.coroutines.resumeWithException
 internal class TdLibException(val errorCode: Int, message: String) : Exception(message)
 
 class TdLibClientAdapter {
-    private val updateChannel = MutableSharedFlow<TdApi.Object>(replay = 1, extraBufferCapacity = 64)
-    private val failureChannel = MutableSharedFlow<Throwable>(replay = 1, extraBufferCapacity = 8)
-    val updates: Flow<TdApi.Object> = updateChannel.asSharedFlow()
-    val failures: Flow<Throwable> = failureChannel.asSharedFlow()
+    /**
+     * Repository collectors intentionally survive a client restart. All adapter instances publish
+     * through these process-wide buses, while send() transparently follows the current active client.
+     */
+    val updates: Flow<TdApi.Object> = globalUpdateChannel.asSharedFlow()
+    val failures: Flow<Throwable> = globalFailureChannel.asSharedFlow()
     internal val fileStates = TdFileStateRegistry()
 
     private val readyGate = AuthorizationReadyGate()
@@ -25,9 +31,6 @@ class TdLibClientAdapter {
         Client.setLogMessageHandler(0, null)
         client = Client.create(
             { update ->
-                // Streaming is a latency-sensitive consumer of UpdateFile. Publish synchronously
-                // into the registry before best-effort SharedFlow fan-out so a full update buffer
-                // cannot force the Media3 loader back into polling.
                 if (update is TdApi.UpdateFile) {
                     fileStates.publish(update.file)
                 }
@@ -36,15 +39,26 @@ class TdLibClientAdapter {
                 } else {
                     true
                 }
-                if (shouldForward) updateChannel.tryEmit(update)
+                if (shouldForward) globalUpdateChannel.tryEmit(update)
             },
-            { error -> failureChannel.tryEmit(error) },
-            { error -> failureChannel.tryEmit(error) },
+            { error -> globalFailureChannel.tryEmit(error) },
+            { error -> globalFailureChannel.tryEmit(error) },
         )
-        activeInstance = this
+        synchronized(Companion) {
+            activeInstance = this
+        }
     }
 
-    suspend fun <R : TdApi.Object> send(function: TdApi.Function<R>): R =
+    suspend fun <R : TdApi.Object> send(function: TdApi.Function<R>): R {
+        val active = activeInstance
+        return if (active != null && active !== this) {
+            active.sendDirect(function)
+        } else {
+            sendDirect(function)
+        }
+    }
+
+    private suspend fun <R : TdApi.Object> sendDirect(function: TdApi.Function<R>): R =
         suspendCancellableCoroutine { continuation ->
             client.send(
                 function,
@@ -63,24 +77,52 @@ class TdLibClientAdapter {
             )
         }
 
-    /** One GetFile seed is allowed when a stream has not observed this file in the current process. */
     internal suspend fun seedFileState(fileId: Int): TdApi.File {
         fileStates.current(fileId)?.let { return it }
-        return send(TdApi.GetFile(fileId)).also(fileStates::publish)
+        return send(TdApi.GetFile(fileId)).also { file ->
+            (activeInstance ?: this).fileStates.publish(file)
+        }
     }
 
-    /**
-     * Low-frequency recovery path for a missed/lost UpdateFile. Streaming code deliberately calls
-     * this only after an event wait times out, never on every read/poll interval.
-     */
     internal suspend fun refreshFileState(fileId: Int): TdApi.File =
-        send(TdApi.GetFile(fileId)).also(fileStates::publish)
+        send(TdApi.GetFile(fileId)).also { file ->
+            (activeInstance ?: this).fileStates.publish(file)
+        }
+
+    internal fun deactivate() {
+        synchronized(Companion) {
+            if (activeInstance === this) activeInstance = null
+        }
+    }
 
     companion object {
+        private val globalUpdateChannel = MutableSharedFlow<TdApi.Object>(replay = 1, extraBufferCapacity = 64)
+        private val globalFailureChannel = MutableSharedFlow<Throwable>(replay = 1, extraBufferCapacity = 8)
+        private val resetScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
         @Volatile
         private var activeInstance: TdLibClientAdapter? = null
 
         fun activeOrNull(): TdLibClientAdapter? = activeInstance
+
+        /**
+         * Close and recreate TDLib without LogOut. TDLib keeps the authorization database, so this
+         * recovers a stuck startup/client while preserving the signed-in account and imported music.
+         */
+        fun resetActive() {
+            resetScope.launch {
+                val stale = synchronized(Companion) {
+                    val current = activeInstance
+                    activeInstance = null
+                    current
+                }
+                if (stale != null) {
+                    runCatching { stale.sendDirect(TdApi.Close()) }
+                }
+                runCatching { TdLibClientAdapter() }
+                    .onFailure(globalFailureChannel::tryEmit)
+            }
+        }
     }
 }
 

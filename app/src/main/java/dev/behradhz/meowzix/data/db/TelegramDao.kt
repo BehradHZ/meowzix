@@ -37,7 +37,10 @@ interface TelegramDao {
         messageId: Long,
     ): TelegramTrackSourceEntity?
 
-    @Query("SELECT tg.* FROM telegram_track_sources tg INNER JOIN track_sources s ON s.id = tg.trackSourceId INNER JOIN telegram_selected_sources selected ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId WHERE tg.accountId = :accountId AND s.trackId = :trackId AND s.availability != 'MISSING' ORDER BY tg.messageId DESC LIMIT 1")
+    // Source selection controls future synchronization only. Once a Telegram track has been
+    // imported, its persisted source remains usable until Telegram marks it missing or the user
+    // explicitly removes the track/offline copy.
+    @Query("SELECT tg.* FROM telegram_track_sources tg INNER JOIN track_sources s ON s.id = tg.trackSourceId WHERE tg.accountId = :accountId AND s.trackId = :trackId AND s.availability != 'MISSING' ORDER BY tg.messageId DESC LIMIT 1")
     suspend fun telegramSourceForTrack(accountId: String, trackId: String): TelegramTrackSourceEntity?
 
     @Query("SELECT tg.* FROM telegram_track_sources tg INNER JOIN track_sources s ON s.id = tg.trackSourceId WHERE tg.accountId = :accountId AND tg.chatId = :chatId AND s.trackId = :trackId AND s.availability != 'MISSING' ORDER BY tg.messageId DESC LIMIT 1")
@@ -47,7 +50,7 @@ interface TelegramDao {
         trackId: String,
     ): TelegramTrackSourceEntity?
 
-    @Query("SELECT tg.* FROM telegram_track_sources tg INNER JOIN track_sources s ON s.id = tg.trackSourceId INNER JOIN telegram_selected_sources selected ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId WHERE s.trackId = :trackId AND s.availability != 'MISSING' ORDER BY tg.messageId DESC LIMIT 1")
+    @Query("SELECT tg.* FROM telegram_track_sources tg INNER JOIN track_sources s ON s.id = tg.trackSourceId WHERE s.trackId = :trackId AND s.availability != 'MISSING' ORDER BY tg.messageId DESC LIMIT 1")
     suspend fun telegramSourceForAnyAccountTrack(trackId: String): TelegramTrackSourceEntity?
 
     @Query("SELECT * FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId")
@@ -73,8 +76,6 @@ interface TelegramDao {
         """
         SELECT tg.*
         FROM telegram_track_sources tg
-        INNER JOIN telegram_selected_sources selected
-          ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
         INNER JOIN track_sources s ON s.id = tg.trackSourceId
         WHERE s.trackId IN (:trackIds) AND s.availability != 'MISSING'
         ORDER BY tg.messageId DESC

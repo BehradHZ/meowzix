@@ -29,20 +29,18 @@ interface LibraryBrowseDao {
     suspend fun libraryTrackIds(query: SupportSQLiteQuery): List<TrackIdRow>
 
     /**
-     * Lightweight availability projection for non-paged surfaces such as playlist detail rows.
-     * This observes source tables only and never materializes TrackSourceEntity objects in Kotlin.
+     * Imported Telegram sources remain part of the library after their chat is unchecked. The
+     * selected-source table controls future synchronization only.
      */
     @Query(
         """
         SELECT
             s.trackId AS trackId,
             MAX(CASE WHEN s.availability = 'AVAILABLE_LOCAL' THEN 1 ELSE 0 END) AS hasOfflineSource,
-            MAX(CASE WHEN tg.trackSourceId IS NOT NULL AND selected.chatId IS NOT NULL
-                     AND s.availability != 'MISSING' THEN 1 ELSE 0 END) AS hasCloudSource
+            MAX(CASE WHEN tg.trackSourceId IS NOT NULL AND s.availability != 'MISSING'
+                     THEN 1 ELSE 0 END) AS hasCloudSource
         FROM track_sources s
         LEFT JOIN telegram_track_sources tg ON tg.trackSourceId = s.id
-        LEFT JOIN telegram_selected_sources selected
-          ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
         GROUP BY s.trackId
         """,
     )
@@ -59,8 +57,6 @@ interface LibraryBrowseDao {
                   SELECT 1
                   FROM telegram_track_sources tg
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  INNER JOIN telegram_selected_sources selected
-                    ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
@@ -86,8 +82,6 @@ interface LibraryBrowseDao {
                   SELECT 1
                   FROM telegram_track_sources tg
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  INNER JOIN telegram_selected_sources selected
-                    ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
@@ -116,8 +110,6 @@ interface LibraryBrowseDao {
                   SELECT 1
                   FROM telegram_track_sources tg
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  INNER JOIN telegram_selected_sources selected
-                    ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
@@ -140,8 +132,6 @@ interface LibraryBrowseDao {
                   SELECT 1
                   FROM telegram_track_sources tg
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  INNER JOIN telegram_selected_sources selected
-                    ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
@@ -163,8 +153,6 @@ interface LibraryBrowseDao {
                   SELECT 1
                   FROM telegram_track_sources tg
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  INNER JOIN telegram_selected_sources selected
-                    ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
@@ -184,8 +172,6 @@ interface LibraryBrowseDao {
                   SELECT 1
                   FROM telegram_track_sources tg
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  INNER JOIN telegram_selected_sources selected
-                    ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )

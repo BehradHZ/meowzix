@@ -140,12 +140,14 @@ jobs:
           GitHub release of Meowzix.
 
           Highlights:
-          - Play Next now moves an existing queue occurrence to the real next position
-          - Playing current/already-next with Play Next adds an intentional duplicate occurrence
-          - Faster top-level tab transitions
-          - Resilient offline downloads with persistent network-aware retry and recovery
-          - Morphing mini-player / Now Playing experience with queue-action feedback
-          - Telegram music library, artwork recovery, shuffle modes, history, and forwarding
+          - Redesigned glassmorphism Home with a stable three-hour recommendation/feed refresh cadence
+          - Context-aware dock search that expands inline and searches Library, Queue, or the full library as appropriate
+          - More reliable multi-word search, including titles such as “Ba To”
+          - Deterministic Back behavior: nested destinations return to their tab root, then to Home
+          - Telegram imports remain in Library and playable even after their source chat is unchecked
+          - Telegram recovery control can restart a stuck client without logging out or deleting imported music
+          - Downloaded Telegram tracks continue automatically from Queue using their completed local copy
+          - Mini-player horizontal track gestures now follow the finger with adjacent-card transitions
 
           Download **Meowzix-v${VERSION}.apk** and install it on Android 8.0 or newer.
           The APK is release-signed and **SHA256SUMS.txt** is included for verification.

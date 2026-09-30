@@ -42,8 +42,9 @@ class LibraryQueryRepository @Inject constructor(
         val normalized = TextNormalizer.normalize(query) ?: return emptyList()
         val matchExpression = buildTrackFtsMatchExpression(normalized)
         if (matchExpression.isBlank()) return emptyList()
+        val safeLimit = limit.coerceIn(1, 200)
 
-        val sql = """
+        val ftsSql = """
             ${TRACK_PROJECTION.trimIndent()}
             FROM track_search_fts
             INNER JOIN tracks t ON t.rowid = track_search_fts.rowid
@@ -54,12 +55,56 @@ class LibraryQueryRepository @Inject constructor(
                 t.normalizedTitle ASC
             LIMIT ?
         """.trimIndent()
-        return dao.searchTracks(
-            SimpleSQLiteQuery(
-                sql,
-                arrayOf<Any>(matchExpression, normalized, limit.coerceIn(1, 200)),
-            ),
-        ).map(SearchTrackRow::toDomain)
+
+        val ftsResults = runCatching {
+            dao.searchTracks(
+                SimpleSQLiteQuery(
+                    ftsSql,
+                    arrayOf<Any>(matchExpression, normalized, safeLimit),
+                ),
+            ).map(SearchTrackRow::toDomain)
+        }.getOrDefault(emptyList())
+        if (ftsResults.isNotEmpty()) return ftsResults
+
+        // FTS is the fast path, but an auxiliary index must never be able to make a real library
+        // track undiscoverable. This token-AND fallback also heals the user-visible failure mode of
+        // an older/stale FTS table (for example searching "Ba To" after an upgrade).
+        return fallbackContainsSearch(normalized, safeLimit)
+    }
+
+    private suspend fun fallbackContainsSearch(normalized: String, limit: Int): List<Track> {
+        val tokens = normalized.split(' ').filter(String::isNotBlank)
+        if (tokens.isEmpty()) return emptyList()
+        val tokenClause = tokens.joinToString(" AND ") {
+            """
+            (
+                instr(t.normalizedTitle, ?) > 0
+                OR instr(COALESCE(t.normalizedArtist, ''), ?) > 0
+                OR instr(LOWER(COALESCE(t.album, '')), ?) > 0
+            )
+            """.trimIndent()
+        }
+        val args = buildList<Any> {
+            tokens.forEach { token ->
+                add(token)
+                add(token)
+                add(token)
+            }
+            add(normalized)
+            add(limit)
+        }.toTypedArray()
+
+        val sql = """
+            $TRACK_PROJECTION
+            FROM tracks t
+            WHERE $AVAILABLE_TRACK_WHERE
+              AND $tokenClause
+            ORDER BY
+                CASE WHEN t.normalizedTitle = ? THEN 0 ELSE 1 END,
+                t.normalizedTitle ASC
+            LIMIT ?
+        """.trimIndent()
+        return dao.searchTracks(SimpleSQLiteQuery(sql, args)).map(SearchTrackRow::toDomain)
     }
 
     /** Single-row lookup for surfaces that already know the canonical track UUID. */
@@ -110,7 +155,7 @@ class LibraryQueryRepository @Inject constructor(
         limit = limit,
     )
 
-    /** Cheap Room invalidation signal for Home; consumers re-fetch only bounded projections. */
+    /** Cheap Room invalidation signal for legacy consumers. */
     fun invalidations(): Flow<Unit> = dao.observeFavoriteCount().map { Unit }
 
     fun availability(): Flow<Map<UUID, LibraryTrackAvailability>> =
@@ -159,6 +204,8 @@ class LibraryQueryRepository @Inject constructor(
                 t.createdAtEpochMs, t.updatedAtEpochMs
         """.trimIndent()
 
+        // Selecting a Telegram chat controls future sync only. Tracks that were already imported
+        // remain part of the library even after that chat is unchecked.
         val AVAILABLE_TRACK_WHERE = """
             t.hidden = 0
             AND (
@@ -170,8 +217,6 @@ class LibraryQueryRepository @Inject constructor(
                     SELECT 1
                     FROM telegram_track_sources tg
                     INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                    INNER JOIN telegram_selected_sources selected
-                      ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
                     WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
                 )
             )

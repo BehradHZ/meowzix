@@ -13,8 +13,10 @@ import androidx.media3.datasource.TransferListener
 import dev.behradhz.meowzix.data.telegram.TdDownloadPriority
 import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import dev.behradhz.meowzix.data.telegram.readableEndAt
+import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.util.UUID
 import kotlin.math.min
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -24,13 +26,15 @@ private const val TDLIB_SCHEME = "meowzix-tdlib"
 
 @OptIn(UnstableApi::class)
 class MeowzixDataSourceFactory(context: Context) : DataSource.Factory {
-    private val defaultFactory = DefaultDataSource.Factory(context)
+    private val appContext = context.applicationContext
+    private val defaultFactory = DefaultDataSource.Factory(appContext)
 
-    override fun createDataSource(): DataSource = RoutingDataSource(defaultFactory)
+    override fun createDataSource(): DataSource = RoutingDataSource(appContext, defaultFactory)
 }
 
 @OptIn(UnstableApi::class)
 private class RoutingDataSource(
+    private val context: Context,
     private val defaultFactory: DataSource.Factory,
 ) : DataSource {
     private val listeners = mutableListOf<TransferListener>()
@@ -43,14 +47,32 @@ private class RoutingDataSource(
 
     override fun open(dataSpec: DataSpec): Long {
         check(active == null) { "DataSource is already open" }
-        val source = if (dataSpec.uri.scheme == TDLIB_SCHEME) {
-            TdLibStreamingDataSource()
+
+        val completedLocalCopy = if (dataSpec.uri.scheme == TDLIB_SCHEME) {
+            findCompletedLocalCopy(context, dataSpec.uri)
         } else {
-            defaultFactory.createDataSource()
+            null
         }
+        val source: DataSource
+        val routedSpec: DataSpec
+        if (completedLocalCopy != null) {
+            // A MediaItem may have been queued while this track was still remote. If the user
+            // downloads it before Media3 reaches it, the old meowzix-tdlib URI is stale. Route that
+            // exact queued item to the completed owned copy rather than failing the automatic
+            // transition and requiring the queue to be rebuilt.
+            source = defaultFactory.createDataSource()
+            routedSpec = dataSpec.withUri(Uri.fromFile(completedLocalCopy))
+        } else if (dataSpec.uri.scheme == TDLIB_SCHEME) {
+            source = TdLibStreamingDataSource()
+            routedSpec = dataSpec
+        } else {
+            source = defaultFactory.createDataSource()
+            routedSpec = dataSpec
+        }
+
         listeners.forEach(source::addTransferListener)
         active = source
-        return source.open(dataSpec)
+        return source.open(routedSpec)
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
@@ -68,6 +90,25 @@ private class RoutingDataSource(
             active = null
         }
     }
+}
+
+private fun findCompletedLocalCopy(context: Context, streamUri: Uri): File? {
+    val trackId = streamUri.getQueryParameter("trackId")
+        ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+        ?: return null
+    val prefix = trackId.toString()
+    val roots = listOf(
+        File(context.filesDir, "offline"),
+        File(context.filesDir, "playback-cache"),
+    )
+    return roots.asSequence()
+        .filter(File::isDirectory)
+        .flatMap { root -> root.listFiles().orEmpty().asSequence() }
+        .firstOrNull { file ->
+            file.isFile && file.length() > 0L &&
+                (file.name == prefix || file.name.startsWith("$prefix.")) &&
+                !file.name.endsWith(".part")
+        }
 }
 
 /**

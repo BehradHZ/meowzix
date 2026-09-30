@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.domain.telegram
 
+import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,13 +60,11 @@ data class TelegramMusicSourceState(
     val errorMessage: String? = null,
 )
 
-/** Controls how a Telegram-backed track is represented when it is sent to another Telegram chat. */
 data class TelegramForwardOptions(
     val includeSourceAttribution: Boolean = true,
     val keepCaption: Boolean = true,
 )
 
-/** Persistent state of one outbound Telegram operation. */
 enum class TelegramSendState {
     QUEUED,
     CHECKING,
@@ -104,7 +103,6 @@ sealed interface TelegramSendEnqueueResult {
     data class AlreadyInChat(val targetTitle: String?) : TelegramSendEnqueueResult
 }
 
-/** Domain boundary that keeps TDLib types and threading out of UI consumers. */
 interface TelegramRepository {
     val authState: StateFlow<TelegramAuthState>
     val musicSourceState: StateFlow<TelegramMusicSourceState>
@@ -116,6 +114,10 @@ interface TelegramRepository {
     fun submitEmailCode(code: String)
     fun register(firstName: String, lastName: String)
     fun logout()
+
+    /** Restart the TDLib process client without logging out or deleting imported/local music. */
+    fun resetClient() = TdLibClientAdapter.resetActive()
+
     fun clearError()
 
     fun refreshSelectableChats()
@@ -125,15 +127,9 @@ interface TelegramRepository {
     fun clearMusicSourceError()
 }
 
-/**
- * Reliable outbound Telegram capability. Enqueueing is deliberately separate from delivery:
- * callers get immediate acknowledgement, while persistent queue processing owns preflight,
- * upload/forward, retry, and final TDLib delivery confirmation.
- */
 interface TelegramForwardRepository {
     val sendJobs: Flow<List<TelegramSendJob>>
 
-    /** Starts/resumes persistent queue processing. Safe to call repeatedly. */
     fun initialize()
 
     suspend fun searchChats(query: String, limit: Int = 50): List<TelegramChatSummary>
@@ -147,8 +143,6 @@ interface TelegramForwardRepository {
 
     suspend fun retrySend(jobId: UUID)
     suspend fun cancelSend(jobId: UUID)
-
-    /** Used by background work to resume durable jobs after process recreation. */
     suspend fun processPendingSends()
 }
 

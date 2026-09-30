@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Phone
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -81,6 +82,7 @@ fun TelegramAuthRoute(
         onEmailCode = viewModel::submitEmailCode,
         onRegister = viewModel::register,
         onLogout = viewModel::logout,
+        onResetTelegram = viewModel::resetTelegram,
         onClearError = viewModel::clearError,
         onRefreshSources = viewModel::refreshMusicSources,
         onSetSourceSelected = viewModel::setMusicSourceSelected,
@@ -102,6 +104,7 @@ private fun TelegramAuthScreen(
     onEmailCode: (String) -> Unit,
     onRegister: (String, String) -> Unit,
     onLogout: () -> Unit,
+    onResetTelegram: () -> Unit,
     onClearError: () -> Unit,
     onRefreshSources: () -> Unit,
     onSetSourceSelected: (Long, Boolean) -> Unit,
@@ -216,7 +219,7 @@ private fun TelegramAuthScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 when (val step = state.step) {
-                    TelegramAuthStep.Initializing -> ProgressState("Starting Telegram…")
+                    TelegramAuthStep.Initializing -> InitializingState(onResetTelegram)
                     TelegramAuthStep.ConfigurationRequired -> MessageState(
                         icon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
                         title = "Telegram setup required",
@@ -306,6 +309,22 @@ private fun TelegramAuthScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun InitializingState(onResetTelegram: () -> Unit) {
+    ProgressState("Starting Telegram…")
+    OutlinedButton(
+        onClick = onResetTelegram,
+        shape = RoundedCornerShape(22.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 20.dp),
+    ) {
+        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.size(8.dp))
+        Text("Reset Telegram", fontWeight = FontWeight.SemiBold)
     }
 }
 

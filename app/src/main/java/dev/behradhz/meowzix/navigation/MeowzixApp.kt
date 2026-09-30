@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -59,7 +60,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -72,9 +72,8 @@ import dev.behradhz.meowzix.feature.library.LibraryRoute
 import dev.behradhz.meowzix.feature.library.LibraryViewModel
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.profile.ProfileRoute
-import dev.behradhz.meowzix.feature.queue.QueueInlineSearchRoute
 import dev.behradhz.meowzix.feature.queue.QueueRoute
-import dev.behradhz.meowzix.feature.search.SearchRoute
+import dev.behradhz.meowzix.feature.search.SearchViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.chrisbanes.haze.HazeState
@@ -109,9 +108,12 @@ fun MeowzixApp(
     val hazeState = rememberHazeState()
     val morphingPlayerState = rememberMorphingPlayerState()
     val libraryViewModel: LibraryViewModel = hiltViewModel()
+    val searchViewModel: SearchViewModel = hiltViewModel()
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
+    val queueState by playerViewModel.queueState.collectAsStateWithLifecycle()
     val spectrum by playerViewModel.spectrum.collectAsStateWithLifecycle()
+    val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: HOME_ROUTE
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -119,7 +121,7 @@ fun MeowzixApp(
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchFieldFocused by remember { mutableStateOf(false) }
-    var inlineSearchRoute by rememberSaveable { mutableStateOf<String?>(null) }
+    var searchContextRoute by rememberSaveable { mutableStateOf<String?>(null) }
 
     val destinations = remember {
         listOf(
@@ -139,8 +141,12 @@ fun MeowzixApp(
 
     val secondaryProfileRoutes = remember { setOf(DOWNLOADS_ROUTE, HISTORY_ROUTE, TELEGRAM_AUTH_ROUTE) }
     val selectedDockRoute = if (currentRoute in secondaryProfileRoutes) PROFILE_ROUTE else currentRoute
-    val inlineSearchActive = inlineSearchRoute == currentRoute && currentRoute in setOf(LIBRARY_ROUTE, QUEUE_ROUTE)
-    val searchActive = currentRoute == SEARCH_ROUTE || inlineSearchActive
+    val searchActive = searchContextRoute != null
+    val searchScope = when (searchContextRoute) {
+        LIBRARY_ROUTE -> DockSearchScope.LIBRARY
+        QUEUE_ROUTE -> DockSearchScope.QUEUE
+        else -> DockSearchScope.GLOBAL
+    }
 
     fun dismissSearchKeyboard() {
         keyboardController?.hide()
@@ -148,10 +154,25 @@ fun MeowzixApp(
         searchFieldFocused = false
     }
 
+    fun clearSearchState() {
+        dismissSearchKeyboard()
+        searchQuery = ""
+        searchContextRoute = null
+        searchViewModel.setQuery("")
+    }
+
     fun navigateTopLevel(route: String) {
+        clearSearchState()
+        if (currentRoute == LIBRARY_ROUTE || route == LIBRARY_ROUTE) {
+            libraryViewModel.resetNavigationState()
+        }
+        if (route == HOME_ROUTE) {
+            navController.popBackStack(HOME_ROUTE, inclusive = false)
+            return
+        }
         navController.navigate(route) {
-            popUpTo(navController.graph.findStartDestination().id) {
-                inclusive = true
+            popUpTo(HOME_ROUTE) {
+                inclusive = false
                 saveState = false
             }
             launchSingleTop = true
@@ -159,15 +180,14 @@ fun MeowzixApp(
         }
     }
 
-    fun clearSearchState() {
-        dismissSearchKeyboard()
-        searchQuery = ""
-        inlineSearchRoute = null
-    }
+    fun goHome() = navigateTopLevel(HOME_ROUTE)
 
-    fun goHome() {
-        clearSearchState()
-        navigateTopLevel(HOME_ROUTE)
+    LaunchedEffect(searchActive, searchScope, searchQuery) {
+        if (searchActive && searchScope != DockSearchScope.QUEUE) {
+            searchViewModel.setQuery(searchQuery)
+        } else {
+            searchViewModel.setQuery("")
+        }
     }
 
     LaunchedEffect(openNowPlayingRequest) {
@@ -182,14 +202,8 @@ fun MeowzixApp(
     ) {
         when {
             morphingPlayerState.targetExpanded -> morphingPlayerState.collapse()
-            searchActive && searchFieldFocused -> dismissSearchKeyboard()
-            searchActive && searchQuery.isNotBlank() -> searchQuery = ""
-            inlineSearchActive -> {
-                dismissSearchKeyboard()
-                inlineSearchRoute = null
-            }
-            currentRoute == SEARCH_ROUTE -> goHome()
-            currentRoute in secondaryProfileRoutes -> navController.popBackStack()
+            searchActive -> clearSearchState()
+            currentRoute in secondaryProfileRoutes -> navigateTopLevel(PROFILE_ROUTE)
             currentRoute != HOME_ROUTE -> goHome()
         }
     }
@@ -198,22 +212,17 @@ fun MeowzixApp(
         NavHost(
             navController = navController,
             startDestination = HOME_ROUTE,
-            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
-            enterTransition = {
-                fadeIn(animationSpec = tween(TOP_LEVEL_ENTER_DURATION_MS))
-            },
-            exitTransition = {
-                fadeOut(animationSpec = tween(TOP_LEVEL_EXIT_DURATION_MS))
-            },
-            popEnterTransition = {
-                fadeIn(animationSpec = tween(TOP_LEVEL_ENTER_DURATION_MS))
-            },
-            popExitTransition = {
-                fadeOut(animationSpec = tween(TOP_LEVEL_EXIT_DURATION_MS))
-            },
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(hazeState),
+            enterTransition = { fadeIn(animationSpec = tween(TOP_LEVEL_ENTER_DURATION_MS)) },
+            exitTransition = { fadeOut(animationSpec = tween(TOP_LEVEL_EXIT_DURATION_MS)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(TOP_LEVEL_ENTER_DURATION_MS)) },
+            popExitTransition = { fadeOut(animationSpec = tween(TOP_LEVEL_EXIT_DURATION_MS)) },
         ) {
             composable(HOME_ROUTE) {
                 HomeRoute(
+                    hazeState = hazeState,
                     currentTrack = libraryState.tracks.firstOrNull { it.id == playbackState.currentTrack?.id },
                     onPlayTrack = { track, queue -> libraryViewModel.playTrack(track, queue) },
                     onPlayCollection = { tracks ->
@@ -228,44 +237,11 @@ fun MeowzixApp(
             composable(LIBRARY_ROUTE) {
                 LibraryRoute(
                     onOpenNowPlaying = morphingPlayerState::expand,
-                    searchQuery = if (inlineSearchRoute == LIBRARY_ROUTE) searchQuery else "",
+                    searchQuery = "",
                     viewModel = libraryViewModel,
                 )
             }
-            composable(SEARCH_ROUTE) {
-                SearchRoute(
-                    query = searchQuery,
-                    tracks = libraryState.tracks,
-                    currentTrackId = playbackState.currentTrack?.id,
-                    onPlayTrack = { track, queue ->
-                        dismissSearchKeyboard()
-                        libraryViewModel.playTrack(track, queue)
-                    },
-                    onPlayArtist = { tracks ->
-                        dismissSearchKeyboard()
-                        libraryViewModel.playCollection(
-                            tracks,
-                            dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED,
-                        )
-                    },
-                    onPlayAlbum = { tracks ->
-                        dismissSearchKeyboard()
-                        libraryViewModel.playCollection(
-                            tracks,
-                            dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED,
-                        )
-                    },
-                    onPlayNext = libraryViewModel::playNext,
-                    onAddToQueue = libraryViewModel::addToQueue,
-                )
-            }
-            composable(QUEUE_ROUTE) {
-                if (inlineSearchRoute == QUEUE_ROUTE && searchQuery.isNotBlank()) {
-                    QueueInlineSearchRoute(query = searchQuery)
-                } else {
-                    QueueRoute()
-                }
-            }
+            composable(QUEUE_ROUTE) { QueueRoute() }
             composable(PROFILE_ROUTE) {
                 ProfileRoute(
                     onOpenOffline = { navController.navigate(DOWNLOADS_ROUTE) },
@@ -273,15 +249,46 @@ fun MeowzixApp(
                     onOpenTelegram = { navController.navigate(TELEGRAM_AUTH_ROUTE) },
                 )
             }
-            composable(TELEGRAM_AUTH_ROUTE) { TelegramAuthRoute(onBack = navController::popBackStack) }
+            composable(TELEGRAM_AUTH_ROUTE) {
+                TelegramAuthRoute(onBack = { navigateTopLevel(PROFILE_ROUTE) })
+            }
             composable(DOWNLOADS_ROUTE) { DownloadsRoute() }
             composable(HISTORY_ROUTE) { HistoryRoute() }
+        }
+
+        if (searchActive && searchQuery.isNotBlank()) {
+            DockSearchOverlay(
+                hazeState = hazeState,
+                scope = searchScope,
+                query = searchQuery,
+                libraryResults = searchResults,
+                queueState = queueState,
+                currentTrackId = playbackState.currentTrack?.id,
+                onPlayLibraryTrack = { track, results ->
+                    clearSearchState()
+                    libraryViewModel.playTrack(track, results)
+                },
+                onPlayQueueIndex = { index ->
+                    clearSearchState()
+                    playerViewModel.playQueueItemAt(index)
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .padding(
+                        start = 18.dp,
+                        end = 18.dp,
+                        bottom = if (playbackState.currentTrack != null) 174.dp else 94.dp,
+                    ),
+            )
         }
 
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .imePadding()
                 .navigationBarsPadding()
                 .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -289,35 +296,29 @@ fun MeowzixApp(
             MorphingDock(
                 hazeState = hazeState,
                 destinations = destinations,
-                selectedRoute = selectedDockRoute,
+                selectedRoute = if (searchActive) SEARCH_ROUTE else selectedDockRoute,
                 searchActive = searchActive,
+                searchPlaceholder = searchScope.placeholder,
                 searchQuery = searchQuery,
                 onSearchQueryChange = { searchQuery = it },
                 onSearchFocusChanged = { searchFieldFocused = it },
                 onSelect = { route ->
                     if (route == SEARCH_ROUTE) {
                         searchQuery = ""
-                        when (currentRoute) {
-                            LIBRARY_ROUTE, QUEUE_ROUTE -> inlineSearchRoute = currentRoute
-                            SEARCH_ROUTE -> Unit
-                            else -> {
-                                inlineSearchRoute = null
-                                navigateTopLevel(SEARCH_ROUTE)
-                            }
+                        searchContextRoute = when (currentRoute) {
+                            LIBRARY_ROUTE -> LIBRARY_ROUTE
+                            QUEUE_ROUTE -> QUEUE_ROUTE
+                            else -> HOME_ROUTE
                         }
                     } else {
-                        clearSearchState()
                         navigateTopLevel(route)
                     }
                 },
                 onCloseSearch = {
                     if (searchQuery.isNotBlank()) {
                         searchQuery = ""
-                    } else if (inlineSearchActive) {
-                        dismissSearchKeyboard()
-                        inlineSearchRoute = null
                     } else {
-                        goHome()
+                        clearSearchState()
                     }
                 },
             )
@@ -330,10 +331,7 @@ fun MeowzixApp(
                 spectrum = spectrum,
                 viewModel = playerViewModel,
                 morphState = morphingPlayerState,
-                onOpenQueue = {
-                    clearSearchState()
-                    navigateTopLevel(QUEUE_ROUTE)
-                },
+                onOpenQueue = { navigateTopLevel(QUEUE_ROUTE) },
             )
         }
     }
@@ -345,6 +343,7 @@ private fun MorphingDock(
     destinations: List<DockDestination>,
     selectedRoute: String,
     searchActive: Boolean,
+    searchPlaceholder: String,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onSearchFocusChanged: (Boolean) -> Unit,
@@ -373,8 +372,8 @@ private fun MorphingDock(
             .height(72.dp)
             .animateContentSize(animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f)),
         shape = RoundedCornerShape(36.dp),
-        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = if (searchActive) 0.86f else 0.78f),
-        tint = Color.White.copy(alpha = if (searchActive) 0.13f else 0.09f),
+        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = if (searchActive) 0.90f else 0.78f),
+        tint = Color.White.copy(alpha = if (searchActive) 0.15f else 0.09f),
     ) {
         AnimatedContent(
             targetState = searchActive,
@@ -386,11 +385,15 @@ private fun MorphingDock(
         ) { isSearch ->
             if (isSearch) {
                 Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Surface(
-                        modifier = Modifier.size(46.dp).clickable { focusSearch() },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clickable { focusSearch() },
                         shape = RoundedCornerShape(23.dp),
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                         contentColor = MaterialTheme.colorScheme.primary,
@@ -417,9 +420,11 @@ private fun MorphingDock(
                             Box(contentAlignment = Alignment.CenterStart) {
                                 if (searchQuery.isEmpty()) {
                                     Text(
-                                        text = "Search songs, artists, albums…",
+                                        text = searchPlaceholder,
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip,
                                     )
                                 }
                                 innerField()
@@ -435,7 +440,9 @@ private fun MorphingDock(
                 }
             } else {
                 Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 7.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 7.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
@@ -461,9 +468,15 @@ private fun DockItem(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier.height(58.dp).clickable(onClick = onClick),
+        modifier = modifier
+            .height(58.dp)
+            .clickable(onClick = onClick),
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent,
-        contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+        contentColor = if (selected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+        },
         shape = RoundedCornerShape(28.dp),
     ) {
         Column(

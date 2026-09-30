@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!--
+      InteractiveMiniTrackPager consumes its own constraints internally. The host BoxWithConstraints
+      exists to preserve the same bounded subcomposition/gesture viewport while the pager is swapped
+      for its fallback track summary. Keep this local suppression rather than lowering the rule
+      project-wide.
+    -->
+    <issue id="UnusedBoxWithConstraintsScope">
+        <ignore path="src/main/java/dev/behradhz/meowzix/navigation/MorphingPlayerOverlay.kt" />
+    </issue>
+</lint>

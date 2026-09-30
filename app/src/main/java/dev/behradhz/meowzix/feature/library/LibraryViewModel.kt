@@ -73,6 +73,7 @@ class LibraryViewModel @Inject constructor(
     private var initialRefreshChecked = false
     private var favoriteTracksSnapshot: List<Track> = emptyList()
     private var activeTrackSnapshot: Track? = null
+    private var playlistTracksJob: Job? = null
 
     init {
         // Do not subscribe to observeLibraryTracks() here. That materialized every Track and every
@@ -124,9 +125,6 @@ class LibraryViewModel @Inject constructor(
         }
         viewModelScope.launch {
             playbackController.state
-                // Library only needs the identity/metadata of the active track. Position, buffer,
-                // and status ticks are intentionally sliced out so they cannot invalidate the
-                // entire library screen several times per second during playback.
                 .map { playback -> PlaybackState(currentTrack = playback.currentTrack) }
                 .distinctUntilChanged()
                 .collect { playback ->
@@ -143,12 +141,24 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Navigation state belongs to the Library destination, not to the activity-scoped view model.
+     * Top-level tab switches call this so re-entering Library always starts from its root surface.
+     */
+    fun resetNavigationState() {
+        playlistTracksJob?.cancel()
+        playlistTracksJob = null
+        _state.update {
+            it.copy(
+                selectedPlaylistId = null,
+                selectedPlaylistTracks = emptyList(),
+            )
+        }
+    }
+
     fun refresh() {
         if (_state.value.isRefreshing) return
 
-        // A library refresh must reconcile every active source, not just MediaStore. Telegram sync
-        // is incremental, so this also recovers a new-message update that was missed while the app
-        // process was starting or reconnecting.
         if (
             telegramRepository.authState.value.step == TelegramAuthStep.Ready &&
             telegramRepository.musicSourceState.value.selectedChatIds.isNotEmpty()
@@ -258,8 +268,6 @@ class LibraryViewModel @Inject constructor(
             .onFailure { reportLoadError(it, "Unable to update playlist") }
     }
 
-    private var playlistTracksJob: Job? = null
-
     fun selectPlaylist(playlistId: UUID) {
         if (_state.value.selectedPlaylistId == playlistId && playlistTracksJob?.isActive == true) {
             return
@@ -342,8 +350,6 @@ class LibraryViewModel @Inject constructor(
 
     private fun prepareRepeatRestore(expectedTrackIds: Set<UUID>, repeatMode: RepeatMode) {
         if (repeatMode == RepeatMode.OFF) return
-        // Subscribe before replaceAndPlay so even a very fast queue replacement cannot race past
-        // the repeat restoration listener.
         viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             queueRepository.queueState
                 .drop(1)
