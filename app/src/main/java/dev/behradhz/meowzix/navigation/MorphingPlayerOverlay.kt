@@ -61,8 +61,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
-import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
+import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueActionFeedback
@@ -453,14 +453,15 @@ private fun MiniPlayerContent(
                     .fillMaxHeight()
                     .clipToBounds(),
             ) {
+                val contentWidth = maxWidth
                 val animatedProgress = transitionProgress.value.coerceIn(0f, 1f)
                 val separatorPosition = if (transitionDirection >= 0) {
-                    maxWidth * (1f - animatedProgress)
+                    contentWidth * (1f - animatedProgress)
                 } else {
-                    maxWidth * animatedProgress
+                    contentWidth * animatedProgress
                 }
                 val separatorPx = with(density) { separatorPosition.toPx() }
-                val fullWidthPx = with(density) { maxWidth.toPx() }
+                val fullWidthPx = with(density) { contentWidth.toPx() }
 
                 if (trackChanged && animatedProgress < 1f) {
                     if (transitionDirection >= 0) {
@@ -477,7 +478,7 @@ private fun MiniPlayerContent(
                                 compactBands = compactBands,
                                 modifier = Modifier
                                     .align(Alignment.CenterStart)
-                                    .width(maxWidth),
+                                    .width(contentWidth),
                             )
                         }
 
@@ -487,14 +488,14 @@ private fun MiniPlayerContent(
                             compactBands = compactBands,
                             modifier = Modifier
                                 .align(Alignment.CenterStart)
-                                .width(maxWidth)
+                                .width(contentWidth)
                                 .graphicsLayer { translationX = separatorPx },
                         )
                     } else {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)
-                                .width(maxWidth - separatorPosition)
+                                .width(contentWidth - separatorPosition)
                                 .fillMaxHeight()
                                 .clipToBounds(),
                         ) {
@@ -504,7 +505,7 @@ private fun MiniPlayerContent(
                                 compactBands = compactBands,
                                 modifier = Modifier
                                     .align(Alignment.CenterStart)
-                                    .width(maxWidth)
+                                    .width(contentWidth)
                                     .graphicsLayer { translationX = -separatorPx },
                             )
                         }
@@ -515,7 +516,7 @@ private fun MiniPlayerContent(
                             compactBands = compactBands,
                             modifier = Modifier
                                 .align(Alignment.CenterStart)
-                                .width(maxWidth)
+                                .width(contentWidth)
                                 .graphicsLayer { translationX = separatorPx - fullWidthPx },
                         )
                     }
@@ -538,7 +539,7 @@ private fun MiniPlayerContent(
                         compactBands = compactBands,
                         modifier = Modifier
                             .align(Alignment.CenterStart)
-                            .width(maxWidth),
+                            .width(contentWidth),
                     )
                 }
             }
@@ -573,7 +574,7 @@ private fun MiniPlayerContent(
 
 @Composable
 private fun MiniPlayerTrackSummary(
-    track: Track,
+    track: NowPlayingTrack,
     showWaveform: Boolean,
     compactBands: FloatArray,
     modifier: Modifier = Modifier,
