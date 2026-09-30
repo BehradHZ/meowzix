@@ -29,7 +29,7 @@ import dev.behradhz.meowzix.data.db.RecommendationDao
 import dev.behradhz.meowzix.data.db.TRACK_SEARCH_DATABASE_CALLBACK
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramSendDao
-import dev.behradhz.meowzix.data.downloads.TdLibDownloadRepository
+import dev.behradhz.meowzix.data.downloads.ResilientDownloadRepository
 import dev.behradhz.meowzix.data.history.RoomListeningHistoryRepository
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
@@ -105,7 +105,7 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindDownloadRepository(impl: TdLibDownloadRepository): DownloadRepository
+    abstract fun bindDownloadRepository(impl: ResilientDownloadRepository): DownloadRepository
 
     @Binds
     @Singleton
