@@ -6,8 +6,8 @@ import javax.inject.Singleton
 
 /**
  * Owns the complete lightweight logical queue while Media3 only materializes a small sliding
- * window. Canonical Track.id identity is the duplicate boundary; file hashes are intentionally not
- * involved here.
+ * window. Track ids identify canonical tracks, while the logical queue may intentionally contain
+ * more than one occurrence of the same track (for example Play Next on the current/next item).
  */
 @Singleton
 class ProgressiveQueue @Inject constructor() {
@@ -33,12 +33,11 @@ class ProgressiveQueue @Inject constructor() {
         repeat: RepeatMode,
         seed: Long? = null,
     ): QueueWindowPlan {
-        val unique = orderedTracks.distinctBy(PlayableTrack::id)
-        require(unique.isNotEmpty()) { "Progressive queue requires at least one track" }
+        require(orderedTracks.isNotEmpty()) { "Progressive queue requires at least one track" }
         tracks.clear()
-        tracks.addAll(unique)
+        tracks.addAll(orderedTracks)
         trackIds.clear()
-        trackIds.addAll(unique.map(PlayableTrack::id))
+        trackIds.addAll(orderedTracks.map(PlayableTrack::id))
         currentIndex = requestedStartIndex.coerceIn(tracks.indices)
         playbackMode = mode
         repeatMode = repeat
@@ -58,7 +57,7 @@ class ProgressiveQueue @Inject constructor() {
         repeat: RepeatMode,
         seed: Long?,
     ): Boolean {
-        val restored = orderedTrackIds.distinct().mapNotNull(availableTracks::get)
+        val restored = orderedTrackIds.mapNotNull(availableTracks::get)
         if (restored.isEmpty()) {
             clearLocked()
             return false
@@ -86,13 +85,36 @@ class ProgressiveQueue @Inject constructor() {
         cachedSnapshot = it
     }
 
+    /**
+     * Fallback id-based current-item synchronization. If duplicate occurrences exist, preserve the
+     * already selected occurrence when its id still matches; otherwise prefer the next matching
+     * occurrence before searching backwards.
+     */
     @Synchronized
     fun updateCurrent(mediaId: String?): Boolean {
         val id = mediaId?.let { runCatching { UUID.fromString(it) }.getOrNull() } ?: return false
-        val index = tracks.indexOfFirst { it.id == id }
-        if (index < 0) return false
+        if (tracks.getOrNull(currentIndex)?.id == id) return true
+        val forwardIndex = (currentIndex + 1 until tracks.size).firstOrNull { tracks[it].id == id }
+        val backwardIndex = (currentIndex - 1 downTo 0).firstOrNull { tracks[it].id == id }
+        val index = forwardIndex ?: backwardIndex ?: return false
         if (index != currentIndex) {
             currentIndex = index
+            invalidateSnapshot()
+        }
+        return true
+    }
+
+    /**
+     * Synchronizes logical current from Media3's index inside the materialized window. Unlike an
+     * id lookup this is unambiguous when two adjacent queue entries reference the same Track.id.
+     */
+    @Synchronized
+    fun updateCurrentFromWindowIndex(windowIndex: Int): Boolean {
+        if (windowIndex < 0) return false
+        val logicalIndex = materializedStartIndex + windowIndex
+        if (logicalIndex !in tracks.indices || logicalIndex >= materializedEndExclusive) return false
+        if (logicalIndex != currentIndex) {
+            currentIndex = logicalIndex
             invalidateSnapshot()
         }
         return true
@@ -154,6 +176,11 @@ class ProgressiveQueue @Inject constructor() {
         return resetWindowLocked()
     }
 
+    /**
+     * Places [track] immediately after current. Existing non-adjacent occurrences are moved, but
+     * choosing the current track or the already-next track is an explicit request for another queue
+     * occurrence, so a duplicate is inserted instead.
+     */
     @Synchronized
     fun insertNext(track: PlayableTrack): Boolean {
         if (tracks.isEmpty()) {
@@ -163,21 +190,28 @@ class ProgressiveQueue @Inject constructor() {
             invalidateSnapshot()
             return true
         }
+        if (currentIndex !in tracks.indices) return false
 
-        val currentId = tracks.getOrNull(currentIndex)?.id ?: return false
+        val insertionIndex = currentIndex + 1
+        val duplicateRequested =
+            tracks[currentIndex].id == track.id || tracks.getOrNull(insertionIndex)?.id == track.id
+        if (duplicateRequested) {
+            tracks.add(insertionIndex.coerceAtMost(tracks.size), track)
+            trackIds += track.id
+            invalidateSnapshot()
+            return true
+        }
+
         val existingIndex = tracks.indexOfFirst { it.id == track.id }
-        if (existingIndex == currentIndex) return false
-
         val item = if (existingIndex >= 0) {
-            tracks.removeAt(existingIndex)
+            tracks.removeAt(existingIndex).also {
+                if (existingIndex < currentIndex) currentIndex -= 1
+            }
         } else {
             trackIds += track.id
             track
         }
-        currentIndex = tracks.indexOfFirst { it.id == currentId }
-        if (currentIndex < 0) return false
         tracks.add((currentIndex + 1).coerceAtMost(tracks.size), item)
-        currentIndex = tracks.indexOfFirst { it.id == currentId }
         invalidateSnapshot()
         return true
     }
@@ -191,19 +225,18 @@ class ProgressiveQueue @Inject constructor() {
             invalidateSnapshot()
             return true
         }
+        if (currentIndex !in tracks.indices || tracks[currentIndex].id == track.id) return false
 
-        val currentId = tracks.getOrNull(currentIndex)?.id ?: return false
         val existingIndex = tracks.indexOfFirst { it.id == track.id }
-        if (existingIndex == currentIndex) return false
-
         val item = if (existingIndex >= 0) {
-            tracks.removeAt(existingIndex)
+            tracks.removeAt(existingIndex).also {
+                if (existingIndex < currentIndex) currentIndex -= 1
+            }
         } else {
             trackIds += track.id
             track
         }
         tracks += item
-        currentIndex = tracks.indexOfFirst { it.id == currentId }
         invalidateSnapshot()
         return true
     }
@@ -211,16 +244,18 @@ class ProgressiveQueue @Inject constructor() {
     @Synchronized
     fun removeAt(index: Int): Boolean {
         if (index !in tracks.indices) return false
-        val currentId = tracks.getOrNull(currentIndex)?.id
+        val removingCurrent = index == currentIndex
         val removed = tracks.removeAt(index)
-        trackIds.remove(removed.id)
+        if (tracks.none { it.id == removed.id }) trackIds.remove(removed.id)
         if (tracks.isEmpty()) {
             clearLocked()
             return true
         }
-        currentIndex = currentId
-            ?.let { id -> tracks.indexOfFirst { it.id == id }.takeIf { it >= 0 } }
-            ?: index.coerceAtMost(tracks.lastIndex)
+        currentIndex = when {
+            removingCurrent -> index.coerceAtMost(tracks.lastIndex)
+            index < currentIndex -> currentIndex - 1
+            else -> currentIndex
+        }
         invalidateSnapshot()
         return true
     }
@@ -228,10 +263,17 @@ class ProgressiveQueue @Inject constructor() {
     @Synchronized
     fun move(fromIndex: Int, toIndex: Int): Boolean {
         if (fromIndex !in tracks.indices || toIndex !in tracks.indices || fromIndex == toIndex) return false
-        val currentId = tracks.getOrNull(currentIndex)?.id
+        val movingCurrent = fromIndex == currentIndex
         val item = tracks.removeAt(fromIndex)
         tracks.add(toIndex, item)
-        currentIndex = currentId?.let { id -> tracks.indexOfFirst { it.id == id } } ?: currentIndex
+        currentIndex = if (movingCurrent) {
+            toIndex
+        } else {
+            var adjusted = currentIndex
+            if (fromIndex < adjusted) adjusted -= 1
+            if (toIndex <= adjusted) adjusted += 1
+            adjusted
+        }
         invalidateSnapshot()
         return true
     }
@@ -261,14 +303,9 @@ class ProgressiveQueue @Inject constructor() {
     ) {
         if (tracks.isEmpty() || currentIndex < 0) return
         val fixed = tracks.take(currentIndex + 1)
-        val fixedIds = fixed.mapTo(hashSetOf(), PlayableTrack::id)
-        val uniqueFuture = future.asSequence()
-            .filterNot { it.id in fixedIds }
-            .distinctBy(PlayableTrack::id)
-            .toList()
         tracks.clear()
         tracks.addAll(fixed)
-        tracks.addAll(uniqueFuture)
+        tracks.addAll(future)
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
         playbackMode = mode
