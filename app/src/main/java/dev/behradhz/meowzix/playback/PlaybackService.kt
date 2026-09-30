@@ -183,7 +183,7 @@ class PlaybackService : MediaSessionService() {
             }
             if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
                 clearPlaybackRetry()
-                progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)
+                syncLogicalCurrentFromPlayer()
                 expandProgressiveWindow()
                 runCatching { audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString()) }
                 refreshFavoriteState()
@@ -370,10 +370,16 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun syncLogicalCurrentFromPlayer(): Boolean {
+        if (progressiveQueue.snapshot() == null) return false
+        return progressiveQueue.updateCurrentFromWindowIndex(player.currentMediaItemIndex) ||
+            progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)
+    }
+
     private fun expandProgressiveWindow() {
         if (isExpandingWindow || player.mediaItemCount == 0) return
         val snapshot = progressiveQueue.snapshot() ?: return
-        if (!progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)) {
+        if (!syncLogicalCurrentFromPlayer()) {
             progressiveQueue.clear()
             return
         }
@@ -448,21 +454,20 @@ class PlaybackService : MediaSessionService() {
     private fun toggleSystemShuffle() {
         if (player.mediaItemCount == 0) return
         val active = progressiveQueue.snapshot()
-        if (active != null && progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)) {
-            val nextMode = if (active.playbackMode == PlaybackMode.PURE_SHUFFLE) {
+        if (active != null && syncLogicalCurrentFromPlayer()) {
+            val refreshed = progressiveQueue.snapshot() ?: return
+            val nextMode = if (refreshed.playbackMode == PlaybackMode.PURE_SHUFFLE) {
                 PlaybackMode.ORDERED
             } else {
                 PlaybackMode.PURE_SHUFFLE
             }
-            val refreshed = progressiveQueue.snapshot() ?: return
             val future = refreshed.tracks.drop(refreshed.currentIndex + 1)
             serviceScope.launch {
                 var seed: Long? = null
                 val desiredFuture = if (nextMode == PlaybackMode.PURE_SHUFFLE) {
-                    val byId = future.associateBy { it.id }
-                    PureShuffleEngine.newCycle(future.map { it.id }).let { cycle ->
+                    PureShuffleEngine.newCycle(future.indices.toList()).let { cycle ->
                         seed = cycle.seed
-                        cycle.order.mapNotNull(byId::get)
+                        cycle.order.map(future::get)
                     }
                 } else {
                     val order = runCatching { playbackCatalog.availableTracks().map { it.id } }.getOrDefault(emptyList())
@@ -611,7 +616,9 @@ class PlaybackService : MediaSessionService() {
         }
 
         if (restoredProgressive) {
-            progressiveQueue.updateCurrent(saved.items.getOrNull(saved.currentIndex)?.mediaId)
+            if (!progressiveQueue.updateCurrentFromWindowIndex(saved.currentIndex)) {
+                progressiveQueue.updateCurrent(saved.items.getOrNull(saved.currentIndex)?.mediaId)
+            }
             val plan = progressiveQueue.resetWindow()
             player.repeatMode = saved.repeatMode.toPlayerRepeatMode(progressive = true)
             player.setMediaItems(
@@ -688,7 +695,6 @@ class PlaybackService : MediaSessionService() {
      * prepare on the track that is already playing.
      */
     private fun syncProgressiveFutureInPlace() {
-        if (!progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)) return
         val snapshot = progressiveQueue.snapshot() ?: return
         val playerCurrentIndex = player.currentMediaItemIndex
         if (playerCurrentIndex !in 0 until player.mediaItemCount) return
@@ -745,13 +751,23 @@ class PlaybackService : MediaSessionService() {
                     var seed: Long? = progressive.shuffleSeed
                     val nextOrder = when (progressive.playbackMode) {
                         PlaybackMode.PURE_SHUFFLE -> {
-                            val byId = progressive.tracks.associateBy { it.id }
-                            PureShuffleEngine.newCycle(
-                                progressive.tracks.map { it.id },
-                                previousLast?.id,
-                            ).let { cycle ->
+                            PureShuffleEngine.newCycle(progressive.tracks.indices.toList()).let { cycle ->
                                 seed = cycle.seed
-                                cycle.order.mapNotNull(byId::get)
+                                val order = cycle.order.toMutableList()
+                                if (previousLast != null && order.size > 1) {
+                                    val firstTrack = progressive.tracks[order.first()]
+                                    if (firstTrack.id == previousLast.id) {
+                                        val swapAt = (1 until order.size).firstOrNull { index ->
+                                            progressive.tracks[order[index]].id != previousLast.id
+                                        }
+                                        if (swapAt != null) {
+                                            val first = order[0]
+                                            order[0] = order[swapAt]
+                                            order[swapAt] = first
+                                        }
+                                    }
+                                }
+                                order.map(progressive.tracks::get)
                             }
                         }
                         PlaybackMode.ORDERED, PlaybackMode.SMART_SHUFFLE -> progressive.tracks
