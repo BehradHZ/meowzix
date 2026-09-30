@@ -384,7 +384,7 @@ private fun PagedTrackListV4(
                             modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 4.dp),
                         )
                     }
-                    SwipeableTrackRowV2(
+                    SwipeableLibraryTrackRow(
                         track = row.track,
                         isCurrent = state.playback.currentTrack?.id == row.track.id,
                         onClick = { onPlay(row) },
@@ -495,7 +495,7 @@ private fun LibraryDetailV4(
             contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 188.dp),
         ) {
             items(tracks, key = { it.id.toString() }, contentType = { "track" }) { track ->
-                SwipeableTrackRowV2(
+                SwipeableLibraryTrackRow(
                     track = track,
                     isCurrent = state.playback.currentTrack?.id == track.id,
                     onClick = { onPlay(track) },
