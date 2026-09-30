@@ -25,9 +25,6 @@ class TdLibClientAdapter {
         Client.setLogMessageHandler(0, null)
         client = Client.create(
             { update ->
-                // Streaming is a latency-sensitive consumer of UpdateFile. Publish synchronously
-                // into the registry before best-effort SharedFlow fan-out so a full update buffer
-                // cannot force the Media3 loader back into polling.
                 if (update is TdApi.UpdateFile) {
                     fileStates.publish(update.file)
                 }
@@ -41,7 +38,9 @@ class TdLibClientAdapter {
             { error -> failureChannel.tryEmit(error) },
             { error -> failureChannel.tryEmit(error) },
         )
-        activeInstance = this
+        synchronized(Companion) {
+            activeInstance = this
+        }
     }
 
     suspend fun <R : TdApi.Object> send(function: TdApi.Function<R>): R =
@@ -69,12 +68,15 @@ class TdLibClientAdapter {
         return send(TdApi.GetFile(fileId)).also(fileStates::publish)
     }
 
-    /**
-     * Low-frequency recovery path for a missed/lost UpdateFile. Streaming code deliberately calls
-     * this only after an event wait times out, never on every read/poll interval.
-     */
     internal suspend fun refreshFileState(fileId: Int): TdApi.File =
         send(TdApi.GetFile(fileId)).also(fileStates::publish)
+
+    /** Prevent a client being reset/closed from remaining the process-wide streaming client. */
+    internal fun deactivate() {
+        synchronized(Companion) {
+            if (activeInstance === this) activeInstance = null
+        }
+    }
 
     companion object {
         @Volatile
