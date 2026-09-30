@@ -2,7 +2,6 @@ package dev.behradhz.meowzix.navigation
 
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.IntSize
 
