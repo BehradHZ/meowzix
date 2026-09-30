@@ -148,9 +148,12 @@ fun MeowzixApp(
 
     fun navigateTopLevel(route: String) {
         navController.navigate(route) {
-            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            popUpTo(navController.graph.findStartDestination().id) {
+                inclusive = true
+                saveState = false
+            }
             launchSingleTop = true
-            restoreState = true
+            restoreState = false
         }
     }
 
