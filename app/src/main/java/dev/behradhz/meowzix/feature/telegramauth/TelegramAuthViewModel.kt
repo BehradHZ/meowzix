@@ -19,6 +19,7 @@ class TelegramAuthViewModel @Inject constructor(
     fun submitEmailCode(value: String) = repository.submitEmailCode(value)
     fun register(firstName: String, lastName: String) = repository.register(firstName, lastName)
     fun logout() = repository.logout()
+    fun resetTelegram() = repository.resetClient()
     fun clearError() = repository.clearError()
 
     fun refreshMusicSources() = repository.refreshSelectableChats()
