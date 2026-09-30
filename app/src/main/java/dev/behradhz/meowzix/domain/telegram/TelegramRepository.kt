@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.domain.telegram
 
+import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -102,7 +103,6 @@ sealed interface TelegramSendEnqueueResult {
     data class AlreadyInChat(val targetTitle: String?) : TelegramSendEnqueueResult
 }
 
-/** Domain boundary that keeps TDLib types and threading out of UI consumers. */
 interface TelegramRepository {
     val authState: StateFlow<TelegramAuthState>
     val musicSourceState: StateFlow<TelegramMusicSourceState>
@@ -114,7 +114,10 @@ interface TelegramRepository {
     fun submitEmailCode(code: String)
     fun register(firstName: String, lastName: String)
     fun logout()
-    fun resetClient()
+
+    /** Restart the TDLib process client without logging out or deleting imported/local music. */
+    fun resetClient() = TdLibClientAdapter.resetActive()
+
     fun clearError()
 
     fun refreshSelectableChats()
@@ -124,11 +127,6 @@ interface TelegramRepository {
     fun clearMusicSourceError()
 }
 
-/**
- * Reliable outbound Telegram capability. Enqueueing is deliberately separate from delivery:
- * callers get immediate acknowledgement, while persistent queue processing owns preflight,
- * upload/forward, retry, and final TDLib delivery confirmation.
- */
 interface TelegramForwardRepository {
     val sendJobs: Flow<List<TelegramSendJob>>
 
