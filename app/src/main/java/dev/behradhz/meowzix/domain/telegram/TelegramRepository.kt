@@ -59,13 +59,11 @@ data class TelegramMusicSourceState(
     val errorMessage: String? = null,
 )
 
-/** Controls how a Telegram-backed track is represented when it is sent to another Telegram chat. */
 data class TelegramForwardOptions(
     val includeSourceAttribution: Boolean = true,
     val keepCaption: Boolean = true,
 )
 
-/** Persistent state of one outbound Telegram operation. */
 enum class TelegramSendState {
     QUEUED,
     CHECKING,
@@ -116,6 +114,7 @@ interface TelegramRepository {
     fun submitEmailCode(code: String)
     fun register(firstName: String, lastName: String)
     fun logout()
+    fun resetClient()
     fun clearError()
 
     fun refreshSelectableChats()
@@ -133,7 +132,6 @@ interface TelegramRepository {
 interface TelegramForwardRepository {
     val sendJobs: Flow<List<TelegramSendJob>>
 
-    /** Starts/resumes persistent queue processing. Safe to call repeatedly. */
     fun initialize()
 
     suspend fun searchChats(query: String, limit: Int = 50): List<TelegramChatSummary>
@@ -147,8 +145,6 @@ interface TelegramForwardRepository {
 
     suspend fun retrySend(jobId: UUID)
     suspend fun cancelSend(jobId: UUID)
-
-    /** Used by background work to resume durable jobs after process recreation. */
     suspend fun processPendingSends()
 }
 
