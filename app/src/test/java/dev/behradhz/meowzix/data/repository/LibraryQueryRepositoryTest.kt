@@ -13,6 +13,14 @@ class LibraryQueryRepositoryTest {
     }
 
     @Test
+    fun baToQueryKeepsBothSearchTokens() {
+        assertEquals(
+            "\"ba*\" AND \"to*\"",
+            buildTrackFtsMatchExpression("ba to"),
+        )
+    }
+
+    @Test
     fun persianPrefixQueryPreservesUnicodeTokens() {
         assertEquals(
             "\"موسی*\" AND \"شب*\"",
