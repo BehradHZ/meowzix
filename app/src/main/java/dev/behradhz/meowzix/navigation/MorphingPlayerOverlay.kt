@@ -1,15 +1,12 @@
 package dev.behradhz.meowzix.navigation
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
@@ -24,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -42,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -62,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
@@ -395,11 +395,24 @@ private fun MiniPlayerContent(
     val visualLimit = with(density) { 24.dp.toPx() }
     var dragDistance by remember(track.id) { mutableFloatStateOf(0f) }
     var transitionDirection by remember { mutableStateOf(1) }
+    var previousTrack by remember { mutableStateOf(track) }
+    val outgoingTrack = remember(track.id) { previousTrack }
+    val trackChanged = outgoingTrack.id != track.id
+    val transitionProgress = remember(track.id) {
+        Animatable(if (trackChanged) 0f else 1f)
+    }
 
-    // A direct Previous gesture reverses the transition once. Automatic advances and normal Next
-    // gestures always use the requested right-to-left reveal.
+    SideEffect {
+        previousTrack = track
+    }
+
     LaunchedEffect(track.id) {
-        delay(340)
+        if (trackChanged) {
+            transitionProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(300, easing = FastOutSlowInEasing),
+            )
+        }
         transitionDirection = 1
     }
 
@@ -434,76 +447,99 @@ private fun MiniPlayerContent(
                 .padding(start = 10.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            AnimatedContent(
-                targetState = track,
-                contentKey = { it.id },
-                transitionSpec = {
-                    if (transitionDirection >= 0) {
-                        (slideInHorizontally(
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
-                            initialOffsetX = { fullWidth -> fullWidth },
-                        ) + fadeIn(animationSpec = tween(180)))
-                            .togetherWith(
-                                shrinkHorizontally(
-                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
-                                    shrinkTowards = Alignment.Start,
-                                ) + fadeOut(animationSpec = tween(150)),
-                            )
-                    } else {
-                        (slideInHorizontally(
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
-                            initialOffsetX = { fullWidth -> -fullWidth },
-                        ) + fadeIn(animationSpec = tween(180)))
-                            .togetherWith(
-                                shrinkHorizontally(
-                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
-                                    shrinkTowards = Alignment.End,
-                                ) + fadeOut(animationSpec = tween(150)),
-                            )
-                    }
-                },
+            BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
+                    .fillMaxHeight()
                     .clipToBounds(),
-            ) { animatedTrack ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TrackArtwork(
-                        artworkRef = animatedTrack.artworkRef,
-                        description = animatedTrack.title,
-                        size = 50.dp,
-                    )
-                    Spacer(Modifier.size(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = animatedTrack.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+            ) {
+                val animatedProgress = transitionProgress.value.coerceIn(0f, 1f)
+                val separatorPosition = if (transitionDirection >= 0) {
+                    maxWidth * (1f - animatedProgress)
+                } else {
+                    maxWidth * animatedProgress
+                }
+                val separatorPx = with(density) { separatorPosition.toPx() }
+                val fullWidthPx = with(density) { maxWidth.toPx() }
+
+                if (trackChanged && animatedProgress < 1f) {
+                    if (transitionDirection >= 0) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .width(separatorPosition)
+                                .fillMaxHeight()
+                                .clipToBounds(),
+                        ) {
+                            MiniPlayerTrackSummary(
+                                track = outgoingTrack,
+                                showWaveform = false,
+                                compactBands = compactBands,
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .width(maxWidth),
+                            )
+                        }
+
+                        MiniPlayerTrackSummary(
+                            track = track,
+                            showWaveform = hasWaveform && state.status == PlaybackStatus.PLAYING,
+                            compactBands = compactBands,
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .width(maxWidth)
+                                .graphicsLayer { translationX = separatorPx },
                         )
-                        Text(
-                            text = animatedTrack.artist ?: "Unknown artist",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .width(maxWidth - separatorPosition)
+                                .fillMaxHeight()
+                                .clipToBounds(),
+                        ) {
+                            MiniPlayerTrackSummary(
+                                track = outgoingTrack,
+                                showWaveform = false,
+                                compactBands = compactBands,
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .width(maxWidth)
+                                    .graphicsLayer { translationX = -separatorPx },
+                            )
+                        }
+
+                        MiniPlayerTrackSummary(
+                            track = track,
+                            showWaveform = hasWaveform && state.status == PlaybackStatus.PLAYING,
+                            compactBands = compactBands,
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .width(maxWidth)
+                                .graphicsLayer { translationX = separatorPx - fullWidthPx },
                         )
                     }
 
-                    if (hasWaveform && state.status == PlaybackStatus.PLAYING) {
-                        AudioSpectrum(
-                            bands = compactBands,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .width(44.dp)
-                                .height(22.dp)
-                                .padding(horizontal = 2.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                    }
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .width(1.dp)
+                            .height(42.dp)
+                            .graphicsLayer {
+                                translationX = separatorPx
+                                alpha = (1f - abs(animatedProgress * 2f - 1f)) * 0.28f
+                            },
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                    ) {}
+                } else {
+                    MiniPlayerTrackSummary(
+                        track = track,
+                        showWaveform = hasWaveform && state.status == PlaybackStatus.PLAYING,
+                        compactBands = compactBands,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .width(maxWidth),
+                    )
                 }
             }
 
@@ -531,6 +567,54 @@ private fun MiniPlayerContent(
                     .align(Alignment.CenterStart),
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.88f),
             ) {}
+        }
+    }
+}
+
+@Composable
+private fun MiniPlayerTrackSummary(
+    track: Track,
+    showWaveform: Boolean,
+    compactBands: FloatArray,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TrackArtwork(
+            artworkRef = track.artworkRef,
+            description = track.title,
+            size = 50.dp,
+        )
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = track.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = track.artist ?: "Unknown artist",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        if (showWaveform) {
+            AudioSpectrum(
+                bands = compactBands,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .width(44.dp)
+                    .height(22.dp)
+                    .padding(horizontal = 2.dp),
+            )
+            Spacer(Modifier.width(4.dp))
         }
     }
 }
