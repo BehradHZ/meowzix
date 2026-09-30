@@ -90,6 +90,8 @@ private const val PROFILE_ROUTE = "profile"
 private const val TELEGRAM_AUTH_ROUTE = "telegram-auth"
 private const val DOWNLOADS_ROUTE = "downloads"
 private const val HISTORY_ROUTE = "history"
+private const val TOP_LEVEL_ENTER_DURATION_MS = 120
+private const val TOP_LEVEL_EXIT_DURATION_MS = 90
 
 private data class DockDestination(
     val route: String,
@@ -197,6 +199,18 @@ fun MeowzixApp(
             navController = navController,
             startDestination = HOME_ROUTE,
             modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+            enterTransition = {
+                fadeIn(animationSpec = tween(TOP_LEVEL_ENTER_DURATION_MS))
+            },
+            exitTransition = {
+                fadeOut(animationSpec = tween(TOP_LEVEL_EXIT_DURATION_MS))
+            },
+            popEnterTransition = {
+                fadeIn(animationSpec = tween(TOP_LEVEL_ENTER_DURATION_MS))
+            },
+            popExitTransition = {
+                fadeOut(animationSpec = tween(TOP_LEVEL_EXIT_DURATION_MS))
+            },
         ) {
             composable(HOME_ROUTE) {
                 HomeRoute(
