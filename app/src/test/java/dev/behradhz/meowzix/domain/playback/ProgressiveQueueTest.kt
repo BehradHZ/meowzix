@@ -95,20 +95,94 @@ class ProgressiveQueueTest {
     }
 
     @Test
-    fun `manual queue actions reposition existing tracks without duplicate canonical IDs`() {
+    fun `play next moves an existing non-adjacent occurrence instead of duplicating it`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(20)
         queue.start(tracks, 3, PlaybackMode.ORDERED, RepeatMode.OFF)
 
         assertTrue(queue.insertNext(tracks[10]))
-        var snapshot = requireNotNull(queue.snapshot())
+        val snapshot = requireNotNull(queue.snapshot())
+
         assertEquals(tracks[3].id, snapshot.tracks[snapshot.currentIndex].id)
         assertEquals(tracks[10].id, snapshot.tracks[snapshot.currentIndex + 1].id)
         assertEquals(20, snapshot.tracks.size)
         assertEquals(20, snapshot.tracks.map { it.id }.distinct().size)
+    }
+
+    @Test
+    fun `play next duplicates the current occurrence`() {
+        val queue = ProgressiveQueue()
+        val tracks = tracks(8)
+        queue.start(tracks, 3, PlaybackMode.ORDERED, RepeatMode.OFF)
+
+        assertTrue(queue.insertNext(tracks[3]))
+        val snapshot = requireNotNull(queue.snapshot())
+
+        assertEquals(3, snapshot.currentIndex)
+        assertEquals(tracks[3].id, snapshot.tracks[3].id)
+        assertEquals(tracks[3].id, snapshot.tracks[4].id)
+        assertEquals(9, snapshot.tracks.size)
+    }
+
+    @Test
+    fun `play next duplicates an already-next occurrence`() {
+        val queue = ProgressiveQueue()
+        val tracks = tracks(8)
+        queue.start(tracks, 2, PlaybackMode.ORDERED, RepeatMode.OFF)
+
+        assertTrue(queue.insertNext(tracks[3]))
+        val snapshot = requireNotNull(queue.snapshot())
+
+        assertEquals(2, snapshot.currentIndex)
+        assertEquals(listOf(tracks[3].id, tracks[3].id), snapshot.tracks.subList(3, 5).map { it.id })
+        assertEquals(9, snapshot.tracks.size)
+    }
+
+    @Test
+    fun `materialized window index selects the correct duplicate occurrence`() {
+        val queue = ProgressiveQueue()
+        val tracks = tracks(8)
+        queue.start(tracks, 2, PlaybackMode.ORDERED, RepeatMode.OFF)
+        queue.insertNext(tracks[2])
+        queue.resetWindow()
+
+        assertTrue(queue.updateCurrentFromWindowIndex(3))
+        val snapshot = requireNotNull(queue.snapshot())
+
+        assertEquals(3, snapshot.currentIndex)
+        assertEquals(tracks[2].id, snapshot.tracks[snapshot.currentIndex].id)
+    }
+
+    @Test
+    fun `restoring logical ids preserves explicit duplicate occurrences`() {
+        val queue = ProgressiveQueue()
+        val tracks = tracks(5)
+        val ids = listOf(tracks[0].id, tracks[1].id, tracks[1].id, tracks[2].id)
+
+        assertTrue(
+            queue.restore(
+                orderedTrackIds = ids,
+                availableTracks = tracks.associateBy { it.id },
+                requestedCurrentIndex = 1,
+                requestedMaterializedStartIndex = 0,
+                requestedMaterializedEndExclusive = 4,
+                mode = PlaybackMode.ORDERED,
+                repeat = RepeatMode.OFF,
+                seed = null,
+            ),
+        )
+
+        assertEquals(ids, requireNotNull(queue.snapshot()).tracks.map { it.id })
+    }
+
+    @Test
+    fun `add to queue still repositions existing tracks without adding duplicates`() {
+        val queue = ProgressiveQueue()
+        val tracks = tracks(20)
+        queue.start(tracks, 3, PlaybackMode.ORDERED, RepeatMode.OFF)
 
         assertTrue(queue.append(tracks[1]))
-        snapshot = requireNotNull(queue.snapshot())
+        val snapshot = requireNotNull(queue.snapshot())
         assertEquals(tracks[3].id, snapshot.tracks[snapshot.currentIndex].id)
         assertEquals(tracks[1].id, snapshot.tracks.last().id)
         assertEquals(20, snapshot.tracks.size)
@@ -127,6 +201,20 @@ class ProgressiveQueueTest {
         assertEquals(5, snapshot.currentIndex)
         assertEquals(tracks[6].id, snapshot.tracks[snapshot.currentIndex].id)
         assertFalse(snapshot.tracks.any { it.id == tracks[5].id })
+    }
+
+    @Test
+    fun `removing one duplicate keeps canonical id present`() {
+        val queue = ProgressiveQueue()
+        val tracks = tracks(6)
+        queue.start(tracks, 1, PlaybackMode.ORDERED, RepeatMode.OFF)
+        queue.insertNext(tracks[1])
+
+        assertTrue(queue.removeAt(2))
+
+        val snapshot = requireNotNull(queue.snapshot())
+        assertTrue(queue.contains(tracks[1].id))
+        assertEquals(1, snapshot.tracks.count { it.id == tracks[1].id })
     }
 
     @Test
