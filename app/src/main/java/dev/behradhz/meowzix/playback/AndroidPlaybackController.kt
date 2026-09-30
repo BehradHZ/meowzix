@@ -158,6 +158,7 @@ class AndroidPlaybackController @Inject constructor(
             withConnectedController { connected ->
                 val active = progressiveQueue.snapshot()
                 if (active != null) {
+                    syncLogicalCurrentFromPlayer(connected)
                     if (progressiveQueue.insertNext(track)) {
                         // Never replace/prepare the active MediaItem for a manual queue edit. Media3
                         // can reconcile the bounded window in place without interrupting audio.
@@ -168,17 +169,32 @@ class AndroidPlaybackController @Inject constructor(
                 }
 
                 val currentIndex = connected.currentMediaItemIndex
-                val existingIndex = connected.indexOfTrack(trackId)
-                if (existingIndex != null) {
-                    if (existingIndex == currentIndex) return@withConnectedController
-                    val destination = if (existingIndex < currentIndex) currentIndex else currentIndex + 1
-                    connected.moveMediaItem(existingIndex, destination.coerceIn(0, connected.mediaItemCount - 1))
-                } else {
-                    val insertionIndex = (currentIndex + 1).coerceIn(0, connected.mediaItemCount)
+                val insertionIndex = (currentIndex + 1).coerceIn(0, connected.mediaItemCount)
+                val currentIsTarget = connected.currentMediaItem?.mediaId == trackId.toString()
+                val nextIsTarget = insertionIndex < connected.mediaItemCount &&
+                    connected.getMediaItemAt(insertionIndex).mediaId == trackId.toString()
+
+                if (currentIsTarget || nextIsTarget) {
+                    // Re-selecting current/already-next means the user explicitly wants another
+                    // occurrence to play next, rather than a no-op.
                     connected.addMediaItem(
                         insertionIndex,
                         track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
                     )
+                } else {
+                    val existingIndex = connected.indexOfTrack(trackId)
+                    if (existingIndex != null) {
+                        val destination = if (existingIndex < currentIndex) currentIndex else currentIndex + 1
+                        connected.moveMediaItem(
+                            existingIndex,
+                            destination.coerceIn(0, connected.mediaItemCount - 1),
+                        )
+                    } else {
+                        connected.addMediaItem(
+                            insertionIndex,
+                            track.toMediaItem(connected.queuePlaybackMode(), connected.queueRepeatMode()),
+                        )
+                    }
                 }
                 updateState(connected)
                 queueActionFeedbackBus.emit(QueueActionKind.PLAY_NEXT, track.title)
@@ -192,9 +208,11 @@ class AndroidPlaybackController @Inject constructor(
             withConnectedController { connected ->
                 val active = progressiveQueue.snapshot()
                 if (active != null) {
-                    val existingIndex = active.tracks.indexOfFirst { it.id == trackId }
+                    syncLogicalCurrentFromPlayer(connected)
+                    val refreshed = progressiveQueue.snapshot() ?: return@withConnectedController
+                    val existingIndex = refreshed.tracks.indexOfFirst { it.id == trackId }
                     val affectsMaterializedWindow =
-                        existingIndex >= 0 && existingIndex < active.materializedEndExclusive
+                        existingIndex >= 0 && existingIndex < refreshed.materializedEndExclusive
                     if (progressiveQueue.append(track)) {
                         if (affectsMaterializedWindow) {
                             // Repositioning an item that Media3 already materialized must reconcile
@@ -320,7 +338,9 @@ class AndroidPlaybackController @Inject constructor(
         withController { connected ->
             val before = progressiveQueue.snapshot()
             if (before != null) {
-                val removingCurrent = index == before.currentIndex
+                syncLogicalCurrentFromPlayer(connected)
+                val current = progressiveQueue.snapshot() ?: return@withController
+                val removingCurrent = index == current.currentIndex
                 if (progressiveQueue.removeAt(index)) {
                     if (progressiveQueue.snapshot() == null) {
                         connected.clearMediaItems()
@@ -337,6 +357,7 @@ class AndroidPlaybackController @Inject constructor(
     override fun move(fromIndex: Int, toIndex: Int) {
         withController { connected ->
             if (progressiveQueue.snapshot() != null) {
+                syncLogicalCurrentFromPlayer(connected)
                 if (progressiveQueue.move(fromIndex, toIndex)) syncProgressiveWindowInPlace(connected)
             } else if (fromIndex in 0 until connected.mediaItemCount && toIndex in 0 until connected.mediaItemCount) {
                 connected.moveMediaItem(fromIndex, toIndex)
@@ -356,7 +377,7 @@ class AndroidPlaybackController @Inject constructor(
 
         val hasLogicalQueue = progressiveQueue.snapshot() != null
         if (hasLogicalQueue) {
-            progressiveQueue.updateCurrent(connected.currentMediaItem?.mediaId)
+            syncLogicalCurrentFromPlayer(connected)
             if (!progressiveQueue.retainCurrentOnly()) progressiveQueue.clear()
         }
 
@@ -377,11 +398,12 @@ class AndroidPlaybackController @Inject constructor(
                     showError(error.message ?: "Playback is unavailable")
                     return@launch
                 }
-            val active = progressiveQueue.snapshot()
-            if (active == null) {
+            if (progressiveQueue.snapshot() == null) {
                 setLegacyPlaybackMode(connected, mode)
                 return@launch
             }
+            syncLogicalCurrentFromPlayer(connected)
+            val active = progressiveQueue.snapshot() ?: return@launch
             if (active.tracks.isEmpty()) return@launch
             val currentTrack = active.tracks[active.currentIndex]
             val future = active.tracks.drop(active.currentIndex + 1)
@@ -395,22 +417,21 @@ class AndroidPlaybackController @Inject constructor(
                     future.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
                 }
                 PlaybackMode.PURE_SHUFFLE -> {
-                    val byId = future.associateBy { it.id }
-                    PureShuffleEngine.newCycle(future.map { it.id }).let { cycle ->
+                    PureShuffleEngine.newCycle(future.indices.toList()).let { cycle ->
                         seed = cycle.seed
-                        cycle.order.mapNotNull(byId::get)
+                        cycle.order.map(future::get)
                     }
                 }
                 PlaybackMode.SMART_SHUFFLE -> {
-                    val byId = future.associateBy { it.id }
                     val rankedIds = recommendationEngine.generate(
-                        allowedTrackIds = future.map { it.id },
+                        allowedTrackIds = future.map { it.id }.distinct(),
                         currentTrackId = currentTrack.id,
                         timeBucket = currentTimeBucket(),
                     ).trackIds.distinct()
-                    val ranked = rankedIds.mapNotNull(byId::get)
-                    val rankedSet = ranked.mapTo(hashSetOf(), PlayableTrack::id)
-                    ranked + future.filterNot { candidate -> candidate.id in rankedSet }
+                    val rank = rankedIds.withIndex().associate { it.value to it.index }
+                    future.withIndex()
+                        .sortedWith(compareBy({ rank[it.value.id] ?: Int.MAX_VALUE }, { it.index }))
+                        .map { it.value }
                 }
             }
             progressiveQueue.replaceFuture(desiredFuture, mode, seed)
@@ -484,12 +505,17 @@ class AndroidPlaybackController @Inject constructor(
         action(connected)
     }
 
+    private fun syncLogicalCurrentFromPlayer(player: Player): Boolean {
+        if (progressiveQueue.snapshot() == null) return false
+        return progressiveQueue.updateCurrentFromWindowIndex(player.currentMediaItemIndex) ||
+            progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)
+    }
+
     /**
      * Applies a progressive mode change without replacing the active MediaItem. Keeping the current
      * item attached to ExoPlayer avoids a prepare/buffer cycle and therefore keeps audio continuous.
      */
     private fun syncProgressiveFutureInPlace(connected: MediaController) {
-        if (!progressiveQueue.updateCurrent(connected.currentMediaItem?.mediaId)) return
         val snapshot = progressiveQueue.snapshot() ?: return
         val playerCurrentIndex = connected.currentMediaItemIndex
         if (playerCurrentIndex !in 0 until connected.mediaItemCount) return
@@ -514,8 +540,6 @@ class AndroidPlaybackController @Inject constructor(
 
     /** Reconciles a reordered progressive window without resetting the active MediaItem. */
     private fun syncProgressiveWindowInPlace(connected: MediaController) {
-        val currentMediaId = connected.currentMediaItem?.mediaId ?: return
-        if (!progressiveQueue.updateCurrent(currentMediaId)) return
         val plan = progressiveQueue.resetWindow()
         val snapshot = progressiveQueue.snapshot() ?: return
         plan.tracks.forEachIndexed { targetIndex, track ->
@@ -576,10 +600,16 @@ class AndroidPlaybackController @Inject constructor(
                     val allowed = existingIds.drop(currentIndex + 1)
                         .mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
                     recommendationEngine.generate(
-                        allowedTrackIds = allowed,
+                        allowedTrackIds = allowed.distinct(),
                         currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
                         timeBucket = currentTimeBucket(),
-                    ).trackIds.map(UUID::toString).filterNot { it == currentId }
+                    ).trackIds.map(UUID::toString).let { ranked ->
+                        val rank = ranked.withIndex().associate { it.value to it.index }
+                        existingIds.drop(currentIndex + 1)
+                            .withIndex()
+                            .sortedWith(compareBy({ rank[it.value] ?: Int.MAX_VALUE }, { it.index }))
+                            .map { it.value }
+                    }
                 }
             }
             desiredFutureIds.forEachIndexed { offset, mediaId ->
@@ -599,7 +629,7 @@ class AndroidPlaybackController @Inject constructor(
         val trackId = mediaItem?.mediaId?.let { mediaId ->
             runCatching { UUID.fromString(mediaId) }.getOrNull()
         }
-        progressiveQueue.updateCurrent(mediaItem?.mediaId)
+        syncLogicalCurrentFromPlayer(player)
         val logical = progressiveQueue.snapshot()
         val duration = player.duration.takeIf { it != C.TIME_UNSET && it >= 0 }
             ?: mediaItem?.mediaMetadata?.durationMs?.coerceAtLeast(0)
