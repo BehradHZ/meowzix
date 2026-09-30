@@ -37,10 +37,7 @@ interface LibraryDao {
                   SELECT 1
                   FROM telegram_track_sources tg
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  INNER JOIN telegram_selected_sources selected
-                      ON selected.accountId = tg.accountId
-                     AND selected.chatId = tg.chatId
-                  WHERE origin.trackId = t.id
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
         ORDER BY t.normalizedTitle
@@ -71,10 +68,7 @@ interface LibraryDao {
                   SELECT 1
                   FROM telegram_track_sources tg
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  INNER JOIN telegram_selected_sources selected
-                      ON selected.accountId = tg.accountId
-                     AND selected.chatId = tg.chatId
-                  WHERE origin.trackId = t.id
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
         ORDER BY t.normalizedTitle
@@ -112,9 +106,7 @@ interface LibraryDao {
                   SELECT 1
                   FROM telegram_track_sources tg
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  INNER JOIN telegram_selected_sources selected
-                      ON selected.accountId = tg.accountId AND selected.chatId = tg.chatId
-                  WHERE origin.trackId = t.id
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
         """,
@@ -144,10 +136,7 @@ interface LibraryDao {
                   SELECT 1
                   FROM telegram_track_sources tg
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  INNER JOIN telegram_selected_sources selected
-                      ON selected.accountId = tg.accountId
-                     AND selected.chatId = tg.chatId
-                  WHERE origin.trackId = t.id
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
         ORDER BY t.normalizedTitle
