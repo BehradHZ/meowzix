@@ -14,6 +14,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -113,28 +115,35 @@ fun rememberMeowzixHaptics(): MeowzixHaptics {
  * App-wide observer for subtle interaction feedback.
  *
  * It never consumes pointer input. Child controls keep full gesture ownership. Feedback is emitted
- * only after a child actually consumes the gesture, so tapping inert/empty UI does not vibrate.
- * Vertical scrolling is deliberately silent. Horizontal gestures are also silent here because
- * their meaningful activation thresholds belong to the component that owns each gesture. A
- * vertical drag that starts after a long press is treated as reorder/drag affordance.
+ * only after a child actually consumes a tap/long press. Scroll gestures are always silent, and
+ * gestures starting in Android's bottom system-gesture area (plus the transparent clearance around
+ * the floating dock) are ignored so Home/Overview gestures never trigger app haptics. Horizontal
+ * gesture thresholds remain the responsibility of the component that owns each gesture.
  */
 fun Modifier.meowzixInteractionHaptics(): Modifier = composed {
     val haptics = rememberMeowzixHaptics()
+    val view = LocalView.current
 
-    pointerInput(haptics) {
+    pointerInput(haptics, view) {
         val tapSlop = 12.dp.toPx()
-        val longPressDragSlop = 8.dp.toPx()
         val longPressMillis = 430L
+        val dockGestureClearance = 12.dp.toPx()
 
         awaitEachGesture {
             val down = awaitFirstDown(
                 requireUnconsumed = false,
                 pass = PointerEventPass.Initial,
             )
+            val bottomSystemGestureInset = ViewCompat.getRootWindowInsets(view)
+                ?.getInsets(WindowInsetsCompat.Type.systemGestures())
+                ?.bottom
+                ?: 0
+            val startsInBottomSystemGestureArea =
+                down.position.y >= size.height - bottomSystemGestureInset - dockGestureClearance
+
             var totalX = 0f
             var totalY = 0f
             var childConsumed = false
-            var longPressDragStarted = false
             var pressed = true
             var lastUptimeMillis = down.uptimeMillis
 
@@ -146,30 +155,14 @@ fun Modifier.meowzixInteractionHaptics(): Modifier = composed {
                 totalY += delta.y
                 lastUptimeMillis = change.uptimeMillis
                 childConsumed = childConsumed || change.isConsumed
-
-                val elapsed = lastUptimeMillis - down.uptimeMillis
-                val verticalIntent = abs(totalY) > abs(totalX) * 1.15f
-
-                if (
-                    childConsumed &&
-                    !longPressDragStarted &&
-                    elapsed >= longPressMillis &&
-                    verticalIntent &&
-                    abs(totalY) >= longPressDragSlop
-                ) {
-                    longPressDragStarted = true
-                    haptics.perform(MeowzixHapticCue.DragStart)
-                }
-
                 pressed = change.pressed
             }
 
-            if (!childConsumed) return@awaitEachGesture
+            if (startsInBottomSystemGestureArea || !childConsumed) return@awaitEachGesture
 
             val maxMovement = max(abs(totalX), abs(totalY))
             val duration = lastUptimeMillis - down.uptimeMillis
             when {
-                longPressDragStarted -> haptics.perform(MeowzixHapticCue.DragDrop)
                 maxMovement <= tapSlop && duration >= longPressMillis -> {
                     haptics.perform(MeowzixHapticCue.LongPress)
                 }
