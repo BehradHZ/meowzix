@@ -98,7 +98,6 @@ class ResilientDownloadRepository @Inject constructor(
     }
 
     override fun retry(trackId: UUID) {
-        scope.launch { markQueued(trackId, null) }
         delegate.retry(trackId)
         scope.launch { enqueueRecovery(trackId) }
     }
@@ -134,7 +133,6 @@ class ResilientDownloadRepository @Inject constructor(
         delegate.retry(trackId)
 
         val startedAt = System.currentTimeMillis()
-        var sawDownloading = before?.status == DownloadStatus.DOWNLOADING.name
         while (currentCoroutineContext().isActive) {
             delay(POLL_INTERVAL_MS)
             val current = downloadDao.byTrackId(trackId.toString())
@@ -143,7 +141,7 @@ class ResilientDownloadRepository @Inject constructor(
                 DownloadStatus.CANCELED.name,
                 -> return PersistentAttemptResult.SUCCESS
 
-                DownloadStatus.DOWNLOADING.name -> sawDownloading = true
+                DownloadStatus.DOWNLOADING.name -> Unit
 
                 DownloadStatus.FAILED.name -> {
                     return if (isRetryableFailure(current.failureReason)) {
@@ -174,10 +172,6 @@ class ResilientDownloadRepository @Inject constructor(
             if (System.currentTimeMillis() - startedAt >= WORKER_WATCHDOG_MS) {
                 return PersistentAttemptResult.RETRY
             }
-
-            // Keep the variable meaningful for future status extensions and document that a worker
-            // which has observed active transfer progress must not treat a short QUEUED race as fatal.
-            if (sawDownloading) Unit
         }
         return PersistentAttemptResult.RETRY
     }
@@ -259,7 +253,7 @@ internal enum class PersistentAttemptResult { SUCCESS, RETRY, FAILURE }
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)
-internal interface DownloadWorkerEntryPoint {
+interface DownloadWorkerEntryPoint {
     fun resilientDownloadRepository(): ResilientDownloadRepository
 }
 
@@ -269,7 +263,7 @@ class OfflineDownloadWorker(
 ) : CoroutineWorker(appContext, workerParameters) {
     override suspend fun doWork(): Result {
         val trackId = inputData.getString(KEY_TRACK_ID)
-            ?.let { runCatching(UUID::fromString).getOrNull() }
+            ?.let { value -> runCatching { UUID.fromString(value) }.getOrNull() }
             ?: return Result.failure()
         val repository = EntryPointAccessors.fromApplication(
             applicationContext,
