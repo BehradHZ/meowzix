@@ -3,14 +3,14 @@ package dev.behradhz.meowzix.navigation
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -51,12 +51,12 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -72,6 +72,7 @@ import dev.behradhz.meowzix.feature.library.LibraryRoute
 import dev.behradhz.meowzix.feature.library.LibraryViewModel
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.profile.ProfileRoute
+import dev.behradhz.meowzix.feature.queue.QueueInlineSearchRoute
 import dev.behradhz.meowzix.feature.queue.QueueRoute
 import dev.behradhz.meowzix.feature.search.SearchRoute
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
@@ -116,46 +117,28 @@ fun MeowzixApp(
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchFieldFocused by remember { mutableStateOf(false) }
+    var inlineSearchRoute by rememberSaveable { mutableStateOf<String?>(null) }
 
     val destinations = remember {
         listOf(
-            DockDestination(
-                route = HOME_ROUTE,
-                label = "Home",
-                icon = { Icon(Icons.Rounded.Home, contentDescription = null) },
-            ),
-            DockDestination(
-                route = LIBRARY_ROUTE,
-                label = "Library",
-                icon = { Icon(Icons.Rounded.LibraryMusic, contentDescription = null) },
-            ),
-            DockDestination(
-                route = SEARCH_ROUTE,
-                label = "Search",
-                icon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-            ),
-            DockDestination(
-                route = QUEUE_ROUTE,
-                label = "Queue",
-                icon = { Icon(Icons.Rounded.QueueMusic, contentDescription = null) },
-            ),
-            DockDestination(
-                route = PROFILE_ROUTE,
-                label = "Profile",
-                icon = {
-                    Image(
-                        painter = painterResource(R.drawable.meowzix_logo),
-                        contentDescription = null,
-                        modifier = Modifier.size(25.dp),
-                    )
-                },
-            ),
+            DockDestination(HOME_ROUTE, "Home") { Icon(Icons.Rounded.Home, contentDescription = null) },
+            DockDestination(LIBRARY_ROUTE, "Library") { Icon(Icons.Rounded.LibraryMusic, contentDescription = null) },
+            DockDestination(SEARCH_ROUTE, "Search") { Icon(Icons.Rounded.Search, contentDescription = null) },
+            DockDestination(QUEUE_ROUTE, "Queue") { Icon(Icons.Rounded.QueueMusic, contentDescription = null) },
+            DockDestination(PROFILE_ROUTE, "Profile") {
+                Image(
+                    painter = painterResource(R.drawable.meowzix_logo),
+                    contentDescription = null,
+                    modifier = Modifier.size(25.dp),
+                )
+            },
         )
     }
 
     val secondaryProfileRoutes = remember { setOf(DOWNLOADS_ROUTE, HISTORY_ROUTE, TELEGRAM_AUTH_ROUTE) }
     val selectedDockRoute = if (currentRoute in secondaryProfileRoutes) PROFILE_ROUTE else currentRoute
-    val searchActive = currentRoute == SEARCH_ROUTE
+    val inlineSearchActive = inlineSearchRoute == currentRoute && currentRoute in setOf(LIBRARY_ROUTE, QUEUE_ROUTE)
+    val searchActive = currentRoute == SEARCH_ROUTE || inlineSearchActive
 
     fun dismissSearchKeyboard() {
         keyboardController?.hide()
@@ -171,9 +154,14 @@ fun MeowzixApp(
         }
     }
 
-    fun goHome() {
+    fun clearSearchState() {
         dismissSearchKeyboard()
         searchQuery = ""
+        inlineSearchRoute = null
+    }
+
+    fun goHome() {
+        clearSearchState()
         navigateTopLevel(HOME_ROUTE)
     }
 
@@ -185,13 +173,17 @@ fun MeowzixApp(
     }
 
     BackHandler(
-        enabled = currentRoute != HOME_ROUTE ||
-            (currentRoute == SEARCH_ROUTE && (searchFieldFocused || searchQuery.isNotBlank())),
+        enabled = currentRoute != HOME_ROUTE || searchActive || morphingPlayerState.targetExpanded,
     ) {
         when {
             morphingPlayerState.targetExpanded -> morphingPlayerState.collapse()
-            currentRoute == SEARCH_ROUTE && searchFieldFocused -> dismissSearchKeyboard()
-            currentRoute == SEARCH_ROUTE && searchQuery.isNotBlank() -> searchQuery = ""
+            searchActive && searchFieldFocused -> dismissSearchKeyboard()
+            searchActive && searchQuery.isNotBlank() -> searchQuery = ""
+            inlineSearchActive -> {
+                dismissSearchKeyboard()
+                inlineSearchRoute = null
+            }
+            currentRoute == SEARCH_ROUTE -> goHome()
             currentRoute in secondaryProfileRoutes -> navController.popBackStack()
             currentRoute != HOME_ROUTE -> goHome()
         }
@@ -201,15 +193,11 @@ fun MeowzixApp(
         NavHost(
             navController = navController,
             startDestination = HOME_ROUTE,
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(hazeState),
+            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
         ) {
             composable(HOME_ROUTE) {
                 HomeRoute(
-                    currentTrack = libraryState.tracks.firstOrNull { track ->
-                        track.id == playbackState.currentTrack?.id
-                    },
+                    currentTrack = libraryState.tracks.firstOrNull { it.id == playbackState.currentTrack?.id },
                     onPlayTrack = { track, queue -> libraryViewModel.playTrack(track, queue) },
                     onPlayCollection = { tracks ->
                         libraryViewModel.playCollection(
@@ -223,6 +211,7 @@ fun MeowzixApp(
             composable(LIBRARY_ROUTE) {
                 LibraryRoute(
                     onOpenNowPlaying = morphingPlayerState::expand,
+                    searchQuery = if (inlineSearchRoute == LIBRARY_ROUTE) searchQuery else "",
                     viewModel = libraryViewModel,
                 )
             }
@@ -249,10 +238,16 @@ fun MeowzixApp(
                             dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED,
                         )
                     },
+                    onPlayNext = libraryViewModel::playNext,
+                    onAddToQueue = libraryViewModel::addToQueue,
                 )
             }
             composable(QUEUE_ROUTE) {
-                QueueRoute()
+                if (inlineSearchRoute == QUEUE_ROUTE && searchQuery.isNotBlank()) {
+                    QueueInlineSearchRoute(query = searchQuery)
+                } else {
+                    QueueRoute()
+                }
             }
             composable(PROFILE_ROUTE) {
                 ProfileRoute(
@@ -261,15 +256,9 @@ fun MeowzixApp(
                     onOpenTelegram = { navController.navigate(TELEGRAM_AUTH_ROUTE) },
                 )
             }
-            composable(TELEGRAM_AUTH_ROUTE) {
-                TelegramAuthRoute(onBack = navController::popBackStack)
-            }
-            composable(DOWNLOADS_ROUTE) {
-                DownloadsRoute()
-            }
-            composable(HISTORY_ROUTE) {
-                HistoryRoute()
-            }
+            composable(TELEGRAM_AUTH_ROUTE) { TelegramAuthRoute(onBack = navController::popBackStack) }
+            composable(DOWNLOADS_ROUTE) { DownloadsRoute() }
+            composable(HISTORY_ROUTE) { HistoryRoute() }
         }
 
         Column(
@@ -289,15 +278,30 @@ fun MeowzixApp(
                 onSearchQueryChange = { searchQuery = it },
                 onSearchFocusChanged = { searchFieldFocused = it },
                 onSelect = { route ->
-                    if (route != SEARCH_ROUTE) {
-                        dismissSearchKeyboard()
+                    if (route == SEARCH_ROUTE) {
                         searchQuery = ""
+                        when (currentRoute) {
+                            LIBRARY_ROUTE, QUEUE_ROUTE -> inlineSearchRoute = currentRoute
+                            SEARCH_ROUTE -> Unit
+                            else -> {
+                                inlineSearchRoute = null
+                                navigateTopLevel(SEARCH_ROUTE)
+                            }
+                        }
+                    } else {
+                        clearSearchState()
+                        navigateTopLevel(route)
                     }
-                    navigateTopLevel(route)
                 },
                 onCloseSearch = {
-                    dismissSearchKeyboard()
-                    if (searchQuery.isNotBlank()) searchQuery = "" else goHome()
+                    if (searchQuery.isNotBlank()) {
+                        searchQuery = ""
+                    } else if (inlineSearchActive) {
+                        dismissSearchKeyboard()
+                        inlineSearchRoute = null
+                    } else {
+                        goHome()
+                    }
                 },
             )
         }
@@ -309,7 +313,10 @@ fun MeowzixApp(
                 spectrum = spectrum,
                 viewModel = playerViewModel,
                 morphState = morphingPlayerState,
-                onOpenQueue = { navigateTopLevel(QUEUE_ROUTE) },
+                onOpenQueue = {
+                    clearSearchState()
+                    navigateTopLevel(QUEUE_ROUTE)
+                },
             )
         }
     }
@@ -328,10 +335,17 @@ private fun MorphingDock(
     onCloseSearch: () -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    fun focusSearch() {
+        runCatching { focusRequester.requestFocus() }
+        keyboardController?.show()
+    }
+
     LaunchedEffect(searchActive) {
         if (searchActive) {
             delay(110)
-            runCatching { focusRequester.requestFocus() }
+            focusSearch()
         }
     }
 
@@ -355,19 +369,17 @@ private fun MorphingDock(
         ) { isSearch ->
             if (isSearch) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Surface(
-                        modifier = Modifier.size(46.dp),
+                        modifier = Modifier.size(46.dp).clickable { focusSearch() },
                         shape = RoundedCornerShape(23.dp),
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                         contentColor = MaterialTheme.colorScheme.primary,
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.Search, contentDescription = null)
+                            Icon(Icons.Rounded.Search, contentDescription = "Focus search")
                         }
                     }
                     Spacer(Modifier.size(10.dp))
@@ -406,9 +418,7 @@ private fun MorphingDock(
                 }
             } else {
                 Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 7.dp, vertical = 7.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
@@ -434,9 +444,7 @@ private fun DockItem(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier
-            .height(58.dp)
-            .clickable(onClick = onClick),
+        modifier = modifier.height(58.dp).clickable(onClick = onClick),
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent,
         contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
         shape = RoundedCornerShape(28.dp),
@@ -445,9 +453,7 @@ private fun DockItem(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Box(Modifier.size(25.dp), contentAlignment = Alignment.Center) {
-                destination.icon()
-            }
+            Box(Modifier.size(25.dp), contentAlignment = Alignment.Center) { destination.icon() }
             Text(
                 text = destination.label,
                 style = MaterialTheme.typography.labelSmall,

@@ -8,10 +8,19 @@ fun LibraryRoute(
     onSwipePastEnd: () -> Unit = {},
     onOpenNowPlaying: () -> Unit,
     onOpenTelegram: () -> Unit = {},
+    searchQuery: String = "",
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
-    LibraryRouteV4(
-        onOpenNowPlaying = onOpenNowPlaying,
-        viewModel = viewModel,
-    )
+    if (searchQuery.isBlank()) {
+        LibraryRouteV4(
+            onOpenNowPlaying = onOpenNowPlaying,
+            viewModel = viewModel,
+        )
+    } else {
+        LibraryInlineSearch(
+            query = searchQuery,
+            onOpenNowPlaying = onOpenNowPlaying,
+            viewModel = viewModel,
+        )
+    }
 }

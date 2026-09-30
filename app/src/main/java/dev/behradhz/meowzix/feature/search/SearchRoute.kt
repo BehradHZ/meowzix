@@ -18,8 +18,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,15 +49,14 @@ fun SearchRoute(
     onPlayTrack: (Track, List<Track>) -> Unit,
     onPlayArtist: (List<Track>) -> Unit,
     onPlayAlbum: (List<Track>) -> Unit,
+    onPlayNext: (Track) -> Unit,
+    onAddToQueue: (Track) -> Unit,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(query) { viewModel.setQuery(query) }
     val matchingTracks by viewModel.results.collectAsStateWithLifecycle()
     val normalizedQuery = TextNormalizer.normalize(query)
 
-    // These groups are intentionally derived only from the bounded FTS result set (<=80), never
-    // from the complete library. The legacy tracks parameter is accepted temporarily so callers
-    // can migrate independently; it is deliberately not used for search work.
     val artists = remember(matchingTracks) {
         matchingTracks
             .filter { !it.artist.isNullOrBlank() }
@@ -86,7 +88,7 @@ fun SearchRoute(
         )
         Text(
             text = when {
-                normalizedQuery == null -> "The dock is your search field."
+                normalizedQuery == null -> "Start typing to search your library."
                 matchingTracks.isEmpty() -> "No matches for “${query.trim()}”"
                 else -> "${matchingTracks.size} matching tracks"
             },
@@ -105,9 +107,7 @@ fun SearchRoute(
                     Icon(
                         Icons.Rounded.Search,
                         contentDescription = null,
-                        modifier = Modifier
-                            .padding(24.dp)
-                            .size(48.dp),
+                        modifier = Modifier.padding(24.dp).size(48.dp),
                     )
                 }
             }
@@ -121,11 +121,7 @@ fun SearchRoute(
         ) {
             if (artists.isNotEmpty()) {
                 item(key = "artists-title", contentType = "header") { SearchSectionTitle("Artists") }
-                items(
-                    items = artists,
-                    key = { "artist:${it.key}" },
-                    contentType = { "artist" },
-                ) { (artist, artistTracks) ->
+                items(artists, key = { "artist:${it.key}" }, contentType = { "artist" }) { (artist, artistTracks) ->
                     SearchGroupRow(
                         title = artist,
                         subtitle = "${artistTracks.size} matching tracks",
@@ -136,11 +132,7 @@ fun SearchRoute(
             }
             if (albums.isNotEmpty()) {
                 item(key = "albums-title", contentType = "header") { SearchSectionTitle("Albums") }
-                items(
-                    items = albums,
-                    key = { "album:${it.key.first}:${it.key.second}" },
-                    contentType = { "album" },
-                ) { entry ->
+                items(albums, key = { "album:${it.key.first}:${it.key.second}" }, contentType = { "album" }) { entry ->
                     SearchGroupRow(
                         title = entry.key.first,
                         subtitle = entry.key.second,
@@ -151,15 +143,13 @@ fun SearchRoute(
             }
             if (matchingTracks.isNotEmpty()) {
                 item(key = "songs-title", contentType = "header") { SearchSectionTitle("Songs") }
-                items(
-                    items = matchingTracks,
-                    key = { it.id.toString() },
-                    contentType = { "track" },
-                ) { track ->
+                items(matchingTracks, key = { it.id.toString() }, contentType = { "track" }) { track ->
                     SearchTrackRow(
                         track = track,
                         isCurrent = currentTrackId == track.id,
                         onClick = { onPlayTrack(track, matchingTracks) },
+                        onPlayNext = { onPlayNext(track) },
+                        onAddToQueue = { onAddToQueue(track) },
                     )
                 }
             }
@@ -185,10 +175,7 @@ private fun SearchGroupRow(
     onClick: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(
@@ -206,19 +193,18 @@ private fun SearchGroupRow(
 }
 
 @Composable
-private fun SearchTrackRow(track: Track, isCurrent: Boolean, onClick: () -> Unit) {
+private fun SearchTrackRow(
+    track: Track,
+    isCurrent: Boolean,
+    onClick: () -> Unit,
+    onPlayNext: () -> Unit,
+    onAddToQueue: () -> Unit,
+) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TrackArtwork(
-            artworkRef = track.artworkRef,
-            description = track.title,
-            size = 50.dp,
-        )
+        TrackArtwork(artworkRef = track.artworkRef, description = track.title, size = 50.dp)
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -236,6 +222,12 @@ private fun SearchTrackRow(track: Track, isCurrent: Boolean, onClick: () -> Unit
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        IconButton(onClick = onPlayNext) {
+            Icon(Icons.Rounded.PlaylistPlay, contentDescription = "Play next")
+        }
+        IconButton(onClick = onAddToQueue) {
+            Icon(Icons.Rounded.PlaylistAdd, contentDescription = "Add to queue")
         }
     }
 }
