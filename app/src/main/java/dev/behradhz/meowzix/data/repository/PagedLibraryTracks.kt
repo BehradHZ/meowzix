@@ -5,6 +5,7 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.map
 import androidx.sqlite.db.SimpleSQLiteQuery
+import dev.behradhz.meowzix.core.common.TextNormalizer
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.db.LibraryBrowseDao
 import dev.behradhz.meowzix.data.db.LibraryDao
@@ -31,6 +32,7 @@ class PagedLibraryTracks @Inject constructor(
         groupMode: LibraryGroupMode,
         availability: LibraryAvailabilityFilter,
         favoritesOnly: Boolean = false,
+        searchQuery: String = "",
         pageSize: Int = 80,
     ): Flow<PagingData<LibraryTrack>> = Pager(
         config = PagingConfig(
@@ -40,7 +42,7 @@ class PagedLibraryTracks @Inject constructor(
             enablePlaceholders = false,
         ),
         pagingSourceFactory = {
-            val parts = queryParts(sortMode, groupMode, availability, favoritesOnly)
+            val parts = queryParts(sortMode, groupMode, availability, favoritesOnly, searchQuery)
             dao.pagingLibraryRows(
                 SimpleSQLiteQuery(
                     """
@@ -54,6 +56,7 @@ class PagedLibraryTracks @Inject constructor(
                     WHERE ${parts.whereClause}
                     ORDER BY ${parts.orderBy}
                     """.trimIndent(),
+                    parts.args.toTypedArray(),
                 ),
             )
         },
@@ -64,8 +67,9 @@ class PagedLibraryTracks @Inject constructor(
         groupMode: LibraryGroupMode,
         availability: LibraryAvailabilityFilter,
         favoritesOnly: Boolean = false,
+        searchQuery: String = "",
     ): List<UUID> {
-        val parts = queryParts(sortMode, groupMode, availability, favoritesOnly)
+        val parts = queryParts(sortMode, groupMode, availability, favoritesOnly, searchQuery)
         return browseDao.libraryTrackIds(
             SimpleSQLiteQuery(
                 """
@@ -74,6 +78,7 @@ class PagedLibraryTracks @Inject constructor(
                 WHERE ${parts.whereClause}
                 ORDER BY ${parts.orderBy}
                 """.trimIndent(),
+                parts.args.toTypedArray(),
             ),
         ).map { UUID.fromString(it.id) }
     }
@@ -85,6 +90,7 @@ class PagedLibraryTracks @Inject constructor(
         groupMode: LibraryGroupMode,
         availability: LibraryAvailabilityFilter,
         favoritesOnly: Boolean,
+        searchQuery: String,
     ): QueryParts {
         val offlineExists = """
             EXISTS (
@@ -108,6 +114,24 @@ class PagedLibraryTracks @Inject constructor(
             LibraryAvailabilityFilter.CLOUD -> "(NOT $offlineExists AND $cloudExists)"
         }
         val favoriteClause = if (favoritesOnly) " AND t.favorite = 1" else ""
+        val searchTokens = TextNormalizer.normalize(searchQuery)
+            ?.split(' ')
+            ?.filter(String::isNotBlank)
+            .orEmpty()
+        val searchClause = if (searchTokens.isEmpty()) {
+            ""
+        } else {
+            searchTokens.joinToString(prefix = " AND ", separator = " AND ") {
+                "(instr(t.normalizedTitle, ?) > 0 OR instr(COALESCE(t.normalizedArtist, ''), ?) > 0 OR instr(LOWER(COALESCE(t.album, '')), ?) > 0)"
+            }
+        }
+        val args = buildList<Any> {
+            searchTokens.forEach { token ->
+                add(token)
+                add(token)
+                add(token)
+            }
+        }
         val baseSort = when (sortMode) {
             LibrarySortMode.RECENTLY_ADDED -> "t.createdAtEpochMs DESC, t.id ASC"
             LibrarySortMode.OLDEST_ADDED -> "t.createdAtEpochMs ASC, t.id ASC"
@@ -124,8 +148,9 @@ class PagedLibraryTracks @Inject constructor(
         return QueryParts(
             offlineExists = offlineExists,
             cloudExists = cloudExists,
-            whereClause = "t.hidden = 0 AND $availabilityClause$favoriteClause",
+            whereClause = "t.hidden = 0 AND $availabilityClause$favoriteClause$searchClause",
             orderBy = orderBy,
+            args = args,
         )
     }
 }
@@ -135,6 +160,7 @@ private data class QueryParts(
     val cloudExists: String,
     val whereClause: String,
     val orderBy: String,
+    val args: List<Any>,
 )
 
 private fun LibraryTrackRow.toDomain(): LibraryTrack = LibraryTrack(

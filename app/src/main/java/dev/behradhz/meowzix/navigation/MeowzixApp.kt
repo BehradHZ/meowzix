@@ -183,7 +183,7 @@ fun MeowzixApp(
     fun goHome() = navigateTopLevel(HOME_ROUTE)
 
     LaunchedEffect(searchActive, searchScope, searchQuery) {
-        if (searchActive && searchScope != DockSearchScope.QUEUE) {
+        if (searchActive && searchScope == DockSearchScope.GLOBAL) {
             searchViewModel.setQuery(searchQuery)
         } else {
             searchViewModel.setQuery("")
@@ -237,11 +237,15 @@ fun MeowzixApp(
             composable(LIBRARY_ROUTE) {
                 LibraryRoute(
                     onOpenNowPlaying = morphingPlayerState::expand,
-                    searchQuery = "",
+                    searchQuery = if (searchActive && searchScope == DockSearchScope.LIBRARY) searchQuery else "",
                     viewModel = libraryViewModel,
                 )
             }
-            composable(QUEUE_ROUTE) { QueueRoute() }
+            composable(QUEUE_ROUTE) {
+                QueueRoute(
+                    searchQuery = if (searchActive && searchScope == DockSearchScope.QUEUE) searchQuery else "",
+                )
+            }
             composable(PROFILE_ROUTE) {
                 ProfileRoute(
                     onOpenOffline = { navController.navigate(DOWNLOADS_ROUTE) },
@@ -256,7 +260,7 @@ fun MeowzixApp(
             composable(HISTORY_ROUTE) { HistoryRoute() }
         }
 
-        if (searchActive && searchQuery.isNotBlank()) {
+        if (searchActive && searchScope == DockSearchScope.GLOBAL && searchQuery.isNotBlank()) {
             DockSearchOverlay(
                 hazeState = hazeState,
                 scope = searchScope,
@@ -274,13 +278,11 @@ fun MeowzixApp(
                 },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .imePadding()
-                    .navigationBarsPadding()
-                    .padding(
-                        start = 18.dp,
-                        end = 18.dp,
-                        bottom = if (playbackState.currentTrack != null) 174.dp else 94.dp,
-                    ),
+                    .then(
+                        if (searchFieldFocused) Modifier.imePadding()
+                        else Modifier.navigationBarsPadding(),
+                    )
+                    .padding(start = 18.dp, end = 18.dp, bottom = 88.dp),
             )
         }
 
@@ -288,9 +290,15 @@ fun MeowzixApp(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding()
-                .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                .then(
+                    if (searchActive && searchFieldFocused) Modifier.imePadding()
+                    else Modifier.navigationBarsPadding(),
+                )
+                .padding(
+                    start = 14.dp,
+                    end = 14.dp,
+                    bottom = if (searchActive && searchFieldFocused) 4.dp else 10.dp,
+                ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             MorphingDock(
