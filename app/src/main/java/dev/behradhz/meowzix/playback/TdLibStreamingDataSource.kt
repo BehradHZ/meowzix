@@ -18,6 +18,7 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.util.UUID
 import kotlin.math.min
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.TdApi
@@ -56,10 +57,6 @@ private class RoutingDataSource(
         val source: DataSource
         val routedSpec: DataSpec
         if (completedLocalCopy != null) {
-            // A MediaItem may have been queued while this track was still remote. If the user
-            // downloads it before Media3 reaches it, the old meowzix-tdlib URI is stale. Route that
-            // exact queued item to the completed owned copy rather than failing the automatic
-            // transition and requiring the queue to be rebuilt.
             source = defaultFactory.createDataSource()
             routedSpec = dataSpec.withUri(Uri.fromFile(completedLocalCopy))
         } else if (dataSpec.uri.scheme == TDLIB_SCHEME) {
@@ -114,9 +111,9 @@ private fun findCompletedLocalCopy(context: Context, streamUri: Uri): File? {
 /**
  * Random-access reader over TDLib's growing local file.
  *
- * Media3's loader thread is synchronous, so it may block, but waiting is notification-driven:
- * UpdateFile wakes the registry waiter. GetFile is used once to seed process-local state and then
- * only as a bounded low-frequency recovery path if an update appears to have been lost.
+ * Automatic queue transitions are allowed to wait through short Telegram/TDLib startup gaps instead
+ * of surfacing a source error immediately. This keeps playback continuous without requiring the user
+ * to press Play again when the next Telegram item has not been downloaded yet.
  */
 @OptIn(UnstableApi::class)
 private class TdLibStreamingDataSource : BaseDataSource(true) {
@@ -133,8 +130,8 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         transferInitializing(dataSpec)
         val id = dataSpec.uri.lastPathSegment?.toIntOrNull()
             ?: throw IOException("Invalid Telegram playback URI: ${dataSpec.uri}")
-        val client = TdLibClientAdapter.activeOrNull()
-            ?: throw IOException("Telegram is not ready yet")
+        val client = runBlocking { awaitActiveClient() }
+            ?: throw IOException("Telegram is not ready yet after retrying")
 
         openedUri = dataSpec.uri
         fileId = id
@@ -142,8 +139,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         bytesRemaining = dataSpec.length
 
         val initialState = runBlocking {
-            val seeded = runCatching { client.seedFileState(id) }
-                .getOrElse { throw IOException("Unable to resolve Telegram file state", it) }
+            val seeded = seedFileStateWithRetry(client, id)
             if (!seeded.local.isDownloadingCompleted) {
                 requestRange(
                     client = client,
@@ -177,8 +173,8 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
-        val client = TdLibClientAdapter.activeOrNull()
-            ?: throw IOException("Telegram disconnected during playback")
+        val client = runBlocking { awaitActiveClient() }
+            ?: throw IOException("Telegram remained disconnected during playback")
 
         val state = runBlocking { waitForReadableState(client, readPosition) }
         val readableEnd = state.readableEndAt(readPosition)
@@ -224,11 +220,33 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         }
     }
 
+    private suspend fun awaitActiveClient(): TdLibClientAdapter? {
+        repeat(CLIENT_READY_ATTEMPTS) { attempt ->
+            TdLibClientAdapter.activeOrNull()?.let { return it }
+            delay(CLIENT_READY_RETRY_DELAY_MS * (attempt + 1).coerceAtMost(4))
+        }
+        return TdLibClientAdapter.activeOrNull()
+    }
+
+    private suspend fun seedFileStateWithRetry(
+        client: TdLibClientAdapter,
+        id: Int,
+    ): TdApi.File {
+        var lastError: Throwable? = null
+        repeat(FILE_STATE_SEED_ATTEMPTS) { attempt ->
+            runCatching { client.seedFileState(id) }
+                .onSuccess { return it }
+                .onFailure { lastError = it }
+            delay(FILE_STATE_RETRY_BASE_DELAY_MS * (attempt + 1))
+        }
+        throw IOException("Unable to resolve Telegram file state after retrying", lastError)
+    }
+
     private suspend fun waitForReadableState(
         client: TdLibClientAdapter,
         position: Long,
     ): TdApi.File {
-        var state = client.fileStates.current(fileId) ?: client.seedFileState(fileId)
+        var state = client.fileStates.current(fileId) ?: seedFileStateWithRetry(client, fileId)
         var recoveryAttempts = 0
         while (true) {
             if (state.readableEndAt(position) > position || state.local.isDownloadingCompleted) {
@@ -254,13 +272,17 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
                 continue
             }
 
-            if (++recoveryAttempts > MAX_LOST_UPDATE_RECOVERIES) {
+            recoveryAttempts += 1
+            if (recoveryAttempts > MAX_LOST_UPDATE_RECOVERIES) {
                 throw IOException("Timed out waiting for Telegram audio data at offset $position")
             }
-            state = runCatching { client.refreshFileState(fileId) }
-                .getOrElse { error ->
-                    throw IOException("Unable to refresh Telegram audio state", error)
-                }
+
+            val refreshed = runCatching { client.refreshFileState(fileId) }
+            if (refreshed.isSuccess) {
+                state = refreshed.getOrThrow()
+            } else {
+                delay(FILE_STATE_RETRY_BASE_DELAY_MS * recoveryAttempts.coerceAtMost(6))
+            }
         }
     }
 
@@ -313,6 +335,10 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     private companion object {
         const val STREAM_WINDOW_BYTES: Long = 4L * 1024L * 1024L
         const val LOST_UPDATE_RECOVERY_MS = 5_000L
-        const val MAX_LOST_UPDATE_RECOVERIES = 6
+        const val MAX_LOST_UPDATE_RECOVERIES = 10
+        const val CLIENT_READY_ATTEMPTS = 8
+        const val CLIENT_READY_RETRY_DELAY_MS = 250L
+        const val FILE_STATE_SEED_ATTEMPTS = 6
+        const val FILE_STATE_RETRY_BASE_DELAY_MS = 350L
     }
 }
