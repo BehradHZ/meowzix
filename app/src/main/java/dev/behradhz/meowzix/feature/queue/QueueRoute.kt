@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.behradhz.meowzix.core.common.TextNormalizer
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
@@ -84,6 +85,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun QueueRoute(
+    searchQuery: String = "",
     viewModel: QueueViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -91,6 +93,7 @@ fun QueueRoute(
     QueueScreen(
         state = state,
         aux = aux,
+        searchQuery = searchQuery,
         onPlay = viewModel::play,
         onMove = viewModel::move,
         onRemove = viewModel::remove,
@@ -109,6 +112,7 @@ fun QueueRoute(
 private fun QueueScreen(
     state: QueueState,
     aux: QueueAuxState,
+    searchQuery: String,
     onPlay: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onRemove: (Int) -> Unit,
@@ -124,16 +128,38 @@ private fun QueueScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val feedbackHazeState = rememberHazeState()
-    var displayItems by remember { mutableStateOf(state.items) }
+    val searchTokens = remember(searchQuery) {
+        TextNormalizer.normalize(searchQuery)
+            ?.split(' ')
+            ?.filter(String::isNotBlank)
+            .orEmpty()
+    }
+    val filteredItems = remember(state.items, searchTokens) {
+        if (searchTokens.isEmpty()) {
+            state.items
+        } else {
+            state.items.filter { item ->
+                val haystack = buildString {
+                    append(TextNormalizer.normalize(item.title).orEmpty())
+                    append(' ')
+                    append(TextNormalizer.normalize(item.artist).orEmpty())
+                }
+                searchTokens.all(haystack::contains)
+            }
+        }
+    }
+    val searchActive = searchTokens.isNotEmpty()
+
+    var displayItems by remember { mutableStateOf(filteredItems) }
     var draggedItemId by remember { mutableStateOf<UUID?>(null) }
     var draggedDistance by remember { mutableStateOf(0f) }
     var hasFocusedCurrent by remember { mutableStateOf(false) }
 
-    LaunchedEffect(state.items, draggedItemId) {
-        if (draggedItemId == null) displayItems = state.items
+    LaunchedEffect(filteredItems, draggedItemId) {
+        if (draggedItemId == null) displayItems = filteredItems
     }
-    LaunchedEffect(state.currentIndex, state.items.size) {
-        if (!hasFocusedCurrent && state.currentIndex in state.items.indices) {
+    LaunchedEffect(state.currentIndex, state.items.size, searchActive) {
+        if (!searchActive && !hasFocusedCurrent && state.currentIndex in state.items.indices) {
             hasFocusedCurrent = true
             listState.scrollToItem(state.currentIndex + 1)
         }
@@ -141,7 +167,7 @@ private fun QueueScreen(
 
     fun finishDrag(commit: Boolean) {
         val id = draggedItemId
-        if (commit && id != null) {
+        if (!searchActive && commit && id != null) {
             val fromIndex = state.items.indexOfFirst { it.id == id }
             val toIndex = displayItems.indexOfFirst { it.id == id }
             if (fromIndex >= 0 && toIndex >= 0 && fromIndex != toIndex) {
@@ -172,7 +198,11 @@ private fun QueueScreen(
                         Column(Modifier.weight(1f)) {
                             Text("Queue", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                             Text(
-                                if (state.items.isEmpty()) "Nothing queued" else "${state.items.size} tracks",
+                                when {
+                                    state.items.isEmpty() -> "Nothing queued"
+                                    searchActive -> "${filteredItems.size} of ${state.items.size} tracks"
+                                    else -> "${state.items.size} tracks"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
                             )
@@ -199,9 +229,15 @@ private fun QueueScreen(
             }
 
             if (displayItems.isEmpty()) {
-                item { EmptyQueue() }
+                item {
+                    if (searchActive) {
+                        EmptyQueueSearch(searchQuery)
+                    } else {
+                        EmptyQueue()
+                    }
+                }
             } else {
-                itemsIndexed(displayItems, key = { _, item -> item.id }) { _, item ->
+                itemsIndexed(displayItems, key = { index, item -> "${item.id}-$index" }) { _, item ->
                     val isDragging = draggedItemId == item.id
                     Box(
                         modifier = Modifier.animateItem(
@@ -215,15 +251,19 @@ private fun QueueScreen(
                             isCurrent = item.id == state.items.getOrNull(state.currentIndex)?.id,
                             isDragging = isDragging,
                             dragOffsetY = if (isDragging) draggedDistance else 0f,
+                            reorderEnabled = !searchActive,
                             onPlay = {
                                 val actualIndex = state.items.indexOfFirst { it.id == item.id }
                                 if (actualIndex >= 0) onPlay(actualIndex)
                             },
                             onDragStart = {
-                                draggedItemId = item.id
-                                draggedDistance = 0f
+                                if (!searchActive) {
+                                    draggedItemId = item.id
+                                    draggedDistance = 0f
+                                }
                             },
                             onDrag = { deltaY ->
+                                if (searchActive) return@SwipeableQueueItem
                                 val draggedId = draggedItemId ?: return@SwipeableQueueItem
                                 val currentIndex = displayItems.indexOfFirst { it.id == draggedId }
                                 if (currentIndex < 0) return@SwipeableQueueItem
@@ -275,7 +315,7 @@ private fun QueueScreen(
                             },
                             onDragEnd = { finishDrag(commit = true) },
                             onDragCancel = {
-                                displayItems = state.items
+                                displayItems = filteredItems
                                 finishDrag(commit = false)
                             },
                             onRemove = {
@@ -347,6 +387,7 @@ private fun SwipeableQueueItem(
     isCurrent: Boolean,
     isDragging: Boolean,
     dragOffsetY: Float,
+    reorderEnabled: Boolean,
     onPlay: () -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Float) -> Unit,
@@ -531,20 +572,26 @@ private fun SwipeableQueueItem(
                 Box(
                     modifier = Modifier
                         .size(42.dp)
-                        .pointerInput(item.id) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = { onDragStart() },
-                                onDragCancel = onDragCancel,
-                                onDragEnd = onDragEnd,
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    onDrag(dragAmount.y)
-                                },
-                            )
+                        .pointerInput(item.id, reorderEnabled) {
+                            if (reorderEnabled) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { onDragStart() },
+                                    onDragCancel = onDragCancel,
+                                    onDragEnd = onDragEnd,
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        onDrag(dragAmount.y)
+                                    },
+                                )
+                            }
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Rounded.DragHandle, contentDescription = "Drag to reorder")
+                    Icon(
+                        Icons.Rounded.DragHandle,
+                        contentDescription = if (reorderEnabled) "Drag to reorder" else "Reordering disabled while filtering",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (reorderEnabled) 1f else 0.28f),
+                    )
                 }
                 Box {
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
@@ -581,6 +628,28 @@ private fun SwipeableQueueItem(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun EmptyQueueSearch(query: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f),
+    ) {
+        Column(
+            modifier = Modifier.padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(Icons.Rounded.QueueMusic, contentDescription = null, modifier = Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
+            Text("No matches", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                "No queued tracks match “${query.trim()}”",
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+            )
         }
     }
 }
