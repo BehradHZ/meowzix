@@ -111,9 +111,10 @@ private fun findCompletedLocalCopy(context: Context, streamUri: Uri): File? {
 /**
  * Random-access reader over TDLib's growing local file.
  *
- * Automatic queue transitions are allowed to wait through short Telegram/TDLib startup gaps instead
- * of surfacing a source error immediately. This keeps playback continuous without requiring the user
- * to press Play again when the next Telegram item has not been downloaded yet.
+ * A temporary lack of bytes is a buffering condition, not an end-of-file or source error. The
+ * resolver starts a continuous TDLib download before Media3 opens this source. Sequential reads
+ * keep that download alive and block the Media3 loader thread until the requested bytes arrive.
+ * A genuine seek reprioritizes TDLib at the new offset and then continues downloading from there.
  */
 @OptIn(UnstableApi::class)
 private class TdLibStreamingDataSource : BaseDataSource(true) {
@@ -124,7 +125,6 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     private var readPosition: Long = 0L
     private var bytesRemaining: Long = C.LENGTH_UNSET.toLong()
     private var opened = false
-    private var requestedRangeStart = C.LENGTH_UNSET.toLong()
 
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
@@ -138,29 +138,31 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         readPosition = dataSpec.position
         bytesRemaining = dataSpec.length
 
-        val initialState = runBlocking {
+        val initialWindow = runBlocking {
             val seeded = seedFileStateWithRetry(client, id)
             if (!seeded.local.isDownloadingCompleted) {
-                requestRange(
+                ensureDownload(
                     client = client,
+                    state = seeded,
                     position = readPosition,
                     priority = if (readPosition > 0L) {
                         TdDownloadPriority.CURRENT_TRACK_SEEK
                     } else {
                         TdDownloadPriority.CURRENT_TRACK_AUDIO
                     },
+                    force = readPosition > 0L,
                 )
             }
-            waitForReadableState(client, readPosition)
+            waitForReadableWindow(readPosition)
         }
 
-        if (initialState.readableEndAt(readPosition) > readPosition) {
-            openFileForState(initialState)
-        } else if (!isAtEnd(initialState, readPosition)) {
+        if (initialWindow.readableEnd > readPosition) {
+            openFileForState(initialWindow.state)
+        } else if (!isAtEnd(initialWindow.state, readPosition)) {
             throw IOException("Telegram stream has no readable bytes at offset $readPosition")
         }
 
-        val knownSize = initialState.size.toLong().takeIf { it > 0L }
+        val knownSize = initialWindow.state.size.toLong().takeIf { it > 0L }
         if (bytesRemaining == C.LENGTH_UNSET.toLong() && knownSize != null) {
             bytesRemaining = (knownSize - readPosition).coerceAtLeast(0L)
         }
@@ -173,47 +175,71 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
-        val client = runBlocking { awaitActiveClient() }
-            ?: throw IOException("Telegram remained disconnected during playback")
 
-        val state = runBlocking { waitForReadableState(client, readPosition) }
-        val readableEnd = state.readableEndAt(readPosition)
-        if (readableEnd <= readPosition) {
-            if (isAtEnd(state, readPosition)) return C.RESULT_END_OF_INPUT
-            throw IOException("Telegram audio range is unavailable at offset $readPosition")
-        }
+        return runBlocking {
+            var staleHandleRecoveries = 0
+            while (true) {
+                val window = waitForReadableWindow(readPosition)
+                if (window.readableEnd <= readPosition) {
+                    if (isAtEnd(window.state, readPosition)) {
+                        return@runBlocking C.RESULT_END_OF_INPUT
+                    }
+                    continue
+                }
 
-        val available = (readableEnd - readPosition).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        val remainingLimit = if (bytesRemaining == C.LENGTH_UNSET.toLong()) {
-            Int.MAX_VALUE
-        } else {
-            bytesRemaining.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        }
-        val toRead = min(length, min(available, remainingLimit))
-        if (toRead <= 0) return C.RESULT_END_OF_INPUT
+                val available = (window.readableEnd - readPosition)
+                    .coerceAtMost(Int.MAX_VALUE.toLong())
+                    .toInt()
+                val remainingLimit = if (bytesRemaining == C.LENGTH_UNSET.toLong()) {
+                    Int.MAX_VALUE
+                } else {
+                    bytesRemaining.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                }
+                val toRead = min(length, min(available, remainingLimit))
+                if (toRead <= 0) return@runBlocking C.RESULT_END_OF_INPUT
 
-        val raf = openFileForState(state)
-        raf.seek(readPosition)
-        val read = raf.read(buffer, offset, toRead)
-        if (read <= 0) {
-            if (isAtEnd(state, readPosition)) return C.RESULT_END_OF_INPUT
-            throw IOException("Telegram stream file stopped before the advertised readable range")
+                val read = runCatching {
+                    val raf = openFileForState(window.state)
+                    raf.seek(readPosition)
+                    raf.read(buffer, offset, toRead)
+                }.getOrElse {
+                    resetFileHandle()
+                    -1
+                }
+
+                if (read > 0) {
+                    readPosition += read
+                    if (bytesRemaining != C.LENGTH_UNSET.toLong()) bytesRemaining -= read
+                    bytesTransferred(read)
+                    return@runBlocking read
+                }
+
+                if (isAtEnd(window.state, readPosition)) {
+                    return@runBlocking C.RESULT_END_OF_INPUT
+                }
+
+                // TDLib may rotate/recreate the growing local file while retaining the same path.
+                // Reopen the descriptor and wait for the filesystem view to catch up instead of
+                // reporting a fatal source error to ExoPlayer.
+                resetFileHandle()
+                staleHandleRecoveries += 1
+                if (staleHandleRecoveries > MAX_STALE_FILE_RECOVERIES) {
+                    val activeClient = awaitActiveClient()
+                        ?: throw IOException("Telegram remained disconnected during playback")
+                    runCatching { activeClient.refreshFileState(fileId) }
+                    staleHandleRecoveries = 0
+                }
+                delay(STALE_FILE_RETRY_BASE_DELAY_MS * staleHandleRecoveries.coerceAtLeast(1).coerceAtMost(6))
+            }
         }
-        readPosition += read
-        if (bytesRemaining != C.LENGTH_UNSET.toLong()) bytesRemaining -= read
-        bytesTransferred(read)
-        return read
     }
 
     override fun getUri(): Uri? = openedUri
 
     override fun close() {
-        randomAccessFile?.close()
-        randomAccessFile = null
-        openedPath = null
+        resetFileHandle()
         openedUri = null
         fileId = 0
-        requestedRangeStart = C.LENGTH_UNSET.toLong()
         if (opened) {
             opened = false
             transferEnded()
@@ -242,88 +268,147 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         throw IOException("Unable to resolve Telegram file state after retrying", lastError)
     }
 
-    private suspend fun waitForReadableState(
-        client: TdLibClientAdapter,
-        position: Long,
-    ): TdApi.File {
-        var state = client.fileStates.current(fileId) ?: seedFileStateWithRetry(client, fileId)
+    private suspend fun waitForReadableWindow(position: Long): ReadableWindow {
         var recoveryAttempts = 0
         while (true) {
-            if (state.readableEndAt(position) > position || state.local.isDownloadingCompleted) {
-                return state
+            val client = awaitActiveClient()
+                ?: throw IOException("Telegram remained disconnected during playback")
+            var state = client.fileStates.current(fileId) ?: seedFileStateWithRetry(client, fileId)
+            val readableEnd = resolveReadableEnd(client, state, position)
+            if (readableEnd > position || isAtEnd(state, position)) {
+                return ReadableWindow(state, readableEnd)
             }
 
-            requestRange(
+            ensureDownload(
                 client = client,
+                state = state,
                 position = position,
                 priority = if (position > 0L) {
                     TdDownloadPriority.CURRENT_TRACK_SEEK
                 } else {
                     TdDownloadPriority.CURRENT_TRACK_AUDIO
                 },
+                force = false,
             )
 
-            val pushedState = withTimeoutOrNull(LOST_UPDATE_RECOVERY_MS) {
+            val pushedState = withTimeoutOrNull(UPDATE_WAIT_TIMEOUT_MS) {
                 client.fileStates.awaitReadableOrCompleted(fileId, position)
             }
             if (pushedState != null) {
                 state = pushedState
-                recoveryAttempts = 0
+                val pushedReadableEnd = resolveReadableEnd(client, state, position)
+                if (pushedReadableEnd > position || isAtEnd(state, position)) {
+                    return ReadableWindow(state, pushedReadableEnd)
+                }
                 continue
             }
 
             recoveryAttempts += 1
-            if (recoveryAttempts > MAX_LOST_UPDATE_RECOVERIES) {
+            if (recoveryAttempts > MAX_UPDATE_RECOVERIES) {
                 throw IOException("Timed out waiting for Telegram audio data at offset $position")
             }
 
-            val refreshed = runCatching { client.refreshFileState(fileId) }
-            if (refreshed.isSuccess) {
-                state = refreshed.getOrThrow()
+            val refreshed = runCatching { client.refreshFileState(fileId) }.getOrNull()
+            if (refreshed != null) {
+                state = refreshed
+                val refreshedReadableEnd = resolveReadableEnd(client, state, position)
+                if (refreshedReadableEnd > position || isAtEnd(state, position)) {
+                    return ReadableWindow(state, refreshedReadableEnd)
+                }
+
+                // If TDLib stopped the request (for example after a client restart or a previous
+                // finite-range request), resume continuously from the byte Media3 currently needs.
+                if (!state.local.isDownloadingActive && !state.local.isDownloadingCompleted) {
+                    ensureDownload(
+                        client = client,
+                        state = state,
+                        position = position,
+                        priority = if (position > 0L) {
+                            TdDownloadPriority.CURRENT_TRACK_SEEK
+                        } else {
+                            TdDownloadPriority.CURRENT_TRACK_AUDIO
+                        },
+                        force = true,
+                    )
+                }
             } else {
                 delay(FILE_STATE_RETRY_BASE_DELAY_MS * recoveryAttempts.coerceAtMost(6))
             }
         }
     }
 
-    private fun openFileForState(state: TdApi.File): RandomAccessFile {
+    /**
+     * TDLib's localFile only exposes the prefix for its current downloadOffset. Extractors can seek
+     * around a progressive file, so a valid previously-downloaded range may exist even when that
+     * range isn't represented by local.downloadedPrefixSize anymore. Query TDLib for the exact
+     * offset before deciding that Media3 has no bytes to read.
+     */
+    private suspend fun resolveReadableEnd(
+        client: TdLibClientAdapter,
+        state: TdApi.File,
+        position: Long,
+    ): Long {
+        val localEnd = state.readableEndAt(position)
+        if (localEnd > position || state.local.isDownloadingCompleted) return localEnd
         val path = state.local.path
-        if (path.isBlank()) throw IOException("Telegram has not created the local stream file")
-        if (path != openedPath || randomAccessFile == null) {
-            randomAccessFile?.close()
-            randomAccessFile = RandomAccessFile(path, "r")
-            openedPath = path
-        }
-        return requireNotNull(randomAccessFile)
+        if (path.isBlank()) return position
+
+        val prefixSize = runCatching {
+            client.send(TdApi.GetFileDownloadedPrefixSize(fileId, position)).size
+        }.getOrDefault(0L)
+        if (prefixSize <= 0L) return position
+
+        val physicalLength = runCatching { File(path).length() }.getOrDefault(0L)
+        if (physicalLength <= position) return position
+        return (position + prefixSize).coerceAtMost(physicalLength)
     }
 
-    private suspend fun requestRange(
+    private suspend fun ensureDownload(
         client: TdLibClientAdapter,
+        state: TdApi.File,
         position: Long,
         priority: Int,
+        force: Boolean,
     ) {
-        val previousStart = requestedRangeStart
-        if (
-            previousStart != C.LENGTH_UNSET.toLong() &&
-            position >= previousStart &&
-            position < previousStart + STREAM_WINDOW_BYTES
-        ) {
-            return
-        }
+        if (state.local.isDownloadingCompleted) return
+        val normalizedPosition = position.coerceAtLeast(0L)
+
+        // The playback resolver already starts an unlimited download from offset 0. Do not replace
+        // that healthy request every time Media3 reaches the current prefix: a different offset or
+        // limit replaces TDLib's active request. Only reprioritize when seeking or after it stopped.
+        val activeRequestCanReachPosition =
+            state.local.isDownloadingActive && state.local.downloadOffset <= normalizedPosition
+        if (!force && activeRequestCanReachPosition) return
 
         val requested = runCatching {
             client.send(
                 TdApi.DownloadFile(
                     fileId,
                     priority,
-                    position.coerceAtLeast(0L),
-                    STREAM_WINDOW_BYTES,
+                    normalizedPosition,
+                    0L,
                     false,
                 ),
             )
         }.getOrNull() ?: return
-        requestedRangeStart = position.coerceAtLeast(0L)
         client.fileStates.publish(requested)
+    }
+
+    private fun openFileForState(state: TdApi.File): RandomAccessFile {
+        val path = state.local.path
+        if (path.isBlank()) throw IOException("Telegram has not created the local stream file")
+        if (path != openedPath || randomAccessFile == null) {
+            resetFileHandle()
+            randomAccessFile = RandomAccessFile(path, "r")
+            openedPath = path
+        }
+        return requireNotNull(randomAccessFile)
+    }
+
+    private fun resetFileHandle() {
+        runCatching { randomAccessFile?.close() }
+        randomAccessFile = null
+        openedPath = null
     }
 
     private fun isAtEnd(state: TdApi.File, position: Long): Boolean {
@@ -332,10 +417,16 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         return knownSize?.let { position >= it } ?: (state.readableEndAt(position) <= position)
     }
 
+    private data class ReadableWindow(
+        val state: TdApi.File,
+        val readableEnd: Long,
+    )
+
     private companion object {
-        const val STREAM_WINDOW_BYTES: Long = 4L * 1024L * 1024L
-        const val LOST_UPDATE_RECOVERY_MS = 5_000L
-        const val MAX_LOST_UPDATE_RECOVERIES = 10
+        const val UPDATE_WAIT_TIMEOUT_MS = 4_000L
+        const val MAX_UPDATE_RECOVERIES = 15
+        const val MAX_STALE_FILE_RECOVERIES = 8
+        const val STALE_FILE_RETRY_BASE_DELAY_MS = 50L
         const val CLIENT_READY_ATTEMPTS = 8
         const val CLIENT_READY_RETRY_DELAY_MS = 250L
         const val FILE_STATE_SEED_ATTEMPTS = 6
