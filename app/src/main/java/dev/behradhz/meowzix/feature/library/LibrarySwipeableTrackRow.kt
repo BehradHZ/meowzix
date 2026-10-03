@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Person
@@ -44,8 +45,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,6 +79,10 @@ internal fun SwipeableLibraryTrackRow(
     onAddToPlaylist: (UUID) -> Unit,
     onGoToArtist: () -> Unit,
     onEnsureArtwork: () -> Unit,
+    onRemoveFromPlaylist: (() -> Unit)? = null,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
+    containerColor: Color? = null,
 ) {
     LaunchedEffect(track.id, track.artworkRef) {
         onEnsureArtwork()
@@ -174,6 +183,10 @@ internal fun SwipeableLibraryTrackRow(
                 onFavorite = onFavorite,
                 onAddToPlaylist = onAddToPlaylist,
                 onGoToArtist = onGoToArtist,
+                onRemoveFromPlaylist = onRemoveFromPlaylist,
+                onMoveUp = onMoveUp,
+                onMoveDown = onMoveDown,
+                containerColor = containerColor,
             )
         }
     }
@@ -194,6 +207,10 @@ private fun LibraryTrackRowContent(
     onFavorite: () -> Unit,
     onAddToPlaylist: (UUID) -> Unit,
     onGoToArtist: () -> Unit,
+    onRemoveFromPlaylist: (() -> Unit)?,
+    onMoveUp: (() -> Unit)?,
+    onMoveDown: (() -> Unit)?,
+    containerColor: Color?,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -203,9 +220,15 @@ private fun LibraryTrackRowContent(
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = { menuExpanded = true },
-            ),
+            )
+            .semantics {
+                customActions = buildList {
+                    onMoveUp?.let { action -> add(CustomAccessibilityAction("Move up") { action(); true }) }
+                    onMoveDown?.let { action -> add(CustomAccessibilityAction("Move down") { action(); true }) }
+                }
+            },
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.background,
+        color = containerColor ?: MaterialTheme.colorScheme.background,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
@@ -318,6 +341,25 @@ private fun LibraryTrackRowContent(
                             onFavorite()
                         },
                     )
+                    onMoveUp?.let { action ->
+                        DropdownMenuItem(
+                            text = { Text("Move up") },
+                            onClick = { menuExpanded = false; action() },
+                        )
+                    }
+                    onMoveDown?.let { action ->
+                        DropdownMenuItem(
+                            text = { Text("Move down") },
+                            onClick = { menuExpanded = false; action() },
+                        )
+                    }
+                    onRemoveFromPlaylist?.let { action ->
+                        DropdownMenuItem(
+                            text = { Text("Remove from playlist") },
+                            leadingIcon = { Icon(Icons.Rounded.DeleteOutline, contentDescription = null) },
+                            onClick = { menuExpanded = false; action() },
+                        )
+                    }
                 }
             }
         }

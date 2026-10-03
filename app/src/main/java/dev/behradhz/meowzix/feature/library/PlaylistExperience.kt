@@ -1,28 +1,36 @@
 package dev.behradhz.meowzix.feature.library
 
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -30,6 +38,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
@@ -44,14 +59,12 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -65,12 +78,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import dev.behradhz.meowzix.core.model.Track
@@ -79,6 +99,7 @@ import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.ui.components.TrackArtwork
+import dev.chrisbanes.haze.HazeState
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -107,118 +128,147 @@ internal fun PlaylistsSectionV3(
     onOpenFavorites: () -> Unit,
     onOpenPlaylist: (UUID) -> Unit,
     onEnsureArtwork: (Track) -> Unit,
+    onCreate: (() -> Unit)? = null,
+    onSaveQueue: (() -> Unit)? = null,
 ) {
     favoriteTracks.firstOrNull()?.let { track ->
         LaunchedEffect(track.id, track.artworkRef) { onEnsureArtwork(track) }
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 182.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        item(key = "favorites-v3") {
-            PlaylistMorphCardV3(
-                title = "Favorites",
-                artworkRef = favoriteTracks.firstOrNull()?.artworkRef,
-                favorite = true,
-                onClick = onOpenFavorites,
-            )
-        }
-        items(playlists, key = { "playlist-v3:${it.id}" }) { playlist ->
-            PlaylistMorphCardV3(
-                title = playlist.title,
-                artworkRef = playlist.artworkRef ?: playlistArtwork[playlist.id],
-                favorite = false,
-                onClick = { onOpenPlaylist(playlist.id) },
-            )
+    PlaylistGlassBackdrop { hazeState ->
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 156.dp),
+            modifier = Modifier.fillMaxSize().testTag("playlist-grid"),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 188.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item(key = "playlist-heading", span = { GridItemSpan(maxLineSpan) }) {
+                Column {
+                    Text("Your collections", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "A place for every mood.",
+                        modifier = Modifier.padding(top = 4.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (onCreate != null || onSaveQueue != null) {
+                        Row(
+                            modifier = Modifier.padding(top = 16.dp).horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            onCreate?.let { PlaylistGlassAction(hazeState, "New playlist", Icons.Rounded.Add, it, accented = true) }
+                            onSaveQueue?.let { PlaylistGlassAction(hazeState, "Save queue", Icons.Rounded.QueueMusic, it) }
+                        }
+                    }
+                }
+            }
+            item(key = "favorites-v3", span = { GridItemSpan(maxLineSpan) }) {
+                PlaylistMorphCardV3(
+                    hazeState = hazeState,
+                    title = "Favorites",
+                    artworkRef = favoriteTracks.firstOrNull()?.artworkRef,
+                    favorite = true,
+                    trackCount = favoriteTracks.size,
+                    onClick = onOpenFavorites,
+                )
+            }
+            item(key = "playlist-count", span = { GridItemSpan(maxLineSpan) }) {
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Playlists", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("${playlists.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            items(playlists, key = { "playlist-v3:${it.id}" }, contentType = { "playlist" }) { playlist ->
+                PlaylistMorphCardV3(
+                    hazeState = hazeState,
+                    title = playlist.title,
+                    artworkRef = playlist.artworkRef ?: playlistArtwork[playlist.id],
+                    favorite = false,
+                    trackCount = playlist.trackCount,
+                    telegram = playlistArtwork.containsKey(playlist.id),
+                    onClick = { onOpenPlaylist(playlist.id) },
+                )
+            }
+            if (playlists.isEmpty()) {
+                item(key = "no-playlists", span = { GridItemSpan(maxLineSpan) }) {
+                    PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(24.dp)) {
+                            Icon(Icons.Rounded.PlaylistPlay, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                            Text("Make it yours", modifier = Modifier.padding(top = 14.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Create a playlist or save your current queue to start a collection.",
+                                modifier = Modifier.padding(top = 6.dp),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun PlaylistMorphCardV3(
+    hazeState: HazeState,
     title: String,
     artworkRef: String?,
     favorite: Boolean,
+    trackCount: Int,
+    telegram: Boolean = false,
     onClick: () -> Unit,
 ) {
     var opening by remember { mutableStateOf(false) }
-    val artworkSize by animateDpAsState(
-        targetValue = if (opening) 176.dp else 72.dp,
-        label = "playlist-card-artwork-morph",
-    )
-    val cardPadding by animateDpAsState(
-        targetValue = if (opening) 18.dp else 8.dp,
-        label = "playlist-card-padding-morph",
-    )
-
+    val artworkSize by animateDpAsState(if (opening) 164.dp else 92.dp, label = "playlist-card-artwork-morph")
     LaunchedEffect(opening) {
         if (opening) {
-            // Keep the source card alive long enough for its bounds, artwork, and title to
-            // visibly transform into the same visual hierarchy used by the detail hero.
             delay(260)
             onClick()
             opening = false
         }
     }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize()
-            .clickable(enabled = !opening) { opening = true },
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(if (opening) 30.dp else 20.dp),
-        tonalElevation = if (opening) 6.dp else 0.dp,
+    PlaylistGlassPanel(
+        hazeState = hazeState,
+        modifier = Modifier.fillMaxWidth().animateContentSize().clickable(enabled = !opening, role = Role.Button) { opening = true },
+        accented = favorite,
     ) {
-        if (opening) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(cardPadding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                PlaylistArtworkV3(
-                    artworkRef = artworkRef,
-                    title = title,
-                    favorite = favorite,
-                    size = artworkSize,
-                )
-                Text(
-                    title,
-                    modifier = Modifier.padding(top = 14.dp),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        if (favorite && !opening) {
+            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                PlaylistArtworkV3(artworkRef, title, true, artworkSize)
+                Column(Modifier.weight(1f).padding(start = 18.dp)) {
+                    Text("THE ONES YOU LOVE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text(title, modifier = Modifier.padding(top = 5.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(playlistTrackCount(trackCount), modifier = Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.Rounded.ArrowForward, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
             }
         } else {
-            Row(
-                modifier = Modifier.padding(horizontal = cardPadding, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                PlaylistArtworkV3(
-                    artworkRef = artworkRef,
-                    title = title,
-                    favorite = favorite,
-                    size = artworkSize,
-                )
-                Spacer(Modifier.size(14.dp))
-                Text(
-                    title,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            Column(Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.Start) {
+                BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    val coverSize = minOf(maxWidth, if (opening) 180.dp else 148.dp)
+                    PlaylistArtworkV3(artworkRef, title, favorite, coverSize)
+                }
+                Text(title, modifier = Modifier.padding(top = 14.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Row(Modifier.padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (telegram) {
+                        Icon(Icons.Rounded.Send, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.size(5.dp))
+                    }
+                    Text(
+                        if (telegram) "Telegram · ${playlistTrackCount(trackCount)}" else playlistTrackCount(trackCount),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                    )
+                }
             }
         }
     }
 }
+
+private fun playlistTrackCount(count: Int): String = if (count == 1) "1 track" else "$count tracks"
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -246,8 +296,10 @@ internal fun PlaylistDetailScreenV3(
     onMove: (Int, Int) -> Unit,
     onRemove: (Track) -> Unit,
     onEnsureArtwork: (Track) -> Unit,
+    errorMessage: String? = null,
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = editing) { editing = false }
     if (editing && editable) {
         PlaylistEditScreenV3(
             initialTitle = title,
@@ -307,246 +359,278 @@ internal fun PlaylistDetailScreenV3(
         draggedDistance = 0f
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        state = listState,
-        contentPadding = PaddingValues(bottom = 182.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        item(key = "playlist-hero") {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to playlists")
-                    }
-                    Spacer(Modifier.weight(1f))
-                    if (editable) {
-                        IconButton(onClick = { editing = true }) {
-                            Icon(Icons.Rounded.Edit, contentDescription = "Edit playlist")
+    PlaylistGlassBackdrop { hazeState ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().statusBarsPadding().testTag("playlist-detail-list"),
+            state = listState,
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 188.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item(key = "playlist-navigation") {
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PlaylistGlassPanel(hazeState, radius = 18.dp) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to playlists")
                         }
                     }
-                }
-                PlaylistArtworkV3(
-                    artworkRef = artworkRef,
-                    title = title,
-                    favorite = isFavorites,
-                    size = 220.dp,
-                )
-                Text(
-                    title,
-                    modifier = Modifier.padding(top = 18.dp),
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                )
-                playlist?.description?.takeIf(String::isNotBlank)?.let { description ->
                     Text(
-                        description,
-                        modifier = Modifier.padding(top = 8.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
-                        textAlign = TextAlign.Center,
+                        if (isFavorites) "Favorites" else if (editable) "Your playlist" else "Telegram playlist",
+                        modifier = Modifier.weight(1f).padding(horizontal = 14.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                }
-                val updatedText = playlist?.updatedAt?.let {
-                    DateTimeFormatter.ofPattern("MMM d, yyyy")
-                        .withZone(ZoneId.systemDefault())
-                        .format(it)
-                }
-                Text(
-                    buildString {
-                        append(if (tracks.size == 1) "1 track" else "${tracks.size} tracks")
-                        if (updatedText != null) append(" · Updated $updatedText")
-                    },
-                    modifier = Modifier.padding(top = 8.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.46f),
-                )
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()).padding(top = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Button(onClick = { onPlay(sortedTracks, PlaybackMode.ORDERED) }, enabled = sortedTracks.isNotEmpty()) {
-                        Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                        Spacer(Modifier.size(6.dp))
-                        Text("Play")
-                    }
-                    OutlinedButton(onClick = { onPlay(sortedTracks, PlaybackMode.PURE_SHUFFLE) }, enabled = sortedTracks.isNotEmpty()) {
-                        Icon(Icons.Rounded.Shuffle, contentDescription = null)
-                        Spacer(Modifier.size(6.dp))
-                        Text("Shuffle")
-                    }
-                    OutlinedButton(onClick = { onPlay(sortedTracks, PlaybackMode.SMART_SHUFFLE) }, enabled = sortedTracks.isNotEmpty()) {
-                        Icon(Icons.Rounded.SmartToy, contentDescription = null)
-                        Spacer(Modifier.size(6.dp))
-                        Text("Smart")
-                    }
-                }
-            }
-        }
-
-        item(key = "playlist-controls") {
-            PlaylistOrganizationControlsV3(
-                sort = sort,
-                ascending = ascending,
-                groupBy = groupBy,
-                onSort = { selected ->
-                    sort = selected
-                    if (selected == PlaylistTrackSort.CUSTOM) groupBy = PlaylistGroupBy.NONE
-                },
-                onToggleDirection = { ascending = !ascending },
-                onGroupBy = { selected ->
-                    groupBy = selected
-                    if (selected != PlaylistGroupBy.NONE && sort == PlaylistTrackSort.CUSTOM) {
-                        sort = PlaylistTrackSort.NAME
-                    }
-                },
-            )
-        }
-
-        if (sortedTracks.isEmpty()) {
-            item(key = "playlist-empty") {
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(top = 48.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        if (isFavorites) "Favorite a track and it will appear here." else "This playlist is empty.",
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f),
-                    )
-                }
-            }
-        } else if (sort == PlaylistTrackSort.CUSTOM && groupBy == PlaylistGroupBy.NONE) {
-            itemsIndexed(customTracks, key = { _, track -> "track:${track.id}" }) { _, track ->
-                val isDragging = draggedTrackId == track.id
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp)
-                        .zIndex(if (isDragging) 1f else 0f)
-                        .graphicsLayer { translationY = if (isDragging) draggedDistance else 0f },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.weight(1f)) {
-                        SwipeableTrackRowV2(
-                            track = track,
-                            isCurrent = track.id == currentTrackId,
-                            onClick = { onPlayTrack(track, customTracks) },
-                            onPlayNext = { onPlayNext(track) },
-                            onAddToQueue = { onAddToQueue(track) },
-                            onPinOffline = { onPinOffline(track) },
-                            availability = availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
-                            download = downloads[track.id],
-                            playlists = playlists,
-                            onFavorite = { onFavorite(track) },
-                            onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
-                            onGoToArtist = { onGoToArtist(track) },
-                            onEnsureArtwork = { onEnsureArtwork(track) },
-                            onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
-                        )
-                    }
                     if (editable) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .pointerInput(track.id) {
-                                    detectDragGesturesAfterLongPress(
-                                        onDragStart = {
-                                            draggedTrackId = track.id
-                                            draggedDistance = 0f
-                                        },
-                                        onDragCancel = { finishDrag(false) },
-                                        onDragEnd = { finishDrag(true) },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            val draggedId = draggedTrackId ?: return@detectDragGesturesAfterLongPress
-                                            val currentIndex = customTracks.indexOfFirst { it.id == draggedId }
-                                            if (currentIndex < 0) return@detectDragGesturesAfterLongPress
-                                            draggedDistance += dragAmount.y
-                                            val currentInfo = listState.layoutInfo.visibleItemsInfo
-                                                .firstOrNull { it.key == "track:$draggedId" }
-                                                ?: return@detectDragGesturesAfterLongPress
-                                            val draggedCenter = currentInfo.offset + currentInfo.size / 2f + draggedDistance
-                                            val targetInfo = listState.layoutInfo.visibleItemsInfo
-                                                .asSequence()
-                                                .filter { it.key is String && (it.key as String).startsWith("track:") && it.key != "track:$draggedId" }
-                                                .minByOrNull { info -> abs((info.offset + info.size / 2f) - draggedCenter) }
-                                            val targetId = (targetInfo?.key as? String)?.removePrefix("track:")
-                                            val targetIndex = targetId?.let { raw ->
-                                                runCatching { UUID.fromString(raw) }.getOrNull()
-                                            }?.let { id -> customTracks.indexOfFirst { it.id == id } } ?: -1
-                                            if (targetInfo != null && targetIndex in customTracks.indices && targetIndex != currentIndex) {
-                                                val targetCenter = targetInfo.offset + targetInfo.size / 2f
-                                                val crossed = if (targetIndex > currentIndex) draggedCenter >= targetCenter else draggedCenter <= targetCenter
-                                                if (crossed) {
-                                                    val oldOffset = currentInfo.offset
-                                                    val reordered = customTracks.toMutableList()
-                                                    val moved = reordered.removeAt(currentIndex)
-                                                    reordered.add(targetIndex, moved)
-                                                    customTracks = reordered
-                                                    draggedDistance += oldOffset - targetInfo.offset
-                                                }
-                                            }
-                                            val layout = listState.layoutInfo
-                                            val top = currentInfo.offset + draggedDistance
-                                            val bottom = top + currentInfo.size
-                                            val overscroll = when {
-                                                dragAmount.y > 0f && bottom > layout.viewportEndOffset ->
-                                                    (bottom - layout.viewportEndOffset).coerceAtMost(currentInfo.size.toFloat())
-                                                dragAmount.y < 0f && top < layout.viewportStartOffset ->
-                                                    (top - layout.viewportStartOffset).coerceAtLeast(-currentInfo.size.toFloat())
-                                                else -> 0f
-                                            }
-                                            if (overscroll != 0f) {
-                                                scope.launch {
-                                                    val consumed = listState.scrollBy(overscroll)
-                                                    draggedDistance += consumed
-                                                }
-                                            }
-                                        },
-                                    )
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Rounded.DragHandle, contentDescription = "Drag to reorder")
+                        PlaylistGlassPanel(hazeState, radius = 18.dp) {
+                            IconButton(onClick = { editing = true }) {
+                                Icon(Icons.Rounded.Edit, contentDescription = "Edit playlist")
+                            }
                         }
                     }
                 }
             }
-        } else {
-            grouped.forEach { (groupTitle, groupTracks) ->
-                if (groupTitle != null) {
-                    item(key = "group:$groupTitle") {
+            item(key = "playlist-hero") {
+                PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth(), radius = 32.dp, accented = true) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        PlaylistArtworkV3(artworkRef, title, isFavorites, 174.dp)
                         Text(
-                            groupTitle,
-                            modifier = Modifier.padding(start = 18.dp, top = 14.dp, bottom = 4.dp),
-                            style = MaterialTheme.typography.titleSmall,
+                            title,
+                            modifier = Modifier.padding(top = 22.dp),
+                            style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.Center,
                         )
+                        playlist?.description?.takeIf(String::isNotBlank)?.let { description ->
+                            Text(
+                                description,
+                                modifier = Modifier.padding(top = 10.dp),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                        val durationMinutes = tracks.sumOf { it.durationMs.coerceAtLeast(0L) } / 60_000L
+                        Text(
+                            "${playlistTrackCount(tracks.size)} · $durationMinutes min",
+                            modifier = Modifier.padding(top = 12.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        playlist?.updatedAt?.takeUnless { it == java.time.Instant.EPOCH }?.let { updated ->
+                            Text(
+                                "Updated ${DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault()).format(updated)}",
+                                modifier = Modifier.padding(top = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Button(
+                            onClick = { onPlay(sortedTracks, PlaybackMode.ORDERED) },
+                            enabled = sortedTracks.isNotEmpty(),
+                            modifier = Modifier.fillMaxWidth().padding(top = 22.dp).heightIn(min = 52.dp),
+                            shape = RoundedCornerShape(18.dp),
+                        ) {
+                            Icon(Icons.Rounded.PlayArrow, null)
+                            Spacer(Modifier.size(8.dp))
+                            Text("Play", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        }
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            PlaylistGlassAction(
+                                hazeState, "Shuffle", Icons.Rounded.Shuffle,
+                                { onPlay(sortedTracks, PlaybackMode.PURE_SHUFFLE) },
+                                modifier = Modifier.weight(1f), enabled = sortedTracks.isNotEmpty(),
+                            )
+                            PlaylistGlassAction(
+                                hazeState, "Smart", Icons.Rounded.AutoAwesome,
+                                { onPlay(sortedTracks, PlaybackMode.SMART_SHUFFLE) },
+                                modifier = Modifier.weight(1f), enabled = sortedTracks.isNotEmpty(),
+                            )
+                        }
                     }
                 }
-                items(groupTracks, key = { "sorted:${it.id}" }) { track ->
-                    Box(Modifier.padding(horizontal = 10.dp)) {
-                        SwipeableTrackRowV2(
-                            track = track,
-                            isCurrent = track.id == currentTrackId,
-                            onClick = { onPlayTrack(track, sortedTracks) },
-                            onPlayNext = { onPlayNext(track) },
-                            onAddToQueue = { onAddToQueue(track) },
-                            onPinOffline = { onPinOffline(track) },
-                            availability = availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
-                            download = downloads[track.id],
-                            playlists = playlists,
-                            onFavorite = { onFavorite(track) },
-                            onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
-                            onGoToArtist = { onGoToArtist(track) },
-                            onEnsureArtwork = { onEnsureArtwork(track) },
-                            onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
-                        )
+            }
+
+            item(key = "playlist-controls") {
+                PlaylistOrganizationControlsV3(
+                    hazeState = hazeState,
+                    sort = sort,
+                    ascending = ascending,
+                    groupBy = groupBy,
+                    onSort = { selected ->
+                        sort = selected
+                        if (selected == PlaylistTrackSort.CUSTOM) groupBy = PlaylistGroupBy.NONE
+                    },
+                    onToggleDirection = { ascending = !ascending },
+                    onGroupBy = { selected ->
+                        groupBy = selected
+                        if (selected != PlaylistGroupBy.NONE && sort == PlaylistTrackSort.CUSTOM) {
+                            sort = PlaylistTrackSort.NAME
+                        }
+                    },
+                )
+            }
+
+            errorMessage?.let { message ->
+                item(key = "playlist-error") {
+                    Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            if (editable && sort == PlaylistTrackSort.CUSTOM && tracks.isNotEmpty()) {
+                item(key = "reorder-hint") {
+                    Text("Hold the handle to reorder", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
+                }
+            }
+            if (sortedTracks.isEmpty()) {
+                item(key = "playlist-empty") {
+                    PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(if (isFavorites) Icons.Rounded.Favorite else Icons.Rounded.PlaylistPlay, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
+                            Text(if (isFavorites) "Your favorites start here" else "Ready for your first track", modifier = Modifier.padding(top = 14.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                            Text(
+                                if (isFavorites) "Favorite a track and it will appear here." else "Use a track's menu to add music to this playlist.",
+                                modifier = Modifier.padding(top = 6.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+            } else if (sort == PlaylistTrackSort.CUSTOM && groupBy == PlaylistGroupBy.NONE) {
+                itemsIndexed(customTracks, key = { _, track -> "track:${track.id}" }) { index, track ->
+                    val isDragging = draggedTrackId == track.id
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .zIndex(if (isDragging) 1f else 0f)
+                            .graphicsLayer { translationY = if (isDragging) draggedDistance else 0f },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PlaylistGlassPanel(hazeState, Modifier.weight(1f).testTag("playlist-track:${track.id}"), radius = 20.dp) {
+                            SwipeableLibraryTrackRow(
+                                track = track,
+                                isCurrent = track.id == currentTrackId,
+                                onClick = { onPlayTrack(track, customTracks) },
+                                onPlayNext = { onPlayNext(track) },
+                                onAddToQueue = { onAddToQueue(track) },
+                                onPinOffline = { onPinOffline(track) },
+                                availability = availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
+                                download = downloads[track.id],
+                                playlists = playlists,
+                                onFavorite = { onFavorite(track) },
+                                onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
+                                onGoToArtist = { onGoToArtist(track) },
+                                onEnsureArtwork = { onEnsureArtwork(track) },
+                                onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
+                                onMoveUp = if (editable && index > 0) ({ onMove(index, index - 1) }) else null,
+                                onMoveDown = if (editable && index < customTracks.lastIndex) ({ onMove(index, index + 1) }) else null,
+                                containerColor = Color.Transparent,
+                            )
+                        }
+                        if (editable) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .testTag("playlist-drag:${track.id}")
+                                    .pointerInput(track.id) {
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = {
+                                                draggedTrackId = track.id
+                                                draggedDistance = 0f
+                                            },
+                                            onDragCancel = { finishDrag(false) },
+                                            onDragEnd = { finishDrag(true) },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                val draggedId = draggedTrackId ?: return@detectDragGesturesAfterLongPress
+                                                val currentIndex = customTracks.indexOfFirst { it.id == draggedId }
+                                                if (currentIndex < 0) return@detectDragGesturesAfterLongPress
+                                                draggedDistance += dragAmount.y
+                                                val currentInfo = listState.layoutInfo.visibleItemsInfo
+                                                    .firstOrNull { it.key == "track:$draggedId" }
+                                                    ?: return@detectDragGesturesAfterLongPress
+                                                val draggedCenter = currentInfo.offset + currentInfo.size / 2f + draggedDistance
+                                                val targetInfo = listState.layoutInfo.visibleItemsInfo
+                                                    .asSequence()
+                                                    .filter { it.key is String && (it.key as String).startsWith("track:") && it.key != "track:$draggedId" }
+                                                    .minByOrNull { info -> abs((info.offset + info.size / 2f) - draggedCenter) }
+                                                val targetId = (targetInfo?.key as? String)?.removePrefix("track:")
+                                                val targetIndex = targetId?.let { raw ->
+                                                    runCatching { UUID.fromString(raw) }.getOrNull()
+                                                }?.let { id -> customTracks.indexOfFirst { it.id == id } } ?: -1
+                                                if (targetInfo != null && targetIndex in customTracks.indices && targetIndex != currentIndex) {
+                                                    val targetCenter = targetInfo.offset + targetInfo.size / 2f
+                                                    val crossed = if (targetIndex > currentIndex) draggedCenter >= targetCenter else draggedCenter <= targetCenter
+                                                    if (crossed) {
+                                                        val oldOffset = currentInfo.offset
+                                                        val reordered = customTracks.toMutableList()
+                                                        val moved = reordered.removeAt(currentIndex)
+                                                        reordered.add(targetIndex, moved)
+                                                        customTracks = reordered
+                                                        draggedDistance += oldOffset - targetInfo.offset
+                                                    }
+                                                }
+                                                val layout = listState.layoutInfo
+                                                val top = currentInfo.offset + draggedDistance
+                                                val bottom = top + currentInfo.size
+                                                val overscroll = when {
+                                                    dragAmount.y > 0f && bottom > layout.viewportEndOffset ->
+                                                        (bottom - layout.viewportEndOffset).coerceAtMost(currentInfo.size.toFloat())
+                                                    dragAmount.y < 0f && top < layout.viewportStartOffset ->
+                                                        (top - layout.viewportStartOffset).coerceAtLeast(-currentInfo.size.toFloat())
+                                                    else -> 0f
+                                                }
+                                                if (overscroll != 0f) {
+                                                    scope.launch {
+                                                        val consumed = listState.scrollBy(overscroll)
+                                                        draggedDistance += consumed
+                                                    }
+                                                }
+                                            },
+                                        )
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Rounded.DragHandle, contentDescription = "Drag to reorder")
+                            }
+                        }
+                    }
+                }
+            } else {
+                grouped.forEach { (groupTitle, groupTracks) ->
+                    if (groupTitle != null) {
+                        item(key = "group:$groupTitle") {
+                            Text(
+                                groupTitle,
+                                modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 4.dp),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    items(groupTracks, key = { "sorted:${it.id}" }) { track ->
+                        PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth().testTag("playlist-track:${track.id}"), radius = 20.dp) {
+                            SwipeableLibraryTrackRow(
+                                track = track,
+                                isCurrent = track.id == currentTrackId,
+                                onClick = { onPlayTrack(track, sortedTracks) },
+                                onPlayNext = { onPlayNext(track) },
+                                onAddToQueue = { onAddToQueue(track) },
+                                onPinOffline = { onPinOffline(track) },
+                                availability = availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
+                                download = downloads[track.id],
+                                playlists = playlists,
+                                onFavorite = { onFavorite(track) },
+                                onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
+                                onGoToArtist = { onGoToArtist(track) },
+                                onEnsureArtwork = { onEnsureArtwork(track) },
+                                onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
+                                containerColor = Color.Transparent,
+                            )
+                        }
                     }
                 }
             }
@@ -556,6 +640,7 @@ internal fun PlaylistDetailScreenV3(
 
 @Composable
 private fun PlaylistOrganizationControlsV3(
+    hazeState: HazeState,
     sort: PlaylistTrackSort,
     ascending: Boolean,
     groupBy: PlaylistGroupBy,
@@ -566,54 +651,38 @@ private fun PlaylistOrganizationControlsV3(
     var sortMenu by remember { mutableStateOf(false) }
     var groupMenu by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {
-            Surface(
-                modifier = Modifier.clickable { sortMenu = true },
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-            ) {
-                Text("Sort · ${sort.label}", modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
-            }
+            PlaylistGlassAction(hazeState, "Sort · ${sort.label}", Icons.Rounded.Tune, { sortMenu = true })
             DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                 PlaylistTrackSort.entries.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option.label) },
-                        onClick = { sortMenu = false; onSort(option) },
-                    )
+                    DropdownMenuItem(text = { Text(option.label) }, onClick = { sortMenu = false; onSort(option) })
                 }
             }
         }
         if (sort != PlaylistTrackSort.CUSTOM) {
-            IconButton(onClick = onToggleDirection) {
-                Icon(
-                    if (ascending) Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
-                    contentDescription = if (ascending) "Ascending order" else "Descending order",
-                )
+            PlaylistGlassPanel(hazeState, radius = 18.dp) {
+                IconButton(onClick = onToggleDirection) {
+                    Icon(
+                        if (ascending) Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
+                        contentDescription = if (ascending) "Ascending order" else "Descending order",
+                    )
+                }
             }
         }
         Box {
-            Surface(
-                modifier = Modifier.clickable { groupMenu = true },
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-            ) {
-                Text("Group by · ${groupBy.label}", modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
-            }
+            PlaylistGlassAction(hazeState, "Group by · ${groupBy.label}", Icons.Rounded.KeyboardArrowDown, { groupMenu = true })
             DropdownMenu(expanded = groupMenu, onDismissRequest = { groupMenu = false }) {
                 PlaylistGroupBy.entries.forEach { option ->
                     DropdownMenuItem(
                         text = { Text(option.label) },
                         leadingIcon = {
                             when (option) {
-                                PlaylistGroupBy.ARTIST -> Icon(Icons.Rounded.Person, contentDescription = null)
-                                PlaylistGroupBy.ALBUM -> Icon(Icons.Rounded.Album, contentDescription = null)
+                                PlaylistGroupBy.ARTIST -> Icon(Icons.Rounded.Person, null)
+                                PlaylistGroupBy.ALBUM -> Icon(Icons.Rounded.Album, null)
                                 else -> Unit
                             }
                         },
@@ -646,79 +715,74 @@ private fun PlaylistEditScreenV3(
         }
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        item {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to playlist")
-                }
-                Text(
-                    "Edit playlist",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                IconButton(
-                    enabled = title.isNotBlank(),
-                    onClick = { onSave(title.trim(), description.trim().takeIf(String::isNotEmpty), artworkRef) },
-                ) {
-                    Icon(Icons.Rounded.Save, contentDescription = "Save playlist")
+    PlaylistGlassBackdrop { hazeState ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding().testTag("playlist-edit-list"),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 188.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            item(key = "edit-navigation") {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    PlaylistGlassPanel(hazeState, radius = 18.dp) {
+                        IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back to playlist") }
+                    }
+                    Text("Edit playlist", modifier = Modifier.weight(1f).padding(start = 14.dp), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    IconButton(
+                        enabled = title.isNotBlank(),
+                        onClick = { onSave(title.trim(), description.trim().takeIf(String::isNotEmpty), artworkRef) },
+                    ) { Icon(Icons.Rounded.Save, "Save playlist", tint = MaterialTheme.colorScheme.primary) }
                 }
             }
-        }
-        item {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                PlaylistArtworkV3(artworkRef = artworkRef, title = title.ifBlank { "Playlist" }, favorite = false, size = 210.dp)
-                Row(
-                    modifier = Modifier.padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }) {
-                        Icon(Icons.Rounded.Image, contentDescription = null)
-                        Spacer(Modifier.size(6.dp))
-                        Text("Choose image")
-                    }
-                    if (artworkRef != null) {
-                        OutlinedButton(onClick = { artworkRef = null }) {
-                            Icon(Icons.Rounded.DeleteOutline, contentDescription = null)
-                            Spacer(Modifier.size(6.dp))
-                            Text("Remove")
+            item(key = "edit-artwork") {
+                PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth(), radius = 32.dp, accented = true) {
+                    Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        PlaylistArtworkV3(artworkRef, title.ifBlank { "Playlist" }, false, 184.dp)
+                        Row(
+                            modifier = Modifier.padding(top = 22.dp).horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            PlaylistGlassAction(hazeState, "Choose image", Icons.Rounded.Image, { imagePicker.launch(arrayOf("image/*")) })
+                            if (artworkRef != null) {
+                                PlaylistGlassAction(hazeState, "Remove", Icons.Rounded.DeleteOutline, { artworkRef = null })
+                            }
                         }
                     }
                 }
             }
-        }
-        item {
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Playlist name") },
-                singleLine = true,
-            )
-        }
-        item {
-            OutlinedTextField(
-                value = description,
-                onValueChange = { description = it },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
-                label = { Text("Description") },
-                minLines = 4,
-            )
-        }
-        item {
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = title.isNotBlank(),
-                onClick = { onSave(title.trim(), description.trim().takeIf(String::isNotEmpty), artworkRef) },
-            ) {
-                Icon(Icons.Rounded.Save, contentDescription = null)
-                Spacer(Modifier.size(8.dp))
-                Text("Save changes")
+            item(key = "edit-metadata") {
+                PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                        Text("Playlist details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            label = { Text("Playlist name") },
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = description,
+                            onValueChange = { description = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            label = { Text("Description") },
+                            minLines = 4,
+                        )
+                    }
+                }
+            }
+            item(key = "edit-save") {
+                Button(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    enabled = title.isNotBlank(),
+                    onClick = { onSave(title.trim(), description.trim().takeIf(String::isNotEmpty), artworkRef) },
+                ) {
+                    Icon(Icons.Rounded.Save, null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Save changes")
+                }
             }
         }
     }
@@ -729,23 +793,41 @@ private fun PlaylistArtworkV3(
     artworkRef: String?,
     title: String,
     favorite: Boolean,
-    size: androidx.compose.ui.unit.Dp,
+    size: Dp,
 ) {
-    if (artworkRef != null) {
-        TrackArtwork(artworkRef = artworkRef, description = title, size = size)
-    } else {
-        Surface(
-            modifier = Modifier.size(size),
-            shape = RoundedCornerShape(28.dp),
-            color = if (favorite) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    if (favorite) Icons.Rounded.Favorite else Icons.Rounded.PlaylistPlay,
-                    contentDescription = null,
-                    modifier = Modifier.size(size * 0.34f),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(24.dp)
+    Box(
+        modifier = Modifier.size(size)
+            .shadow(14.dp, shape, ambientColor = colors.primary.copy(alpha = 0.12f), spotColor = Color.Black.copy(alpha = 0.16f))
+            .clip(shape)
+            .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.secondaryContainer)))
+            .border(1.dp, Color.White.copy(alpha = 0.22f), shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (artworkRef != null) {
+            TrackArtwork(artworkRef = artworkRef, description = title, size = size)
+        } else {
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.radialGradient(
+                        listOf(colors.primary.copy(alpha = if (favorite) 0.28f else 0.16f), Color.Transparent),
+                    ),
+                ),
+            )
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = colors.surface.copy(alpha = 0.32f),
+                modifier = Modifier.size(size * 0.52f),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        if (favorite) Icons.Rounded.Favorite else Icons.Rounded.PlaylistPlay,
+                        contentDescription = null,
+                        modifier = Modifier.size(size * 0.28f),
+                        tint = colors.primary,
+                    )
+                }
             }
         }
     }

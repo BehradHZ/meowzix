@@ -226,6 +226,14 @@ class LibraryViewModel @Inject constructor(
         )
     }
 
+    fun playPlaylistCollection(tracks: List<Track>, mode: PlaybackMode) {
+        startContextQueue(
+            tracks = tracks,
+            explicitMode = mode,
+            contextKey = playbackContextFor(tracks),
+        )
+    }
+
     fun playNext(track: Track) = queueRepository.playNext(track.id)
 
     fun addToQueue(track: Track) = queueRepository.addToQueue(track.id)
@@ -241,9 +249,11 @@ class LibraryViewModel @Inject constructor(
         artworkRepairCoordinator.prefetch(listOf(track.id))
     }
 
-    fun createPlaylist() = viewModelScope.launch {
+    fun createPlaylist() = createPlaylist(onCreated = null)
+
+    fun createPlaylist(onCreated: ((UUID) -> Unit)?) = viewModelScope.launch {
         runCatching { playlistRepository.create("Playlist ${_state.value.playlists.size + 1}") }
-            .onSuccess(::selectPlaylist)
+            .onSuccess { id -> selectPlaylist(id); onCreated?.invoke(id) }
             .onFailure { reportLoadError(it, "Unable to create playlist") }
     }
 
@@ -313,14 +323,16 @@ class LibraryViewModel @Inject constructor(
         )
     }
 
-    fun saveQueueToPlaylist() = viewModelScope.launch {
+    fun saveQueueToPlaylist() = saveQueueToPlaylist(onCreated = null)
+
+    fun saveQueueToPlaylist(onCreated: ((UUID) -> Unit)?) = viewModelScope.launch {
         val items = queueRepository.queueState.value.items
         if (items.isEmpty()) return@launch
         runCatching {
             val id = playlistRepository.create("Saved queue ${_state.value.playlists.size + 1}")
             playlistRepository.replaceTracks(id, items.map { it.id })
             id
-        }.onSuccess(::selectPlaylist)
+        }.onSuccess { id -> selectPlaylist(id); onCreated?.invoke(id) }
             .onFailure { reportLoadError(it, "Unable to save queue") }
     }
 
@@ -364,7 +376,7 @@ class LibraryViewModel @Inject constructor(
         val playlistId = _state.value.selectedPlaylistId ?: return PlaybackContextKeys.LIBRARY
         val selectedPlaylistIds = _state.value.selectedPlaylistTracks.map { it.id }
         val queueIds = queueTracks.map { it.id }
-        return if (selectedPlaylistIds.isNotEmpty() && queueIds == selectedPlaylistIds) {
+        return if (selectedPlaylistIds.isNotEmpty() && queueIds.size == selectedPlaylistIds.size && queueIds.toSet() == selectedPlaylistIds.toSet()) {
             PlaybackContextKeys.playlist(playlistId)
         } else {
             PlaybackContextKeys.LIBRARY

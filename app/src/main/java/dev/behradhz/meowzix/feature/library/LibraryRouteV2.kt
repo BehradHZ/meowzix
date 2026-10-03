@@ -528,6 +528,8 @@ private fun LibraryScreenV2(
                         openedPlaylistKey = id.toString()
                     },
                     onEnsureArtwork = onEnsureArtwork,
+                    onCreate = onCreatePlaylist,
+                    onSaveQueue = onSaveQueue,
                 )
             }
         }

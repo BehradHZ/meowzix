@@ -176,61 +176,65 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         if (length == 0) return 0
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
 
-        return runBlocking {
-            var staleHandleRecoveries = 0
-            while (true) {
-                val window = waitForReadableWindow(readPosition)
-                if (window.readableEnd <= readPosition) {
-                    if (isAtEnd(window.state, readPosition)) {
-                        return@runBlocking C.RESULT_END_OF_INPUT
-                    }
-                    continue
-                }
+        return runBlocking { readFromGrowingFile(buffer, offset, length) }
+    }
 
-                val available = (window.readableEnd - readPosition)
-                    .coerceAtMost(Int.MAX_VALUE.toLong())
-                    .toInt()
-                val remainingLimit = if (bytesRemaining == C.LENGTH_UNSET.toLong()) {
-                    Int.MAX_VALUE
-                } else {
-                    bytesRemaining.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                }
-                val toRead = min(length, min(available, remainingLimit))
-                if (toRead <= 0) return@runBlocking C.RESULT_END_OF_INPUT
-
-                val read = runCatching {
-                    val raf = openFileForState(window.state)
-                    raf.seek(readPosition)
-                    raf.read(buffer, offset, toRead)
-                }.getOrElse {
-                    resetFileHandle()
-                    -1
-                }
-
-                if (read > 0) {
-                    readPosition += read
-                    if (bytesRemaining != C.LENGTH_UNSET.toLong()) bytesRemaining -= read
-                    bytesTransferred(read)
-                    return@runBlocking read
-                }
-
+    // A block-bodied suspend function gives the retry loop an explicit Int return contract.
+    // Keeping the loop as the last expression of runBlocking inferred Unit instead.
+    private suspend fun readFromGrowingFile(buffer: ByteArray, offset: Int, length: Int): Int {
+        var staleHandleRecoveries = 0
+        while (true) {
+            val window = waitForReadableWindow(readPosition)
+            if (window.readableEnd <= readPosition) {
                 if (isAtEnd(window.state, readPosition)) {
-                    return@runBlocking C.RESULT_END_OF_INPUT
+                    return C.RESULT_END_OF_INPUT
                 }
-
-                // TDLib may rotate/recreate the growing local file while retaining the same path.
-                // Reopen the descriptor and wait for the filesystem view to catch up instead of
-                // reporting a fatal source error to ExoPlayer.
-                resetFileHandle()
-                staleHandleRecoveries += 1
-                if (staleHandleRecoveries > MAX_STALE_FILE_RECOVERIES) {
-                    val activeClient = awaitActiveClient()
-                        ?: throw IOException("Telegram remained disconnected during playback")
-                    runCatching { activeClient.refreshFileState(fileId) }
-                    staleHandleRecoveries = 0
-                }
-                delay(STALE_FILE_RETRY_BASE_DELAY_MS * staleHandleRecoveries.coerceAtLeast(1).coerceAtMost(6))
+                continue
             }
+
+            val available = (window.readableEnd - readPosition)
+                .coerceAtMost(Int.MAX_VALUE.toLong())
+                .toInt()
+            val remainingLimit = if (bytesRemaining == C.LENGTH_UNSET.toLong()) {
+                Int.MAX_VALUE
+            } else {
+                bytesRemaining.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            }
+            val toRead = min(length, min(available, remainingLimit))
+            if (toRead <= 0) return C.RESULT_END_OF_INPUT
+
+            val read = runCatching {
+                val raf = openFileForState(window.state)
+                raf.seek(readPosition)
+                raf.read(buffer, offset, toRead)
+            }.getOrElse {
+                resetFileHandle()
+                -1
+            }
+
+            if (read > 0) {
+                readPosition += read
+                if (bytesRemaining != C.LENGTH_UNSET.toLong()) bytesRemaining -= read
+                bytesTransferred(read)
+                return read
+            }
+
+            if (isAtEnd(window.state, readPosition)) {
+                return C.RESULT_END_OF_INPUT
+            }
+
+            // TDLib may rotate/recreate the growing local file while retaining the same path.
+            // Reopen the descriptor and wait for the filesystem view to catch up instead of
+            // reporting a fatal source error to ExoPlayer.
+            resetFileHandle()
+            staleHandleRecoveries += 1
+            if (staleHandleRecoveries > MAX_STALE_FILE_RECOVERIES) {
+                val activeClient = awaitActiveClient()
+                    ?: throw IOException("Telegram remained disconnected during playback")
+                runCatching { activeClient.refreshFileState(fileId) }
+                staleHandleRecoveries = 0
+            }
+            delay(STALE_FILE_RETRY_BASE_DELAY_MS * staleHandleRecoveries.coerceAtLeast(1).coerceAtMost(6))
         }
     }
 

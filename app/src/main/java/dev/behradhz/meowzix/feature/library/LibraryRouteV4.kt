@@ -48,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -136,37 +137,73 @@ internal fun LibraryRouteV4(
     var sectionIndex by rememberSaveable { mutableIntStateOf(0) }
     var availabilityIndex by rememberSaveable { mutableIntStateOf(0) }
     var showDisplaySheet by rememberSaveable { mutableStateOf(false) }
-    var selectedPlaylist by remember { mutableStateOf<PlaylistSummary?>(null) }
+    var selectedPlaylistKey by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedPlaylistId = selectedPlaylistKey?.let(UUID::fromString)
+    LaunchedEffect(selectedPlaylistId) {
+        selectedPlaylistId?.let(viewModel::selectPlaylist)
+    }
+
+    fun closePlaylist() {
+        selectedPlaylistKey = null
+        viewModel.resetNavigationState()
+        if (aggregateSelection == LibraryAggregateSelection.Favorites) tracksViewModel.closeAggregate()
+    }
 
     val availabilityFilter = LibraryAvailabilityFilter.entries[availabilityIndex]
     LaunchedEffect(availabilityFilter) { tracksViewModel.setAvailability(availabilityFilter) }
 
-    BackHandler(enabled = aggregateSelection != null || selectedPlaylist != null || showDisplaySheet) {
+    BackHandler(enabled = aggregateSelection != null || selectedPlaylistId != null || showDisplaySheet) {
         when {
             showDisplaySheet -> showDisplaySheet = false
-            selectedPlaylist != null -> selectedPlaylist = null
+            selectedPlaylistId != null -> closePlaylist()
             else -> tracksViewModel.closeAggregate()
         }
     }
 
     val permissionStatus = audioPermissionStatus(permissionGranted, permissionRequestAttempted)
-    if (selectedPlaylist != null) {
-        LibraryDetailV4(
-            title = selectedPlaylist?.title ?: "Playlist",
-            tracks = state.selectedPlaylistTracks,
-            state = state,
-            onBack = { selectedPlaylist = null },
-            onPlay = { track ->
-                viewModel.playTrack(track, state.selectedPlaylistTracks)
-                onOpenNowPlaying()
-            },
-            viewModel = viewModel,
-            onGoToArtist = { track ->
-                selectedPlaylist = null
-                artists.firstOrNull { it.normalizedName == track.normalizedArtist }
-                    ?.let(tracksViewModel::openArtist)
-            },
-        )
+    if (selectedPlaylistId != null || aggregateSelection == LibraryAggregateSelection.Favorites) {
+        val favorites = selectedPlaylistId == null
+        val playlist = state.playlists.firstOrNull { it.id == selectedPlaylistId }
+        val tracks = if (favorites) aggregateTracks else state.selectedPlaylistTracks
+        val telegramManaged = selectedPlaylistId != null && state.playlistArtwork.containsKey(selectedPlaylistId)
+        key(selectedPlaylistKey ?: "favorites") {
+            PlaylistDetailScreenV3(
+                playlist = playlist,
+                title = if (favorites) "Favorites" else playlist?.title ?: "Playlist",
+                tracks = tracks,
+                artworkRef = playlist?.artworkRef
+                    ?: selectedPlaylistId?.let(state.playlistArtwork::get)
+                    ?: tracks.firstOrNull()?.artworkRef,
+                editable = !favorites && !telegramManaged,
+                isFavorites = favorites,
+                currentTrackId = state.playback.currentTrack?.id,
+                availability = state.availability,
+                downloads = state.downloads,
+                playlists = state.playlists,
+                onBack = ::closePlaylist,
+                onSaveMetadata = { title, description, artwork ->
+                    selectedPlaylistId?.let { viewModel.updatePlaylistMetadata(it, title, description, artwork) }
+                },
+                onPlay = { collection, mode -> viewModel.playPlaylistCollection(collection, mode) },
+                onPlayTrack = { track, collection ->
+                    viewModel.playTrack(track, collection)
+                    onOpenNowPlaying()
+                },
+                onPlayNext = { viewModel.playNext(it) },
+                onAddToQueue = { viewModel.addToQueue(it) },
+                onPinOffline = { viewModel.pinOffline(it) },
+                onFavorite = { viewModel.setFavorite(it) },
+                onAddToPlaylist = { track, id -> viewModel.addToPlaylist(track, id) },
+                onGoToArtist = { track ->
+                    closePlaylist()
+                    artists.firstOrNull { it.normalizedName == track.normalizedArtist }?.let(tracksViewModel::openArtist)
+                },
+                onMove = viewModel::movePlaylistTrack,
+                onRemove = viewModel::removePlaylistTrack,
+                onEnsureArtwork = viewModel::ensureArtwork,
+                errorMessage = state.errorMessage,
+            )
+        }
         return
     }
     if (aggregateSelection != null) {
@@ -284,12 +321,12 @@ internal fun LibraryRouteV4(
         }
 
         when {
-            permissionStatus == AudioPermissionStatus.REQUIRED && trackCount == 0 -> PermissionPanelV4(
+            LibrarySectionV4.entries[sectionIndex] != LibrarySectionV4.PLAYLISTS && permissionStatus == AudioPermissionStatus.REQUIRED && trackCount == 0 -> PermissionPanelV4(
                 "Your music, in one place",
                 "Allow audio access so Meowzix can build your local library.",
                 "Allow music access",
             ) { permissionLauncher.launch(permission) }
-            permissionStatus == AudioPermissionStatus.DENIED && trackCount == 0 -> PermissionPanelV4(
+            LibrarySectionV4.entries[sectionIndex] != LibrarySectionV4.PLAYLISTS && permissionStatus == AudioPermissionStatus.DENIED && trackCount == 0 -> PermissionPanelV4(
                 "Music access is off",
                 "Turn audio access back on in Android settings.",
                 "Open settings",
@@ -318,13 +355,24 @@ internal fun LibraryRouteV4(
                 )
                 LibrarySectionV4.ARTISTS -> ArtistListV4(artists, tracksViewModel::openArtist)
                 LibrarySectionV4.ALBUMS -> AlbumListV4(albums, tracksViewModel::openAlbum)
-                LibrarySectionV4.PLAYLISTS -> PlaylistListV4(
+                LibrarySectionV4.PLAYLISTS -> PlaylistsSectionV3(
                     playlists = state.playlists,
-                    favoriteCount = state.tracks.count(Track::favorite),
-                    onFavorites = tracksViewModel::openFavorites,
-                    onPlaylist = { playlist ->
-                        viewModel.selectPlaylist(playlist.id)
-                        selectedPlaylist = playlist
+                    playlistArtwork = state.playlistArtwork,
+                    favoriteTracks = state.tracks.filter(Track::favorite),
+                    onOpenFavorites = {
+                        viewModel.resetNavigationState()
+                        tracksViewModel.openFavorites()
+                    },
+                    onOpenPlaylist = { id ->
+                        viewModel.selectPlaylist(id)
+                        selectedPlaylistKey = id.toString()
+                    },
+                    onEnsureArtwork = viewModel::ensureArtwork,
+                    onCreate = {
+                        viewModel.createPlaylist { id -> selectedPlaylistKey = id.toString() }
+                    },
+                    onSaveQueue = {
+                        viewModel.saveQueueToPlaylist { id -> selectedPlaylistKey = id.toString() }
                     },
                 )
             }
@@ -441,28 +489,6 @@ private fun AlbumListV4(rows: List<AlbumSummary>, onOpen: (AlbumSummary) -> Unit
     ) {
         items(rows, key = { "${it.name}:${it.normalizedArtist}" }, contentType = { "album" }) { row ->
             SummaryRowV4(row.name, "${row.artist} · ${row.trackCount} tracks", Icons.Rounded.Album) { onOpen(row) }
-        }
-    }
-}
-
-@Composable
-private fun PlaylistListV4(
-    playlists: List<PlaylistSummary>,
-    favoriteCount: Int,
-    onFavorites: () -> Unit,
-    onPlaylist: (PlaylistSummary) -> Unit,
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 188.dp),
-    ) {
-        item(key = "favorites", contentType = "playlist") {
-            SummaryRowV4("Favorites", "$favoriteCount tracks", Icons.Rounded.Favorite, onFavorites)
-        }
-        items(playlists, key = { it.id.toString() }, contentType = { "playlist" }) { playlist ->
-            SummaryRowV4(playlist.title, "${playlist.trackCount} tracks", Icons.Rounded.PlaylistPlay) {
-                onPlaylist(playlist)
-            }
         }
     }
 }
