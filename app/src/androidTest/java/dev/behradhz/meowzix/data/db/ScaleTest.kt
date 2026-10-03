@@ -186,9 +186,9 @@ class ScaleTest {
                 INSERT INTO listening_events(
                     id, playbackInstanceId, trackId, sessionId, type, occurredAtEpochMs,
                     localHour, dayOfWeek, timeBucket, isWeekend, positionMs, durationMs,
-                    completionRatio, initiatedBy, playbackMode
+                    completionRatio, initiatedBy, playbackMode, eventSequence
                 ) VALUES (?, ?, ?, 'scale-session', ?, ?, 12, 2, 'AFTERNOON', 0,
-                          NULL, 180000, NULL, 'AUTOPLAY', 'ORDERED')
+                          NULL, 180000, NULL, 'AUTOPLAY', 'ORDERED', ?)
                 """.trimIndent(),
             )
             repeat(EVENT_COUNT) { index ->
@@ -198,6 +198,7 @@ class ScaleTest {
                 event.bindString(3, trackId(index % TRACK_COUNT).toString())
                 event.bindString(4, EVENT_TYPES[index % EVENT_TYPES.size])
                 event.bindLong(5, index.toLong())
+                event.bindLong(6, index.toLong() + 1L)
                 event.executeInsert()
             }
 
