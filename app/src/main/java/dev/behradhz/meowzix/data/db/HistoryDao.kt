@@ -127,7 +127,7 @@ interface HistoryDao {
     @Query("""
         INSERT INTO track_time_preferences
             (trackId, timeBucket, starts, completions, earlySkips, manualSelections, lastInteractionAtEpochMs)
-        SELECT e.trackId, first.timeBucket,
+        SELECT e.trackId, first_event.timeBucket,
             SUM(CASE WHEN e.type = 'PLAY_STARTED' THEN 1 ELSE 0 END),
             SUM(CASE WHEN e.type = 'PLAY_COMPLETED' THEN 1 ELSE 0 END),
             SUM(CASE WHEN e.type = 'SKIPPED_EARLY' THEN 1 ELSE 0 END),
@@ -136,10 +136,10 @@ interface HistoryDao {
         FROM listening_events e
         JOIN (SELECT playbackInstanceId, MIN(eventSequence) AS sequence FROM listening_events GROUP BY playbackInstanceId) initial
             ON initial.playbackInstanceId = e.playbackInstanceId
-        JOIN listening_events first ON first.eventSequence = initial.sequence
-        WHERE first.eventSequence > :floor
+        JOIN listening_events first_event ON first_event.eventSequence = initial.sequence
+        WHERE first_event.eventSequence > :floor
             AND (e.type NOT IN ('PLAY_COMPLETED', 'PLAY_STOPPED', 'SKIPPED_EARLY', 'SKIPPED_LATE', 'QUEUE_REMOVED') OR e.outcomeKey IS NOT NULL)
-        GROUP BY e.trackId, first.timeBucket
+        GROUP BY e.trackId, first_event.timeBucket
     """)
     suspend fun rebuildTimeStats(floor: Long)
 
