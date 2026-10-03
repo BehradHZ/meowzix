@@ -32,7 +32,7 @@ class LocalLinearPersonalizationModel internal constructor(
     private val preferences: DataStore<Preferences>,
     private val artifactFile: AtomicFile,
 ) : PersonalizationModel {
-    @Inject constructor(@param:ApplicationContext context: Context, historyDao: HistoryDao) : this(
+    @Inject constructor(@ApplicationContext context: Context, historyDao: HistoryDao) : this(
         historyDao, context.personalizationModelDataStore,
         AtomicFile(File(context.noBackupFilesDir, "personalization/shared-linucb.bin")),
     )
