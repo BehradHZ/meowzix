@@ -1,23 +1,17 @@
 package dev.behradhz.meowzix.data.recommendation
 
-import dev.behradhz.meowzix.data.db.AudioFeatureDao
-import dev.behradhz.meowzix.data.db.AudioFeatureVectorEntity
-import dev.behradhz.meowzix.data.db.HistoryDao
-import dev.behradhz.meowzix.data.db.LibraryDao
-import dev.behradhz.meowzix.data.db.ListeningEventEntity
-import dev.behradhz.meowzix.data.db.TrackEntity
-import dev.behradhz.meowzix.domain.history.TimeBucket
-import dev.behradhz.meowzix.domain.recommendation.AudioFeatureExtractor
-import dev.behradhz.meowzix.domain.recommendation.AudioFeatureVectorCodec
-import dev.behradhz.meowzix.domain.recommendation.AudioVectorFormat
-import dev.behradhz.meowzix.domain.recommendation.PersonalizationFeatureVectorizer
-import dev.behradhz.meowzix.domain.recommendation.PersonalizationRewardBuilder
-import dev.behradhz.meowzix.domain.recommendation.RecommendationContext
-import dev.behradhz.meowzix.domain.recommendation.TrackPersonalizationFeatures
-import dev.behradhz.meowzix.domain.recommendation.TrainingSample
+import dev.behradhz.meowzix.data.db.*
+import dev.behradhz.meowzix.domain.history.*
+import dev.behradhz.meowzix.domain.recommendation.*
+import java.time.DayOfWeek
+import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Singleton
 class TrainingDatasetBuilder @Inject constructor(
@@ -25,81 +19,86 @@ class TrainingDatasetBuilder @Inject constructor(
     private val libraryDao: LibraryDao,
     private val audioFeatureDao: AudioFeatureDao,
     private val audioFeatureExtractor: AudioFeatureExtractor,
+    private val sampleDao: TrainingSampleDao,
 ) {
-    suspend fun buildAll(): List<TrainingSample> {
-        val tracks = libraryDao.allTracks().associateBy { it.id }
-        val audio = compatibleAudioFeatures()
-        return historyDao.allEventsChronological()
-            .groupBy { it.playbackInstanceId }
-            .values
-            .mapNotNull { events ->
-                val trackId = events.firstOrNull()?.trackId
-                sample(events, tracks[trackId], trackId?.let(audio::get))
+    /** Full causal replay is off the playback/UI path. Persisted samples are derived and versioned. */
+    suspend fun buildAll(floor: Long = 0L, after: Long = 0L, latestFirst: Boolean = true,
+        outcomeLimit: Int = RecommendationConfig.MAX_REBUILD_OUTCOMES): List<TrainingSample> = withContext(Dispatchers.Default) {
+        require(outcomeLimit in 1..RecommendationConfig.MAX_REBUILD_OUTCOMES)
+        // A finite event boundary keeps replay reproducible while playback continues appending events.
+        val through = historyDao.latestEventSequence()
+        val tracks = libraryDao.allTracks().associate { row ->
+            val id = UUID.fromString(row.id)
+            id to TrainingTrack(id, row.normalizedArtist, row.album, row.durationMs)
+        }
+        val audio = audioFeatureDao.compatibleVectors(audioFeatureExtractor.extractorName,
+            audioFeatureExtractor.extractorVersion, audioFeatureExtractor.schemaVersion).mapNotNull { row ->
+            val values = try { AudioFeatureVectorCodec.decode(row.vectorBlob, AudioVectorFormat.valueOf(row.vectorFormat)) } catch (_: Exception) { null }
+            values?.takeIf(AudioFeatureSchema::isCompatible)?.let {
+                UUID.fromString(row.trackId) to TrainingAudio(it, Instant.ofEpochMilli(row.generatedAtEpochMs),
+                    UUID.fromString(row.sourceIdUsed), row.extractorVersion)
             }
-            .sortedBy { it.dataVersion }
+        }.toMap()
+        val samples = ArrayList<TrainingSample>()
+        var outcomeCursor = maxOf(floor, after)
+        do {
+            currentCoroutineContext().ensureActive()
+            val outcomes = historyDao.trainingOutcomes(outcomeCursor, floor, outcomeLimit, latestFirst, through)
+            if (outcomes.isEmpty()) break
+            val eligible = outcomes.mapTo(hashSetOf()) { UUID.fromString(it.playbackInstanceId) }
+            val accumulator = CausalTrainingDataset.Accumulator(tracks, audio, eligible, floor)
+            val batchThrough = outcomes.maxOf { it.sequence }
+            var cursor = floor
+            while (cursor < batchThrough) {
+                currentCoroutineContext().ensureActive()
+                val page = historyDao.trainingEventPage(cursor, RecommendationConfig.EVENT_PAGE_SIZE, batchThrough)
+                if (page.isEmpty()) break
+                page.mapNotNull { row ->
+                    try {
+                        val event = row.event
+                        TrainingEvent(row.sequence, ListeningEvent(
+                            UUID.fromString(event.id), UUID.fromString(event.trackId), ListeningEventType.valueOf(event.type),
+                            Instant.ofEpochMilli(event.occurredAtEpochMs), event.localHour, DayOfWeek.of(event.dayOfWeek),
+                            TimeBucket.valueOf(event.timeBucket), event.positionMs, event.durationMs, event.completionRatio,
+                            dev.behradhz.meowzix.domain.history.PlaybackInitiator.valueOf(event.initiatedBy),
+                            dev.behradhz.meowzix.domain.playback.PlaybackMode.valueOf(event.playbackMode),
+                            UUID.fromString(event.playbackInstanceId), UUID.fromString(event.sessionId),
+                        ), UUID.fromString(event.sessionId), UUID.fromString(event.playbackInstanceId))
+                    } catch (_: IllegalArgumentException) { null }
+                }.forEach(accumulator::accept)
+                cursor = page.last().sequence
+            }
+            samples.addAll(accumulator.samples().take(outcomeLimit - samples.size))
+            outcomeCursor = batchThrough
+            // A large neutral prefix must not starve later meaningful feedback. Sparse batches replay
+            // their causal past again, retaining bounded vectors and cancellation between pages.
+            if (latestFirst || outcomes.size < outcomeLimit) break
+        } while (samples.size < minOf(RecommendationConfig.UPDATE_BATCH, outcomeLimit))
+        samples
     }
 
-    suspend fun sampleForPlayback(playbackInstanceId: UUID): TrainingSample? {
-        val events = historyDao.eventsForPlayback(playbackInstanceId.toString())
-        val trackId = events.firstOrNull()?.trackId ?: return null
-        val audio = audioFeatureDao.compatibleVector(
-            trackId,
-            audioFeatureExtractor.extractorName,
-            audioFeatureExtractor.extractorVersion,
-            audioFeatureExtractor.schemaVersion,
-        )?.decodeValues()
-        return sample(events, libraryDao.trackById(trackId), audio)
+    suspend fun materialize(floor: Long, after: Long = 0L, latestFirst: Boolean = true): List<TrainingSample> {
+        val samples = buildAll(floor, after, latestFirst)
+        val now = System.currentTimeMillis()
+        // Chunk writes keep transactions bounded on large historical backfills.
+        samples.chunked(250).forEach { chunk ->
+            sampleDao.put(chunk.map { sample -> TrainingSampleEntity(
+                sample.playbackInstanceId.toString(), sample.trackId.toString(), AudioFeatureVectorCodec.encode(sample.features),
+                sample.reward, sample.weight, sample.dataVersion, sample.featureSchemaVersion, sample.rewardSchemaVersion,
+                now, sample.eventIds.joinToString(","), sample.sourceIdUsedForAudio?.toString(), sample.audioExtractorVersion,
+            ) })
+        }
+        return samples
     }
 
-    /**
-     * Behavioral outcome time remains the training watermark. Audio extraction time is deliberately
-     * excluded so extracting a feature for old history after Reset personalization cannot resurrect
-     * that pre-reset behavioral data.
-     */
+    suspend fun sampleForPlayback(playbackInstanceId: UUID): TrainingSample? = buildAll().firstOrNull { it.playbackInstanceId == playbackInstanceId }
     suspend fun latestDataVersion(): Long = historyDao.latestOutcomeVersion()
-
-    private suspend fun compatibleAudioFeatures(): Map<String, DoubleArray> =
-        audioFeatureDao.compatibleVectors(
-            audioFeatureExtractor.extractorName,
-            audioFeatureExtractor.extractorVersion,
-            audioFeatureExtractor.schemaVersion,
-        ).mapNotNull { row -> row.decodeValues()?.let { row.trackId to it } }.toMap()
-
-    private fun sample(
-        events: List<ListeningEventEntity>,
-        track: TrackEntity?,
-        audioFeatures: DoubleArray?,
-    ): TrainingSample? {
-        if (events.isEmpty() || track == null) return null
-        val outcome = events.lastOrNull { it.type in FINAL_OUTCOMES } ?: return null
-        val types = events.mapTo(linkedSetOf()) { it.type }
-        val context = RecommendationContext(
-            localHour = outcome.localHour,
-            dayOfWeek = outcome.dayOfWeek,
-            isWeekend = outcome.isWeekend,
-            timeBucket = runCatching { TimeBucket.valueOf(outcome.timeBucket) }.getOrNull() ?: return null,
-        )
-        val trackFeatures = TrackPersonalizationFeatures(
-            trackId = UUID.fromString(track.id),
-            normalizedArtist = track.normalizedArtist,
-            favorite = track.favorite,
-            durationMs = track.durationMs,
-            audioFeatures = audioFeatures,
-        )
-        return TrainingSample(
-            trackId = trackFeatures.trackId,
-            features = PersonalizationFeatureVectorizer.vectorize(context, trackFeatures),
-            reward = PersonalizationRewardBuilder.reward(types),
-            weight = 1.0,
-            dataVersion = outcome.occurredAtEpochMs,
-        )
-    }
-
-    private fun AudioFeatureVectorEntity.decodeValues(): DoubleArray? = runCatching {
-        AudioFeatureVectorCodec.decode(vectorBlob, AudioVectorFormat.valueOf(vectorFormat))
-    }.getOrNull()
-
-    private companion object {
-        val FINAL_OUTCOMES = setOf("PLAY_COMPLETED", "PLAY_STOPPED", "SKIPPED_EARLY", "SKIPPED_LATE")
-    }
+    suspend fun latestEventSequence(): Long = historyDao.latestEventSequence()
+    suspend fun rebuildPreferenceStats(floor: Long) = historyDao.rebuildPreferenceStats(floor)
+    suspend fun clearPreferenceStats() = historyDao.clearPreferenceStats()
+    /** Cheap bounded gate: fewer than ten terminal outcomes cannot contain ten meaningful samples. */
+    suspend fun hasPendingBatch(floor: Long, after: Long): Boolean = historyDao.trainingOutcomes(
+        maxOf(floor, after), floor, RecommendationConfig.UPDATE_BATCH, latestFirst = false,
+    ).size >= RecommendationConfig.UPDATE_BATCH
+    suspend fun clearDerivedSamples() = sampleDao.clear()
 }

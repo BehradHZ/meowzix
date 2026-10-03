@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.playback
 
+import dev.behradhz.meowzix.domain.history.ListeningProgressCounter
 import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
 import dev.behradhz.meowzix.domain.history.ListeningEventType
 import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
@@ -44,10 +45,13 @@ class ResolvingPlaybackController @Inject constructor(
 
     @Volatile private var resolvingRemote = false
     @Volatile private var activeHistoryId: UUID? = null
+    @Volatile private var lastHistoryInstanceId: UUID? = null
     @Volatile private var historyTrackId: UUID? = null
     @Volatile private var lastPlaybackState = PlaybackState()
     @Volatile private var nextInitiator: PlaybackInitiator? = null
     @Volatile private var intentionalSkip = false
+    private var listenedMs = 0L
+    @Volatile private var seekPending = false
 
     init {
         scope.launch {
@@ -111,6 +115,7 @@ class ResolvingPlaybackController @Inject constructor(
                 .onSuccess { prepared ->
                     resolvingRemote = false
                     if (prepared == null) {
+                        clearPendingSelection()
                         _state.value = delegate.state.value.copy(
                             status = PlaybackStatus.ERROR,
                             errorMessage = "This Telegram track is no longer available.",
@@ -120,6 +125,8 @@ class ResolvingPlaybackController @Inject constructor(
                     }
                 }
                 .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    clearPendingSelection()
                     resolvingRemote = false
                     _state.value = delegate.state.value.copy(
                         status = PlaybackStatus.ERROR,
@@ -150,6 +157,8 @@ class ResolvingPlaybackController @Inject constructor(
                 if (!isLocal(startTrackId)) remoteResolver.prepareForPlayback(startTrackId)
                 delegate.replaceAndPlay(trackIds, startTrackId, mode)
             }.onFailure { error ->
+                if (error is CancellationException) throw error
+                clearPendingSelection()
                 _state.value = delegate.state.value.copy(
                     status = PlaybackStatus.ERROR,
                     errorMessage = error.message ?: "Unable to prepare queue.",
@@ -159,7 +168,14 @@ class ResolvingPlaybackController @Inject constructor(
         }
     }
 
-    override fun removeAt(index: Int) = delegate.removeAt(index)
+    override fun removeAt(index: Int) {
+        val queue = queueState.value
+        if (index == queue.currentIndex && index >= 0) intentionalSkip = true
+        if (index > queue.currentIndex) queue.items.getOrNull(index)?.id?.let { trackId ->
+            scope.launch { historySafely { history.recordQueueRemoval(trackId, queue.playbackMode) } }
+        }
+        delegate.removeAt(index)
+    }
 
     override fun move(fromIndex: Int, toIndex: Int) = delegate.move(fromIndex, toIndex)
 
@@ -176,11 +192,8 @@ class ResolvingPlaybackController @Inject constructor(
     override fun togglePlayPause() = delegate.togglePlayPause()
 
     override fun seekTo(positionMs: Long) {
-        activeHistoryId?.let { playbackId ->
-            scope.launch {
-                historySafely { history.recordSeek(playbackId, positionMs, lastPlaybackState.durationMs) }
-            }
-        }
+        seekPending = true
+        if (positionMs == 0L && lastPlaybackState.positionMs > 1_000L) nextInitiator = PlaybackInitiator.USER
         delegate.seekTo(positionMs)
     }
 
@@ -201,50 +214,78 @@ class ResolvingPlaybackController @Inject constructor(
 
     private suspend fun recordHistoryTransition(playback: PlaybackState) {
         val newTrackId = playback.currentTrack?.id
-        if (newTrackId != historyTrackId) {
+        val seekChanged = playback.seekRevision != lastPlaybackState.seekRevision
+        if (seekChanged) activeHistoryId?.let { id ->
+            historySafely { history.recordSeek(id, playback.positionMs, lastPlaybackState.durationMs) }
+        }
+        val occurrenceChanged = playback.playbackOccurrenceId != null && playback.playbackOccurrenceId != lastPlaybackState.playbackOccurrenceId
+        if (newTrackId != historyTrackId || occurrenceChanged) {
+            if (intentionalSkip || nextInitiator == PlaybackInitiator.USER || (occurrenceChanged && (playback.userInterruptedPrevious || playback.userSelectedOccurrence))) {
+                lastHistoryInstanceId?.let { id -> historySafely { history.recordQueueOverride(id) } }
+            }
+            lastHistoryInstanceId = null
             activeHistoryId?.let { playbackId ->
                 historySafely {
                     history.finalizePlayback(
                         playbackId,
-                        lastPlaybackState.positionMs,
+                        listenedMs,
                         lastPlaybackState.durationMs,
-                        intentionalSkip,
+                        intentionalSkip || playback.userInterruptedPrevious,
                     )
                 }
             }
             activeHistoryId = null
+            listenedMs = 0L
             historyTrackId = newTrackId
             intentionalSkip = false
-            if (newTrackId != null) {
-                val initiator = nextInitiator ?: when (playback.playbackMode) {
+            if (newTrackId != null && playback.status == PlaybackStatus.PLAYING) {
+                val initiator = nextInitiator ?: if (playback.userSelectedOccurrence) PlaybackInitiator.USER else when (playback.playbackMode) {
                     PlaybackMode.PURE_SHUFFLE -> PlaybackInitiator.PURE_SHUFFLE
                     PlaybackMode.SMART_SHUFFLE -> PlaybackInitiator.SMART_SHUFFLE
                     PlaybackMode.ORDERED -> PlaybackInitiator.QUEUE
                 }
                 if (historyEnabledSafely()) {
                     activeHistoryId = historySafely {
-                        history.startPlayback(newTrackId, initiator, playback.playbackMode)
+                        history.startPlayback(newTrackId, initiator, playback.playbackMode).also { lastHistoryInstanceId = it }
                     }
                 }
                 nextInitiator = null
             }
         }
+        // Preparing/buffering states do not start a listening occurrence.
+        if (activeHistoryId == null && newTrackId != null && playback.status == PlaybackStatus.PLAYING &&
+            lastPlaybackState.status != PlaybackStatus.PLAYING && listenedMs == 0L) {
+            val initiator = nextInitiator ?: if (playback.userSelectedOccurrence) PlaybackInitiator.USER else when (playback.playbackMode) {
+                PlaybackMode.PURE_SHUFFLE -> PlaybackInitiator.PURE_SHUFFLE
+                PlaybackMode.SMART_SHUFFLE -> PlaybackInitiator.SMART_SHUFFLE
+                PlaybackMode.ORDERED -> PlaybackInitiator.QUEUE
+            }
+            if (historyEnabledSafely()) activeHistoryId = historySafely { history.startPlayback(newTrackId, initiator, playback.playbackMode).also { lastHistoryInstanceId = it } }
+            nextInitiator = null
+        }
+        if (!occurrenceChanged && newTrackId == lastPlaybackState.currentTrack?.id && lastPlaybackState.status == PlaybackStatus.PLAYING) {
+            listenedMs += ListeningProgressCounter.delta(lastPlaybackState, playback, seekPending || seekChanged)
+        }
+        seekPending = false
         val playbackId = activeHistoryId
         if (
             playbackId != null && playback.durationMs > 0L &&
             ListeningEventSemantics.outcome(
-                playback.positionMs,
+                listenedMs,
                 playback.durationMs,
                 false,
             ) == ListeningEventType.PLAY_COMPLETED
         ) {
             historySafely {
-                history.finalizePlayback(playbackId, playback.positionMs, playback.durationMs, false)
+                history.finalizePlayback(playbackId, listenedMs, playback.durationMs, false)
             }
             activeHistoryId = null
         }
+        if (playback.status == PlaybackStatus.ERROR) clearPendingSelection()
         lastPlaybackState = playback
     }
+
+    private fun clearPendingSelection() { nextInitiator = null; intentionalSkip = false }
 
     private suspend fun historyEnabledSafely(): Boolean = try {
         settingsRepository.networkPlaybackSettings.first().listeningHistoryEnabled
@@ -279,6 +320,7 @@ class ResolvingPlaybackController @Inject constructor(
                 .onSuccess { prepared ->
                     resolvingRemote = false
                     if (prepared == null) {
+                        clearPendingSelection()
                         _state.value = delegate.state.value.copy(
                             status = PlaybackStatus.ERROR,
                             errorMessage = "This Telegram track is no longer available.",
@@ -288,6 +330,8 @@ class ResolvingPlaybackController @Inject constructor(
                     }
                 }
                 .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    clearPendingSelection()
                     resolvingRemote = false
                     _state.value = delegate.state.value.copy(
                         status = PlaybackStatus.ERROR,

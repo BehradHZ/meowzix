@@ -32,6 +32,8 @@ data class SuggestedArtist(
     val tracks: List<Track>,
 )
 
+data class HomeRecommendationSection(val section: dev.behradhz.meowzix.domain.recommendation.RecommendationSection, val tracks: List<Track>)
+
 data class HomeUiState(
     val recommended: List<Track> = emptyList(),
     val recent: List<Track> = emptyList(),
@@ -39,6 +41,7 @@ data class HomeUiState(
     val playlists: List<PlaylistSummary> = emptyList(),
     val artists: List<SuggestedArtist> = emptyList(),
     val isReady: Boolean = false,
+    val sections: List<HomeRecommendationSection> = emptyList(),
 )
 
 @HiltViewModel
@@ -47,11 +50,24 @@ class HomeViewModel @Inject constructor(
     private val playlists: PlaylistRepository,
     private val history: HomeHistoryReader,
     private val recommendationEngine: RecommendationEngine,
+    private val playback: dev.behradhz.meowzix.domain.playback.PlaybackController,
+    private val listeningHistory: dev.behradhz.meowzix.domain.history.ListeningHistoryRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(cachedState ?: HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
+    fun refresh() = viewModelScope.launch {
+        cachedAtElapsedRealtime = 0L
+        refreshIfDue(forceWhenEmpty = true)
+    }
+
     init {
+        viewModelScope.launch {
+            listeningHistory.observeTrackStats().collect {
+                cachedAtElapsedRealtime = 0L
+                refreshIfDue(forceWhenEmpty = true)
+            }
+        }
         viewModelScope.launch {
             refreshIfDue(forceWhenEmpty = true)
             while (isActive) {
@@ -98,7 +114,8 @@ class HomeViewModel @Inject constructor(
                     cachedAtElapsedRealtime = SystemClock.elapsedRealtime()
                     _state.value = snapshot
                 }
-                .onFailure {
+                .onFailure { failure ->
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
                     if (cachedState == null) {
                         _state.update { current -> current.copy(isReady = true) }
                     }
@@ -114,16 +131,9 @@ class HomeViewModel @Inject constructor(
         val allowedSet = allowedTrackIds.toHashSet()
         val recent = library.tracks(recentTrackIds.filter(allowedSet::contains)).take(12)
 
-        val bucket = ListeningEventSemantics.timeContext(
-            Instant.now(),
-            ZoneId.systemDefault(),
-        ).bucket
+        val sectionRows = recommendationEngine.sections(playback.state.value.currentTrack?.id)
         val recommendedIds = runCatching {
-            recommendationEngine.generate(
-                allowedTrackIds = allowedTrackIds,
-                currentTrackId = recent.firstOrNull()?.id,
-                timeBucket = bucket,
-            ).trackIds
+            sectionRows.firstOrNull { it.kind == dev.behradhz.meowzix.domain.recommendation.RecommendationSectionKind.FOR_YOU_NOW }?.items?.map { it.trackId }.orEmpty()
         }.getOrDefault(emptyList())
 
         val recommended = library.tracks(recommendedIds.take(14))
@@ -155,6 +165,7 @@ class HomeViewModel @Inject constructor(
             playlists = playlistRows.sortedByDescending(PlaylistSummary::updatedAt).take(10),
             artists = artists,
             isReady = true,
+            sections = sectionRows.map { section -> HomeRecommendationSection(section, library.tracks(section.items.map { it.trackId })) },
         )
     }
 
@@ -164,7 +175,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private companion object {
-        const val HOME_REFRESH_INTERVAL_MS = 3L * 60L * 60L * 1_000L
+        const val HOME_REFRESH_INTERVAL_MS = 5L * 60L * 1_000L
         const val MIN_REFRESH_CHECK_MS = 30_000L
         val refreshMutex = Mutex()
 

@@ -52,6 +52,7 @@ class LocalMusicLibraryRepository @Inject constructor(
     private val dao: LibraryDao,
     private val telegramDao: TelegramDao,
     private val scanner: LocalMediaScanner,
+    private val listeningHistory: dev.behradhz.meowzix.domain.history.ListeningHistoryRepository,
 ) : MusicLibraryRepository, PlaybackCatalog {
     private val artworkScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val artworkAttempts = ConcurrentHashMap.newKeySet<String>()
@@ -188,7 +189,11 @@ class LocalMusicLibraryRepository @Inject constructor(
     }
 
     override suspend fun setFavorite(trackId: UUID, favorite: Boolean) {
+        if (dao.trackById(trackId.toString())?.favorite == favorite) return
         dao.setFavorite(trackId.toString(), favorite, Instant.now().toEpochMilli())
+        try { listeningHistory.recordFavorite(trackId, favorite) }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { /* Feedback failure never prevents a favorite change. */ }
     }
 
     override fun prefetchArtwork(trackIds: List<UUID>) {

@@ -28,6 +28,11 @@ data class PlaybackState(
     val canSkipPrevious: Boolean = false,
     val canSkipNext: Boolean = false,
     val errorMessage: String? = null,
+    val playbackOccurrenceId: UUID? = null,
+    /** Changes only on a user seek, including notification/lock-screen controls. */
+    val seekRevision: Long = 0L,
+    val userSelectedOccurrence: Boolean = false,
+    val userInterruptedPrevious: Boolean = false,
 )
 
 interface PlaybackController {

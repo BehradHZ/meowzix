@@ -39,6 +39,7 @@ class LocalMusicLibraryRepositoryTest {
             database.libraryDao(),
             database.telegramDao(),
             scanner,
+            dev.behradhz.meowzix.test.NoOpListeningHistory(),
         )
     }
 

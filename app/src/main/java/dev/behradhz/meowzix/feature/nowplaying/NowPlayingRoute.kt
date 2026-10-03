@@ -90,6 +90,7 @@ fun NowPlayingRoute(
     val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
     val audioOutputState by viewModel.audioOutputState.collectAsStateWithLifecycle()
     val isOutputPickerOpen by viewModel.isOutputPickerOpen.collectAsStateWithLifecycle()
+    dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs()
     val context = LocalContext.current
     val visualizerPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -252,6 +253,7 @@ private fun NowPlayingScreen(
                 onToggleFavorite = onToggleFavorite,
             )
 
+            dev.behradhz.meowzix.feature.recommendation.RecommendationActionButtons(track.id)
             Spacer(Modifier.height(12.dp))
 
             SyntheticWaveformSeekBar(

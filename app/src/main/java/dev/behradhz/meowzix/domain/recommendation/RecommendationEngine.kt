@@ -12,6 +12,7 @@ data class PreferenceSnapshot(
     val earlySkips: Int = 0,
     val manualSelections: Int = 0,
     val replays: Int = 0,
+    val lateSkips: Int = 0,
 )
 
 data class SmartCandidate(
@@ -47,9 +48,14 @@ data class ScoreBreakdown(
     }
 }
 
-data class SmartQueue(val trackIds: List<UUID>, val explanations: Map<UUID, ScoreBreakdown>)
+data class SmartQueue(val trackIds: List<UUID>, val explanations: Map<UUID, ScoreBreakdown>,
+    /** Unscored large-library tail may contain only IDs that passed the engine's hard filters. */
+    val eligibleTrackIds: Set<UUID> = trackIds.toSet())
 
 interface RecommendationEngine {
+    suspend fun sections(currentTrackId: UUID? = null, seed: Long = System.nanoTime()): List<RecommendationSection>
+    suspend fun continueTheVibe(anchorTrackId: UUID, limit: Int = 15): List<RecommendationItem>
+    suspend fun whyThisSong(trackId: UUID): List<RecommendationReason>
     suspend fun generate(
         allowedTrackIds: List<UUID>? = null,
         currentTrackId: UUID? = null,

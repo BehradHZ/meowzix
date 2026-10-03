@@ -23,6 +23,8 @@ import dev.behradhz.meowzix.data.db.MIGRATION_8_9
 import dev.behradhz.meowzix.data.db.MIGRATION_9_10
 import dev.behradhz.meowzix.data.db.MIGRATION_10_11
 import dev.behradhz.meowzix.data.db.MIGRATION_11_12
+import dev.behradhz.meowzix.data.db.MIGRATION_12_13
+import dev.behradhz.meowzix.data.db.TrainingSampleDao
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.PlaylistDao
 import dev.behradhz.meowzix.data.db.RecommendationDao
@@ -133,6 +135,14 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
+    abstract fun bindTrainingScheduler(impl: dev.behradhz.meowzix.data.recommendation.RecommendationWorkScheduler): dev.behradhz.meowzix.domain.recommendation.TrainingScheduler
+
+    @Binds
+    @Singleton
+    abstract fun bindPersonalizationMaintenance(impl: dev.behradhz.meowzix.data.recommendation.LocalPersonalizationMaintenance): dev.behradhz.meowzix.domain.recommendation.PersonalizationMaintenance
+
+    @Binds
+    @Singleton
     abstract fun bindLocalMediaScanner(impl: MediaStoreScanner): LocalMediaScanner
 }
 
@@ -155,6 +165,7 @@ object DatabaseModule {
                 MIGRATION_9_10,
                 MIGRATION_10_11,
                 MIGRATION_11_12,
+                MIGRATION_12_13,
             )
             .addCallback(TRACK_SEARCH_DATABASE_CALLBACK)
             .build()
@@ -182,4 +193,7 @@ object DatabaseModule {
 
     @Provides
     fun provideAudioFeatureDao(database: MeowzixDatabase): AudioFeatureDao = database.audioFeatureDao()
+
+    @Provides
+    fun provideTrainingSampleDao(database: MeowzixDatabase): TrainingSampleDao = database.trainingSampleDao()
 }

@@ -212,6 +212,7 @@ private fun LibraryTrackRowContent(
     onMoveDown: (() -> Unit)?,
     containerColor: Color?,
 ) {
+    val recommendationActions: dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
     var menuExpanded by remember { mutableStateOf(false) }
 
     Surface(
@@ -318,6 +319,14 @@ private fun LibraryTrackRowContent(
                             onGoToArtist()
                         },
                     )
+                    DropdownMenuItem(text = { Text("Continue the vibe") }, onClick = {
+                        menuExpanded = false
+                        recommendationActions.continueVibe(track.id)
+                    })
+                    DropdownMenuItem(text = { Text("Why this song?") }, onClick = {
+                        menuExpanded = false
+                        recommendationActions.why(track.id)
+                    })
                     playlists.forEach { playlist ->
                         DropdownMenuItem(
                             text = { Text("Add to playlist · ${playlist.title}") },

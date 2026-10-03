@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -23,7 +24,9 @@ data class ListeningSessionEntity(
         Index("trackId"),
         Index("sessionId"),
         Index("occurredAtEpochMs"),
-        Index(value = ["playbackInstanceId", "type"], unique = true),
+        Index(value = ["playbackInstanceId", "type"]),
+        Index(value = ["outcomeKey"], unique = true),
+        Index(value = ["eventSequence"], unique = true),
     ],
 )
 data class ListeningEventEntity(
@@ -42,6 +45,9 @@ data class ListeningEventEntity(
     val completionRatio: Double?,
     val initiatedBy: String,
     val playbackMode: String,
+    @ColumnInfo(defaultValue = "0") val eventSequence: Long = 0L,
+    /** Only final outcomes use this key; repeated intentional seeks/actions remain observable. */
+    val outcomeKey: String? = null,
 )
 
 @Entity(tableName = "track_preference_stats")
@@ -66,3 +72,7 @@ data class TrackTimePreferenceEntity(
     val manualSelections: Int,
     val lastInteractionAtEpochMs: Long?,
 )
+
+/** Durable clock survives row deletion and VACUUM; playback identity remains the UUID. */
+@Entity(tableName = "recommendation_event_clock")
+data class RecommendationEventClockEntity(@PrimaryKey val id: Int = 1, val lastSequence: Long = 0L)

@@ -33,6 +33,7 @@ import java.time.format.DateTimeFormatter
 fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
     val rows by viewModel.rows.collectAsStateWithLifecycle()
     val privacy by viewModel.privacy.collectAsStateWithLifecycle()
+    val operationMessage by viewModel.operationMessage.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     LaunchedEffect(viewModel, context) {
@@ -67,14 +68,15 @@ fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp),
         )
+        OutlinedButton(onClick = viewModel::rebuildPersonalization, enabled = rows.isNotEmpty()) { Text("Rebuild from stored history") }
+        OutlinedButton(onClick = viewModel::analyzeAudio) { Text("Analyze available audio") }
+        Text("Audio analysis runs locally while charging and idle. It uses downloaded music without downloading additional files.", style = MaterialTheme.typography.bodySmall)
+        operationMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp)) }
         if (BuildConfig.DEBUG) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(onClick = viewModel::rebuildPersonalization) {
-                    Text("Rebuild Smart model from history")
-                }
                 OutlinedButton(onClick = viewModel::exportPersonalizationDebugReport) {
                     Text("Export Smart debug report")
                 }

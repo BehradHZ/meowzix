@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Listening history and derived training samples share the canonical Room database. -->
+    <exclude domain="database" path="meowzix.db" />
+    <exclude domain="database" path="meowzix.db-wal" />
+    <exclude domain="database" path="meowzix.db-shm" />
+    <exclude domain="database" path="meowzix.db-journal" />
+    <exclude domain="file" path="datastore/personalization_model.preferences_pb" />
+    <!-- Learned artifacts use noBackupFilesDir and are excluded by Android automatically. -->
+</full-backup-content>

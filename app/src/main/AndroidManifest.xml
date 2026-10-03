@@ -14,6 +14,8 @@
     <application
         android:name=".MeowzixApplication"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/meowzix_backup_rules"
+        android:dataExtractionRules="@xml/meowzix_data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="Meowzix"

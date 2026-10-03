@@ -21,8 +21,10 @@ import androidx.room.TypeConverters
         TrackTimePreferenceEntity::class,
         AudioFeatureVectorEntity::class,
         TrackSearchFtsEntity::class,
+        TrainingSampleEntity::class,
+        RecommendationEventClockEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 @TypeConverters(DbConverters::class)
@@ -36,4 +38,5 @@ abstract class MeowzixDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun historyDao(): HistoryDao
     abstract fun audioFeatureDao(): AudioFeatureDao
+    abstract fun trainingSampleDao(): TrainingSampleDao
 }

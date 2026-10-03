@@ -1,115 +1,96 @@
 package dev.behradhz.meowzix.data.recommendation
 
+import android.content.Context
+import android.net.Uri
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
-import dev.behradhz.meowzix.data.db.AudioFeatureDao
-import dev.behradhz.meowzix.data.db.AudioFeatureVectorEntity
-import dev.behradhz.meowzix.data.db.LibraryDao
-import dev.behradhz.meowzix.data.db.TrackSourceEntity
-import dev.behradhz.meowzix.domain.recommendation.AudioFeatureExtractor
-import dev.behradhz.meowzix.domain.recommendation.AudioFeatureSource
-import dev.behradhz.meowzix.domain.recommendation.AudioFeatureVectorCodec
-import java.util.Collections
+import dev.behradhz.meowzix.data.db.*
+import dev.behradhz.meowzix.domain.recommendation.*
+import java.io.File
+import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
-/**
- * Opportunistic background feature work. It never waits on remote bytes and never blocks queue
- * generation. A future WorkManager wrapper can call the same scheduling entry points for deferred
- * charging/idle batches without changing extraction or persistence semantics.
- */
+/** Source adapters supply bytes; extraction never requests network/TDLib work or duplicates audio. */
 @Singleton
 class AudioFeatureExtractionCoordinator @Inject constructor(
     private val libraryDao: LibraryDao,
     private val audioFeatureDao: AudioFeatureDao,
     private val extractor: AudioFeatureExtractor,
+    private val scheduler: RecommendationWorkScheduler,
+    @param:ApplicationContext private val context: Context,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val gate = Semaphore(1)
-    private val inFlight = Collections.synchronizedSet(mutableSetOf<UUID>())
+    private val gate = Mutex()
+    fun schedule(trackIds: Collection<UUID>) = scheduler.scheduleAudio(trackIds)
+    fun schedule(trackId: UUID) = schedule(listOf(trackId))
+    suspend fun scheduleBulk() = scheduler.scheduleAudio(libraryDao.allTracks().map { UUID.fromString(it.id) }, bulk = true)
 
-    fun schedule(trackIds: Collection<UUID>) {
-        trackIds.distinct().forEach(::schedule)
-    }
-
-    fun schedule(trackId: UUID) {
-        if (!inFlight.add(trackId)) return
-        scope.launch {
-            try {
-                gate.withPermit { extractIfNeeded(trackId) }
-            } finally {
-                inFlight.remove(trackId)
+    suspend fun extractIfNeeded(trackId: UUID) = withContext(Dispatchers.IO) {
+        gate.withLock {
+            val sources = libraryDao.sourcesForTrack(trackId.toString()).filter {
+                it.trainingEligible && it.availability == SourceAvailability.AVAILABLE_LOCAL &&
+                    (!it.contentUri.isNullOrBlank() || !it.localPath.isNullOrBlank())
+            }.sortedBy { sourcePriority(it.type) }
+            for (source in sources) {
+                currentCoroutineContext().ensureActive()
+                // Actually open/hash the content. A stale priority source must not block a readable fallback.
+                val hash = try { contentHash(source) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null } ?: continue
+                libraryDao.updateContentHash(source.id, hash)
+                val existing = audioFeatureDao.compatibleVector(trackId.toString(), extractor.extractorName, extractor.extractorVersion, extractor.schemaVersion)
+                if (existing?.sourceContentHash == hash && existing.valid()) return@withLock
+                val shared = audioFeatureDao.matchingContent(hash, extractor.extractorName, extractor.extractorVersion, extractor.schemaVersion)
+                if (shared != null && shared.valid()) {
+                    audioFeatureDao.put(shared.copy(id = UUID.randomUUID().toString(), trackId = trackId.toString(),
+                        sourceIdUsed = source.id, generatedAtEpochMs = System.currentTimeMillis()))
+                    return@withLock
+                }
+                val vector = try {
+                    extractor.extract(trackId, AudioFeatureSource(UUID.fromString(source.id), source.contentUri,
+                        source.localPath, source.mimeType, source.fileSizeBytes, hash))
+                } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null } ?: continue
+                if (!AudioFeatureSchema.isCompatible(vector.values)) continue
+                // Detect replacement during analysis before committing features for different bytes.
+                val afterHash = try { contentHash(source) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
+                if (afterHash != hash) continue
+                audioFeatureDao.put(AudioFeatureVectorEntity(vector.id.toString(), trackId.toString(), source.id,
+                    vector.extractorName, vector.extractorVersion, vector.schemaVersion, vector.vectorFormat.name,
+                    AudioFeatureVectorCodec.encode(vector.values), vector.generatedAt.toEpochMilli(), hash))
+                return@withLock
             }
         }
     }
 
-    private suspend fun extractIfNeeded(trackId: UUID) {
-        val source = chooseReadableSource(libraryDao.sourcesForTrack(trackId.toString())) ?: return
-        val existing = audioFeatureDao.compatibleVector(
-            trackId = trackId.toString(),
-            extractorName = extractor.extractorName,
-            extractorVersion = extractor.extractorVersion,
-            schemaVersion = extractor.schemaVersion,
-        )
-        if (existing != null && existing.matches(source)) return
-
-        val feature = extractor.extract(
-            trackId,
-            AudioFeatureSource(
-                sourceId = UUID.fromString(source.id),
-                contentUri = source.contentUri,
-                localPath = source.localPath,
-                mimeType = source.mimeType,
-                fileSizeBytes = source.fileSizeBytes,
-                contentHashSha256 = source.contentHashSha256,
-            ),
-        ) ?: return
-
-        audioFeatureDao.put(
-            AudioFeatureVectorEntity(
-                id = feature.id.toString(),
-                trackId = feature.trackId.toString(),
-                sourceIdUsed = feature.sourceIdUsed.toString(),
-                extractorName = feature.extractorName,
-                extractorVersion = feature.extractorVersion,
-                schemaVersion = feature.schemaVersion,
-                vectorFormat = feature.vectorFormat.name,
-                vectorBlob = AudioFeatureVectorCodec.encode(feature.values, feature.vectorFormat),
-                generatedAtEpochMs = feature.generatedAt.toEpochMilli(),
-                sourceContentHash = feature.sourceContentHash,
-            ),
-        )
+    private suspend fun contentHash(source: TrackSourceEntity): String? {
+        val stream = if (!source.contentUri.isNullOrBlank()) context.contentResolver.openInputStream(Uri.parse(source.contentUri))
+            else source.localPath?.let { File(it).inputStream() }
+        return stream?.use { input ->
+            val digest = MessageDigest.getInstance("SHA-256")
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count > 0) digest.update(buffer, 0, count)
+            }
+            digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        }
     }
-
-    private fun chooseReadableSource(sources: List<TrackSourceEntity>): TrackSourceEntity? =
-        sources.asSequence()
-            .filter { it.trainingEligible }
-            .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
-            .filter { !it.contentUri.isNullOrBlank() || !it.localPath.isNullOrBlank() }
-            .sortedBy { sourcePriority(it.type) }
-            .firstOrNull()
-
-    private fun sourcePriority(type: TrackSourceType): Int = when (type) {
+    private fun AudioFeatureVectorEntity.valid(): Boolean = try {
+        AudioFeatureSchema.isCompatible(AudioFeatureVectorCodec.decode(vectorBlob, AudioVectorFormat.valueOf(vectorFormat)))
+    } catch (_: Exception) { false }
+    private fun sourcePriority(type: TrackSourceType) = when (type) {
         TrackSourceType.LOCAL_MEDIASTORE -> 0
         TrackSourceType.APP_OFFLINE_COPY -> 1
         TrackSourceType.TDLIB_LOCAL -> 2
         TrackSourceType.TELEGRAM_REMOTE -> 3
-    }
-
-    private fun AudioFeatureVectorEntity.matches(source: TrackSourceEntity): Boolean {
-        val storedHash = sourceContentHash
-        val currentHash = source.contentHashSha256
-        return if (!storedHash.isNullOrBlank() && !currentHash.isNullOrBlank()) {
-            storedHash == currentHash
-        } else {
-            sourceIdUsed == source.id
-        }
     }
 }

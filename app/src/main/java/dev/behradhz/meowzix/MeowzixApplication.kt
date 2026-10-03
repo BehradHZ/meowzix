@@ -10,10 +10,12 @@ import javax.inject.Inject
 class MeowzixApplication : Application() {
     @Inject lateinit var telegramForwardRepository: TelegramForwardRepository
     @Inject lateinit var resilientDownloadRepository: ResilientDownloadRepository
+    @Inject lateinit var personalizationTrainer: dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
 
     override fun onCreate() {
         super.onCreate()
         telegramForwardRepository.initialize()
         resilientDownloadRepository.initialize()
+        personalizationTrainer.refreshIfStale()
     }
 }

@@ -8,7 +8,7 @@ import java.time.ZonedDateTime
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 
-enum class ListeningEventType { PLAY_STARTED, PLAY_COMPLETED, PLAY_STOPPED, SKIPPED_EARLY, SKIPPED_LATE, MANUAL_SELECTED, AUTO_SELECTED, REPLAYED, FAVORITED, UNFAVORITED, SEEKED }
+enum class ListeningEventType { PLAY_STARTED, PLAY_COMPLETED, PLAY_STOPPED, SKIPPED_EARLY, SKIPPED_LATE, MANUAL_SELECTED, AUTO_SELECTED, REPLAYED, FAVORITED, UNFAVORITED, SEEKED, QUEUE_REMOVED, QUEUE_OVERRIDDEN }
 enum class PlaybackInitiator { USER, PURE_SHUFFLE, SMART_SHUFFLE, QUEUE, SYSTEM_RESUME }
 enum class TimeBucket { EARLY_MORNING, MORNING, AFTERNOON, EVENING, NIGHT, LATE_NIGHT }
 
@@ -25,6 +25,8 @@ data class ListeningEvent(
     val completionRatio: Double?,
     val initiatedBy: PlaybackInitiator,
     val playbackMode: PlaybackMode,
+    val playbackInstanceId: UUID? = null,
+    val sessionId: UUID? = null,
 )
 
 data class TrackPreferenceStats(
@@ -44,6 +46,9 @@ interface ListeningHistoryRepository {
     suspend fun startPlayback(trackId: UUID, initiatedBy: PlaybackInitiator, mode: PlaybackMode): UUID
     suspend fun finalizePlayback(playbackInstanceId: UUID, positionMs: Long, durationMs: Long, intentionalSkip: Boolean)
     suspend fun recordSeek(playbackInstanceId: UUID, positionMs: Long, durationMs: Long)
+    suspend fun recordFavorite(trackId: UUID, favorite: Boolean) {}
+    suspend fun recordQueueRemoval(trackId: UUID, mode: PlaybackMode) {}
+    suspend fun recordQueueOverride(playbackInstanceId: UUID) {}
     suspend fun clear()
     suspend fun resetPersonalization()
 }
@@ -51,6 +56,7 @@ interface ListeningHistoryRepository {
 data class EventTimeContext(val localHour: Int, val dayOfWeek: DayOfWeek, val bucket: TimeBucket, val isWeekend: Boolean)
 
 object ListeningEventSemantics {
+    const val SESSION_TIMEOUT_MS = 30L * 60L * 1_000L
     fun timeContext(instant: Instant, zoneId: ZoneId): EventTimeContext {
         val local = ZonedDateTime.ofInstant(instant, zoneId)
         val bucket = when (local.hour) {
@@ -65,9 +71,10 @@ object ListeningEventSemantics {
     }
 
     fun outcome(positionMs: Long, durationMs: Long, intentionalSkip: Boolean): ListeningEventType {
+        if (durationMs <= 0L) return if (intentionalSkip) ListeningEventType.SKIPPED_EARLY else ListeningEventType.PLAY_STOPPED
         val safeDuration = durationMs.coerceAtLeast(1L)
         val ratio = positionMs.coerceAtLeast(0L).toDouble() / safeDuration
-        if (ratio >= 0.90 || safeDuration - positionMs <= 15_000L) return ListeningEventType.PLAY_COMPLETED
+        if (ratio >= 0.90 || safeDuration - positionMs <= minOf(15_000L, safeDuration / 10L)) return ListeningEventType.PLAY_COMPLETED
         if (!intentionalSkip) return ListeningEventType.PLAY_STOPPED
         return if (positionMs < 30_000L && ratio < 0.20) ListeningEventType.SKIPPED_EARLY else ListeningEventType.SKIPPED_LATE
     }

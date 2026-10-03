@@ -15,6 +15,8 @@ import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
 import dev.behradhz.meowzix.domain.history.PlaybackInitiator
 import dev.behradhz.meowzix.domain.history.TrackPreferenceStats
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import kotlinx.coroutines.flow.first
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneId
@@ -31,10 +33,13 @@ class RoomListeningHistoryRepository @Inject constructor(
     private val database: MeowzixDatabase,
     private val dao: HistoryDao,
     private val personalizationTrainer: PersonalizationTrainer,
+    private val settings: SettingsRepository,
 ) : ListeningHistoryRepository {
     private val mutex = Mutex()
     private val active = mutableMapOf<UUID, ActivePlayback>()
     private var currentSession: Session? = null
+    private var lastFinalized: ActivePlayback? = null
+    private var lastCompletion: Pair<UUID, Instant>? = null
 
     override fun observeEvents(): Flow<List<ListeningEvent>> = dao.observeEvents().map { rows ->
         rows.map { row ->
@@ -51,6 +56,8 @@ class RoomListeningHistoryRepository @Inject constructor(
                 completionRatio = row.completionRatio,
                 initiatedBy = PlaybackInitiator.valueOf(row.initiatedBy),
                 playbackMode = PlaybackMode.valueOf(row.playbackMode),
+                playbackInstanceId = UUID.fromString(row.playbackInstanceId),
+                sessionId = UUID.fromString(row.sessionId),
             )
         }
     }
@@ -67,6 +74,7 @@ class RoomListeningHistoryRepository @Inject constructor(
 
     override suspend fun startPlayback(trackId: UUID, initiatedBy: PlaybackInitiator, mode: PlaybackMode): UUID = mutex.withLock {
         val playbackId = UUID.randomUUID()
+        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock playbackId
         // Restored Media3 state can outlive its canonical library row (for example after a source
         // was removed while the app was closed). History has a foreign key to Track, so recording
         // such a stale queue item must be a no-op rather than a process-fatal constraint error.
@@ -74,10 +82,13 @@ class RoomListeningHistoryRepository @Inject constructor(
 
         val now = Instant.now()
         val session = session(now, mode)
-        val context = ActivePlayback(playbackId, trackId, session.id, initiatedBy, mode)
+        val context = ActivePlayback(playbackId, trackId, session.id, initiatedBy, mode, ListeningEventSemantics.timeContext(now, ZoneId.systemDefault()).bucket)
         database.withTransaction {
             if (initiatedBy == PlaybackInitiator.USER) insert(context, ListeningEventType.MANUAL_SELECTED, now, null, null)
             else insert(context, ListeningEventType.AUTO_SELECTED, now, null, null)
+            if (initiatedBy == PlaybackInitiator.USER && lastCompletion?.let { it.first == trackId && now.epochSecond - it.second.epochSecond in 0..600 } == true) {
+                insert(context, ListeningEventType.REPLAYED, now, null, null)
+            }
             insert(context, ListeningEventType.PLAY_STARTED, now, 0L, null)
         }
         // Only mark the playback active once both required history rows have committed. This avoids
@@ -92,20 +103,58 @@ class RoomListeningHistoryRepository @Inject constructor(
         durationMs: Long,
         intentionalSkip: Boolean,
     ) = mutex.withLock {
-        val context = active.remove(playbackInstanceId) ?: return@withLock
+        val context = active[playbackInstanceId] ?: return@withLock
+        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) { active.remove(playbackInstanceId); return@withLock }
         val type = ListeningEventSemantics.outcome(positionMs, durationMs, intentionalSkip)
         database.withTransaction { insert(context, type, Instant.now(), positionMs, durationMs) }
+        active.remove(playbackInstanceId)
+        lastFinalized = context
+        if (type == ListeningEventType.PLAY_COMPLETED) lastCompletion = context.trackId to Instant.now()
         personalizationTrainer.onPlaybackFinalized(playbackInstanceId)
     }
 
     override suspend fun recordSeek(playbackInstanceId: UUID, positionMs: Long, durationMs: Long) = mutex.withLock {
+        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
         val context = active[playbackInstanceId] ?: return@withLock
         database.withTransaction { insert(context, ListeningEventType.SEEKED, Instant.now(), positionMs, durationMs) }
+    }
+
+    override suspend fun recordFavorite(trackId: UUID, favorite: Boolean) = mutex.withLock {
+        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        val type = if (favorite) ListeningEventType.FAVORITED else ListeningEventType.UNFAVORITED
+        val running = active.values.lastOrNull { it.trackId == trackId }
+        if (running != null) database.withTransaction { insert(running, type, Instant.now(), null, null) }
+        else recordStandalone(trackId, type, PlaybackMode.ORDERED)
+    }
+
+    override suspend fun recordQueueRemoval(trackId: UUID, mode: PlaybackMode) = mutex.withLock {
+        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        recordStandalone(trackId, ListeningEventType.QUEUE_REMOVED, mode)
+    }
+
+    override suspend fun recordQueueOverride(playbackInstanceId: UUID) = mutex.withLock {
+        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        val context = active[playbackInstanceId] ?: lastFinalized?.takeIf { it.id == playbackInstanceId } ?: return@withLock
+        database.withTransaction { insert(context, ListeningEventType.QUEUE_OVERRIDDEN, Instant.now(), null, null) }
+    }
+
+    private suspend fun recordStandalone(trackId: UUID, type: ListeningEventType, mode: PlaybackMode) {
+        if (database.libraryDao().trackById(trackId.toString()) == null) return
+        val now = Instant.now()
+        val session = session(now, mode)
+        val context = ActivePlayback(UUID.randomUUID(), trackId, session.id, PlaybackInitiator.USER, mode, ListeningEventSemantics.timeContext(now, ZoneId.systemDefault()).bucket)
+        database.withTransaction {
+            insert(context, type, now, 0L, null)
+            if (type != ListeningEventType.QUEUE_REMOVED) insert(context, ListeningEventType.PLAY_STOPPED, now, 0L, null)
+        }
+        personalizationTrainer.onPlaybackFinalized(context.id)
     }
 
     override suspend fun clear() = mutex.withLock {
         active.clear()
         currentSession = null
+        lastCompletion = null
+        lastFinalized = null
         database.withTransaction {
             dao.clearEvents()
             dao.clearTimeStats()
@@ -115,11 +164,17 @@ class RoomListeningHistoryRepository @Inject constructor(
         personalizationTrainer.resetAfterHistoryClear()
     }
 
-    override suspend fun resetPersonalization() = personalizationTrainer.resetLearningKeepHistory()
+    override suspend fun resetPersonalization() = mutex.withLock {
+        active.clear()
+        // The trainer clears aggregates and the model under the same lock used by rebuilds.
+        lastCompletion = null
+        lastFinalized = null
+        personalizationTrainer.resetLearningKeepHistory()
+    }
 
     private suspend fun session(now: Instant, mode: PlaybackMode): Session {
         val existing = currentSession
-        if (existing != null && now.toEpochMilli() - existing.lastActivityEpochMs <= SESSION_TIMEOUT_MS) {
+        if (existing != null && now.toEpochMilli() - existing.lastActivityEpochMs <= ListeningEventSemantics.SESSION_TIMEOUT_MS) {
             existing.lastActivityEpochMs = now.toEpochMilli()
             return existing
         }
@@ -161,7 +216,7 @@ class RoomListeningHistoryRepository @Inject constructor(
             ),
         )
         if (inserted == -1L) return
-        updateStats(context.trackId, time.bucket.name, type, now.toEpochMilli())
+        updateStats(context.trackId, context.timeBucket.name, type, now.toEpochMilli())
     }
 
     private suspend fun updateStats(trackId: UUID, bucket: String, type: ListeningEventType, now: Long) {
@@ -190,8 +245,7 @@ class RoomListeningHistoryRepository @Inject constructor(
         )
     }
 
-    private data class ActivePlayback(val id: UUID, val trackId: UUID, val sessionId: UUID, val initiatedBy: PlaybackInitiator, val mode: PlaybackMode)
+    private data class ActivePlayback(val id: UUID, val trackId: UUID, val sessionId: UUID, val initiatedBy: PlaybackInitiator, val mode: PlaybackMode, val timeBucket: dev.behradhz.meowzix.domain.history.TimeBucket)
     private data class Session(val id: UUID, val startedAtEpochMs: Long, var lastActivityEpochMs: Long, val initialMode: PlaybackMode)
 
-    private companion object { const val SESSION_TIMEOUT_MS = 30 * 60 * 1_000L }
 }
