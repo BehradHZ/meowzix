@@ -75,6 +75,7 @@ internal fun SwipeableLibraryTrackRow(
     onGoToArtist: () -> Unit,
     onEnsureArtwork: () -> Unit,
 ) {
+    val recommendationActions: dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
     LaunchedEffect(track.id, track.artworkRef) {
         onEnsureArtwork()
     }
@@ -295,6 +296,14 @@ private fun LibraryTrackRowContent(
                             onGoToArtist()
                         },
                     )
+                    DropdownMenuItem(text = { Text("Continue the vibe") }, onClick = {
+                        menuExpanded = false
+                        recommendationActions.continueVibe(track.id)
+                    })
+                    DropdownMenuItem(text = { Text("Why this song?") }, onClick = {
+                        menuExpanded = false
+                        recommendationActions.why(track.id)
+                    })
                     playlists.forEach { playlist ->
                         DropdownMenuItem(
                             text = { Text("Add to playlist · ${playlist.title}") },

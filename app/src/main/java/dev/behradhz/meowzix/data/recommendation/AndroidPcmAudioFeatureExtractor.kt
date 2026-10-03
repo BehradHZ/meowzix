@@ -17,7 +17,11 @@ import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.sqrt
+import dev.behradhz.meowzix.domain.recommendation.AudioFeatureSchema
+import dev.behradhz.meowzix.domain.recommendation.PcmAudioAnalysis
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -33,15 +37,15 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) : AudioFeatureExtractor {
     override val extractorName: String = "android-pcm-summary"
-    override val extractorVersion: String = "1"
-    override val schemaVersion: Int = 1
+    override val extractorVersion: String = "2"
+    override val schemaVersion: Int = AudioFeatureSchema.VERSION
 
     override suspend fun extract(trackId: UUID, source: AudioFeatureSource): AudioFeatureVector? =
         withContext(Dispatchers.IO) {
-            runCatching { decode(trackId, source) }.getOrNull()
+            try { decode(trackId, source) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
         }
 
-    private fun decode(trackId: UUID, source: AudioFeatureSource): AudioFeatureVector? {
+    private suspend fun decode(trackId: UUID, source: AudioFeatureSource): AudioFeatureVector? {
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
         try {
@@ -78,34 +82,37 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
                 durationUs = format.longOrNull(MediaFormat.KEY_DURATION) ?: 0L,
             )
 
-            decoder = MediaCodec.createDecoderByType(mime)
-            decoder.configure(format, null, null, 0)
-            decoder.start()
+            if (mime == "audio/raw") {
+                accumulator.updateFormat(format)
+                val pcm = ByteBuffer.allocate(1_048_576)
+                val info = MediaCodec.BufferInfo()
+                while (!accumulator.full) {
+                    currentCoroutineContext().ensureActive()
+                    pcm.clear()
+                    val size = extractor.readSampleData(pcm, 0)
+                    if (size <= 0) break
+                    info.set(0, size, extractor.sampleTime.coerceAtLeast(0L), 0)
+                    accumulator.accept(pcm, info)
+                    if (!extractor.advance()) break
+                }
+            } else {
+                decoder = MediaCodec.createDecoderByType(mime)
+                decoder.configure(format, null, null, 0)
+                decoder.start()
 
-            val info = MediaCodec.BufferInfo()
-            var inputDone = false
-            var outputDone = false
-            var timeoutStreak = 0
+                val info = MediaCodec.BufferInfo()
+                var inputDone = false
+                var outputDone = false
+                var timeoutStreak = 0
 
-            while (!outputDone && !accumulator.full && timeoutStreak < MAX_TIMEOUT_STREAK) {
-                var progressed = false
-                if (!inputDone) {
-                    val inputIndex = decoder.dequeueInputBuffer(CODEC_TIMEOUT_US)
-                    if (inputIndex >= 0) {
-                        val input = decoder.getInputBuffer(inputIndex)
-                        if (input == null) {
-                            decoder.queueInputBuffer(
-                                inputIndex,
-                                0,
-                                0,
-                                0L,
-                                MediaCodec.BUFFER_FLAG_END_OF_STREAM,
-                            )
-                            inputDone = true
-                        } else {
-                            input.clear()
-                            val sampleSize = extractor.readSampleData(input, 0)
-                            if (sampleSize < 0) {
+                while (!outputDone && !accumulator.full && timeoutStreak < MAX_TIMEOUT_STREAK) {
+                    currentCoroutineContext().ensureActive()
+                    var progressed = false
+                    if (!inputDone) {
+                        val inputIndex = decoder.dequeueInputBuffer(CODEC_TIMEOUT_US)
+                        if (inputIndex >= 0) {
+                            val input = decoder.getInputBuffer(inputIndex)
+                            if (input == null) {
                                 decoder.queueInputBuffer(
                                     inputIndex,
                                     0,
@@ -115,40 +122,53 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
                                 )
                                 inputDone = true
                             } else {
-                                decoder.queueInputBuffer(
-                                    inputIndex,
-                                    0,
-                                    sampleSize,
-                                    extractor.sampleTime.coerceAtLeast(0L),
-                                    0,
-                                )
-                                extractor.advance()
+                                input.clear()
+                                val sampleSize = extractor.readSampleData(input, 0)
+                                if (sampleSize < 0) {
+                                    decoder.queueInputBuffer(
+                                        inputIndex,
+                                        0,
+                                        0,
+                                        0L,
+                                        MediaCodec.BUFFER_FLAG_END_OF_STREAM,
+                                    )
+                                    inputDone = true
+                                } else {
+                                    decoder.queueInputBuffer(
+                                        inputIndex,
+                                        0,
+                                        sampleSize,
+                                        extractor.sampleTime.coerceAtLeast(0L),
+                                        0,
+                                    )
+                                    extractor.advance()
+                                }
                             }
+                            progressed = true
                         }
-                        progressed = true
                     }
+
+                    when (val outputIndex = decoder.dequeueOutputBuffer(info, CODEC_TIMEOUT_US)) {
+                        MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                            accumulator.updateFormat(decoder.outputFormat)
+                            progressed = true
+                        }
+                        MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
+                        else -> if (outputIndex >= 0) {
+                            val output = decoder.getOutputBuffer(outputIndex)
+                            if (output != null && info.size > 0) {
+                                accumulator.accept(output, info)
+                            }
+                            outputDone = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+                            decoder.releaseOutputBuffer(outputIndex, false)
+                            progressed = true
+                        }
+                    }
+
+                    timeoutStreak = if (progressed) 0 else timeoutStreak + 1
                 }
 
-                when (val outputIndex = decoder.dequeueOutputBuffer(info, CODEC_TIMEOUT_US)) {
-                    MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                        accumulator.updateFormat(decoder.outputFormat)
-                        progressed = true
-                    }
-                    MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
-                    else -> if (outputIndex >= 0) {
-                        val output = decoder.getOutputBuffer(outputIndex)
-                        if (output != null && info.size > 0) {
-                            accumulator.accept(output, info)
-                        }
-                        outputDone = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
-                        decoder.releaseOutputBuffer(outputIndex, false)
-                        progressed = true
-                    }
-                }
-
-                timeoutStreak = if (progressed) 0 else timeoutStreak + 1
             }
-
             if (accumulator.sampleCount == 0L) return null
             return AudioFeatureVector(
                 id = UUID.randomUUID(),
@@ -158,7 +178,7 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
                 extractorVersion = extractorVersion,
                 schemaVersion = schemaVersion,
                 vectorFormat = AudioVectorFormat.FLOAT64_LE,
-                values = accumulator.vector(),
+                values = accumulator.vector() ?: return null,
                 generatedAt = Instant.now(),
                 sourceContentHash = source.contentHashSha256,
             )
@@ -174,110 +194,57 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
     private class PcmAccumulator(
         sampleRate: Int,
         channelCount: Int,
-        private val bitrate: Int,
-        private val durationUs: Long,
+        @Suppress("UNUSED_PARAMETER") bitrate: Int,
+        @Suppress("UNUSED_PARAMETER") durationUs: Long,
     ) {
         private var sampleRate = sampleRate.coerceAtLeast(1)
         private var channelCount = channelCount.coerceAtLeast(1)
         private var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
-        private var sumAbs = 0.0
-        private var sumSquares = 0.0
-        private var peak = 0.0
-        private var zeroCrossings = 0L
-        private var previous: Double? = null
-        private val segmentSquares = DoubleArray(SEGMENTS)
-        private val segmentCounts = LongArray(SEGMENTS)
-        var sampleCount: Long = 0L
-            private set
-
-        val full: Boolean
-            get() = sampleCount >= targetSamples()
+        private val analysis = PcmAudioAnalysis()
+        private var channelSum = 0.0
+        private var channelsRead = 0
+        val sampleCount: Long get() = analysis.sampleCount
+        val full: Boolean get() = sampleCount >= sampleRate.toLong() * ANALYSIS_SECONDS
 
         fun updateFormat(format: MediaFormat) {
             sampleRate = format.intOrNull(MediaFormat.KEY_SAMPLE_RATE)?.coerceAtLeast(1) ?: sampleRate
             channelCount = format.intOrNull(MediaFormat.KEY_CHANNEL_COUNT)?.coerceAtLeast(1) ?: channelCount
-            pcmEncoding = format.intOrNull(MediaFormat.KEY_PCM_ENCODING) ?: pcmEncoding
+            pcmEncoding = format.intOrNull(MediaFormat.KEY_PCM_ENCODING) ?: AudioFormat.ENCODING_PCM_16BIT
+            require(pcmEncoding in setOf(AudioFormat.ENCODING_PCM_16BIT, AudioFormat.ENCODING_PCM_8BIT, AudioFormat.ENCODING_PCM_FLOAT)) {
+                "Unsupported PCM encoding"
+            }
         }
 
         fun accept(buffer: ByteBuffer, info: MediaCodec.BufferInfo) {
-            val safeStart = info.offset.coerceIn(0, buffer.capacity())
-            val safeEnd = (info.offset + info.size).coerceIn(safeStart, buffer.capacity())
             val data = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN)
-            data.position(safeStart)
-            data.limit(safeEnd)
-
-            when (pcmEncoding) {
-                AudioFormat.ENCODING_PCM_FLOAT -> while (data.remaining() >= Float.SIZE_BYTES && !full) {
-                    add(data.float.toDouble().coerceIn(-1.0, 1.0))
+            data.position(info.offset)
+            data.limit(info.offset + info.size)
+            val bytes = when (pcmEncoding) {
+                AudioFormat.ENCODING_PCM_FLOAT -> Float.SIZE_BYTES
+                AudioFormat.ENCODING_PCM_8BIT -> 1
+                else -> Short.SIZE_BYTES
+            }
+            while (data.remaining() >= bytes && !full) {
+                val sample = when (pcmEncoding) {
+                    AudioFormat.ENCODING_PCM_FLOAT -> data.float.toDouble()
+                    AudioFormat.ENCODING_PCM_8BIT -> ((data.get().toInt() and 0xff) - 128) / 128.0
+                    else -> data.short / 32768.0
                 }
-                AudioFormat.ENCODING_PCM_8BIT -> while (data.hasRemaining() && !full) {
-                    val unsigned = data.get().toInt() and 0xff
-                    add(((unsigned - 128) / 128.0).coerceIn(-1.0, 1.0))
-                }
-                else -> while (data.remaining() >= Short.SIZE_BYTES && !full) {
-                    add((data.short / 32768.0).coerceIn(-1.0, 1.0))
+                require(sample.isFinite())
+                channelSum += sample.coerceIn(-1.0, 1.0)
+                channelsRead++
+                if (channelsRead == channelCount) {
+                    analysis.accept(channelSum / channelCount)
+                    channelsRead = 0
+                    channelSum = 0.0
                 }
             }
         }
-
-        private fun add(sample: Double) {
-            val absolute = kotlin.math.abs(sample)
-            sumAbs += absolute
-            sumSquares += sample * sample
-            peak = maxOf(peak, absolute)
-            previous?.let { prior ->
-                if ((prior < 0.0 && sample >= 0.0) || (prior >= 0.0 && sample < 0.0)) zeroCrossings++
-            }
-            previous = sample
-
-            val segment = ((sampleCount * SEGMENTS) / targetSamples().coerceAtLeast(1L))
-                .toInt()
-                .coerceIn(0, SEGMENTS - 1)
-            segmentSquares[segment] += sample * sample
-            segmentCounts[segment]++
-            sampleCount++
-        }
-
-        fun vector(): DoubleArray {
-            val count = sampleCount.coerceAtLeast(1L).toDouble()
-            val meanAbs = (sumAbs / count).coerceIn(0.0, 1.0)
-            val rms = sqrt(sumSquares / count).coerceIn(0.0, 1.0)
-            val zcr = (zeroCrossings.toDouble() / sampleCount.coerceAtLeast(2L)).coerceIn(0.0, 1.0)
-            val crest = if (rms > 1e-6) (peak / rms / 10.0).coerceIn(0.0, 1.0) else 0.0
-            val segmentRms = DoubleArray(SEGMENTS) { index ->
-                val segmentCount = segmentCounts[index]
-                if (segmentCount == 0L) 0.0 else sqrt(segmentSquares[index] / segmentCount).coerceIn(0.0, 1.0)
-            }
-            val dynamic = ((segmentRms.maxOrNull() ?: 0.0) - (segmentRms.minOrNull() ?: 0.0))
-                .coerceIn(0.0, 1.0)
-
-            return doubleArrayOf(
-                meanAbs,
-                rms,
-                peak.coerceIn(0.0, 1.0),
-                zcr,
-                crest,
-                dynamic,
-                segmentRms[0],
-                segmentRms[1],
-                segmentRms[2],
-                segmentRms[3],
-                segmentRms[4],
-                segmentRms[5],
-                (sampleRate / 96_000.0).coerceIn(0.0, 1.0),
-                (channelCount / 8.0).coerceIn(0.0, 1.0),
-                (bitrate / 512_000.0).coerceIn(0.0, 1.0),
-                (durationUs / (20.0 * 60.0 * 1_000_000.0)).coerceIn(0.0, 1.0),
-            )
-        }
-
-        private fun targetSamples(): Long =
-            (sampleRate.toLong() * channelCount.toLong() * ANALYSIS_SECONDS).coerceAtLeast(1L)
+        fun vector(): DoubleArray? = analysis.finish()
     }
 
     private companion object {
-        const val ANALYSIS_SECONDS = 12L
-        const val SEGMENTS = 6
+        const val ANALYSIS_SECONDS = 30L
         const val DEFAULT_SAMPLE_RATE = 44_100
         const val CODEC_TIMEOUT_US = 10_000L
         const val MAX_TIMEOUT_STREAK = 50

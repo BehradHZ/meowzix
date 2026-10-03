@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface LibraryDao {
+    @Query("UPDATE track_sources SET contentHashSha256 = :hash WHERE id = :sourceId")
+    suspend fun updateContentHash(sourceId: String, hash: String)
     @Query("SELECT DISTINCT t.* FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL' AND t.hidden = 0 ORDER BY t.normalizedTitle")
     fun observeAvailableLocalTracks(): Flow<List<TrackEntity>>
 

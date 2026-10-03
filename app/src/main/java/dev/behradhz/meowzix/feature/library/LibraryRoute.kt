@@ -13,6 +13,7 @@ fun LibraryRoute(
     viewModel: LibraryViewModel = hiltViewModel(),
     tracksViewModel: LibraryTracksViewModel = hiltViewModel(),
 ) {
+    dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs()
     LaunchedEffect(searchQuery) {
         tracksViewModel.setSearchQuery(searchQuery)
     }

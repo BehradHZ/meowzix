@@ -1,180 +1,166 @@
 package dev.behradhz.meowzix.data.recommendation
 
 import android.content.Context
+import android.util.AtomicFile
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dev.behradhz.meowzix.domain.recommendation.LinearRankerMath
-import dev.behradhz.meowzix.domain.recommendation.PersonalizationFeatureVectorizer
-import dev.behradhz.meowzix.domain.recommendation.PersonalizationModel
-import dev.behradhz.meowzix.domain.recommendation.PersonalizationModelState
-import dev.behradhz.meowzix.domain.recommendation.TrainingSample
+import dev.behradhz.meowzix.data.db.HistoryDao
+import dev.behradhz.meowzix.domain.recommendation.*
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 private val Context.personalizationModelDataStore by preferencesDataStore("personalization_model")
 
+/** Existing binding/name retained; implementation upgraded to shared LinUCB. */
 @Singleton
-class LocalLinearPersonalizationModel @Inject constructor(
-    @param:ApplicationContext private val context: Context,
+class LocalLinearPersonalizationModel internal constructor(
+    private val historyDao: HistoryDao,
+    private val preferences: DataStore<Preferences>,
+    private val artifactFile: AtomicFile,
 ) : PersonalizationModel {
+    @Inject constructor(@param:ApplicationContext context: Context, historyDao: HistoryDao) : this(
+        historyDao, context.personalizationModelDataStore,
+        AtomicFile(File(context.noBackupFilesDir, "personalization/shared-linucb.bin")),
+    )
     private val mutex = Mutex()
-    @Volatile private var loaded = false
-    private var weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
-    private var modelState = PersonalizationModelState()
+    private var loaded = false
+    private var ranker = SharedLinUcb()
+    private var modelState = PersonalizationModelState(requiresRebuild = true)
 
-    override suspend fun state(): PersonalizationModelState {
-        ensureLoaded()
-        return modelState
+    override suspend fun state(): PersonalizationModelState = withContext(Dispatchers.IO) {
+        mutex.withLock { loadLocked(); modelState }
     }
 
-    override suspend fun scoreBatch(features: Map<UUID, DoubleArray>): Map<UUID, Double> {
-        ensureLoaded()
-        val snapshotState = modelState
-        if (!snapshotState.active) return emptyMap()
-        val snapshotWeights = weights.copyOf()
-        return features.mapValues { (_, vector) ->
-            LinearRankerMath.preferenceScore(snapshotWeights, vector)
-        }
-    }
-
-    override suspend fun update(samples: List<TrainingSample>) {
-        if (samples.isEmpty()) return
-        mutex.withLock {
-            loadLocked()
-            val freshSamples = samples.filter {
-                it.dataVersion > modelState.trainingDataVersion && it.dataVersion > modelState.historyFloorVersion
+    override suspend fun score(context: RecommendationContext, candidates: List<TrackFeatures>): List<ModelTrackScore> =
+        withContext(Dispatchers.Default) {
+            mutex.withLock {
+                loadLocked()
+                if (!modelState.active) return@withLock emptyList()
+                val coefficients = ranker.coefficients()
+                candidates.map { candidate ->
+                    currentCoroutineContext().ensureActive()
+                    require(candidate.schemaVersion == modelState.featureSchemaVersion)
+                    RecommendationFeatureSchemaV2.validate(candidate.values)
+                    val (reward, uncertainty) = ranker.predict(candidate.values)
+                    val contributions = candidate.values.mapIndexed { index, value ->
+                        FeatureContribution(RecommendationFeatureSchemaV2.names[index], coefficients[index] * value)
+                    }.filter { it.value > 0.01 }.sortedByDescending { it.value }.take(8)
+                    ModelTrackScore(candidate.trackId, reward, uncertainty, contributions)
+                }
             }
-            if (freshSamples.isEmpty()) return@withLock
-            freshSamples.sortedBy { it.dataVersion }.forEach { train(it, epochs = INCREMENTAL_EPOCHS) }
-            val newCount = modelState.sampleCount + freshSamples.size
-            modelState = modelState.copy(
-                trainingDataVersion = freshSamples.maxOf { it.dataVersion },
-                trainedAtEpochMs = System.currentTimeMillis(),
-                sampleCount = newCount,
-                active = newCount >= MIN_TRAINING_SAMPLES,
-            )
-            persistLocked()
         }
-    }
 
-    override suspend fun rebuild(samples: List<TrainingSample>) {
+    override suspend fun scoreBatch(features: Map<UUID, DoubleArray>): Map<UUID, Double> =
+        score(RecommendationContext(0, 1, false, dev.behradhz.meowzix.domain.history.TimeBucket.NIGHT),
+            features.map { (id, vector) -> TrackFeatures(id, vector) })
+            .associate { it.trackId to (it.expectedReward + 1.0) / 2.0 }
+
+    override suspend fun update(samples: List<TrainingSample>) = train(samples, rebuild = false)
+    override suspend fun rebuild(samples: List<TrainingSample>) = train(samples, rebuild = true)
+
+    private suspend fun train(samples: List<TrainingSample>, rebuild: Boolean) = withContext(Dispatchers.Default) {
         mutex.withLock {
             loadLocked()
             val floor = modelState.historyFloorVersion
-            val eligible = samples.filter { it.dataVersion > floor }
-            weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
-            repeat(REBUILD_EPOCHS) {
-                eligible.sortedBy { sample -> sample.dataVersion }.forEach { train(it, epochs = 1) }
+            val watermark = if (rebuild) floor else modelState.trainingDataVersion
+            val fresh = samples.distinctBy { it.playbackInstanceId }.filter { it.dataVersion > watermark }.sortedBy { it.dataVersion }
+            if (!rebuild && fresh.isEmpty()) return@withLock
+            val next = if (rebuild) SharedLinUcb() else ranker.copy()
+            fresh.forEach { sample ->
+                currentCoroutineContext().ensureActive()
+                require(sample.featureSchemaVersion == PersonalizationFeatureVectorizer.SCHEMA_VERSION && sample.rewardSchemaVersion == PersonalizationRewardBuilder.VERSION)
+                RecommendationFeatureSchemaV2.validate(sample.features)
+                next.update(sample.features, sample.reward, sample.weight)
             }
-            modelState = PersonalizationModelState(
-                trainingDataVersion = maxOf(floor, eligible.maxOfOrNull { it.dataVersion } ?: 0L),
+            next.coefficients()
+            val count = (if (rebuild) 0L else modelState.sampleCount) + fresh.size
+            val state = PersonalizationModelState(
+                trainingDataVersion = maxOf(watermark, fresh.maxOfOrNull { it.dataVersion } ?: floor),
                 historyFloorVersion = floor,
                 trainedAtEpochMs = System.currentTimeMillis(),
-                sampleCount = eligible.size.toLong(),
-                active = eligible.size >= MIN_TRAINING_SAMPLES,
+                sampleCount = count,
+                active = count >= RecommendationConfig.MIN_TRAINING_SAMPLES,
             )
-            persistLocked()
+            publishLocked(next, state)
         }
     }
 
-    override suspend fun reset(trainingDataVersion: Long) {
+    override suspend fun reset(trainingDataVersion: Long) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val floor = trainingDataVersion.coerceAtLeast(0L)
-            weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
-            modelState = PersonalizationModelState(
-                trainingDataVersion = floor,
-                historyFloorVersion = floor,
-            )
+            // Separate privacy floor survives artifact corruption and model version changes.
+            preferences.edit { it[SEQUENCE_FLOOR] = floor }
+            ranker = SharedLinUcb()
+            modelState = PersonalizationModelState(trainingDataVersion = floor, historyFloorVersion = floor)
             loaded = true
-            persistLocked()
+            publishLocked(ranker, modelState)
         }
-    }
-
-    private suspend fun ensureLoaded() {
-        if (loaded) return
-        mutex.withLock { loadLocked() }
     }
 
     private suspend fun loadLocked() {
         if (loaded) return
-        val values = context.personalizationModelDataStore.data.first()
-        val schema = values[FEATURE_SCHEMA] ?: PersonalizationFeatureVectorizer.SCHEMA_VERSION
-        val encodedWeights = values[WEIGHTS]
-        val decoded = encodedWeights?.split(',')?.mapNotNull(String::toDoubleOrNull)
-        val trainingDataVersion = values[TRAINING_DATA_VERSION] ?: 0L
-        val historyFloorVersion = values[HISTORY_FLOOR_VERSION] ?: 0L
-        if (
-            schema != PersonalizationFeatureVectorizer.SCHEMA_VERSION ||
-            decoded == null || decoded.size != PersonalizationFeatureVectorizer.FEATURE_COUNT
-        ) {
-            weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
-            modelState = PersonalizationModelState(
-                trainingDataVersion = maxOf(trainingDataVersion, historyFloorVersion),
-                historyFloorVersion = historyFloorVersion,
-            )
-        } else {
-            weights = decoded.toDoubleArray()
-            val count = values[SAMPLE_COUNT] ?: 0L
-            modelState = PersonalizationModelState(
-                modelVersion = values[MODEL_VERSION] ?: MODEL_VERSION_VALUE,
-                featureSchemaVersion = schema,
-                trainingDataVersion = maxOf(trainingDataVersion, historyFloorVersion),
-                historyFloorVersion = historyFloorVersion,
-                trainedAtEpochMs = values[TRAINED_AT] ?: 0L,
-                sampleCount = count,
-                active = count >= MIN_TRAINING_SAMPLES,
-            )
+        withContext(Dispatchers.IO) {
+            val prefs = preferences.data.first()
+            // Old epoch-millisecond reset watermark is converted without losing the user's reset.
+            val floor = prefs[SEQUENCE_FLOOR] ?: (prefs[LEGACY_FLOOR]?.let { historyDao.sequenceAtOrBefore(it) } ?: 0L)
+            if (prefs[SEQUENCE_FLOOR] == null) preferences.edit { it[SEQUENCE_FLOOR] = floor }
+            try {
+                val file = artifactFile
+                require(file.baseFile.length() <= RecommendationConfig.MODEL_ARTIFACT_LIMIT_BYTES)
+                val bytes = file.openRead().use { input ->
+                    val bounded = ByteArray(RecommendationConfig.MODEL_ARTIFACT_LIMIT_BYTES + 1)
+                    var count = 0
+                    while (count < bounded.size) {
+                        val read = input.read(bounded, count, bounded.size - count)
+                        if (read < 0) break
+                        count += read
+                    }
+                    require(count <= RecommendationConfig.MODEL_ARTIFACT_LIMIT_BYTES)
+                    bounded.copyOf(count)
+                }
+                val artifact = ModelArtifactCodec.decode(bytes)
+                require(artifact.state.historyFloorVersion == floor)
+                ranker = artifact.model
+                modelState = artifact.state
+            } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {
+                ranker = SharedLinUcb()
+                modelState = PersonalizationModelState(trainingDataVersion = floor, historyFloorVersion = floor, requiresRebuild = true)
+            }
+            loaded = true
         }
-        loaded = true
     }
 
-    private fun train(sample: TrainingSample, epochs: Int) {
-        LinearRankerMath.trainInPlace(
-            weights = weights,
-            sample = sample,
-            epochs = epochs,
-            learningRate = LEARNING_RATE,
-            l2 = L2,
-            maxWeight = MAX_WEIGHT,
-        )
-    }
-
-    private suspend fun persistLocked() {
-        val encoded = weights.joinToString(separator = ",") { value -> "%.8g".format(java.util.Locale.US, value) }
-        context.personalizationModelDataStore.edit { values ->
-            values[WEIGHTS] = encoded
-            values[MODEL_VERSION] = modelState.modelVersion
-            values[FEATURE_SCHEMA] = modelState.featureSchemaVersion
-            values[TRAINING_DATA_VERSION] = modelState.trainingDataVersion
-            values[HISTORY_FLOOR_VERSION] = modelState.historyFloorVersion
-            values[TRAINED_AT] = modelState.trainedAtEpochMs
-            values[SAMPLE_COUNT] = modelState.sampleCount
+    private suspend fun publishLocked(next: SharedLinUcb, state: PersonalizationModelState) = withContext(Dispatchers.IO) {
+        val bytes = ModelArtifactCodec.encode(LearnedModelArtifact(state, next))
+        val verified = ModelArtifactCodec.decode(bytes)
+        val file = artifactFile
+        file.baseFile.parentFile?.mkdirs()
+        val stream = file.startWrite()
+        try { stream.write(bytes); file.finishWrite(stream) } catch (failure: Exception) {
+            file.failWrite(stream)
+            throw failure
         }
+        ranker = next
+        modelState = verified.state
     }
 
     companion object {
-        const val MIN_TRAINING_SAMPLES = 50
-        internal const val MODEL_VERSION_VALUE = "1"
-        internal const val LEARNING_RATE = 0.06
-        internal const val L2 = 0.0005
-        internal const val MAX_WEIGHT = 4.0
-        internal const val INCREMENTAL_EPOCHS = 2
-        internal const val REBUILD_EPOCHS = 6
-
-        private val WEIGHTS = stringPreferencesKey("weights")
-        private val MODEL_VERSION = stringPreferencesKey("model_version")
-        private val FEATURE_SCHEMA = intPreferencesKey("feature_schema")
-        private val TRAINING_DATA_VERSION = longPreferencesKey("training_data_version")
-        private val HISTORY_FLOOR_VERSION = longPreferencesKey("history_floor_version")
-        private val TRAINED_AT = longPreferencesKey("trained_at")
-        private val SAMPLE_COUNT = longPreferencesKey("sample_count")
+        const val MIN_TRAINING_SAMPLES = RecommendationConfig.MIN_TRAINING_SAMPLES
+        private val SEQUENCE_FLOOR = longPreferencesKey("sequence_history_floor")
+        private val LEGACY_FLOOR = longPreferencesKey("history_floor_version")
     }
 }

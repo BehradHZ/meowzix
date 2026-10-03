@@ -7,7 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class LinearRankerMathTest {
+class PersonalizationBasicsTest {
     private val track = TrackPersonalizationFeatures(
         trackId = UUID.nameUUIDFromBytes("evening-track".toByteArray()),
         normalizedArtist = "artist",
@@ -25,23 +25,9 @@ class LinearRankerMathTest {
             RecommendationContext(9, 2, false, TimeBucket.MORNING),
             track,
         )
-        val weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
-
-        repeat(80) { index ->
-            LinearRankerMath.trainInPlace(
-                weights,
-                TrainingSample(track.trackId, evening, reward = 0.95, dataVersion = index.toLong() + 1),
-                epochs = 2,
-                learningRate = 0.06,
-                l2 = 0.0005,
-                maxWeight = 4.0,
-            )
-        }
-
-        assertTrue(
-            LinearRankerMath.preferenceScore(weights, evening) >
-                LinearRankerMath.preferenceScore(weights, morning),
-        )
+        val model = SharedLinUcb()
+        repeat(80) { model.update(evening, 0.95) }
+        assertTrue(model.predict(evening).first > model.predict(morning).first)
     }
 
     @Test
@@ -50,21 +36,10 @@ class LinearRankerMathTest {
             RecommendationContext(14, 4, false, TimeBucket.AFTERNOON),
             track,
         )
-        val weights = DoubleArray(PersonalizationFeatureVectorizer.FEATURE_COUNT)
-        val neutral = LinearRankerMath.preferenceScore(weights, context)
-
-        repeat(30) { index ->
-            LinearRankerMath.trainInPlace(
-                weights,
-                TrainingSample(track.trackId, context, reward = -0.70, dataVersion = index.toLong() + 1),
-                epochs = 2,
-                learningRate = 0.06,
-                l2 = 0.0005,
-                maxWeight = 4.0,
-            )
-        }
-
-        assertTrue(LinearRankerMath.preferenceScore(weights, context) < neutral)
+        val model = SharedLinUcb()
+        val neutral = model.predict(context).first
+        repeat(30) { model.update(context, -0.70) }
+        assertTrue(model.predict(context).first < neutral)
     }
 
     @Test
@@ -83,12 +58,12 @@ class LinearRankerMathTest {
         val withoutAudio = PersonalizationFeatureVectorizer.vectorize(context, track)
         val withAudio = PersonalizationFeatureVectorizer.vectorize(
             context,
-            track.copy(audioFeatures = DoubleArray(16) { 0.25 }),
+            track.copy(audioFeatures = DoubleArray(AudioFeatureSchema.names.size) { 0.25 }),
         )
 
         assertEquals(PersonalizationFeatureVectorizer.FEATURE_COUNT, withoutAudio.size)
         assertEquals(PersonalizationFeatureVectorizer.FEATURE_COUNT, withAudio.size)
         assertTrue(!withoutAudio.contentEquals(withAudio))
-        assertEquals(0.5, LinearRankerMath.preferenceScore(DoubleArray(withoutAudio.size), withoutAudio), 0.0)
+        assertEquals(0.0, SharedLinUcb().predict(withoutAudio).first, 0.0)
     }
 }

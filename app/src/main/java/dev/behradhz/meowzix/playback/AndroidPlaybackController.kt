@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.MediaItem
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -61,8 +62,32 @@ class AndroidPlaybackController @Inject constructor(
     ).buildAsync()
     private var controller: MediaController? = null
     private var lastPublishedLogicalQueue: ProgressiveQueueSnapshot? = null
+    private var playbackOccurrenceId = UUID.randomUUID()
+    private var seekRevision = 0L
+    private var userSelectedOccurrence = false
+    private var userInterruptedPrevious = false
 
     private val listener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED ||
+                mediaItem?.mediaId != _state.value.currentTrack?.id?.toString()) {
+                playbackOccurrenceId = UUID.randomUUID()
+                userInterruptedPrevious = reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
+                userSelectedOccurrence = false
+            }
+        }
+
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                seekRevision++
+                if (oldPosition.mediaItemIndex == newPosition.mediaItemIndex && oldPosition.positionMs > 1_000L && newPosition.positionMs == 0L) {
+                    playbackOccurrenceId = UUID.randomUUID()
+                    userSelectedOccurrence = true
+                    userInterruptedPrevious = true
+                }
+            }
+        }
+
         override fun onEvents(player: Player, events: Player.Events) {
             updateState(player)
         }
@@ -113,6 +138,7 @@ class AndroidPlaybackController @Inject constructor(
                     showError(error.message ?: "Playback is unavailable")
                     return@launch
                 }
+            playbackOccurrenceId = UUID.randomUUID()
             val window = progressiveQueue.start(
                 orderedTracks = listOf(track),
                 requestedStartIndex = 0,
@@ -132,6 +158,7 @@ class AndroidPlaybackController @Inject constructor(
 
     override fun playAt(index: Int) {
         withController { connected ->
+            playbackOccurrenceId = UUID.randomUUID()
             val active = progressiveQueue.snapshot()
             if (active != null) {
                 val plan = progressiveQueue.jumpTo(index) ?: return@withController
@@ -292,14 +319,16 @@ class AndroidPlaybackController @Inject constructor(
                     }
                 }
                 PlaybackMode.SMART_SHUFFLE -> {
-                    val ids = recommendationEngine.generate(
+                    val smartQueue = recommendationEngine.generate(
                         allowedTrackIds = requested.map { it.id },
+                        currentTrackId = _state.value.currentTrack?.id,
                         timeBucket = currentTimeBucket(),
-                    ).trackIds.distinct()
+                    )
+                    val ids = smartQueue.trackIds.distinct()
                     val requestedById = requested.associateBy { it.id }
                     val ranked = ids.mapNotNull(requestedById::get)
                     val rankedSet = ranked.mapTo(hashSetOf(), PlayableTrack::id)
-                    ranked + requested.filterNot { track -> track.id in rankedSet }
+                    ranked + requested.filter { track -> track.id !in rankedSet && track.id in smartQueue.eligibleTrackIds }
                 }
             }
             if (tracks.isEmpty()) return@launch showError("No playlist tracks are available")
@@ -315,6 +344,8 @@ class AndroidPlaybackController @Inject constructor(
             }
 
             withConnectedController { connected ->
+                playbackOccurrenceId = UUID.randomUUID()
+                userSelectedOccurrence = true
                 val window = progressiveQueue.start(
                     orderedTracks = tracks,
                     requestedStartIndex = startIndex,
@@ -662,6 +693,10 @@ class AndroidPlaybackController @Inject constructor(
             canSkipPrevious = logical?.let { it.currentIndex > 0 } ?: player.hasPreviousMediaItem(),
             canSkipNext = logical?.let { it.currentIndex < it.tracks.lastIndex } ?: player.hasNextMediaItem(),
             errorMessage = errorMessage,
+            playbackOccurrenceId = playbackOccurrenceId,
+            seekRevision = seekRevision,
+            userSelectedOccurrence = userSelectedOccurrence,
+            userInterruptedPrevious = userInterruptedPrevious,
         )
 
         if (logical != null) {

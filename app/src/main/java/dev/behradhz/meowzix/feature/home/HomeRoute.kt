@@ -32,6 +32,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
+import dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs
+import dev.behradhz.meowzix.feature.recommendation.title
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -59,6 +63,8 @@ fun HomeRoute(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val recommendationActions: RecommendationActionsViewModel = hiltViewModel()
+    RecommendationActionDialogs(recommendationActions)
 
     Box(Modifier.fillMaxSize()) {
         HomeAmbientBackdrop()
@@ -77,6 +83,7 @@ fun HomeRoute(
         ) {
             item("header") {
                 Column {
+                    TextButton(onClick = { viewModel.refresh() }) { Text("Refresh mixes") }
                     Text(
                         text = "Home",
                         style = MaterialTheme.typography.displaySmall,
@@ -101,13 +108,18 @@ fun HomeRoute(
                 }
             }
 
-            if (state.recommended.isNotEmpty()) {
-                item("recommended") {
-                    FeaturedRecommendations(
-                        hazeState = hazeState,
-                        tracks = state.recommended,
-                        onPlay = { track -> onPlayTrack(track, state.recommended) },
-                    )
+            state.sections.forEachIndexed { index, row ->
+                item("recommendation-section-$index") {
+                    if (row.tracks.isNotEmpty()) FeaturedRecommendations(
+                        hazeState = hazeState, tracks = row.tracks,
+                        onPlay = { track -> onPlayTrack(track, row.tracks) },
+                        title = row.section.title(),
+                        onWhy = { track -> recommendationActions.why(track.id, row.section.items.firstOrNull { it.trackId == track.id }?.score?.reasons) },
+                        onVibe = { track -> recommendationActions.continueVibe(track.id) },
+                    ) else Column {
+                        Text(row.section.title(), style = MaterialTheme.typography.titleLarge)
+                        Text("More listening will help shape this mix.", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
 
@@ -249,11 +261,14 @@ private fun FeaturedRecommendations(
     hazeState: HazeState,
     tracks: List<Track>,
     onPlay: (Track) -> Unit,
+    title: String,
+    onWhy: (Track) -> Unit,
+    onVibe: (Track) -> Unit,
 ) {
     Column {
         HomeSectionHeading(
-            title = "Made for you",
-            subtitle = "Refreshed every few hours",
+            title = title,
+            subtitle = "From your library, for this moment",
             icon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
         )
         LazyRow(
@@ -272,6 +287,8 @@ private fun FeaturedRecommendations(
                 ) {
                     Column(Modifier.padding(11.dp)) {
                         TrackArtwork(track.artworkRef, track.title, 150.dp)
+                        TextButton(onClick = { onWhy(track) }) { Text("Why this song?") }
+                        TextButton(onClick = { onVibe(track) }) { Text("Continue the vibe") }
                         Text(
                             text = track.title,
                             style = MaterialTheme.typography.titleMedium,

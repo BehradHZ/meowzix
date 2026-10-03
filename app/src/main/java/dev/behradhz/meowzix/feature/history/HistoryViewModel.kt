@@ -3,8 +3,6 @@ package dev.behradhz.meowzix.feature.history
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.behradhz.meowzix.data.recommendation.PersonalizationDebugReportBuilder
-import dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
 import dev.behradhz.meowzix.domain.history.ListeningEventType
 import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
@@ -12,6 +10,9 @@ import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
@@ -26,8 +27,7 @@ class HistoryViewModel @Inject constructor(
     private val history: ListeningHistoryRepository,
     library: MusicLibraryRepository,
     private val settings: SettingsRepository,
-    private val personalizationTrainer: PersonalizationTrainer,
-    private val debugReportBuilder: PersonalizationDebugReportBuilder,
+    private val maintenance: dev.behradhz.meowzix.domain.recommendation.PersonalizationMaintenance,
 ) : ViewModel() {
     val rows = combine(history.observeEvents(), library.observeTracks()) { events, tracks ->
         val titles = tracks.associate { it.id to it.title }
@@ -40,12 +40,17 @@ class HistoryViewModel @Inject constructor(
     private val _debugReports = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val debugReports = _debugReports.asSharedFlow()
 
-    fun setHistoryEnabled(enabled: Boolean) = viewModelScope.launch { settings.setListeningHistoryEnabled(enabled) }
-    fun clear() = viewModelScope.launch { history.clear() }
-    fun resetPersonalization() = viewModelScope.launch { history.resetPersonalization() }
-    fun rebuildPersonalization() = viewModelScope.launch { personalizationTrainer.rebuildFromStoredHistory() }
-
-    fun exportPersonalizationDebugReport() = viewModelScope.launch {
-        _debugReports.emit(debugReportBuilder.buildText())
+    private val _operationMessage = MutableStateFlow<String?>(null)
+    val operationMessage = _operationMessage.asStateFlow()
+    private fun action(message: String, block: suspend () -> Unit) = viewModelScope.launch {
+        try { block(); _operationMessage.value = message }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { _operationMessage.value = "Unable to complete this action. Please try again." }
     }
+    fun setHistoryEnabled(enabled: Boolean) = action("Listening history setting updated.") { settings.setListeningHistoryEnabled(enabled) }
+    fun clear() = action("Listening history cleared.") { history.clear() }
+    fun resetPersonalization() = action("Learning reset. Your listening history is kept.") { history.resetPersonalization() }
+    fun rebuildPersonalization() = action("Learning from stored history has been scheduled.") { maintenance.rebuild() }
+    fun analyzeAudio() = action("Local audio analysis has been scheduled.") { maintenance.analyzeAvailableAudio() }
+    fun exportPersonalizationDebugReport() = action("Report ready.") { _debugReports.emit(maintenance.debugReport()) }
 }

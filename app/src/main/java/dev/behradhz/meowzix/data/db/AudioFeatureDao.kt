@@ -7,10 +7,13 @@ import androidx.room.Query
 
 @Dao
 interface AudioFeatureDao {
+    @Query("SELECT * FROM audio_feature_vectors WHERE sourceContentHash = :hash AND extractorName = :name AND extractorVersion = :version AND schemaVersion = :schema LIMIT 1")
+    suspend fun matchingContent(hash: String, name: String, version: String, schema: Int): AudioFeatureVectorEntity?
     @Query(
         """
-        SELECT * FROM audio_feature_vectors
-        WHERE trackId = :trackId
+        SELECT a.* FROM audio_feature_vectors a
+        JOIN track_sources s ON s.id = a.sourceIdUsed
+        WHERE a.trackId = :trackId AND (s.contentHashSha256 IS NULL OR s.contentHashSha256 = a.sourceContentHash)
           AND extractorName = :extractorName
           AND extractorVersion = :extractorVersion
           AND schemaVersion = :schemaVersion
@@ -26,8 +29,9 @@ interface AudioFeatureDao {
 
     @Query(
         """
-        SELECT * FROM audio_feature_vectors
-        WHERE extractorName = :extractorName
+        SELECT a.* FROM audio_feature_vectors a
+        JOIN track_sources s ON s.id = a.sourceIdUsed
+        WHERE (s.contentHashSha256 IS NULL OR s.contentHashSha256 = a.sourceContentHash) AND extractorName = :extractorName
           AND extractorVersion = :extractorVersion
           AND schemaVersion = :schemaVersion
         """,
