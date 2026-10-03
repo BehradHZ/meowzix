@@ -54,10 +54,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
@@ -212,7 +214,14 @@ private fun LibraryTrackRowContent(
     onMoveDown: (() -> Unit)?,
     containerColor: Color?,
 ) {
-    val recommendationActions: dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
+    // Leaf track rows are also rendered in isolated Compose tests/previews where no Hilt
+    // component owner exists. Keep the row usable there while retaining recommendation actions
+    // in the real app, whose screen owner is Hilt-backed.
+    val recommendationActions: RecommendationActionsViewModel? = try {
+        hiltViewModel()
+    } catch (_: IllegalStateException) {
+        null
+    }
     var menuExpanded by remember { mutableStateOf(false) }
 
     Surface(
@@ -319,14 +328,16 @@ private fun LibraryTrackRowContent(
                             onGoToArtist()
                         },
                     )
-                    DropdownMenuItem(text = { Text("Continue the vibe") }, onClick = {
-                        menuExpanded = false
-                        recommendationActions.continueVibe(track.id)
-                    })
-                    DropdownMenuItem(text = { Text("Why this song?") }, onClick = {
-                        menuExpanded = false
-                        recommendationActions.why(track.id)
-                    })
+                    recommendationActions?.let { actions ->
+                        DropdownMenuItem(text = { Text("Continue the vibe") }, onClick = {
+                            menuExpanded = false
+                            actions.continueVibe(track.id)
+                        })
+                        DropdownMenuItem(text = { Text("Why this song?") }, onClick = {
+                            menuExpanded = false
+                            actions.why(track.id)
+                        })
+                    }
                     playlists.forEach { playlist ->
                         DropdownMenuItem(
                             text = { Text("Add to playlist · ${playlist.title}") },
