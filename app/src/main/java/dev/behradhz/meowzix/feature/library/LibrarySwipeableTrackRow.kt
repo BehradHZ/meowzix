@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -54,17 +55,23 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
-import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
 import java.util.UUID
 import kotlin.math.abs
+
+internal data class LibraryRecommendationActions(
+    val continueVibe: (UUID) -> Unit,
+    val why: (UUID) -> Unit,
+)
+
+internal val LocalLibraryRecommendationActions =
+    staticCompositionLocalOf<LibraryRecommendationActions?> { null }
 
 @Composable
 internal fun SwipeableLibraryTrackRow(
@@ -214,14 +221,7 @@ private fun LibraryTrackRowContent(
     onMoveDown: (() -> Unit)?,
     containerColor: Color?,
 ) {
-    // Leaf track rows are also rendered in isolated Compose tests/previews where no Hilt
-    // component owner exists. Keep the row usable there while retaining recommendation actions
-    // in the real app, whose screen owner is Hilt-backed.
-    val recommendationActions: RecommendationActionsViewModel? = try {
-        hiltViewModel()
-    } catch (_: IllegalStateException) {
-        null
-    }
+    val recommendationActions = LocalLibraryRecommendationActions.current
     var menuExpanded by remember { mutableStateOf(false) }
 
     Surface(
