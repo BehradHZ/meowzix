@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,25 +41,27 @@ import dev.chrisbanes.haze.hazeSource
 internal fun PlaylistGlassBackdrop(content: @Composable (HazeState) -> Unit) {
     val hazeState = remember { HazeState() }
     val colors = MaterialTheme.colorScheme
-    Box(Modifier.fillMaxSize()) {
-        Canvas(Modifier.fillMaxSize().hazeSource(hazeState)) {
-            drawRect(colors.background)
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(colors.primary.copy(alpha = 0.20f), Color.Transparent),
-                    center = Offset(size.width * 0.05f, size.height * 0.20f),
-                    radius = size.width * 0.95f,
-                ),
-            )
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(colors.tertiary.copy(alpha = 0.14f), Color.Transparent),
-                    center = Offset(size.width * 1.05f, size.height * 0.62f),
-                    radius = size.width * 0.85f,
-                ),
-            )
+    CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
+        Box(Modifier.fillMaxSize()) {
+            Canvas(Modifier.fillMaxSize().hazeSource(hazeState)) {
+                drawRect(colors.background)
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(colors.primary.copy(alpha = 0.20f), Color.Transparent),
+                        center = Offset(size.width * 0.05f, size.height * 0.20f),
+                        radius = size.width * 0.95f,
+                    ),
+                )
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(colors.tertiary.copy(alpha = 0.14f), Color.Transparent),
+                        center = Offset(size.width * 1.05f, size.height * 0.62f),
+                        radius = size.width * 0.85f,
+                    ),
+                )
+            }
+            content(hazeState)
         }
-        content(hazeState)
     }
 }
 
