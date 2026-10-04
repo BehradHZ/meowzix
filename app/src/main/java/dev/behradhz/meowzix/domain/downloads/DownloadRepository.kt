@@ -3,7 +3,7 @@ package dev.behradhz.meowzix.domain.downloads
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 
-enum class DownloadStatus { QUEUED, DOWNLOADING, COMPLETED, FAILED, CANCELED }
+enum class DownloadStatus { QUEUED, DOWNLOADING, PAUSED, COMPLETED, FAILED, CANCELED }
 
 data class OfflineDownload(
     val trackId: UUID,
@@ -18,6 +18,7 @@ data class OfflineDownload(
 interface DownloadRepository {
     fun observeDownloads(): Flow<List<OfflineDownload>>
     fun pinOffline(trackId: UUID)
+    fun pause(trackId: UUID)
     fun retry(trackId: UUID)
     fun cancel(trackId: UUID)
     suspend fun removeOfflineCopy(trackId: UUID)
