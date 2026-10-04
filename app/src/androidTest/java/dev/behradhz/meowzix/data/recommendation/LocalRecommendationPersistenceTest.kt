@@ -15,6 +15,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.*
+import dev.behradhz.meowzix.domain.playback.SmartQueueAdaptationBus
 import dev.behradhz.meowzix.domain.recommendation.*
 import java.io.File
 import java.time.Instant
@@ -100,7 +101,7 @@ class LocalRecommendationPersistenceTest {
         val builder = TrainingDatasetBuilder(db.historyDao(), db.libraryDao(), db.audioFeatureDao(), TestExtractor(), db.trainingSampleDao())
         val trainer = PersonalizationTrainer(builder, model, object : TrainingScheduler {
             override fun scheduleTraining(rebuild: Boolean) {}
-        })
+        }, SmartQueueAdaptationBus())
         val session = UUID.randomUUID().toString()
         db.historyDao().upsertSession(ListeningSessionEntity(session, 1, null, "ORDERED"))
         suspend fun outcome() {
@@ -164,7 +165,7 @@ class LocalRecommendationPersistenceTest {
         val builder = TrainingDatasetBuilder(db.historyDao(), db.libraryDao(), db.audioFeatureDao(), TestExtractor(), db.trainingSampleDao())
         val trainer = PersonalizationTrainer(builder, model, object : TrainingScheduler {
             override fun scheduleTraining(rebuild: Boolean) {}
-        })
+        }, SmartQueueAdaptationBus())
         trainer.resetLearningKeepHistory()
         db.historyDao().clearTrackStats()
         db.historyDao().clearTimeStats()
@@ -204,7 +205,7 @@ class LocalRecommendationPersistenceTest {
         val builder = TrainingDatasetBuilder(db.historyDao(), db.libraryDao(), db.audioFeatureDao(), TestExtractor(), db.trainingSampleDao())
         val trainer = PersonalizationTrainer(builder, slowModel, object : TrainingScheduler {
             override fun scheduleTraining(rebuild: Boolean) {}
-        })
+        }, SmartQueueAdaptationBus())
         val rebuilding = launch { trainer.trainPending(forceRebuild = true) }
         entered.await()
         val resetting = launch { trainer.resetLearningKeepHistory() }
@@ -244,6 +245,6 @@ internal class TestExtractor : AudioFeatureExtractor {
         failure?.let { throw it }
         sourceFailures[source.sourceId]?.let { throw it }
         return AudioFeatureVector(UUID.randomUUID(), trackId, source.sourceId, extractorName, extractorVersion, schemaVersion,
-            AudioVectorFormat.FLOAT64_LE, DoubleArray(6) { 0.25 }, Instant.now(), source.contentHashSha256)
+            AudioVectorFormat.FLOAT64_LE, DoubleArray(AudioFeatureSchema.names.size) { 0.25 }, Instant.now(), source.contentHashSha256)
     }
 }
