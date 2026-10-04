@@ -15,6 +15,7 @@ import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import dev.behradhz.meowzix.data.telegram.readableEndAt
 import java.io.File
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.io.RandomAccessFile
 import java.util.UUID
 import kotlin.math.min
@@ -126,11 +127,18 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     private var bytesRemaining: Long = C.LENGTH_UNSET.toLong()
     private var opened = false
 
+    @Volatile
+    private var closed = true
+
+    @Volatile
+    private var blockingThread: Thread? = null
+
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
+        closed = false
         val id = dataSpec.uri.lastPathSegment?.toIntOrNull()
             ?: throw IOException("Invalid Telegram playback URI: ${dataSpec.uri}")
-        val client = runBlocking { awaitActiveClient() }
+        val client = runBlockingIo { awaitActiveClient() }
             ?: throw IOException("Telegram is not ready yet after retrying")
 
         openedUri = dataSpec.uri
@@ -138,7 +146,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         readPosition = dataSpec.position
         bytesRemaining = dataSpec.length
 
-        val initialWindow = runBlocking {
+        val initialWindow = runBlockingIo {
             val seeded = seedFileStateWithRetry(client, id)
             if (!seeded.local.isDownloadingCompleted) {
                 ensureDownload(
@@ -167,6 +175,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             bytesRemaining = (knownSize - readPosition).coerceAtLeast(0L)
         }
 
+        checkOpen()
         opened = true
         transferStarted(dataSpec)
         return bytesRemaining
@@ -175,8 +184,8 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
-
-        return runBlocking { readFromGrowingFile(buffer, offset, length) }
+        checkOpen()
+        return runBlockingIo { readFromGrowingFile(buffer, offset, length) }
     }
 
     // A block-bodied suspend function gives the retry loop an explicit Int return contract.
@@ -184,6 +193,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     private suspend fun readFromGrowingFile(buffer: ByteArray, offset: Int, length: Int): Int {
         var staleHandleRecoveries = 0
         while (true) {
+            checkOpen()
             val window = waitForReadableWindow(readPosition)
             if (window.readableEnd <= readPosition) {
                 if (isAtEnd(window.state, readPosition)) {
@@ -241,6 +251,12 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     override fun getUri(): Uri? = openedUri
 
     override fun close() {
+        closed = true
+        // Media3 invokes close from teardown while a loader thread may be blocked in runBlocking.
+        // Interrupting that exact thread makes cancellation immediate rather than waiting through
+        // multiple TDLib update timeouts. runBlocking converts interruption to cancellation and the
+        // helper below surfaces it as InterruptedIOException, never as a fake end-of-input.
+        blockingThread?.interrupt()
         resetFileHandle()
         openedUri = null
         fileId = 0
@@ -250,11 +266,39 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         }
     }
 
+    private fun <T> runBlockingIo(block: suspend () -> T): T {
+        checkOpen()
+        val thread = Thread.currentThread()
+        blockingThread = thread
+        if (closed) {
+            if (blockingThread === thread) blockingThread = null
+            throw InterruptedIOException("Telegram stream was closed")
+        }
+        return try {
+            runBlocking { block() }
+        } catch (interrupted: InterruptedException) {
+            Thread.interrupted()
+            throw InterruptedIOException("Telegram stream read was cancelled").apply {
+                initCause(interrupted)
+            }
+        } finally {
+            if (blockingThread === thread) blockingThread = null
+        }
+    }
+
+    private fun checkOpen() {
+        if (closed || Thread.currentThread().isInterrupted) {
+            throw InterruptedIOException("Telegram stream was closed")
+        }
+    }
+
     private suspend fun awaitActiveClient(): TdLibClientAdapter? {
         repeat(CLIENT_READY_ATTEMPTS) { attempt ->
+            checkOpen()
             TdLibClientAdapter.activeOrNull()?.let { return it }
             delay(CLIENT_READY_RETRY_DELAY_MS * (attempt + 1).coerceAtMost(4))
         }
+        checkOpen()
         return TdLibClientAdapter.activeOrNull()
     }
 
@@ -264,6 +308,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     ): TdApi.File {
         var lastError: Throwable? = null
         repeat(FILE_STATE_SEED_ATTEMPTS) { attempt ->
+            checkOpen()
             runCatching { client.seedFileState(id) }
                 .onSuccess { return it }
                 .onFailure { lastError = it }
@@ -275,6 +320,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     private suspend fun waitForReadableWindow(position: Long): ReadableWindow {
         var recoveryAttempts = 0
         while (true) {
+            checkOpen()
             val client = awaitActiveClient()
                 ?: throw IOException("Telegram remained disconnected during playback")
             var state = client.fileStates.current(fileId) ?: seedFileStateWithRetry(client, fileId)
@@ -298,6 +344,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             val pushedState = withTimeoutOrNull(UPDATE_WAIT_TIMEOUT_MS) {
                 client.fileStates.awaitReadableOrCompleted(fileId, position)
             }
+            checkOpen()
             if (pushedState != null) {
                 state = pushedState
                 val pushedReadableEnd = resolveReadableEnd(client, state, position)
@@ -352,6 +399,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         state: TdApi.File,
         position: Long,
     ): Long {
+        checkOpen()
         val localEnd = state.readableEndAt(position)
         if (localEnd > position || state.local.isDownloadingCompleted) return localEnd
         val path = state.local.path
@@ -360,6 +408,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         val prefixSize = runCatching {
             client.send(TdApi.GetFileDownloadedPrefixSize(fileId, position)).size
         }.getOrDefault(0L)
+        checkOpen()
         if (prefixSize <= 0L) return position
 
         val physicalLength = runCatching { File(path).length() }.getOrDefault(0L)
@@ -374,6 +423,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         priority: Int,
         force: Boolean,
     ) {
+        checkOpen()
         if (state.local.isDownloadingCompleted) return
         val normalizedPosition = position.coerceAtLeast(0L)
 
@@ -395,10 +445,12 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
                 ),
             )
         }.getOrNull() ?: return
+        checkOpen()
         client.fileStates.publish(requested)
     }
 
     private fun openFileForState(state: TdApi.File): RandomAccessFile {
+        checkOpen()
         val path = state.local.path
         if (path.isBlank()) throw IOException("Telegram has not created the local stream file")
         if (path != openedPath || randomAccessFile == null) {
