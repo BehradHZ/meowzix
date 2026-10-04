@@ -51,9 +51,11 @@ class TdLibDownloadRepository @Inject constructor(
     private val telegramRepository: TelegramRepository,
     private val settingsRepository: SettingsRepository,
     private val networkPolicy: NetworkPolicy,
+    private val managedStorage: ManagedStorageManager,
 ) : DownloadRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<UUID, Job>()
+    private val pauseRequests = ConcurrentHashMap.newKeySet<UUID>()
     private val offlineDirectory = File(context.filesDir, "offline")
 
     override fun observeDownloads(): Flow<List<OfflineDownload>> = downloadDao.observeAll().map { rows ->
@@ -72,11 +74,16 @@ class TdLibDownloadRepository @Inject constructor(
 
     override fun pinOffline(trackId: UUID) {
         if (jobs[trackId]?.isActive == true) return
+        pauseRequests.remove(trackId)
         jobs[trackId] = scope.launch {
             try {
                 download(trackId)
             } catch (cancelled: CancellationException) {
-                markCanceled(trackId)
+                if (pauseRequests.remove(trackId)) {
+                    markPaused(trackId)
+                } else {
+                    markCanceled(trackId)
+                }
                 throw cancelled
             } catch (error: Throwable) {
                 markFailed(trackId, error.message ?: "Download failed.")
@@ -86,9 +93,21 @@ class TdLibDownloadRepository @Inject constructor(
         }
     }
 
+    override fun pause(trackId: UUID) {
+        pauseRequests.add(trackId)
+        jobs.remove(trackId)?.cancel(CancellationException("Download paused"))
+        scope.launch {
+            downloadDao.byTrackId(trackId.toString())?.tdFileId?.let { fileId ->
+                runCatching { TdLibClientAdapter.activeOrNull()?.send(TdApi.CancelDownloadFile(fileId, false)) }
+            }
+            markPaused(trackId)
+        }
+    }
+
     override fun retry(trackId: UUID) = pinOffline(trackId)
 
     override fun cancel(trackId: UUID) {
+        pauseRequests.remove(trackId)
         jobs.remove(trackId)?.cancel()
         scope.launch {
             downloadDao.byTrackId(trackId.toString())?.tdFileId?.let { fileId ->
@@ -99,6 +118,7 @@ class TdLibDownloadRepository @Inject constructor(
     }
 
     override suspend fun removeOfflineCopy(trackId: UUID) {
+        pauseRequests.remove(trackId)
         jobs.remove(trackId)?.cancel()
         val record = downloadDao.byTrackId(trackId.toString()) ?: return
         record.localPath?.let(::deleteOwnedOfflineFile)
@@ -108,16 +128,10 @@ class TdLibDownloadRepository @Inject constructor(
         }
     }
 
-    override suspend fun storageBytes(): Long = downloadDao.all()
-        .mapNotNull { it.localPath }
-        .map(::File)
-        .filter(File::isFile)
-        .sumOf(File::length)
+    override suspend fun storageBytes(): Long = managedStorage.usage().totalManagedBytes
 
     override suspend fun clearTemporaryCache() {
-        CacheEvictionPolicy.evictable(downloadDao.all()).forEach { record ->
-            removeOfflineCopy(UUID.fromString(record.trackId))
-        }
+        managedStorage.clearTemporaryCache()
     }
 
     private suspend fun download(trackId: UUID) {
@@ -161,8 +175,8 @@ class TdLibDownloadRepository @Inject constructor(
             trackSourceId = telegramSource.trackSourceId,
             tdFileId = fileId,
             status = DownloadStatus.DOWNLOADING.name,
-            downloadedBytes = 0L,
-            totalBytes = candidate.fileSizeBytes ?: remoteSource.fileSizeBytes,
+            downloadedBytes = existing?.downloadedBytes ?: 0L,
+            totalBytes = candidate.fileSizeBytes ?: remoteSource.fileSizeBytes ?: existing?.totalBytes,
             localPath = existing?.localPath,
             pinned = true,
             failureReason = null,
@@ -350,16 +364,21 @@ class TdLibDownloadRepository @Inject constructor(
             return LocalCopy(destination, sha256(destination))
         }
         val partial = File(offlineDirectory, destination.name + ".part")
-        val digest = MessageDigest.getInstance("SHA-256")
-        sourceFile.inputStream().buffered().use { input ->
-            partial.outputStream().buffered().use { output ->
-                DigestOutputStream(output, digest).use(input::copyTo)
+        val lease = managedStorage.acquireLease(partial.absolutePath, "offline-copy")
+        try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            sourceFile.inputStream().buffered().use { input ->
+                partial.outputStream().buffered().use { output ->
+                    DigestOutputStream(output, digest).use(input::copyTo)
+                }
             }
+            if (destination.exists() && !destination.delete()) error("Unable to replace offline copy.")
+            if (!partial.renameTo(destination)) error("Unable to finalize offline copy.")
+            val hash = digest.digest().joinToString("") { "%02x".format(it) }
+            return LocalCopy(destination, hash)
+        } finally {
+            lease.close()
         }
-        if (destination.exists() && !destination.delete()) error("Unable to replace offline copy.")
-        if (!partial.renameTo(destination)) error("Unable to finalize offline copy.")
-        val hash = digest.digest().joinToString("") { "%02x".format(it) }
-        return LocalCopy(destination, hash)
     }
 
     private fun sha256(file: File): String {
@@ -374,6 +393,8 @@ class TdLibDownloadRepository @Inject constructor(
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
+
+    private suspend fun markPaused(trackId: UUID) = updateStatus(trackId, DownloadStatus.PAUSED, null)
 
     private suspend fun markCanceled(trackId: UUID) = updateStatus(trackId, DownloadStatus.CANCELED, null)
 
@@ -403,7 +424,8 @@ class TdLibDownloadRepository @Inject constructor(
     private data class LocalCopy(val file: File, val sha256: String)
 
     private companion object {
-        const val PIN_PRIORITY = 32
+        // Leave 31/32 for current playback and seek so explicit/bulk pinning cannot starve audio.
+        const val PIN_PRIORITY = 30
     }
 }
 
