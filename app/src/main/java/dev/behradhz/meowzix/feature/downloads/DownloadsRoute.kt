@@ -35,16 +35,23 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
+import dev.behradhz.meowzix.domain.downloads.ManagedStorageUsage
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.ui.components.TrackArtwork
+import java.util.Locale
 
 @Composable
-fun DownloadsRoute(viewModel: DownloadsViewModel = hiltViewModel()) {
+fun DownloadsRoute(
+    viewModel: DownloadsViewModel = hiltViewModel(),
+    storageViewModel: StoragePolicyViewModel = hiltViewModel(),
+) {
     val rows by viewModel.rows.collectAsStateWithLifecycle()
     val settings by viewModel.networkSettings.collectAsStateWithLifecycle()
     val selectedChats by viewModel.selectedTelegramChats.collectAsStateWithLifecycle()
     val chatDownloadProgress by viewModel.chatDownloadProgress.collectAsStateWithLifecycle()
+    val storageUsage by storageViewModel.usage.collectAsStateWithLifecycle()
+    val storageSettings by storageViewModel.settings.collectAsStateWithLifecycle()
     val active = rows.filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
     val rest = rows.filterNot { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
     LazyColumn(
@@ -57,6 +64,14 @@ fun DownloadsRoute(viewModel: DownloadsViewModel = hiltViewModel()) {
         item { SettingToggle("Wi-Fi only downloads", settings.wifiOnlyDownloads, viewModel::setWifiOnly) }
         item { SettingToggle("Prefetch next track", settings.prefetchEnabled, viewModel::setPrefetch) }
         item { SettingToggle("Prefetch on metered networks", settings.prefetchOnMetered, viewModel::setPrefetchOnMetered, enabled = settings.prefetchEnabled && !settings.wifiOnlyDownloads) }
+        item {
+            StoragePolicyCard(
+                usage = storageUsage,
+                selectedBudget = storageSettings.temporaryCacheBudgetBytes,
+                onBudgetSelected = storageViewModel::setBudget,
+                onClearTemporary = storageViewModel::clearTemporaryCache,
+            )
+        }
         if (selectedChats.isNotEmpty()) {
             item { SectionTitle("Telegram sources") }
             items(selectedChats, key = { it.chatId }) { chat ->
@@ -94,6 +109,60 @@ fun DownloadsRoute(viewModel: DownloadsViewModel = hiltViewModel()) {
                     onRemove = { viewModel.remove(row.trackId) },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun StoragePolicyCard(
+    usage: ManagedStorageUsage?,
+    selectedBudget: Long,
+    onBudgetSelected: (Long) -> Unit,
+    onClearTemporary: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Managed storage", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            if (usage == null) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            } else {
+                Text(
+                    "Temporary ${formatBytes(usage.temporaryPlaybackBytes)} · Pinned ${formatBytes(usage.pinnedOfflineBytes)} · Other ${formatBytes(usage.otherManagedBytes)}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Total ${formatBytes(usage.totalManagedBytes)}${if (usage.protectedBytes > 0L) " · ${formatBytes(usage.protectedBytes)} in use" else ""}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                )
+                if (usage.lowSpace) {
+                    Text(
+                        "Storage is low. Nonessential cache work is suspended until space recovers.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+            Text("Temporary cache budget", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CACHE_BUDGET_PRESETS.forEach { bytes ->
+                    if (selectedBudget == bytes) {
+                        Button(onClick = { onBudgetSelected(bytes) }) { Text(formatBudget(bytes)) }
+                    } else {
+                        OutlinedButton(onClick = { onBudgetSelected(bytes) }) { Text(formatBudget(bytes)) }
+                    }
+                }
+            }
+            OutlinedButton(onClick = onClearTemporary) { Text("Clear temporary cache") }
+            Text(
+                "Pinned offline copies and your own MediaStore audio are never removed by Clear temporary cache.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+            )
         }
     }
 }
@@ -182,10 +251,8 @@ private fun DownloadRowCard(
                 Spacer(Modifier.size(8.dp))
                 if (row.progress != null) LinearProgressIndicator(progress = { row.progress }, modifier = Modifier.fillMaxWidth()) else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
-            if (row.status == DownloadStatus.PAUSED || row.status == DownloadStatus.FAILED) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (row.status == DownloadStatus.PAUSED) OutlinedButton(onClick = onCancel) { Text("Cancel") }
-                }
+            if (row.status == DownloadStatus.PAUSED) {
+                OutlinedButton(onClick = onCancel) { Text("Cancel") }
             }
             row.failureReason?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
@@ -204,3 +271,25 @@ private val DownloadStatus.label: String get() = when (this) {
     DownloadStatus.FAILED -> "Download failed"
     DownloadStatus.CANCELED -> "Canceled"
 }
+
+private fun formatBytes(bytes: Long): String {
+    val mib = bytes.toDouble() / (1024.0 * 1024.0)
+    return if (mib >= 1024.0) {
+        String.format(Locale.US, "%.1f GB", mib / 1024.0)
+    } else {
+        String.format(Locale.US, "%.0f MB", mib)
+    }
+}
+
+private fun formatBudget(bytes: Long): String = when (bytes) {
+    256L * 1024L * 1024L -> "256 MB"
+    512L * 1024L * 1024L -> "512 MB"
+    1024L * 1024L * 1024L -> "1 GB"
+    else -> formatBytes(bytes)
+}
+
+private val CACHE_BUDGET_PRESETS = listOf(
+    256L * 1024L * 1024L,
+    512L * 1024L * 1024L,
+    1024L * 1024L * 1024L,
+)
