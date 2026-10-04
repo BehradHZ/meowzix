@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
@@ -32,7 +33,8 @@ import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,6 +64,8 @@ import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs
+import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
@@ -88,9 +92,9 @@ fun NowPlayingRoute(
     val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
-    val audioOutputState by viewModel.audioOutputState.collectAsStateWithLifecycle()
-    val isOutputPickerOpen by viewModel.isOutputPickerOpen.collectAsStateWithLifecycle()
-    dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs()
+    val recommendationActions: RecommendationActionsViewModel = hiltViewModel()
+    RecommendationActionDialogs(recommendationActions)
+
     val context = LocalContext.current
     val visualizerPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -103,6 +107,7 @@ fun NowPlayingRoute(
             visualizerPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
+
     NowPlayingScreen(
         state = state,
         queueState = queueState,
@@ -116,19 +121,15 @@ fun NowPlayingRoute(
         onToggleFavorite = viewModel::toggleFavorite,
         onTogglePlaybackMode = viewModel::togglePlaybackMode,
         onCycleRepeatMode = viewModel::cycleRepeatMode,
-        onOpenOutput = viewModel::openOutputPicker,
         onOpenForward = viewModel::openForwardPicker,
         onOpenQueue = onOpenQueue,
+        onWhyThisSong = {
+            state.currentTrack?.id?.let { trackId -> recommendationActions.why(trackId) }
+        },
+        onContinueVibe = {
+            state.currentTrack?.id?.let { trackId -> recommendationActions.continueVibe(trackId) }
+        },
     )
-
-    if (isOutputPickerOpen) {
-        AudioOutputSheet(
-            state = audioOutputState,
-            onTransferTo = viewModel::transferAudioTo,
-            onSetRouteEnabled = viewModel::setAudioRouteEnabled,
-            onDismiss = viewModel::dismissOutputPicker,
-        )
-    }
 
     val track = state.currentTrack
     if (forwardState.isOpen && track != null) {
@@ -161,9 +162,10 @@ private fun NowPlayingScreen(
     onToggleFavorite: () -> Unit,
     onTogglePlaybackMode: () -> Unit,
     onCycleRepeatMode: () -> Unit,
-    onOpenOutput: () -> Unit,
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
+    onWhyThisSong: () -> Unit,
+    onContinueVibe: () -> Unit,
 ) {
     val track = state.currentTrack
     if (track == null) {
@@ -227,9 +229,10 @@ private fun NowPlayingScreen(
             PlayerHeader(
                 hazeState = hazeState,
                 onBack = onBack,
-                onOpenOutput = onOpenOutput,
                 onOpenForward = onOpenForward,
                 onOpenQueue = onOpenQueue,
+                onWhyThisSong = onWhyThisSong,
+                onContinueVibe = onContinueVibe,
             )
 
             ArtworkGestureZone(
@@ -253,7 +256,6 @@ private fun NowPlayingScreen(
                 onToggleFavorite = onToggleFavorite,
             )
 
-            dev.behradhz.meowzix.feature.recommendation.RecommendationActionButtons(track.id)
             Spacer(Modifier.height(12.dp))
 
             SyntheticWaveformSeekBar(
@@ -401,10 +403,13 @@ private fun TrackIdentity(
 private fun PlayerHeader(
     hazeState: HazeState,
     onBack: () -> Unit,
-    onOpenOutput: () -> Unit,
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
+    onWhyThisSong: () -> Unit,
+    onContinueVibe: () -> Unit,
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
     GlassSurface(
         hazeState = hazeState,
         modifier = Modifier
@@ -434,13 +439,6 @@ private fun PlayerHeader(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onOpenOutput) {
-                Icon(
-                    Icons.Rounded.VolumeUp,
-                    contentDescription = "Choose audio output",
-                    tint = PlayerPrimaryContent,
-                )
-            }
             IconButton(onClick = onOpenForward) {
                 Icon(
                     Icons.Rounded.Send,
@@ -454,6 +452,34 @@ private fun PlayerHeader(
                     contentDescription = "Open queue",
                     tint = PlayerPrimaryContent,
                 )
+            }
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        Icons.Rounded.MoreVert,
+                        contentDescription = "More track actions",
+                        tint = PlayerPrimaryContent,
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Why this song?") },
+                        onClick = {
+                            menuExpanded = false
+                            onWhyThisSong()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Continue the vibe") },
+                        onClick = {
+                            menuExpanded = false
+                            onContinueVibe()
+                        },
+                    )
+                }
             }
         }
     }
