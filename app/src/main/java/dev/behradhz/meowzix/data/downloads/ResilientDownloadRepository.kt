@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
  *
  * TdLibDownloadRepository remains the component that performs the actual TDLib transfer. This
  * wrapper adds durable WorkManager recovery around it. A pinned download is retried until it
- * completes, is explicitly canceled/removed, or fails for a known permanent reason.
+ * completes, is explicitly paused/canceled/removed, or fails for a known permanent reason.
  */
 @Singleton
 class ResilientDownloadRepository @Inject constructor(
@@ -59,6 +59,7 @@ class ResilientDownloadRepository @Inject constructor(
         if (!initialized.compareAndSet(false, true)) return
 
         // Recover work that was left QUEUED/DOWNLOADING (or transiently FAILED) if the process died.
+        // PAUSED is intentionally durable and does not auto-resume after process recreation.
         scope.launch {
             downloadDao.all()
                 .filter(::shouldRecover)
@@ -97,6 +98,11 @@ class ResilientDownloadRepository @Inject constructor(
         scope.launch { enqueueRecovery(trackId) }
     }
 
+    override fun pause(trackId: UUID) {
+        workManager.cancelUniqueWork(workName(trackId))
+        delegate.pause(trackId)
+    }
+
     override fun retry(trackId: UUID) {
         delegate.retry(trackId)
         scope.launch { enqueueRecovery(trackId) }
@@ -121,6 +127,7 @@ class ResilientDownloadRepository @Inject constructor(
         when {
             before?.status == DownloadStatus.COMPLETED.name -> return PersistentAttemptResult.SUCCESS
             before?.status == DownloadStatus.CANCELED.name -> return PersistentAttemptResult.SUCCESS
+            before?.status == DownloadStatus.PAUSED.name -> return PersistentAttemptResult.SUCCESS
             before != null && !before.pinned -> return PersistentAttemptResult.SUCCESS
             before?.status == DownloadStatus.FAILED.name && !isRetryableFailure(before.failureReason) -> {
                 return PersistentAttemptResult.FAILURE
@@ -139,6 +146,7 @@ class ResilientDownloadRepository @Inject constructor(
             when (current?.status) {
                 DownloadStatus.COMPLETED.name,
                 DownloadStatus.CANCELED.name,
+                DownloadStatus.PAUSED.name,
                 -> return PersistentAttemptResult.SUCCESS
 
                 DownloadStatus.DOWNLOADING.name -> Unit
@@ -177,6 +185,10 @@ class ResilientDownloadRepository @Inject constructor(
     }
 
     private suspend fun enqueueRecovery(trackId: UUID) {
+        val current = downloadDao.byTrackId(trackId.toString())
+        if (current?.status == DownloadStatus.PAUSED.name || current?.status == DownloadStatus.CANCELED.name) {
+            return
+        }
         val settings = settingsRepository.networkPlaybackSettings.first()
         val networkType = if (settings.wifiOnlyDownloads) {
             NetworkType.UNMETERED
@@ -207,7 +219,11 @@ class ResilientDownloadRepository @Inject constructor(
 
     private suspend fun markQueued(trackId: UUID, reason: String?) {
         val current = downloadDao.byTrackId(trackId.toString()) ?: return
-        if (current.status == DownloadStatus.COMPLETED.name || current.status == DownloadStatus.CANCELED.name) {
+        if (
+            current.status == DownloadStatus.COMPLETED.name ||
+            current.status == DownloadStatus.CANCELED.name ||
+            current.status == DownloadStatus.PAUSED.name
+        ) {
             return
         }
         downloadDao.upsert(
