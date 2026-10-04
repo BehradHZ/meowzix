@@ -14,13 +14,13 @@ data class AudioSpectrumState(
 interface AudioVisualizerRepository {
     val spectrum: StateFlow<AudioSpectrumState>
 
-    /** Selects the current media source and resets the spectrum for the new track. */
+    /** Selects the current media source and resets measured spectrum state for the new track. */
     fun analyze(sourceUri: String?)
 
-    /** Attaches live FFT capture to the player's non-zero audio session. */
+    /** Attaches measured FFT capture and playback-owned effects to the player's non-zero audio session. */
     fun attachToAudioSession(audioSessionId: Int)
 
-    /** Retries live capture, primarily after RECORD_AUDIO permission is granted. */
+    /** Retries capture after an audio-session/output capability change. */
     fun refresh()
 
     fun release()
