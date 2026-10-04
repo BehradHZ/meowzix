@@ -34,6 +34,7 @@ fun RecommendationReason.label(): String = when (this) {
     RecommendationReason.EXPLICIT_MORE_LIKE -> "You asked for more recommendations like this"
     RecommendationReason.INSUFFICIENT_EVIDENCE -> "There isn't enough evidence for a more specific explanation yet"
 }
+
 fun RecommendationSection.title(): String = when (kind) {
     RecommendationSectionKind.FOR_YOU_NOW -> "For You Now"
     RecommendationSectionKind.TIME_MIX -> when (timeBucket) {
@@ -61,7 +62,6 @@ fun RecommendationActionButtons(trackId: UUID, modifier: Modifier = Modifier, vi
     }
 }
 
-/** One host per screen keeps a track appearing in multiple recommendation sections from opening duplicate dialogs. */
 @Composable
 fun RecommendationActionDialogs(viewModel: RecommendationActionsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -74,6 +74,7 @@ fun RecommendationActionDialogs(viewModel: RecommendationActionsViewModel = hilt
         suggestLess = viewModel::suggestLess,
         snooze = viewModel::snooze,
         undoFeedback = viewModel::undoFeedback,
+        openInsights = viewModel::openInsights,
     )
 }
 
@@ -87,7 +88,38 @@ fun RecommendationActionContent(
     suggestLess: (UUID) -> Unit,
     snooze: (UUID) -> Unit,
     undoFeedback: (UUID) -> Unit,
+    openInsights: () -> Unit,
 ) {
+    if (state.showInsights) {
+        ModalBottomSheet(onDismissRequest = dismiss) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Text("Local recommendation insights", style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    "Calculated only from data stored on this device. Observational metrics do not prove causal improvement.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+                when {
+                    state.insightsLoading -> CircularProgressIndicator(Modifier.padding(20.dp))
+                    state.error != null -> Text(state.error)
+                    state.insightsText != null -> LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),
+                        contentPadding = PaddingValues(bottom = 32.dp),
+                    ) {
+                        item {
+                            Text(
+                                state.insightsText,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+        return
+    }
+
     if (state.trackId == null) {
         val feedbackTrackId = state.feedbackTrackId
         if (state.feedbackNotice != null) {
@@ -118,12 +150,8 @@ fun RecommendationActionContent(
                     else -> state.reasons.ifEmpty { listOf(RecommendationReason.INSUFFICIENT_EVIDENCE) }.take(4).forEach { Text(it.label()) }
                 }
                 Text("Personalized on this device from your listening.", style = MaterialTheme.typography.bodySmall)
-                FeedbackActions(
-                    trackId = state.trackId,
-                    moreLikeThis = moreLikeThis,
-                    suggestLess = suggestLess,
-                    snooze = snooze,
-                )
+                TextButton(onClick = openInsights) { Text("Local insights") }
+                FeedbackActions(state.trackId, moreLikeThis, suggestLess, snooze)
             }
         },
         confirmButton = { TextButton(onClick = dismiss) { Text("Done") } },
@@ -134,31 +162,28 @@ fun RecommendationActionContent(
             state.feedbackNotice?.let { notice ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(notice, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    state.feedbackTrackId?.let { id ->
-                        TextButton(onClick = { undoFeedback(id) }) { Text("Undo") }
-                    }
+                    state.feedbackTrackId?.let { id -> TextButton(onClick = { undoFeedback(id) }) { Text("Undo") } }
                 }
             }
-            FeedbackActions(
-                trackId = state.trackId,
-                moreLikeThis = moreLikeThis,
-                suggestLess = suggestLess,
-                snooze = snooze,
-            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = openInsights) { Text("Local insights") }
+                if (!state.loading && state.tracks.isNotEmpty()) Button(onClick = playMix) { Text("Play mix") }
+            }
+            FeedbackActions(state.trackId, moreLikeThis, suggestLess, snooze)
             when {
                 state.loading -> CircularProgressIndicator(Modifier.padding(20.dp))
                 state.error != null -> Text(state.error)
                 state.tracks.isEmpty() -> Text("More music or listening history will help us find a matching mix.")
-                else -> {
-                    Button(onClick = playMix) { Text("Play mix") }
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 450.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
-                        items(state.tracks, key = { it.id }) { track ->
-                            Row(Modifier.fillMaxWidth().clickable { play(track.id) }.padding(vertical = 8.dp)) {
-                                TrackArtwork(track.artworkRef, track.title, 48.dp)
-                                Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                                    Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodySmall)
-                                }
+                else -> LazyColumn(
+                    Modifier.fillMaxWidth().heightIn(max = 450.dp),
+                    contentPadding = PaddingValues(bottom = 32.dp),
+                ) {
+                    items(state.tracks, key = { it.id }) { track ->
+                        Row(Modifier.fillMaxWidth().clickable { play(track.id) }.padding(vertical = 8.dp)) {
+                            TrackArtwork(track.artworkRef, track.title, 48.dp)
+                            Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                                Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
