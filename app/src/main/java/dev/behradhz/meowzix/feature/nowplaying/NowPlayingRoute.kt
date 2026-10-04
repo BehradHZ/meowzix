@@ -1,10 +1,8 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
-import android.Manifest
-import android.content.pm.PackageManager
-
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,15 +11,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
@@ -33,6 +31,7 @@ import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -40,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,13 +50,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -86,26 +84,24 @@ fun NowPlayingRoute(
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
     viewModel: NowPlayingViewModel = hiltViewModel(),
+    lyricsViewModel: NowPlayingLyricsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val queueState by viewModel.queueState.collectAsStateWithLifecycle()
     val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
+    val lyricsState by lyricsViewModel.state.collectAsStateWithLifecycle()
     val recommendationActions: RecommendationActionsViewModel = hiltViewModel()
-    RecommendationActionDialogs(recommendationActions)
+    var lyricsExpanded by remember { mutableStateOf(false) }
 
-    val context = LocalContext.current
-    val visualizerPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { granted -> if (granted) viewModel.refreshVisualizer() },
-    )
-    LaunchedEffect(Unit) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            viewModel.refreshVisualizer()
-        } else {
-            visualizerPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
+    RecommendationActionDialogs(recommendationActions)
+    BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
+    LaunchedEffect(state.currentTrack?.id) { lyricsExpanded = false }
+    LaunchedEffect(Unit) { viewModel.refreshVisualizer() }
+
+    val closeOrCollapse = {
+        if (lyricsExpanded) lyricsExpanded = false else onBack()
     }
 
     NowPlayingScreen(
@@ -113,7 +109,11 @@ fun NowPlayingRoute(
         queueState = queueState,
         liveBands = spectrum.bands,
         isFavorite = isFavorite,
-        onBack = onBack,
+        lyricsState = lyricsState,
+        lyricsExpanded = lyricsExpanded,
+        onBack = closeOrCollapse,
+        onToggleLyrics = { lyricsExpanded = !lyricsExpanded },
+        onExpandLyrics = { lyricsExpanded = true },
         onTogglePlayPause = viewModel::togglePlayPause,
         onSeek = viewModel::seekTo,
         onPrevious = viewModel::previous,
@@ -129,6 +129,11 @@ fun NowPlayingRoute(
         onContinueVibe = {
             state.currentTrack?.id?.let { trackId -> recommendationActions.continueVibe(trackId) }
         },
+        onLyricsImport = lyricsViewModel::importLrc,
+        onLyricsPaste = lyricsViewModel::pastePlainLyrics,
+        onLyricsDelay = lyricsViewModel::adjustDelay,
+        onLyricsVersion = lyricsViewModel::selectVersion,
+        onLyricSeek = lyricsViewModel::seekToLine,
     )
 
     val track = state.currentTrack
@@ -146,6 +151,15 @@ fun NowPlayingRoute(
             onDismiss = viewModel::dismissForwardPicker,
         )
     }
+
+    lyricsState.errorMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = lyricsViewModel::clearError,
+            title = { Text("Lyrics") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = lyricsViewModel::clearError) { Text("OK") } },
+        )
+    }
 }
 
 @Composable
@@ -154,7 +168,11 @@ private fun NowPlayingScreen(
     queueState: QueueState,
     liveBands: FloatArray,
     isFavorite: Boolean,
+    lyricsState: NowPlayingLyricsState,
+    lyricsExpanded: Boolean,
     onBack: () -> Unit,
+    onToggleLyrics: () -> Unit,
+    onExpandLyrics: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onSeek: (Long) -> Unit,
     onPrevious: () -> Unit,
@@ -166,6 +184,11 @@ private fun NowPlayingScreen(
     onOpenQueue: () -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
+    onLyricsImport: (android.net.Uri) -> Unit,
+    onLyricsPaste: (String) -> Unit,
+    onLyricsDelay: (Long) -> Unit,
+    onLyricsVersion: (java.util.UUID) -> Unit,
+    onLyricSeek: (Int) -> Unit,
 ) {
     val track = state.currentTrack
     if (track == null) {
@@ -177,6 +200,11 @@ private fun NowPlayingScreen(
     var pendingSeek by remember(track.id) { mutableStateOf<Float?>(null) }
     var settlingSeekTarget by remember(track.id) { mutableStateOf<Long?>(null) }
     var backdropTransition by remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
+    val heroWeight by animateFloatAsState(
+        targetValue = if (lyricsExpanded) 0.02f else 1f,
+        animationSpec = spring(dampingRatio = 0.90f, stiffness = 520f),
+        label = "lyrics-hero-space",
+    )
     val duration = state.durationMs.coerceAtLeast(1L)
     val shownPosition = pendingSeek?.toLong() ?: settlingSeekTarget ?: state.positionMs.coerceIn(0L, duration)
     LaunchedEffect(state.positionMs, settlingSeekTarget) {
@@ -196,24 +224,19 @@ private fun NowPlayingScreen(
     Box(Modifier.fillMaxSize()) {
         val activeBackdropTransition = backdropTransition
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(hazeState),
+            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
         ) {
             TrackArtworkBackdrop(
                 artworkRef = activeBackdropTransition?.fromArtworkRef ?: track.artworkRef,
                 modifier = Modifier.fillMaxSize(),
             )
-
             activeBackdropTransition?.let { transition ->
                 if (transition.progress > 0f) {
                     TrackArtworkBackdrop(
                         artworkRef = transition.toArtworkRef,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                alpha = transition.progress.coerceIn(0f, 1f)
-                            },
+                        modifier = Modifier.fillMaxSize().graphicsLayer {
+                            alpha = transition.progress.coerceIn(0f, 1f)
+                        },
                     )
                 }
             }
@@ -228,35 +251,52 @@ private fun NowPlayingScreen(
         ) {
             PlayerHeader(
                 hazeState = hazeState,
+                lyricsExpanded = lyricsExpanded,
                 onBack = onBack,
                 onOpenForward = onOpenForward,
                 onOpenQueue = onOpenQueue,
                 onWhyThisSong = onWhyThisSong,
                 onContinueVibe = onContinueVibe,
+                onToggleLyrics = onToggleLyrics,
             )
 
-            ArtworkGestureZone(
+            Spacer(Modifier.height(8.dp))
+
+            MorphingPlayerHero(
                 state = state,
                 queueState = queueState,
-                artworkRef = track.artworkRef,
-                artworkDescription = "${track.title} cover art",
+                expanded = lyricsExpanded,
                 onBack = onBack,
                 onPrevious = onPrevious,
                 onNext = onNext,
+                onToggleFavorite = onToggleFavorite,
+                favorite = isFavorite,
                 onBackdropTransition = { backdropTransition = it },
+                compactLyrics = {
+                    CompactLyricsPreview(
+                        state = lyricsState,
+                        onExpand = onExpandLyrics,
+                    )
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(heroWeight)
+                    .heightIn(min = 82.dp),
             )
 
-            TrackIdentity(
-                title = track.title,
-                artist = track.artist ?: "Unknown artist",
-                favorite = isFavorite,
-                onToggleFavorite = onToggleFavorite,
-            )
+            if (lyricsExpanded) {
+                ExpandedLyricsPanel(
+                    state = lyricsState,
+                    onLineSeek = onLyricSeek,
+                    onImportLrc = onLyricsImport,
+                    onPaste = onLyricsPaste,
+                    onAdjustDelay = onLyricsDelay,
+                    onSelectVersion = onLyricsVersion,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
+            }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(if (lyricsExpanded) 6.dp else 10.dp))
 
             SyntheticWaveformSeekBar(
                 trackKey = track.id.toString(),
@@ -282,15 +322,8 @@ private fun NowPlayingScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    formatDuration(shownPosition),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = PlayerSecondaryContent,
-                )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(formatDuration(shownPosition), style = MaterialTheme.typography.labelMedium, color = PlayerSecondaryContent)
                 Text(
                     "-${formatDuration((duration - shownPosition).coerceAtLeast(0L))}",
                     style = MaterialTheme.typography.labelMedium,
@@ -298,8 +331,7 @@ private fun NowPlayingScreen(
                 )
             }
 
-            Spacer(Modifier.height(14.dp))
-
+            Spacer(Modifier.height(if (lyricsExpanded) 8.dp else 14.dp))
             PlaybackControls(
                 state = state,
                 onPrevious = onPrevious,
@@ -308,7 +340,6 @@ private fun NowPlayingScreen(
                 onTogglePlaybackMode = onTogglePlaybackMode,
                 onCycleRepeatMode = onCycleRepeatMode,
             )
-
             Spacer(Modifier.height(12.dp))
         }
 
@@ -335,136 +366,60 @@ private fun NowPlayingScreen(
 }
 
 @Composable
-private fun ArtworkGestureZone(
-    state: PlaybackState,
-    queueState: QueueState,
-    artworkRef: String?,
-    artworkDescription: String,
-    onBack: () -> Unit,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onBackdropTransition: (ArtworkBackdropTransition?) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    NowPlayingArtworkPager(
-        state = state,
-        queueState = queueState,
-        fallbackArtworkRef = artworkRef,
-        fallbackArtworkDescription = artworkDescription,
-        onBack = onBack,
-        onPrevious = onPrevious,
-        onNext = onNext,
-        onBackdropTransition = onBackdropTransition,
-        modifier = modifier,
-    )
-}
-
-@Composable
-private fun TrackIdentity(
-    title: String,
-    artist: String,
-    favorite: Boolean,
-    onToggleFavorite: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = PlayerPrimaryContent,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = artist,
-                style = MaterialTheme.typography.titleMedium,
-                color = PlayerSecondaryContent,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-        IconButton(onClick = onToggleFavorite) {
-            Icon(
-                imageVector = if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                contentDescription = if (favorite) "Remove from favorites" else "Add to favorites",
-                tint = if (favorite) MaterialTheme.colorScheme.primary else PlayerPrimaryContent,
-                modifier = Modifier.size(28.dp),
-            )
-        }
-    }
-}
-
-@Composable
 private fun PlayerHeader(
     hazeState: HazeState,
+    lyricsExpanded: Boolean,
     onBack: () -> Unit,
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
+    onToggleLyrics: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
     GlassSurface(
         hazeState = hazeState,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(50.dp),
+        modifier = Modifier.fillMaxWidth().height(50.dp),
         shape = RoundedCornerShape(25.dp),
         fallbackColor = PlayerGlass.copy(alpha = 0.78f),
         tint = PlayerPrimaryContent.copy(alpha = 0.05f),
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(
                     Icons.Rounded.KeyboardArrowDown,
-                    contentDescription = "Close now playing",
+                    contentDescription = if (lyricsExpanded) "Collapse lyrics" else "Close now playing",
                     tint = PlayerPrimaryContent,
                     modifier = Modifier.size(30.dp),
                 )
             }
             Spacer(Modifier.weight(1f))
             Text(
-                text = "Now Playing",
+                text = if (lyricsExpanded) "Lyrics" else "Now Playing",
                 color = PlayerPrimaryContent,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onOpenForward) {
-                Icon(
-                    Icons.Rounded.Send,
-                    contentDescription = "Forward track on Telegram",
-                    tint = PlayerPrimaryContent,
-                )
+                Icon(Icons.Rounded.Send, contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
             }
             IconButton(onClick = onOpenQueue) {
-                Icon(
-                    Icons.Rounded.QueueMusic,
-                    contentDescription = "Open queue",
-                    tint = PlayerPrimaryContent,
-                )
+                Icon(Icons.Rounded.QueueMusic, contentDescription = "Open queue", tint = PlayerPrimaryContent)
             }
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
-                    Icon(
-                        Icons.Rounded.MoreVert,
-                        contentDescription = "More track actions",
-                        tint = PlayerPrimaryContent,
-                    )
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "More track actions", tint = PlayerPrimaryContent)
                 }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false },
-                ) {
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text(if (lyricsExpanded) "Back to player" else "Lyrics") },
+                        onClick = {
+                            menuExpanded = false
+                            onToggleLyrics()
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text("Why this song?") },
                         onClick = {
@@ -509,20 +464,11 @@ private fun PlaybackControls(
             },
         ) {
             Icon(
-                imageVector = if (state.playbackMode == PlaybackMode.SMART_SHUFFLE) {
-                    Icons.Rounded.AutoAwesome
-                } else {
-                    Icons.Rounded.Shuffle
-                },
+                imageVector = if (state.playbackMode == PlaybackMode.SMART_SHUFFLE) Icons.Rounded.AutoAwesome else Icons.Rounded.Shuffle,
                 contentDescription = null,
             )
         }
-
-        IconButton(
-            onClick = onPrevious,
-            enabled = state.canSkipPrevious,
-            modifier = Modifier.size(52.dp),
-        ) {
+        IconButton(onClick = onPrevious, enabled = state.canSkipPrevious, modifier = Modifier.size(52.dp)) {
             Icon(
                 Icons.Rounded.SkipPrevious,
                 contentDescription = "Previous track",
@@ -530,7 +476,6 @@ private fun PlaybackControls(
                 modifier = Modifier.size(35.dp),
             )
         }
-
         Surface(
             onClick = onTogglePlayPause,
             modifier = Modifier.size(72.dp),
@@ -547,12 +492,7 @@ private fun PlaybackControls(
                 )
             }
         }
-
-        IconButton(
-            onClick = onNext,
-            enabled = state.canSkipNext,
-            modifier = Modifier.size(52.dp),
-        ) {
+        IconButton(onClick = onNext, enabled = state.canSkipNext, modifier = Modifier.size(52.dp)) {
             Icon(
                 Icons.Rounded.SkipNext,
                 contentDescription = "Next track",
@@ -560,7 +500,6 @@ private fun PlaybackControls(
                 modifier = Modifier.size(35.dp),
             )
         }
-
         ModeIconButton(
             selected = state.repeatMode != RepeatMode.OFF,
             onClick = onCycleRepeatMode,
@@ -587,9 +526,7 @@ private fun ModeIconButton(
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier
-            .size(44.dp)
-            .semantics { this.contentDescription = contentDescription },
+        modifier = Modifier.size(44.dp).semantics { this.contentDescription = contentDescription },
         shape = RoundedCornerShape(22.dp),
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f) else PlayerGlass.copy(alpha = 0.70f),
         contentColor = if (selected) MaterialTheme.colorScheme.primary else PlayerSecondaryContent,
@@ -603,11 +540,7 @@ private fun ModeIconButton(
 @Composable
 private fun EmptyNowPlaying(onBack: () -> Unit) {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .padding(24.dp),
+        modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp),
     ) {
         IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart)) {
             Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close now playing")
