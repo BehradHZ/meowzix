@@ -26,6 +26,7 @@ class HeuristicRecommendationEngine @Inject constructor(
     private val audioFeatureExtractionCoordinator: AudioFeatureExtractionCoordinator,
     private val settings: SettingsRepository,
     private val personalizationModel: PersonalizationModel,
+    private val feedbackRepository: RecommendationFeedbackRepository,
 ) : RecommendationEngine {
     private val sectionGenerator = RecommendationSectionGenerator()
     private var explanationModelStamp: Pair<Long, Long>? = null
@@ -72,6 +73,7 @@ class HeuristicRecommendationEngine @Inject constructor(
 
     private suspend fun rank(allowedTrackIds: List<UUID>?, currentTrackId: UUID?, bucketOverride: TimeBucket?, seed: Long, anchorId: UUID? = null): RankedPool {
         val now = Instant.now()
+        val feedbackEffects = safely { feedbackRepository.snapshot(now) }?.effects(now).orEmpty()
         val time = ListeningEventSemantics.timeContext(now, ZoneId.systemDefault())
         val state = safely { personalizationModel.state() } ?: PersonalizationModelState()
         invalidateExplanationsIfChanged(state)
@@ -80,15 +82,17 @@ class HeuristicRecommendationEngine @Inject constructor(
         val recentIds = starts.take(20).mapNotNull { it.trackId.uuid() }
         val positiveIds = recent.filter { it.type in setOf("MANUAL_SELECTED", "REPLAYED", "PLAY_COMPLETED") }
             .mapNotNull { it.trackId.uuid() }.distinct().take(12)
-        val priorities = (recentIds + positiveIds + recommendationDao.favoriteTrackIds(96).mapNotNull { it.uuid() } +
+        val feedbackPriorities = feedbackEffects.filterValues { it.moreLikeThis }.keys.toList()
+        val priorities = (feedbackPriorities + recentIds + positiveIds + recommendationDao.favoriteTrackIds(96).mapNotNull { it.uuid() } +
             recommendationDao.preferredTrackIds(96).mapNotNull { it.uuid() }).distinct()
         // IDs are cheap to enumerate; only <=800 complete candidates/features are ever hydrated/scored.
         val offlineOnly = settings.networkPlaybackSettings.first().offlineMode
         val eligible = recommendationDao.eligibleTrackIds(offlineOnly).mapNotNull { it.uuid() }.toHashSet()
         val scoped = (allowedTrackIds ?: eligible.toList()).distinct().filter { it in eligible }
-        val allowed = if (scoped.size > 1) scoped.filterNot { it == currentTrackId } else scoped
+        val allowed = (if (scoped.size > 1) scoped.filterNot { it == currentTrackId } else scoped)
+            .filterNot { feedbackEffects[it]?.excluded == true }
         val ids = reduceRecommendationCandidateIds(allowed, priorities, RecommendationConfig.CANDIDATE_LIMIT, seed)
-        val hydrationIds = (ids + recentIds + listOfNotNull(currentTrackId, anchorId) + positiveIds.take(2)).distinct()
+        val hydrationIds = (ids + recentIds + listOfNotNull(currentTrackId, anchorId) + positiveIds.take(2) + feedbackPriorities.take(8)).distinct()
         if (hydrationIds.isEmpty()) return RankedPool(emptyList(), emptyList(), RecommendationContext(time.localHour, time.dayOfWeek.value, time.isWeekend, time.bucket, now))
         val strings = hydrationIds.map(UUID::toString)
         val tracks = recommendationDao.tracksByIds(strings)
@@ -142,7 +146,13 @@ class HeuristicRecommendationEngine @Inject constructor(
         }
         val ranked = scoring.map { candidate ->
             val track = trackById.getValue(candidate.trackId.toString())
-            val (score, breakdown) = RecommendationRanking.score(candidate, context, learned[candidate.trackId], state.sampleCount)
+            val (score, breakdown) = RecommendationRanking.score(
+                candidate,
+                context,
+                learned[candidate.trackId],
+                state.sampleCount,
+                feedbackEffects[candidate.trackId] ?: RecommendationFeedbackEffect(),
+            )
             RankedRecommendationCandidate(candidate, RecommendationItem(candidate.trackId, score),
                 SimilarityProfile(track.normalizedArtist, track.album, audio[track.id]), track.title,
                 recentEvidence[track.id] ?: RecentPositiveEvidence(),
