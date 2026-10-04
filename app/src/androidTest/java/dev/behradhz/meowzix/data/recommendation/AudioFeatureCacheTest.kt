@@ -6,6 +6,9 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.core.model.*
 import dev.behradhz.meowzix.data.db.*
+import dev.behradhz.meowzix.domain.downloads.ManagedFileLease
+import dev.behradhz.meowzix.domain.downloads.ManagedStorageRepository
+import dev.behradhz.meowzix.domain.downloads.ManagedStorageUsage
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.test.runTest
@@ -24,7 +27,14 @@ class AudioFeatureCacheTest {
     private val files = mutableListOf<File>()
     @Before fun setup() {
         db = Room.inMemoryDatabaseBuilder(context, MeowzixDatabase::class.java).build()
-        coordinator = AudioFeatureExtractionCoordinator(db.libraryDao(), db.audioFeatureDao(), extractor, RecommendationWorkScheduler(context), context)
+        coordinator = AudioFeatureExtractionCoordinator(
+            db.libraryDao(),
+            db.audioFeatureDao(),
+            extractor,
+            RecommendationWorkScheduler(context),
+            TestManagedStorageRepository,
+            context,
+        )
     }
     @After fun cleanup() { files.forEach(File::delete); db.close() }
     private fun file(bytes: ByteArray) = File.createTempFile("meowzix-feature", ".bin", context.cacheDir).also { it.writeBytes(bytes); files += it }
@@ -93,5 +103,24 @@ class AudioFeatureCacheTest {
             SourceAvailability.REMOTE_ONLY, null, null, "audio/mpeg", null, null, true, 1, 1))
         coordinator.extractIfNeeded(id)
         assertEquals(0, extractor.calls)
+    }
+
+    private object TestManagedStorageRepository : ManagedStorageRepository {
+        private val usage = ManagedStorageUsage(
+            temporaryPlaybackBytes = 0L,
+            pinnedOfflineBytes = 0L,
+            otherManagedBytes = 0L,
+            protectedBytes = 0L,
+            temporaryBudgetBytes = Long.MAX_VALUE,
+            lowSpace = false,
+        )
+        override suspend fun usage(): ManagedStorageUsage = usage
+        override suspend fun reconcileAndEnforceBudget(): ManagedStorageUsage = usage
+        override suspend fun clearTemporaryCache(): ManagedStorageUsage = usage
+        override fun acquireLease(path: String, owner: String): ManagedFileLease = object : ManagedFileLease {
+            override val path: String = path
+            override val owner: String = owner
+            override fun close() = Unit
+        }
     }
 }
