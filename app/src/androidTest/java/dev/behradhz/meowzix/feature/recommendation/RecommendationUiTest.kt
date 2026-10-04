@@ -16,9 +16,22 @@ class RecommendationUiTest {
         var dismissed = false
         compose.setContent {
             MaterialTheme {
-                RecommendationActionContent(RecommendationActionState(UUID(0, 1), "Track", why = true,
-                    reasons = listOf(RecommendationReason.FAVORITE, RecommendationReason.NOT_PLAYED_RECENTLY)),
-                    { dismissed = true }, {}, {})
+                RecommendationActionContent(
+                    state = RecommendationActionState(
+                        UUID(0, 1),
+                        "Track",
+                        why = true,
+                        reasons = listOf(RecommendationReason.FAVORITE, RecommendationReason.NOT_PLAYED_RECENTLY),
+                    ),
+                    dismiss = { dismissed = true },
+                    play = {},
+                    playMix = {},
+                    moreLikeThis = {},
+                    suggestLess = {},
+                    snooze = {},
+                    undoFeedback = {},
+                    openInsights = {},
+                )
             }
         }
         compose.onNodeWithText("It's one of your favorites").assertIsDisplayed()
@@ -28,7 +41,19 @@ class RecommendationUiTest {
     }
     @Test fun coldStartVibeHasAnHonestEmptyState() {
         compose.setContent {
-            MaterialTheme { RecommendationActionContent(RecommendationActionState(UUID(0, 1), "Track"), {}, {}, {}) }
+            MaterialTheme {
+                RecommendationActionContent(
+                    state = RecommendationActionState(UUID(0, 1), "Track"),
+                    dismiss = {},
+                    play = {},
+                    playMix = {},
+                    moreLikeThis = {},
+                    suggestLess = {},
+                    snooze = {},
+                    undoFeedback = {},
+                    openInsights = {},
+                )
+            }
         }
         compose.onNodeWithText("Continue the Vibe").assertIsDisplayed()
         compose.onNodeWithText("More music or listening history will help us find a matching mix.").assertIsDisplayed()
