@@ -8,83 +8,113 @@ import android.media.MediaFormat
 import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.domain.recommendation.AudioFeatureExtractor
+import dev.behradhz.meowzix.domain.recommendation.AudioFeatureSchema
 import dev.behradhz.meowzix.domain.recommendation.AudioFeatureSource
 import dev.behradhz.meowzix.domain.recommendation.AudioFeatureVector
 import dev.behradhz.meowzix.domain.recommendation.AudioVectorFormat
+import dev.behradhz.meowzix.domain.recommendation.PcmAudioAnalysis
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
-import dev.behradhz.meowzix.domain.recommendation.AudioFeatureSchema
-import dev.behradhz.meowzix.domain.recommendation.PcmAudioAnalysis
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Lightweight, source-agnostic PCM analysis for the first learned model.
+ * Bounded source-agnostic PCM analysis.
  *
- * It decodes only a short prefix and stores normalized signal summaries rather than raw audio. The
- * vector is deliberately small so extraction remains cheap and the model can later swap in a richer
- * extractor without changing recommendation/training interfaces.
+ * At most three 10-second representative regions are decoded: shortly after the intro, near the
+ * middle, and near the end. Short or effectively unseekable tracks degrade to whatever regions can
+ * be read safely. Raw audio is never persisted; only the compact normalized schema-v3 vector is.
  */
 @Singleton
 class AndroidPcmAudioFeatureExtractor @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) : AudioFeatureExtractor {
     override val extractorName: String = "android-pcm-summary"
-    override val extractorVersion: String = "2"
+    override val extractorVersion: String = "3-multisegment-3x10s"
     override val schemaVersion: Int = AudioFeatureSchema.VERSION
 
     override suspend fun extract(trackId: UUID, source: AudioFeatureSource): AudioFeatureVector? =
         withContext(Dispatchers.IO) {
-            try { decode(trackId, source) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
+            try {
+                decode(trackId, source)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
         }
 
     private suspend fun decode(trackId: UUID, source: AudioFeatureSource): AudioFeatureVector? {
+        val probe = probe(source) ?: return null
+        val vectors = representativeStarts(probe.durationUs).mapNotNull { startUs ->
+            currentCoroutineContext().ensureActive()
+            runCatching { decodeSegment(source, probe, startUs) }.getOrNull()
+        }
+        if (vectors.isEmpty()) return null
+        val combined = combineSegments(vectors) ?: return null
+        return AudioFeatureVector(
+            id = UUID.randomUUID(),
+            trackId = trackId,
+            sourceIdUsed = source.sourceId,
+            extractorName = extractorName,
+            extractorVersion = extractorVersion,
+            schemaVersion = schemaVersion,
+            vectorFormat = AudioVectorFormat.FLOAT64_LE,
+            values = combined,
+            generatedAt = Instant.now(),
+            sourceContentHash = source.contentHashSha256,
+        )
+    }
+
+    private fun probe(source: AudioFeatureSource): AudioProbe? {
+        val extractor = MediaExtractor()
+        return try {
+            setDataSource(extractor, source)
+            for (index in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(index)
+                val mime = format.getString(MediaFormat.KEY_MIME)
+                if (mime?.startsWith("audio/") == true) {
+                    return AudioProbe(
+                        trackIndex = index,
+                        mime = mime,
+                        sampleRate = format.intOrNull(MediaFormat.KEY_SAMPLE_RATE) ?: DEFAULT_SAMPLE_RATE,
+                        channelCount = format.intOrNull(MediaFormat.KEY_CHANNEL_COUNT) ?: 1,
+                        durationUs = format.longOrNull(MediaFormat.KEY_DURATION) ?: 0L,
+                    )
+                }
+            }
+            null
+        } finally {
+            extractor.release()
+        }
+    }
+
+    private suspend fun decodeSegment(source: AudioFeatureSource, probe: AudioProbe, startUs: Long): DoubleArray? {
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
         try {
-            when {
-                !source.contentUri.isNullOrBlank() -> extractor.setDataSource(
-                    context,
-                    Uri.parse(source.contentUri),
-                    emptyMap(),
-                )
-                !source.localPath.isNullOrBlank() -> extractor.setDataSource(source.localPath)
-                else -> return null
+            setDataSource(extractor, source)
+            extractor.selectTrack(probe.trackIndex)
+            if (startUs > 0L) {
+                extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
             }
-
-            var trackIndex = -1
-            var inputFormat: MediaFormat? = null
-            for (index in 0 until extractor.trackCount) {
-                val candidate = extractor.getTrackFormat(index)
-                val mime = candidate.getString(MediaFormat.KEY_MIME)
-                if (mime?.startsWith("audio/") == true) {
-                    trackIndex = index
-                    inputFormat = candidate
-                    break
-                }
-            }
-            val format = inputFormat ?: return null
-            if (trackIndex < 0) return null
-            val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
-            extractor.selectTrack(trackIndex)
-
+            val format = extractor.getTrackFormat(probe.trackIndex)
             val accumulator = PcmAccumulator(
-                sampleRate = format.intOrNull(MediaFormat.KEY_SAMPLE_RATE) ?: DEFAULT_SAMPLE_RATE,
-                channelCount = format.intOrNull(MediaFormat.KEY_CHANNEL_COUNT) ?: 1,
-                bitrate = format.intOrNull(MediaFormat.KEY_BIT_RATE) ?: 0,
-                durationUs = format.longOrNull(MediaFormat.KEY_DURATION) ?: 0L,
+                sampleRate = format.intOrNull(MediaFormat.KEY_SAMPLE_RATE) ?: probe.sampleRate,
+                channelCount = format.intOrNull(MediaFormat.KEY_CHANNEL_COUNT) ?: probe.channelCount,
+                analysisSeconds = SEGMENT_SECONDS,
             )
 
-            if (mime == "audio/raw") {
+            if (probe.mime == "audio/raw") {
                 accumulator.updateFormat(format)
-                val pcm = ByteBuffer.allocate(1_048_576)
+                val pcm = ByteBuffer.allocate(BUFFER_BYTES)
                 val info = MediaCodec.BufferInfo()
                 while (!accumulator.full) {
                     currentCoroutineContext().ensureActive()
@@ -96,10 +126,9 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
                     if (!extractor.advance()) break
                 }
             } else {
-                decoder = MediaCodec.createDecoderByType(mime)
+                decoder = MediaCodec.createDecoderByType(probe.mime)
                 decoder.configure(format, null, null, 0)
                 decoder.start()
-
                 val info = MediaCodec.BufferInfo()
                 var inputDone = false
                 var outputDone = false
@@ -113,25 +142,13 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
                         if (inputIndex >= 0) {
                             val input = decoder.getInputBuffer(inputIndex)
                             if (input == null) {
-                                decoder.queueInputBuffer(
-                                    inputIndex,
-                                    0,
-                                    0,
-                                    0L,
-                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM,
-                                )
+                                decoder.queueInputBuffer(inputIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                                 inputDone = true
                             } else {
                                 input.clear()
                                 val sampleSize = extractor.readSampleData(input, 0)
                                 if (sampleSize < 0) {
-                                    decoder.queueInputBuffer(
-                                        inputIndex,
-                                        0,
-                                        0,
-                                        0L,
-                                        MediaCodec.BUFFER_FLAG_END_OF_STREAM,
-                                    )
+                                    decoder.queueInputBuffer(inputIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                                     inputDone = true
                                 } else {
                                     decoder.queueInputBuffer(
@@ -156,32 +173,16 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
                         MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
                         else -> if (outputIndex >= 0) {
                             val output = decoder.getOutputBuffer(outputIndex)
-                            if (output != null && info.size > 0) {
-                                accumulator.accept(output, info)
-                            }
+                            if (output != null && info.size > 0) accumulator.accept(output, info)
                             outputDone = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                             decoder.releaseOutputBuffer(outputIndex, false)
                             progressed = true
                         }
                     }
-
                     timeoutStreak = if (progressed) 0 else timeoutStreak + 1
                 }
-
             }
-            if (accumulator.sampleCount == 0L) return null
-            return AudioFeatureVector(
-                id = UUID.randomUUID(),
-                trackId = trackId,
-                sourceIdUsed = source.sourceId,
-                extractorName = extractorName,
-                extractorVersion = extractorVersion,
-                schemaVersion = schemaVersion,
-                vectorFormat = AudioVectorFormat.FLOAT64_LE,
-                values = accumulator.vector() ?: return null,
-                generatedAt = Instant.now(),
-                sourceContentHash = source.contentHashSha256,
-            )
+            accumulator.vector()
         } finally {
             decoder?.let { codec ->
                 runCatching { codec.stop() }
@@ -191,27 +192,85 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
         }
     }
 
+    private fun setDataSource(extractor: MediaExtractor, source: AudioFeatureSource) {
+        when {
+            !source.contentUri.isNullOrBlank() -> extractor.setDataSource(
+                context,
+                Uri.parse(source.contentUri),
+                emptyMap(),
+            )
+            !source.localPath.isNullOrBlank() -> extractor.setDataSource(source.localPath)
+            else -> error("No readable source")
+        }
+    }
+
+    private fun representativeStarts(durationUs: Long): List<Long> {
+        if (durationUs <= 0L || durationUs <= SHORT_TRACK_US) return listOf(0L)
+        val latestStart = (durationUs - SEGMENT_US).coerceAtLeast(0L)
+        val starts = listOf(
+            INTRO_SKIP_US.coerceAtMost(latestStart),
+            (durationUs / 2L - SEGMENT_US / 2L).coerceIn(0L, latestStart),
+            (durationUs - SEGMENT_US - OUTRO_MARGIN_US).coerceIn(0L, latestStart),
+        )
+        return starts.distinct().take(MAX_SEGMENTS)
+    }
+
+    /**
+     * Stable mean for general descriptors. Tempo is confidence-weighted so a segment where no
+     * reliable pulse was measurable does not drag a valid BPM toward 60 BPM.
+     */
+    private fun combineSegments(vectors: List<DoubleArray>): DoubleArray? {
+        val compatible = vectors.filter(AudioFeatureSchema::isCompatible)
+        if (compatible.isEmpty()) return null
+        val result = DoubleArray(AudioFeatureSchema.names.size)
+        for (index in 0 until AudioFeatureSchema.TEMPO_BPM) {
+            result[index] = compatible.map { it[index] }.average().coerceIn(0.0, 1.0)
+        }
+        val tempoWeight = compatible.sumOf { it[AudioFeatureSchema.TEMPO_CONFIDENCE] }
+        result[AudioFeatureSchema.TEMPO_BPM] = if (tempoWeight > 1e-8) {
+            compatible.sumOf {
+                it[AudioFeatureSchema.TEMPO_BPM] * it[AudioFeatureSchema.TEMPO_CONFIDENCE]
+            } / tempoWeight
+        } else 0.0
+        result[AudioFeatureSchema.TEMPO_CONFIDENCE] = compatible
+            .map { it[AudioFeatureSchema.TEMPO_CONFIDENCE] }
+            .average()
+            .coerceIn(0.0, 1.0)
+        return result.takeIf(AudioFeatureSchema::isCompatible)
+    }
+
+    private data class AudioProbe(
+        val trackIndex: Int,
+        val mime: String,
+        val sampleRate: Int,
+        val channelCount: Int,
+        val durationUs: Long,
+    )
+
     private class PcmAccumulator(
         sampleRate: Int,
         channelCount: Int,
-        @Suppress("UNUSED_PARAMETER") bitrate: Int,
-        @Suppress("UNUSED_PARAMETER") durationUs: Long,
+        private val analysisSeconds: Long,
     ) {
         private var sampleRate = sampleRate.coerceAtLeast(1)
         private var channelCount = channelCount.coerceAtLeast(1)
         private var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
-        private val analysis = PcmAudioAnalysis()
+        private var analysis = PcmAudioAnalysis(this.sampleRate)
         private var channelSum = 0.0
         private var channelsRead = 0
         val sampleCount: Long get() = analysis.sampleCount
-        val full: Boolean get() = sampleCount >= sampleRate.toLong() * ANALYSIS_SECONDS
+        val full: Boolean get() = sampleCount >= sampleRate.toLong() * analysisSeconds
 
         fun updateFormat(format: MediaFormat) {
-            sampleRate = format.intOrNull(MediaFormat.KEY_SAMPLE_RATE)?.coerceAtLeast(1) ?: sampleRate
+            val newSampleRate = format.intOrNull(MediaFormat.KEY_SAMPLE_RATE)?.coerceAtLeast(1) ?: sampleRate
             channelCount = format.intOrNull(MediaFormat.KEY_CHANNEL_COUNT)?.coerceAtLeast(1) ?: channelCount
             pcmEncoding = format.intOrNull(MediaFormat.KEY_PCM_ENCODING) ?: AudioFormat.ENCODING_PCM_16BIT
             require(pcmEncoding in setOf(AudioFormat.ENCODING_PCM_16BIT, AudioFormat.ENCODING_PCM_8BIT, AudioFormat.ENCODING_PCM_FLOAT)) {
                 "Unsupported PCM encoding"
+            }
+            if (sampleCount == 0L && newSampleRate != sampleRate) {
+                sampleRate = newSampleRate
+                analysis = PcmAudioAnalysis(sampleRate)
             }
         }
 
@@ -240,12 +299,19 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
                 }
             }
         }
+
         fun vector(): DoubleArray? = analysis.finish()
     }
 
     private companion object {
-        const val ANALYSIS_SECONDS = 30L
+        const val SEGMENT_SECONDS = 10L
+        const val SEGMENT_US = SEGMENT_SECONDS * 1_000_000L
+        const val MAX_SEGMENTS = 3
+        const val INTRO_SKIP_US = 3_000_000L
+        const val OUTRO_MARGIN_US = 3_000_000L
+        const val SHORT_TRACK_US = 24_000_000L
         const val DEFAULT_SAMPLE_RATE = 44_100
+        const val BUFFER_BYTES = 1_048_576
         const val CODEC_TIMEOUT_US = 10_000L
         const val MAX_TIMEOUT_STREAK = 50
     }
