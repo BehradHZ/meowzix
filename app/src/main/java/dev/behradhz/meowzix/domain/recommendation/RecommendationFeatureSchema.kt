@@ -105,7 +105,11 @@ object PersonalizationFeatureVectorizer {
         flag(RecommendationFeature.OUTPUT_SPEAKER, context.outputClass == OutputClass.SPEAKER)
         flag(RecommendationFeature.OUTPUT_WIRED, context.outputClass == OutputClass.WIRED)
         flag(RecommendationFeature.OUTPUT_BLUETOOTH, context.outputClass == OutputClass.BLUETOOTH)
-        track.audioFeatures?.takeIf(AudioFeatureSchema::isCompatible)?.let { audio ->
+        // Recommendation schema v2 intentionally consumes the original six acoustic descriptors.
+        // Extractor schema v3 appends tempo/confidence, so accept both legacy/core six-value vectors
+        // and newer vectors with additional descriptors while keeping the learned model dimension
+        // immutable. Cache/storage compatibility remains governed separately by AudioFeatureSchema.
+        track.audioFeatures?.takeIf(::hasModelCompatibleAudio)?.let { audio ->
             flag(RecommendationFeature.AUDIO_AVAILABLE, true)
             audioFeatures.forEachIndexed { index, feature -> put(feature, audio[index]) }
         }
@@ -135,4 +139,8 @@ object PersonalizationFeatureVectorizer {
     private val audioFeatures = listOf(RecommendationFeature.AUDIO_RMS, RecommendationFeature.AUDIO_ZCR,
         RecommendationFeature.AUDIO_SILENCE, RecommendationFeature.AUDIO_DYNAMIC_RANGE,
         RecommendationFeature.AUDIO_CENTROID, RecommendationFeature.AUDIO_ROLLOFF)
+
+    private fun hasModelCompatibleAudio(values: DoubleArray): Boolean =
+        values.size >= audioFeatures.size &&
+            values.take(audioFeatures.size).all { it.isFinite() && it in 0.0..1.0 }
 }
