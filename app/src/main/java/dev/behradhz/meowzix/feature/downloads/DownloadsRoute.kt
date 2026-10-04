@@ -69,13 +69,31 @@ fun DownloadsRoute(viewModel: DownloadsViewModel = hiltViewModel()) {
         }
         if (active.isNotEmpty()) {
             item { SectionTitle("Downloading now") }
-            items(active, key = { it.trackId }) { row -> DownloadRowCard(row, { viewModel.cancel(row.trackId) }, { viewModel.retry(row.trackId) }, { viewModel.remove(row.trackId) }) }
+            items(active, key = { it.trackId }) { row ->
+                DownloadRowCard(
+                    row = row,
+                    onPause = { viewModel.pause(row.trackId) },
+                    onResume = { viewModel.resume(row.trackId) },
+                    onCancel = { viewModel.cancel(row.trackId) },
+                    onRetry = { viewModel.retry(row.trackId) },
+                    onRemove = { viewModel.remove(row.trackId) },
+                )
+            }
         }
         item { SectionTitle("Download library") }
         if (rest.isEmpty() && active.isEmpty()) {
             item { Text("Use the download icon on a track cover, or download a whole Telegram source above.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)) }
         } else {
-            items(rest, key = { it.trackId }) { row -> DownloadRowCard(row, { viewModel.cancel(row.trackId) }, { viewModel.retry(row.trackId) }, { viewModel.remove(row.trackId) }) }
+            items(rest, key = { it.trackId }) { row ->
+                DownloadRowCard(
+                    row = row,
+                    onPause = { viewModel.pause(row.trackId) },
+                    onResume = { viewModel.resume(row.trackId) },
+                    onCancel = { viewModel.cancel(row.trackId) },
+                    onRetry = { viewModel.retry(row.trackId) },
+                    onRemove = { viewModel.remove(row.trackId) },
+                )
+            }
         }
     }
 }
@@ -133,7 +151,14 @@ private fun TelegramDownloadSource(
 }
 
 @Composable
-private fun DownloadRowCard(row: DownloadRow, onCancel: () -> Unit, onRetry: () -> Unit, onRemove: () -> Unit) {
+private fun DownloadRowCard(
+    row: DownloadRow,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
+    onRemove: () -> Unit,
+) {
     Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)) {
         Column(Modifier.padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -143,14 +168,24 @@ private fun DownloadRowCard(row: DownloadRow, onCancel: () -> Unit, onRetry: () 
                     Text(row.status.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f))
                 }
                 when (row.status) {
-                    DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> OutlinedButton(onClick = onCancel) { Text("Cancel") }
-                    DownloadStatus.FAILED, DownloadStatus.CANCELED -> Button(onClick = onRetry) { Text("Retry") }
+                    DownloadStatus.DOWNLOADING,
+                    DownloadStatus.QUEUED,
+                    -> OutlinedButton(onClick = onPause) { Text("Pause") }
+                    DownloadStatus.PAUSED -> Button(onClick = onResume) { Text("Resume") }
+                    DownloadStatus.FAILED,
+                    DownloadStatus.CANCELED,
+                    -> Button(onClick = onRetry) { Text("Retry") }
                     DownloadStatus.COMPLETED -> OutlinedButton(onClick = onRemove) { Text("Remove") }
                 }
             }
             if (row.status == DownloadStatus.DOWNLOADING || row.status == DownloadStatus.QUEUED) {
                 Spacer(Modifier.size(8.dp))
                 if (row.progress != null) LinearProgressIndicator(progress = { row.progress }, modifier = Modifier.fillMaxWidth()) else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            if (row.status == DownloadStatus.PAUSED || row.status == DownloadStatus.FAILED) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (row.status == DownloadStatus.PAUSED) OutlinedButton(onClick = onCancel) { Text("Cancel") }
+                }
             }
             row.failureReason?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
@@ -162,5 +197,10 @@ private fun DownloadRowCard(row: DownloadRow, onCancel: () -> Unit, onRetry: () 
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Text(label, modifier = Modifier.weight(1f)); Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled) }
 }
 private val DownloadStatus.label: String get() = when (this) {
-    DownloadStatus.QUEUED -> "Queued"; DownloadStatus.DOWNLOADING -> "Downloading"; DownloadStatus.COMPLETED -> "Available offline"; DownloadStatus.FAILED -> "Download failed"; DownloadStatus.CANCELED -> "Canceled"
+    DownloadStatus.QUEUED -> "Queued"
+    DownloadStatus.DOWNLOADING -> "Downloading"
+    DownloadStatus.PAUSED -> "Paused"
+    DownloadStatus.COMPLETED -> "Available offline"
+    DownloadStatus.FAILED -> "Download failed"
+    DownloadStatus.CANCELED -> "Canceled"
 }
