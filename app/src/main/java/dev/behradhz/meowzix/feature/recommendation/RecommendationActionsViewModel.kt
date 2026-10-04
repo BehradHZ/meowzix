@@ -7,6 +7,7 @@ import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.recommendation.PersonalizationMaintenance
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackRepository
@@ -22,7 +23,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Presentation/queue actions consume canonical IDs; the engine never executes playback. */
 data class RecommendationActionState(
     val trackId: UUID? = null,
     val title: String = "",
@@ -33,6 +33,9 @@ data class RecommendationActionState(
     val error: String? = null,
     val feedbackNotice: String? = null,
     val feedbackTrackId: UUID? = null,
+    val showInsights: Boolean = false,
+    val insightsLoading: Boolean = false,
+    val insightsText: String? = null,
 )
 
 @HiltViewModel
@@ -41,37 +44,38 @@ class RecommendationActionsViewModel @Inject constructor(
     private val library: MusicLibraryRepository,
     private val queue: QueueRepository,
     private val feedback: RecommendationFeedbackRepository,
+    private val maintenance: PersonalizationMaintenance,
 ) : ViewModel() {
     private val _state = MutableStateFlow(RecommendationActionState())
     val state = _state.asStateFlow()
     private var load: Job? = null
 
-    fun why(trackId: UUID, reasons: List<RecommendationReason>? = null) = open(trackId, why = true, knownReasons = reasons)
-    fun continueVibe(trackId: UUID) = open(trackId, why = false)
+    fun why(trackId: UUID, reasons: List<RecommendationReason>? = null) = open(trackId, true, reasons)
+    fun continueVibe(trackId: UUID) = open(trackId, false)
+
+    fun openInsights() {
+        load?.cancel()
+        _state.value = RecommendationActionState(showInsights = true, insightsLoading = true)
+        load = viewModelScope.launch {
+            _state.value = try {
+                RecommendationActionState(showInsights = true, insightsText = maintenance.debugReport())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                RecommendationActionState(showInsights = true, error = "Unable to build local insights.")
+            }
+        }
+    }
 
     fun moreLikeThis(trackId: UUID) {
         viewModelScope.launch {
             feedback.set(trackId, RecommendationFeedbackAction.MORE_LIKE_THIS)
-            open(
-                trackId = trackId,
-                why = false,
-                feedbackNotice = "More like this saved",
-                feedbackTrackId = trackId,
-            )
+            open(trackId, false, feedbackNotice = "More like this saved", feedbackTrackId = trackId)
         }
     }
 
-    fun suggestLess(trackId: UUID) = setFeedback(
-        trackId,
-        RecommendationFeedbackAction.SUGGEST_LESS,
-        "We'll suggest this less",
-    )
-
-    fun snooze(trackId: UUID) = setFeedback(
-        trackId,
-        RecommendationFeedbackAction.SNOOZE,
-        "Hidden from Smart suggestions for 24 hours",
-    )
+    fun suggestLess(trackId: UUID) = setFeedback(trackId, RecommendationFeedbackAction.SUGGEST_LESS, "We'll suggest this less")
+    fun snooze(trackId: UUID) = setFeedback(trackId, RecommendationFeedbackAction.SNOOZE, "Hidden from Smart suggestions for 24 hours")
 
     fun undoFeedback(trackId: UUID) {
         viewModelScope.launch {
@@ -83,10 +87,7 @@ class RecommendationActionsViewModel @Inject constructor(
     private fun setFeedback(trackId: UUID, action: RecommendationFeedbackAction, notice: String) {
         viewModelScope.launch {
             feedback.set(trackId, action)
-            _state.value = RecommendationActionState(
-                feedbackNotice = notice,
-                feedbackTrackId = trackId,
-            )
+            _state.value = RecommendationActionState(feedbackNotice = notice, feedbackTrackId = trackId)
         }
     }
 
@@ -98,13 +99,7 @@ class RecommendationActionsViewModel @Inject constructor(
         feedbackTrackId: UUID? = null,
     ) {
         load?.cancel()
-        _state.value = RecommendationActionState(
-            trackId = trackId,
-            loading = true,
-            why = why,
-            feedbackNotice = feedbackNotice,
-            feedbackTrackId = feedbackTrackId,
-        )
+        _state.value = RecommendationActionState(trackId = trackId, loading = true, why = why, feedbackNotice = feedbackNotice, feedbackTrackId = feedbackTrackId)
         load = viewModelScope.launch {
             try {
                 val libraryTracks = withContext(Dispatchers.Default) { library.observeTracks().first().associateBy { it.id } }
@@ -129,19 +124,12 @@ class RecommendationActionsViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                _state.value = RecommendationActionState(
-                    trackId = trackId,
-                    why = why,
-                    error = "Unable to load suggestions. Try again.",
-                    feedbackNotice = feedbackNotice,
-                    feedbackTrackId = feedbackTrackId,
-                )
+                _state.value = RecommendationActionState(trackId = trackId, why = why, error = "Unable to load suggestions. Try again.", feedbackNotice = feedbackNotice, feedbackTrackId = feedbackTrackId)
             }
         }
     }
 
     fun dismiss() { load?.cancel(); _state.value = RecommendationActionState() }
-    fun clearNotice() { _state.value = _state.value.copy(feedbackNotice = null, feedbackTrackId = null) }
 
     fun play(trackId: UUID) {
         val ids = _state.value.tracks.map { it.id }
