@@ -180,6 +180,46 @@ class MigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun migrateThirteenToFourteenPreservesLibraryAndAddsVersionedLyrics() {
+        // Reconstruct v13 from the last committed schema fixture so this regression test stays
+        // meaningful even though intermediate schema JSON files were historically not committed.
+        val database = helper.createDatabase(TEST_DATABASE_13_14, 10)
+        MIGRATION_10_11.migrate(database)
+        MIGRATION_11_12.migrate(database)
+        MIGRATION_12_13.migrate(database)
+        database.execSQL(
+            "INSERT INTO tracks (id, title, normalizedTitle, durationMs, favorite, hidden, createdAtEpochMs, updatedAtEpochMs) " +
+                "VALUES ('lyrics-kept', 'Lyrics Kept', 'lyrics kept', 100000, 1, 0, 1, 1)",
+        )
+        database.version = 13
+
+        MIGRATION_13_14.migrate(database)
+        database.version = 14
+
+        database.query("SELECT favorite FROM tracks WHERE id = 'lyrics-kept'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+        }
+        database.query("PRAGMA table_info(lyrics_versions)").use { cursor ->
+            assertEquals(11, cursor.count)
+        }
+        database.query("PRAGMA foreign_key_list(lyrics_versions)").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("tracks", cursor.getString(cursor.getColumnIndexOrThrow("table")))
+        }
+        listOf(
+            "index_lyrics_versions_trackId",
+            "index_lyrics_versions_trackId_selected",
+        ).forEach { indexName ->
+            database.query(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+                arrayOf(indexName),
+            ).use { cursor -> assertTrue(cursor.moveToFirst()) }
+        }
+        database.close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"
@@ -190,5 +230,6 @@ class MigrationTest {
         const val TEST_DATABASE_7_8_REPAIR = "migration-test-7-8-repair"
         const val TEST_DATABASE_10_11 = "migration-test-10-11"
         const val TEST_DATABASE_11_12 = "migration-test-11-12"
+        const val TEST_DATABASE_13_14 = "migration-test-13-14"
     }
 }
