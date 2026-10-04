@@ -32,15 +32,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
-import dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs
-import dev.behradhz.meowzix.feature.recommendation.title
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,14 +54,11 @@ import dev.chrisbanes.haze.HazeState
 fun HomeRoute(
     hazeState: HazeState,
     currentTrack: Track?,
-    onPlayTrack: (Track, List<Track>) -> Unit,
     onPlayCollection: (List<Track>) -> Unit,
     onOpenLibrary: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val recommendationActions: RecommendationActionsViewModel = hiltViewModel()
-    RecommendationActionDialogs(recommendationActions)
 
     Box(Modifier.fillMaxSize()) {
         HomeAmbientBackdrop()
@@ -83,7 +77,6 @@ fun HomeRoute(
         ) {
             item("header") {
                 Column {
-                    TextButton(onClick = { viewModel.refresh() }) { Text("Refresh mixes") }
                     Text(
                         text = "Home",
                         style = MaterialTheme.typography.displaySmall,
@@ -103,23 +96,18 @@ fun HomeRoute(
                     ContinueGlassHero(
                         hazeState = hazeState,
                         track = track,
-                        onClick = { onPlayTrack(track, listOf(track)) },
+                        onClick = { viewModel.playFromHome(track.id) },
                     )
                 }
             }
 
-            state.sections.forEachIndexed { index, row ->
-                item("recommendation-section-$index") {
-                    if (row.tracks.isNotEmpty()) FeaturedRecommendations(
-                        hazeState = hazeState, tracks = row.tracks,
-                        onPlay = { track -> onPlayTrack(track, row.tracks) },
-                        title = row.section.title(),
-                        onWhy = { track -> recommendationActions.why(track.id, row.section.items.firstOrNull { it.trackId == track.id }?.score?.reasons) },
-                        onVibe = { track -> recommendationActions.continueVibe(track.id) },
-                    ) else Column {
-                        Text(row.section.title(), style = MaterialTheme.typography.titleLarge)
-                        Text("More listening will help shape this mix.", style = MaterialTheme.typography.bodySmall)
-                    }
+            if (state.recommended.isNotEmpty()) {
+                item("recommended") {
+                    FeaturedRecommendations(
+                        hazeState = hazeState,
+                        tracks = state.recommended,
+                        onPlay = { track -> viewModel.playFromHome(track.id) },
+                    )
                 }
             }
 
@@ -128,7 +116,7 @@ fun HomeRoute(
                     RecentGlassList(
                         hazeState = hazeState,
                         tracks = state.recent,
-                        onPlay = { track -> onPlayTrack(track, state.recent) },
+                        onPlay = { track -> viewModel.playFromHome(track.id) },
                     )
                 }
             }
@@ -158,7 +146,7 @@ fun HomeRoute(
                     RecentlyAddedGlassPanel(
                         hazeState = hazeState,
                         tracks = state.recentlyAdded,
-                        onPlay = { track -> onPlayTrack(track, state.recentlyAdded) },
+                        onPlay = { track -> viewModel.playFromHome(track.id) },
                         onOpenLibrary = onOpenLibrary,
                     )
                 }
@@ -171,27 +159,55 @@ fun HomeRoute(
     }
 }
 
+/**
+ * Keeps the quiet abstract atmosphere from 0.4, with a little more depth behind glass.
+ * These shapes are deliberately non-interactive and low-contrast so the music remains primary.
+ */
 @Composable
 private fun HomeAmbientBackdrop() {
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier
-                .offset(x = (-70).dp, y = 110.dp)
-                .size(240.dp)
-                .blur(72.dp)
+                .offset(x = (-92).dp, y = 84.dp)
+                .size(300.dp)
+                .blur(92.dp)
                 .background(
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
                     CircleShape,
                 ),
         )
         Box(
             Modifier
-                .align(Alignment.CenterEnd)
-                .offset(x = 90.dp, y = (-40).dp)
-                .size(260.dp)
-                .blur(88.dp)
+                .align(Alignment.TopEnd)
+                .offset(x = 108.dp, y = 210.dp)
+                .size(286.dp)
+                .blur(96.dp)
                 .background(
-                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.09f),
+                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.10f),
+                    CircleShape,
+                ),
+        )
+        Box(
+            Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = (-128).dp, y = 210.dp)
+                .width(360.dp)
+                .height(118.dp)
+                .rotate(-18f)
+                .blur(74.dp)
+                .background(
+                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.07f),
+                    RoundedCornerShape(90.dp),
+                ),
+        )
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .offset(x = 88.dp, y = 72.dp)
+                .size(250.dp)
+                .blur(90.dp)
+                .background(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.09f),
                     CircleShape,
                 ),
         )
@@ -261,14 +277,11 @@ private fun FeaturedRecommendations(
     hazeState: HazeState,
     tracks: List<Track>,
     onPlay: (Track) -> Unit,
-    title: String,
-    onWhy: (Track) -> Unit,
-    onVibe: (Track) -> Unit,
 ) {
     Column {
         HomeSectionHeading(
-            title = title,
-            subtitle = "From your library, for this moment",
+            title = "Made for you",
+            subtitle = "Picked from your listening",
             icon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
         )
         LazyRow(
@@ -287,8 +300,6 @@ private fun FeaturedRecommendations(
                 ) {
                     Column(Modifier.padding(11.dp)) {
                         TrackArtwork(track.artworkRef, track.title, 150.dp)
-                        TextButton(onClick = { onWhy(track) }) { Text("Why this song?") }
-                        TextButton(onClick = { onVibe(track) }) { Text("Continue the vibe") }
                         Text(
                             text = track.title,
                             style = MaterialTheme.typography.titleMedium,
