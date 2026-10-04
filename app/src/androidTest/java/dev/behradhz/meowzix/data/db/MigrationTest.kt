@@ -164,13 +164,19 @@ class MigrationTest {
 
     @Test
     fun migrateTwelveToThirteenPreservesLibraryAndAddsCanonicalTrainingSamples() {
-        val database = helper.createDatabase("migration-test-12-13", 10)
+        // As with v11/v12, schema 13 was historically generated in CI but not committed. Rebuild
+        // the real v12 state from the committed v10 fixture, then exercise the production migration
+        // directly instead of requiring a fabricated 13.json validation fixture.
+        val database = helper.createDatabase(TEST_DATABASE_12_13, 10)
         MIGRATION_10_11.migrate(database)
         MIGRATION_11_12.migrate(database)
         database.execSQL("INSERT INTO tracks (id, title, normalizedTitle, durationMs, favorite, hidden, createdAtEpochMs, updatedAtEpochMs) VALUES ('kept', 'Kept', 'kept', 100000, 1, 0, 1, 1)")
         database.version = 12
-        database.close()
-        val migrated = helper.runMigrationsAndValidate("migration-test-12-13", 13, true, MIGRATION_12_13)
+
+        MIGRATION_12_13.migrate(database)
+        database.version = 13
+        val migrated = database
+
         migrated.query("SELECT favorite FROM tracks WHERE id = 'kept'").use {
             assertTrue(it.moveToFirst()); assertEquals(1, it.getInt(0))
         }
@@ -230,6 +236,7 @@ class MigrationTest {
         const val TEST_DATABASE_7_8_REPAIR = "migration-test-7-8-repair"
         const val TEST_DATABASE_10_11 = "migration-test-10-11"
         const val TEST_DATABASE_11_12 = "migration-test-11-12"
+        const val TEST_DATABASE_12_13 = "migration-test-12-13"
         const val TEST_DATABASE_13_14 = "migration-test-13-14"
     }
 }
