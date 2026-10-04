@@ -36,6 +36,7 @@ import dev.behradhz.meowzix.data.history.RoomListeningHistoryRepository
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.MediaStoreScanner
 import dev.behradhz.meowzix.data.recommendation.AndroidPcmAudioFeatureExtractor
+import dev.behradhz.meowzix.data.recommendation.DataStoreRecommendationFeedbackRepository
 import dev.behradhz.meowzix.data.recommendation.HeuristicRecommendationEngine
 import dev.behradhz.meowzix.data.recommendation.LocalLinearPersonalizationModel
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
@@ -57,6 +58,7 @@ import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.recommendation.AudioFeatureExtractor
 import dev.behradhz.meowzix.domain.recommendation.PersonalizationModel
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
+import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackRepository
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
@@ -118,6 +120,12 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindRecommendationEngine(impl: HeuristicRecommendationEngine): RecommendationEngine
+
+    @Binds
+    @Singleton
+    abstract fun bindRecommendationFeedbackRepository(
+        impl: DataStoreRecommendationFeedbackRepository,
+    ): RecommendationFeedbackRepository
 
     @Binds
     @Singleton
