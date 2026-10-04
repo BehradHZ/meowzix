@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.playback.persistence
 
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.QueueTrackProvenance
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -33,6 +34,7 @@ class PlaybackSessionCodecTest {
             playbackMode = PlaybackMode.ORDERED,
             repeatMode = RepeatMode.ALL,
             logicalMediaIds = listOf("track-0", "track|1", "track-2", "track-3"),
+            logicalOrigins = List(4) { QueueTrackProvenance.MANUAL },
             logicalCurrentIndex = 2,
             materializedStartIndex = 1,
             materializedEndExclusive = 4,
@@ -83,6 +85,7 @@ class PlaybackSessionCodecTest {
             playbackMode = PlaybackMode.PURE_SHUFFLE,
             repeatMode = RepeatMode.ALL,
             logicalMediaIds = listOf("third", "second", "first", "fourth"),
+            logicalOrigins = List(4) { QueueTrackProvenance.MANUAL },
             logicalCurrentIndex = 2,
             materializedStartIndex = 1,
             materializedEndExclusive = 4,
