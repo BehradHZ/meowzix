@@ -99,7 +99,7 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
     private suspend fun decodeSegment(source: AudioFeatureSource, probe: AudioProbe, startUs: Long): DoubleArray? {
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
-        try {
+        return try {
             setDataSource(extractor, source)
             extractor.selectTrack(probe.trackIndex)
             if (startUs > 0L) {
