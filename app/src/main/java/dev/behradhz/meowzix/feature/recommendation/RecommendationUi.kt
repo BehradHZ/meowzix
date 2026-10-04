@@ -96,8 +96,10 @@ fun RecommendationActionContent(
                 title = { Text("Recommendation updated") },
                 text = { Text(state.feedbackNotice) },
                 confirmButton = { TextButton(onClick = dismiss) { Text("Done") } },
-                dismissButton = feedbackTrackId?.let { id ->
-                    @Composable { TextButton(onClick = { undoFeedback(id) }) { Text("Undo") } }
+                dismissButton = {
+                    if (feedbackTrackId != null) {
+                        TextButton(onClick = { undoFeedback(feedbackTrackId) }) { Text("Undo") }
+                    }
                 },
             )
         }
