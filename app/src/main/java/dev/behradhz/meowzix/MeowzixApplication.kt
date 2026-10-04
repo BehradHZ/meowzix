@@ -5,6 +5,7 @@ import dagger.hilt.android.HiltAndroidApp
 import dev.behradhz.meowzix.data.downloads.ManagedStorageManager
 import dev.behradhz.meowzix.data.downloads.ResilientDownloadRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
+import dev.behradhz.meowzix.playback.SmartQueueLiveAdapter
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +18,7 @@ class MeowzixApplication : Application() {
     @Inject lateinit var resilientDownloadRepository: ResilientDownloadRepository
     @Inject lateinit var personalizationTrainer: dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
     @Inject lateinit var managedStorageManager: ManagedStorageManager
+    @Inject lateinit var smartQueueLiveAdapter: SmartQueueLiveAdapter
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -25,6 +27,7 @@ class MeowzixApplication : Application() {
         telegramForwardRepository.initialize()
         resilientDownloadRepository.initialize()
         personalizationTrainer.refreshIfStale()
+        smartQueueLiveAdapter.initialize()
         applicationScope.launch {
             managedStorageManager.reconcileAndEnforceBudget()
         }
