@@ -8,12 +8,12 @@ import dev.behradhz.meowzix.core.common.TextNormalizer
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.repository.HomeHistoryReader
 import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
-import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.domain.playback.PlaybackController
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
-import java.time.Instant
-import java.time.ZoneId
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.delay
@@ -32,7 +32,10 @@ data class SuggestedArtist(
     val tracks: List<Track>,
 )
 
-data class HomeRecommendationSection(val section: dev.behradhz.meowzix.domain.recommendation.RecommendationSection, val tracks: List<Track>)
+data class HomeRecommendationSection(
+    val section: dev.behradhz.meowzix.domain.recommendation.RecommendationSection,
+    val tracks: List<Track>,
+)
 
 data class HomeUiState(
     val recommended: List<Track> = emptyList(),
@@ -50,7 +53,8 @@ class HomeViewModel @Inject constructor(
     private val playlists: PlaylistRepository,
     private val history: HomeHistoryReader,
     private val recommendationEngine: RecommendationEngine,
-    private val playback: dev.behradhz.meowzix.domain.playback.PlaybackController,
+    private val playback: PlaybackController,
+    private val queueRepository: QueueRepository,
     private val listeningHistory: dev.behradhz.meowzix.domain.history.ListeningHistoryRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(cachedState ?: HomeUiState())
@@ -59,6 +63,30 @@ class HomeViewModel @Inject constructor(
     fun refresh() = viewModelScope.launch {
         cachedAtElapsedRealtime = 0L
         refreshIfDue(forceWhenEmpty = true)
+    }
+
+    /**
+     * Home is recommendation-first: tapping any track starts that track and immediately
+     * rebuilds the queue around its local Continue-the-Vibe recommendations.
+     */
+    fun playFromHome(trackId: UUID) {
+        viewModelScope.launch {
+            val vibeIds = runCatching {
+                recommendationEngine.continueTheVibe(trackId, HOME_VIBE_SIZE)
+                    .map { it.trackId }
+            }.getOrDefault(emptyList())
+
+            val queueIds = buildList {
+                add(trackId)
+                addAll(vibeIds.filterNot { it == trackId })
+            }.distinct()
+
+            queueRepository.replaceAndPlay(
+                trackIds = queueIds,
+                startTrackId = trackId,
+                mode = PlaybackMode.ORDERED,
+            )
+        }
     }
 
     init {
@@ -133,7 +161,9 @@ class HomeViewModel @Inject constructor(
 
         val sectionRows = recommendationEngine.sections(playback.state.value.currentTrack?.id)
         val recommendedIds = runCatching {
-            sectionRows.firstOrNull { it.kind == dev.behradhz.meowzix.domain.recommendation.RecommendationSectionKind.FOR_YOU_NOW }?.items?.map { it.trackId }.orEmpty()
+            sectionRows.firstOrNull {
+                it.kind == dev.behradhz.meowzix.domain.recommendation.RecommendationSectionKind.FOR_YOU_NOW
+            }?.items?.map { it.trackId }.orEmpty()
         }.getOrDefault(emptyList())
 
         val recommended = library.tracks(recommendedIds.take(14))
@@ -165,7 +195,12 @@ class HomeViewModel @Inject constructor(
             playlists = playlistRows.sortedByDescending(PlaylistSummary::updatedAt).take(10),
             artists = artists,
             isReady = true,
-            sections = sectionRows.map { section -> HomeRecommendationSection(section, library.tracks(section.items.map { it.trackId })) },
+            sections = sectionRows.map { section ->
+                HomeRecommendationSection(
+                    section,
+                    library.tracks(section.items.map { it.trackId }),
+                )
+            },
         )
     }
 
@@ -177,6 +212,7 @@ class HomeViewModel @Inject constructor(
     private companion object {
         const val HOME_REFRESH_INTERVAL_MS = 5L * 60L * 1_000L
         const val MIN_REFRESH_CHECK_MS = 30_000L
+        const val HOME_VIBE_SIZE = 15
         val refreshMutex = Mutex()
 
         @Volatile
