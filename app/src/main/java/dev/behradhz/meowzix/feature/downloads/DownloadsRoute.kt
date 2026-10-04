@@ -179,9 +179,7 @@ private fun TelegramDownloadSource(
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(chat.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    text = progress?.let {
-                        "Downloading ${it.completedTracks} of ${it.totalTracks} · tap the ring to stop"
-                    } ?: "Selected Telegram source",
+                    text = progress?.displayText() ?: "Selected Telegram source",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f),
                     maxLines = 2,
@@ -203,7 +201,7 @@ private fun TelegramDownloadSource(
                             strokeWidth = 4.dp,
                         )
                         Text(
-                            text = progress.completedTracks.toString(),
+                            text = if (progress.usesBytes) "${(progress.fraction * 100).toInt()}%" else progress.completedTracks.toString(),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                         )
@@ -270,6 +268,12 @@ private val DownloadStatus.label: String get() = when (this) {
     DownloadStatus.COMPLETED -> "Available offline"
     DownloadStatus.FAILED -> "Download failed"
     DownloadStatus.CANCELED -> "Canceled"
+}
+
+private fun ChatDownloadProgress.displayText(): String = if (usesBytes) {
+    "${formatBytes(downloadedBytes ?: 0L)} of ${formatBytes(totalBytes ?: 0L)} · tap the ring to stop"
+} else {
+    "Downloading $completedTracks of $totalTracks · tap the ring to stop"
 }
 
 private fun formatBytes(bytes: Long): String {
