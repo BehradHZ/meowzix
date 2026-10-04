@@ -86,7 +86,7 @@ class TransferSchedulerTest {
         }
         testScheduler.runCurrent()
         val second = async {
-            scheduler.run("td:99:0:0:true", TransferPriority.IMMEDIATE_PLAYBACK) {
+            scheduler.run<Int>("td:99:0:0:true", TransferPriority.IMMEDIATE_PLAYBACK) {
                 error("shared request must not execute twice")
             }
         }
