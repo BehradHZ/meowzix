@@ -32,6 +32,7 @@ data class RecommendationActionState(
     val tracks: List<Track> = emptyList(),
     val error: String? = null,
     val feedbackNotice: String? = null,
+    val feedbackTrackId: UUID? = null,
 )
 
 @HiltViewModel
@@ -51,7 +52,12 @@ class RecommendationActionsViewModel @Inject constructor(
     fun moreLikeThis(trackId: UUID) {
         viewModelScope.launch {
             feedback.set(trackId, RecommendationFeedbackAction.MORE_LIKE_THIS)
-            open(trackId, why = false, feedbackNotice = "More like this saved")
+            open(
+                trackId = trackId,
+                why = false,
+                feedbackNotice = "More like this saved",
+                feedbackTrackId = trackId,
+            )
         }
     }
 
@@ -77,7 +83,10 @@ class RecommendationActionsViewModel @Inject constructor(
     private fun setFeedback(trackId: UUID, action: RecommendationFeedbackAction, notice: String) {
         viewModelScope.launch {
             feedback.set(trackId, action)
-            _state.value = RecommendationActionState(feedbackNotice = notice)
+            _state.value = RecommendationActionState(
+                feedbackNotice = notice,
+                feedbackTrackId = trackId,
+            )
         }
     }
 
@@ -86,9 +95,16 @@ class RecommendationActionsViewModel @Inject constructor(
         why: Boolean,
         knownReasons: List<RecommendationReason>? = null,
         feedbackNotice: String? = null,
+        feedbackTrackId: UUID? = null,
     ) {
         load?.cancel()
-        _state.value = RecommendationActionState(trackId = trackId, loading = true, why = why, feedbackNotice = feedbackNotice)
+        _state.value = RecommendationActionState(
+            trackId = trackId,
+            loading = true,
+            why = why,
+            feedbackNotice = feedbackNotice,
+            feedbackTrackId = feedbackTrackId,
+        )
         load = viewModelScope.launch {
             try {
                 val libraryTracks = withContext(Dispatchers.Default) { library.observeTracks().first().associateBy { it.id } }
@@ -99,6 +115,7 @@ class RecommendationActionsViewModel @Inject constructor(
                     why = true,
                     reasons = knownReasons ?: engine.whyThisSong(trackId),
                     feedbackNotice = feedbackNotice,
+                    feedbackTrackId = feedbackTrackId,
                 ) else {
                     val ids = engine.continueTheVibe(trackId, 15).map { it.trackId }
                     RecommendationActionState(
@@ -106,6 +123,7 @@ class RecommendationActionsViewModel @Inject constructor(
                         title = title,
                         tracks = ids.mapNotNull(libraryTracks::get),
                         feedbackNotice = feedbackNotice,
+                        feedbackTrackId = feedbackTrackId,
                     )
                 }
             } catch (cancelled: CancellationException) {
@@ -116,13 +134,14 @@ class RecommendationActionsViewModel @Inject constructor(
                     why = why,
                     error = "Unable to load suggestions. Try again.",
                     feedbackNotice = feedbackNotice,
+                    feedbackTrackId = feedbackTrackId,
                 )
             }
         }
     }
 
     fun dismiss() { load?.cancel(); _state.value = RecommendationActionState() }
-    fun clearNotice() { _state.value = _state.value.copy(feedbackNotice = null) }
+    fun clearNotice() { _state.value = _state.value.copy(feedbackNotice = null, feedbackTrackId = null) }
 
     fun play(trackId: UUID) {
         val ids = _state.value.tracks.map { it.id }
