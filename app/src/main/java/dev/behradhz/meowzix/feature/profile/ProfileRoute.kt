@@ -20,11 +20,16 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +45,8 @@ fun ProfileRoute(
     onOpenHistory: () -> Unit,
     onOpenTelegram: () -> Unit,
 ) {
+    var showEqualizer by remember { mutableStateOf(false) }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -78,6 +85,14 @@ fun ProfileRoute(
             }
         }
 
+        item("equalizer") {
+            ProfileDestinationRow(
+                title = "Equalizer",
+                subtitle = "Device-aware frequency controls and presets",
+                icon = Icons.Rounded.Tune,
+                onClick = { showEqualizer = true },
+            )
+        }
         item("offline") {
             ProfileDestinationRow(
                 title = "Offline",
@@ -102,6 +117,10 @@ fun ProfileRoute(
                 onClick = onOpenTelegram,
             )
         }
+    }
+
+    if (showEqualizer) {
+        EqualizerSheet(onDismiss = { showEqualizer = false })
     }
 }
 
