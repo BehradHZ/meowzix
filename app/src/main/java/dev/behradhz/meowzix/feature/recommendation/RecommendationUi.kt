@@ -31,6 +31,7 @@ fun RecommendationReason.label(): String = when (this) {
     RecommendationReason.HIGH_MODEL_CONFIDENCE -> "Fits your current listening pattern"
     RecommendationReason.DISCOVERY_PICK -> "A discovery pick to explore your library"
     RecommendationReason.AVOIDED_RECENT_REPETITION -> "Adds variety to your recent listening"
+    RecommendationReason.EXPLICIT_MORE_LIKE -> "You asked for more recommendations like this"
     RecommendationReason.INSUFFICIENT_EVIDENCE -> "There isn't enough evidence for a more specific explanation yet"
 }
 fun RecommendationSection.title(): String = when (kind) {
@@ -64,13 +65,45 @@ fun RecommendationActionButtons(trackId: UUID, modifier: Modifier = Modifier, vi
 @Composable
 fun RecommendationActionDialogs(viewModel: RecommendationActionsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    RecommendationActionContent(state, viewModel::dismiss, viewModel::play, viewModel::playMix)
+    RecommendationActionContent(
+        state = state,
+        dismiss = viewModel::dismiss,
+        play = viewModel::play,
+        playMix = viewModel::playMix,
+        moreLikeThis = viewModel::moreLikeThis,
+        suggestLess = viewModel::suggestLess,
+        snooze = viewModel::snooze,
+        undoFeedback = viewModel::undoFeedback,
+    )
 }
 
 @Composable
-fun RecommendationActionContent(state: RecommendationActionState, dismiss: () -> Unit,
-    play: (UUID) -> Unit, playMix: () -> Unit) {
-    if (state.trackId == null) return
+fun RecommendationActionContent(
+    state: RecommendationActionState,
+    dismiss: () -> Unit,
+    play: (UUID) -> Unit,
+    playMix: () -> Unit,
+    moreLikeThis: (UUID) -> Unit,
+    suggestLess: (UUID) -> Unit,
+    snooze: (UUID) -> Unit,
+    undoFeedback: (UUID) -> Unit,
+) {
+    if (state.trackId == null) {
+        val feedbackTrackId = state.feedbackTrackId
+        if (state.feedbackNotice != null) {
+            AlertDialog(
+                onDismissRequest = dismiss,
+                title = { Text("Recommendation updated") },
+                text = { Text(state.feedbackNotice) },
+                confirmButton = { TextButton(onClick = dismiss) { Text("Done") } },
+                dismissButton = feedbackTrackId?.let { id ->
+                    @Composable { TextButton(onClick = { undoFeedback(id) }) { Text("Undo") } }
+                },
+            )
+        }
+        return
+    }
+
     if (state.why) AlertDialog(
         onDismissRequest = dismiss,
         title = { Text("Why this song?") },
@@ -79,10 +112,16 @@ fun RecommendationActionContent(state: RecommendationActionState, dismiss: () ->
                 if (state.title.isNotBlank()) Text(state.title, style = MaterialTheme.typography.titleSmall)
                 when {
                     state.loading -> CircularProgressIndicator()
-                    state.error != null -> Text(state.error!!)
+                    state.error != null -> Text(state.error)
                     else -> state.reasons.ifEmpty { listOf(RecommendationReason.INSUFFICIENT_EVIDENCE) }.take(4).forEach { Text(it.label()) }
                 }
                 Text("Personalized on this device from your listening.", style = MaterialTheme.typography.bodySmall)
+                FeedbackActions(
+                    trackId = state.trackId,
+                    moreLikeThis = moreLikeThis,
+                    suggestLess = suggestLess,
+                    snooze = snooze,
+                )
             }
         },
         confirmButton = { TextButton(onClick = dismiss) { Text("Done") } },
@@ -90,9 +129,23 @@ fun RecommendationActionContent(state: RecommendationActionState, dismiss: () ->
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             Text("Continue the Vibe", style = MaterialTheme.typography.headlineSmall)
             Text(state.title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 8.dp))
+            state.feedbackNotice?.let { notice ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(notice, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    state.feedbackTrackId?.let { id ->
+                        TextButton(onClick = { undoFeedback(id) }) { Text("Undo") }
+                    }
+                }
+            }
+            FeedbackActions(
+                trackId = state.trackId,
+                moreLikeThis = moreLikeThis,
+                suggestLess = suggestLess,
+                snooze = snooze,
+            )
             when {
                 state.loading -> CircularProgressIndicator(Modifier.padding(20.dp))
-                state.error != null -> Text(state.error!!)
+                state.error != null -> Text(state.error)
                 state.tracks.isEmpty() -> Text("More music or listening history will help us find a matching mix.")
                 else -> {
                     Button(onClick = playMix) { Text("Play mix") }
@@ -110,6 +163,23 @@ fun RecommendationActionContent(state: RecommendationActionState, dismiss: () ->
                 }
             }
             Spacer(Modifier.height(28.dp))
+        }
+    }
+}
+
+@Composable
+private fun FeedbackActions(
+    trackId: UUID,
+    moreLikeThis: (UUID) -> Unit,
+    suggestLess: (UUID) -> Unit,
+    snooze: (UUID) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        TextButton(onClick = { moreLikeThis(trackId) }) { Text("More like this") }
+        Row(Modifier.fillMaxWidth()) {
+            TextButton(onClick = { suggestLess(trackId) }) { Text("Suggest less") }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { snooze(trackId) }) { Text("Don't suggest for 24 hours") }
         }
     }
 }
