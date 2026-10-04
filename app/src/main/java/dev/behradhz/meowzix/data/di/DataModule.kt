@@ -12,6 +12,7 @@ import dev.behradhz.meowzix.data.db.AudioFeatureDao
 import dev.behradhz.meowzix.data.db.DownloadDao
 import dev.behradhz.meowzix.data.db.HistoryDao
 import dev.behradhz.meowzix.data.db.LibraryDao
+import dev.behradhz.meowzix.data.db.LyricsDao
 import dev.behradhz.meowzix.data.db.MIGRATION_1_2
 import dev.behradhz.meowzix.data.db.MIGRATION_2_3
 import dev.behradhz.meowzix.data.db.MIGRATION_3_4
@@ -24,6 +25,7 @@ import dev.behradhz.meowzix.data.db.MIGRATION_9_10
 import dev.behradhz.meowzix.data.db.MIGRATION_10_11
 import dev.behradhz.meowzix.data.db.MIGRATION_11_12
 import dev.behradhz.meowzix.data.db.MIGRATION_12_13
+import dev.behradhz.meowzix.data.db.MIGRATION_13_14
 import dev.behradhz.meowzix.data.db.TrainingSampleDao
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.PlaylistDao
@@ -69,87 +71,25 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
-    @Binds
-    @Singleton
-    abstract fun bindMusicLibraryRepository(impl: LocalMusicLibraryRepository): MusicLibraryRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindPlaybackCatalog(impl: RoomPlaybackCatalog): PlaybackCatalog
-
-    @Binds
-    @Singleton
-    abstract fun bindPlaybackController(impl: ResolvingPlaybackController): PlaybackController
-
-    @Binds
-    @Singleton
-    abstract fun bindQueueRepository(impl: ResolvingPlaybackController): QueueRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindAudioVisualizerRepository(impl: AndroidAudioVisualizer): AudioVisualizerRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindTelegramRepository(impl: TdLibTelegramRepository): TelegramRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindTelegramForwardRepository(impl: TdLibTelegramForwardRepository): TelegramForwardRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindRemoteTrackPlaybackResolver(impl: TdLibRemoteTrackPlaybackResolver): RemoteTrackPlaybackResolver
-
-    @Binds
-    @Singleton
-    abstract fun bindDownloadRepository(impl: ResilientDownloadRepository): DownloadRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindSettingsRepository(impl: DataStoreSettingsRepository): SettingsRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindPlaylistRepository(impl: RoomPlaylistRepository): PlaylistRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindListeningHistoryRepository(impl: RoomListeningHistoryRepository): ListeningHistoryRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindRecommendationEngine(impl: HeuristicRecommendationEngine): RecommendationEngine
-
-    @Binds
-    @Singleton
-    abstract fun bindRecommendationFeedbackRepository(
-        impl: DataStoreRecommendationFeedbackRepository,
-    ): RecommendationFeedbackRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindPersonalizationModel(impl: LocalLinearPersonalizationModel): PersonalizationModel
-
-    @Binds
-    @Singleton
-    abstract fun bindAudioFeatureExtractor(impl: AndroidPcmAudioFeatureExtractor): AudioFeatureExtractor
-
-    @Binds
-    @Singleton
-    abstract fun bindTrainingScheduler(
-        impl: dev.behradhz.meowzix.data.recommendation.RecommendationWorkScheduler,
-    ): dev.behradhz.meowzix.domain.recommendation.TrainingScheduler
-
-    @Binds
-    @Singleton
-    abstract fun bindPersonalizationMaintenance(
-        impl: dev.behradhz.meowzix.data.recommendation.LocalPersonalizationMaintenance,
-    ): dev.behradhz.meowzix.domain.recommendation.PersonalizationMaintenance
-
-    @Binds
-    @Singleton
-    abstract fun bindLocalMediaScanner(impl: MediaStoreScanner): LocalMediaScanner
+    @Binds @Singleton abstract fun bindMusicLibraryRepository(impl: LocalMusicLibraryRepository): MusicLibraryRepository
+    @Binds @Singleton abstract fun bindPlaybackCatalog(impl: RoomPlaybackCatalog): PlaybackCatalog
+    @Binds @Singleton abstract fun bindPlaybackController(impl: ResolvingPlaybackController): PlaybackController
+    @Binds @Singleton abstract fun bindQueueRepository(impl: ResolvingPlaybackController): QueueRepository
+    @Binds @Singleton abstract fun bindAudioVisualizerRepository(impl: AndroidAudioVisualizer): AudioVisualizerRepository
+    @Binds @Singleton abstract fun bindTelegramRepository(impl: TdLibTelegramRepository): TelegramRepository
+    @Binds @Singleton abstract fun bindTelegramForwardRepository(impl: TdLibTelegramForwardRepository): TelegramForwardRepository
+    @Binds @Singleton abstract fun bindRemoteTrackPlaybackResolver(impl: TdLibRemoteTrackPlaybackResolver): RemoteTrackPlaybackResolver
+    @Binds @Singleton abstract fun bindDownloadRepository(impl: ResilientDownloadRepository): DownloadRepository
+    @Binds @Singleton abstract fun bindSettingsRepository(impl: DataStoreSettingsRepository): SettingsRepository
+    @Binds @Singleton abstract fun bindPlaylistRepository(impl: RoomPlaylistRepository): PlaylistRepository
+    @Binds @Singleton abstract fun bindListeningHistoryRepository(impl: RoomListeningHistoryRepository): ListeningHistoryRepository
+    @Binds @Singleton abstract fun bindRecommendationEngine(impl: HeuristicRecommendationEngine): RecommendationEngine
+    @Binds @Singleton abstract fun bindRecommendationFeedbackRepository(impl: DataStoreRecommendationFeedbackRepository): RecommendationFeedbackRepository
+    @Binds @Singleton abstract fun bindPersonalizationModel(impl: LocalLinearPersonalizationModel): PersonalizationModel
+    @Binds @Singleton abstract fun bindAudioFeatureExtractor(impl: AndroidPcmAudioFeatureExtractor): AudioFeatureExtractor
+    @Binds @Singleton abstract fun bindTrainingScheduler(impl: dev.behradhz.meowzix.data.recommendation.RecommendationWorkScheduler): dev.behradhz.meowzix.domain.recommendation.TrainingScheduler
+    @Binds @Singleton abstract fun bindPersonalizationMaintenance(impl: dev.behradhz.meowzix.data.recommendation.LocalPersonalizationMaintenance): dev.behradhz.meowzix.domain.recommendation.PersonalizationMaintenance
+    @Binds @Singleton abstract fun bindLocalMediaScanner(impl: MediaStoreScanner): LocalMediaScanner
 }
 
 @Module
@@ -172,34 +112,19 @@ object DatabaseModule {
                 MIGRATION_10_11,
                 MIGRATION_11_12,
                 MIGRATION_12_13,
+                MIGRATION_13_14,
             )
             .addCallback(TRACK_SEARCH_DATABASE_CALLBACK)
             .build()
 
-    @Provides
-    fun provideLibraryDao(database: MeowzixDatabase): LibraryDao = database.libraryDao()
-
-    @Provides
-    fun provideRecommendationDao(database: MeowzixDatabase): RecommendationDao = database.recommendationDao()
-
-    @Provides
-    fun provideTelegramDao(database: MeowzixDatabase): TelegramDao = database.telegramDao()
-
-    @Provides
-    fun provideTelegramSendDao(database: MeowzixDatabase): TelegramSendDao = database.telegramSendDao()
-
-    @Provides
-    fun provideDownloadDao(database: MeowzixDatabase): DownloadDao = database.downloadDao()
-
-    @Provides
-    fun providePlaylistDao(database: MeowzixDatabase): PlaylistDao = database.playlistDao()
-
-    @Provides
-    fun provideHistoryDao(database: MeowzixDatabase): HistoryDao = database.historyDao()
-
-    @Provides
-    fun provideAudioFeatureDao(database: MeowzixDatabase): AudioFeatureDao = database.audioFeatureDao()
-
-    @Provides
-    fun provideTrainingSampleDao(database: MeowzixDatabase): TrainingSampleDao = database.trainingSampleDao()
+    @Provides fun provideLibraryDao(database: MeowzixDatabase): LibraryDao = database.libraryDao()
+    @Provides fun provideRecommendationDao(database: MeowzixDatabase): RecommendationDao = database.recommendationDao()
+    @Provides fun provideTelegramDao(database: MeowzixDatabase): TelegramDao = database.telegramDao()
+    @Provides fun provideTelegramSendDao(database: MeowzixDatabase): TelegramSendDao = database.telegramSendDao()
+    @Provides fun provideDownloadDao(database: MeowzixDatabase): DownloadDao = database.downloadDao()
+    @Provides fun providePlaylistDao(database: MeowzixDatabase): PlaylistDao = database.playlistDao()
+    @Provides fun provideHistoryDao(database: MeowzixDatabase): HistoryDao = database.historyDao()
+    @Provides fun provideAudioFeatureDao(database: MeowzixDatabase): AudioFeatureDao = database.audioFeatureDao()
+    @Provides fun provideTrainingSampleDao(database: MeowzixDatabase): TrainingSampleDao = database.trainingSampleDao()
+    @Provides fun provideLyricsDao(database: MeowzixDatabase): LyricsDao = database.lyricsDao()
 }
