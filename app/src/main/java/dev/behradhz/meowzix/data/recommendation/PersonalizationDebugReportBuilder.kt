@@ -49,7 +49,7 @@ class PersonalizationDebugReportBuilder @Inject constructor(
         val modelState = when {
             state.requiresRebuild -> "fallback-rebuild-required"
             state.active -> "learned-active"
-            state.sampleCount < RecommendationConfig.COLD_START_SAMPLES -> "cold-start-heuristic"
+            state.sampleCount < RecommendationConfig.MIN_TRAINING_SAMPLES -> "cold-start-heuristic"
             else -> "heuristic-fallback"
         }
         buildString {
