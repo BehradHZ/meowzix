@@ -75,62 +75,86 @@ interface HistoryDao {
     suspend fun latestOutcomeVersion(): Long
 
     @Query("SELECT e.playbackInstanceId, e.eventSequence AS sequence FROM listening_events e WHERE e.eventSequence > :after AND e.eventSequence <= :through AND e.outcomeKey IS NOT NULL AND NOT EXISTS (SELECT 1 FROM listening_events old WHERE old.playbackInstanceId = e.playbackInstanceId AND old.eventSequence <= :floor) ORDER BY CASE WHEN :latestFirst THEN e.eventSequence END DESC, e.eventSequence ASC LIMIT :limit")
-    suspend fun finalizedPlaybackIds(after: Long, through: Long, floor: Long, limit: Int, latestFirst: Boolean): List<FinalizedPlaybackVersion>
+    suspend fun trainingOutcomes(after: Long, floor: Long, limit: Int, latestFirst: Boolean = true, through: Long = Long.MAX_VALUE): List<TrainingOutcomeReference>
 
-    @Query("SELECT * FROM listening_events WHERE eventSequence > :after AND eventSequence <= :through AND playbackInstanceId IN (:playbackIds) ORDER BY eventSequence ASC")
-    suspend fun eventsForPlaybackIds(playbackIds: List<String>, after: Long, through: Long): List<ListeningEventEntity>
+    @Query("SELECT eventSequence AS sequence, * FROM listening_events WHERE eventSequence > :after AND eventSequence <= :through AND (type NOT IN ('PLAY_COMPLETED', 'PLAY_STOPPED', 'SKIPPED_EARLY', 'SKIPPED_LATE', 'QUEUE_REMOVED') OR outcomeKey IS NOT NULL) ORDER BY eventSequence LIMIT :limit")
+    suspend fun trainingEventPage(after: Long, limit: Int, through: Long = Long.MAX_VALUE): List<SequencedListeningEvent>
 
-    @Query("SELECT COUNT(*) FROM listening_events WHERE eventSequence > :after AND eventSequence <= :through AND outcomeKey IS NOT NULL AND NOT EXISTS (SELECT 1 FROM listening_events old WHERE old.playbackInstanceId = listening_events.playbackInstanceId AND old.eventSequence <= :floor)")
-    suspend fun finalizedPlaybackCount(after: Long, through: Long, floor: Long): Int
+    @Query("SELECT eventSequence AS sequence, * FROM listening_events ORDER BY eventSequence")
+    suspend fun sequencedEvents(): List<SequencedListeningEvent>
 
-    @Query("SELECT * FROM listening_events WHERE eventSequence > :after AND eventSequence <= :through ORDER BY eventSequence ASC")
-    suspend fun eventsBySequence(after: Long, through: Long): List<ListeningEventEntity>
+    @Query("SELECT COALESCE(MAX(eventSequence), 0) FROM listening_events WHERE occurredAtEpochMs <= :epochMs")
+    suspend fun sequenceAtOrBefore(epochMs: Long): Long
 
-    @Query("SELECT COALESCE(MAX(eventSequence), 0) FROM listening_events")
+    @Query("SELECT COALESCE((SELECT lastSequence FROM recommendation_event_clock WHERE id = 1), 0)")
     suspend fun latestEventSequence(): Long
 
-    @Query("SELECT COUNT(*) FROM listening_events") suspend fun eventCount(): Int
-    @Query("SELECT COUNT(*) FROM listening_events WHERE type = :type") suspend fun eventCount(type: String): Int
-    @Query("DELETE FROM listening_events") suspend fun deleteAllEvents()
-    @Query("DELETE FROM listening_sessions") suspend fun deleteAllSessions()
-    @Query("DELETE FROM track_preference_stats") suspend fun deleteAllTrackStats()
-    @Query("DELETE FROM track_time_preferences") suspend fun deleteAllTimeStats()
-    @Query("DELETE FROM recommendation_event_clock") suspend fun deleteEventClock()
+    @Query("SELECT * FROM listening_events ORDER BY eventSequence DESC LIMIT :limit")
+    suspend fun recentRecommendationEvents(limit: Int): List<ListeningEventEntity>
 
-    @Query("SELECT * FROM track_preference_stats WHERE trackId IN (:trackIds)")
-    suspend fun trackStatsForTracks(trackIds: List<String>): List<TrackPreferenceStatsEntity>
-
-    @Query("SELECT * FROM track_time_preferences WHERE trackId IN (:trackIds) AND timeBucket = :bucket")
-    suspend fun timeStatsForTracks(trackIds: List<String>, bucket: String): List<TrackTimePreferenceEntity>
-
-    @Query("SELECT * FROM listening_events WHERE occurredAtEpochMs >= :sinceEpochMs AND eventSequence > :floor ORDER BY occurredAtEpochMs DESC LIMIT :limit")
-    suspend fun recommendationWindow(sinceEpochMs: Long, floor: Long, limit: Int): List<ListeningEventEntity>
+    @Query("SELECT * FROM listening_events WHERE eventSequence > :floor AND occurredAtEpochMs >= :since ORDER BY eventSequence DESC LIMIT :limit")
+    suspend fun recommendationWindow(since: Long, floor: Long, limit: Int): List<ListeningEventEntity>
 
     @Query("SELECT COUNT(*) FROM listening_events WHERE sessionId = :sessionId AND type = 'PLAY_STARTED' AND eventSequence > :floor")
     suspend fun sessionPosition(sessionId: String, floor: Long): Int
 
-    @Query("SELECT t.normalizedArtist AS artist, t.album AS album, s.totalStarts AS starts, s.totalCompletions AS completions, s.earlySkips AS earlySkips, s.manualSelections AS manualSelections, s.replays AS replays, s.lateSkips AS lateSkips FROM track_preference_stats s JOIN tracks t ON t.id = s.trackId")
-    suspend fun artistAlbumStats(): List<ArtistAlbumPreferenceRow>
+    /** Restore the same aggregates used by live ranking without racing new playback writes. */
+    @Transaction
+    suspend fun rebuildPreferenceStats(floor: Long) {
+        clearPreferenceStats()
+        rebuildTrackStats(floor)
+        rebuildTimeStats(floor)
+    }
 
-    @Query("SELECT COUNT(*) FROM track_preference_stats") suspend fun trackStatsCount(): Int
-    @Query("SELECT COUNT(*) FROM track_time_preferences") suspend fun timeStatsCount(): Int
+    @Transaction
+    suspend fun clearPreferenceStats() {
+        clearTrackStats()
+        clearTimeStats()
+    }
 
-    @Query("SELECT * FROM listening_sessions WHERE endedAtEpochMs IS NULL ORDER BY startedAtEpochMs DESC LIMIT 1")
-    suspend fun activeSession(): ListeningSessionEntity?
+    @Query("""
+        INSERT INTO track_preference_stats
+            (trackId, totalStarts, totalCompletions, earlySkips, lateSkips, manualSelections, replays, lastPlayedAtEpochMs)
+        SELECT e.trackId,
+            SUM(CASE WHEN e.type = 'PLAY_STARTED' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN e.type = 'PLAY_COMPLETED' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN e.type = 'SKIPPED_EARLY' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN e.type = 'SKIPPED_LATE' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN e.type = 'MANUAL_SELECTED' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN e.type = 'REPLAYED' THEN 1 ELSE 0 END),
+            MAX(CASE WHEN e.type = 'PLAY_STARTED' THEN e.occurredAtEpochMs END)
+        FROM listening_events e
+        WHERE e.eventSequence > :floor
+            AND (e.type NOT IN ('PLAY_COMPLETED', 'PLAY_STOPPED', 'SKIPPED_EARLY', 'SKIPPED_LATE', 'QUEUE_REMOVED') OR e.outcomeKey IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM listening_events old WHERE old.playbackInstanceId = e.playbackInstanceId AND old.eventSequence <= :floor)
+        GROUP BY e.trackId
+    """)
+    suspend fun rebuildTrackStats(floor: Long)
+
+    @Query("""
+        INSERT INTO track_time_preferences
+            (trackId, timeBucket, starts, completions, earlySkips, manualSelections, lastInteractionAtEpochMs)
+        SELECT e.trackId, first_event.timeBucket,
+            SUM(CASE WHEN e.type = 'PLAY_STARTED' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN e.type = 'PLAY_COMPLETED' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN e.type = 'SKIPPED_EARLY' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN e.type = 'MANUAL_SELECTED' THEN 1 ELSE 0 END),
+            MAX(e.occurredAtEpochMs)
+        FROM listening_events e
+        JOIN (SELECT playbackInstanceId, MIN(eventSequence) AS sequence FROM listening_events GROUP BY playbackInstanceId) initial
+            ON initial.playbackInstanceId = e.playbackInstanceId
+        JOIN listening_events first_event ON first_event.eventSequence = initial.sequence
+        WHERE first_event.eventSequence > :floor
+            AND (e.type NOT IN ('PLAY_COMPLETED', 'PLAY_STOPPED', 'SKIPPED_EARLY', 'SKIPPED_LATE', 'QUEUE_REMOVED') OR e.outcomeKey IS NOT NULL)
+        GROUP BY e.trackId, first_event.timeBucket
+    """)
+    suspend fun rebuildTimeStats(floor: Long)
+
+    @Query("DELETE FROM listening_events") suspend fun clearEvents()
+    @Query("DELETE FROM listening_sessions") suspend fun clearSessions()
+    @Query("DELETE FROM track_preference_stats") suspend fun clearTrackStats()
+    @Query("DELETE FROM track_time_preferences") suspend fun clearTimeStats()
 }
 
-data class FinalizedPlaybackVersion(
-    val playbackInstanceId: String,
-    val sequence: Long,
-)
-
-data class ArtistAlbumPreferenceRow(
-    val artist: String?,
-    val album: String?,
-    val starts: Int,
-    val completions: Int,
-    val earlySkips: Int,
-    val manualSelections: Int,
-    val replays: Int,
-    val lateSkips: Int,
-)
+data class SequencedListeningEvent(val sequence: Long, @Embedded val event: ListeningEventEntity)
+data class TrainingOutcomeReference(val playbackInstanceId: String, val sequence: Long)
