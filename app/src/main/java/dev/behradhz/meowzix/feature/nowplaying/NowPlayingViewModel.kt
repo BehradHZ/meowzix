@@ -6,7 +6,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.data.repository.ArtworkRepairCoordinator
 import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
-import dev.behradhz.meowzix.domain.playback.AudioOutputController
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -49,7 +48,6 @@ class NowPlayingViewModel @Inject constructor(
     private val playbackController: PlaybackController,
     private val queueRepository: QueueRepository,
     private val audioVisualizerRepository: AudioVisualizerRepository,
-    private val audioOutputController: AudioOutputController,
     private val libraryRepository: MusicLibraryRepository,
     private val telegramForwardRepository: TelegramForwardRepository,
     private val settingsRepository: SettingsRepository,
@@ -120,7 +118,6 @@ class NowPlayingViewModel @Inject constructor(
     )
 
     val spectrum = audioVisualizerRepository.spectrum
-    val audioOutputState = audioOutputController.state
 
     val isFavorite = combine(
         currentTrackId,
@@ -136,9 +133,6 @@ class NowPlayingViewModel @Inject constructor(
     private val _forwardState = MutableStateFlow(TelegramForwardUiState())
     val forwardState: StateFlow<TelegramForwardUiState> = _forwardState.asStateFlow()
     private var forwardSearchJob: Job? = null
-
-    private val _isOutputPickerOpen = MutableStateFlow(false)
-    val isOutputPickerOpen: StateFlow<Boolean> = _isOutputPickerOpen.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -217,23 +211,6 @@ class NowPlayingViewModel @Inject constructor(
         }
         queueRepository.setRepeatMode(nextMode)
         playbackContextPolicyStore.saveRepeatModeForActiveContext(nextMode)
-    }
-
-    fun openOutputPicker() {
-        audioOutputController.refresh()
-        _isOutputPickerOpen.value = true
-    }
-
-    fun dismissOutputPicker() {
-        _isOutputPickerOpen.value = false
-    }
-
-    fun transferAudioTo(routeId: String) {
-        audioOutputController.transferTo(routeId)
-    }
-
-    fun setAudioRouteEnabled(routeId: String, enabled: Boolean) {
-        audioOutputController.setRouteEnabled(routeId, enabled)
     }
 
     fun openForwardPicker() {
