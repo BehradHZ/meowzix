@@ -4,14 +4,17 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.behradhz.meowzix.domain.settings.DEFAULT_TEMPORARY_CACHE_BUDGET_BYTES
 import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
 import dev.behradhz.meowzix.domain.settings.LibrarySortMode
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import java.io.IOException
 import javax.inject.Inject
@@ -40,6 +43,16 @@ class DataStoreSettingsRepository @Inject constructor(
         )
     }
 
+    override val storagePolicySettings: Flow<StoragePolicySettings> = safeData.map { values ->
+        StoragePolicySettings(
+            temporaryCacheBudgetBytes = (values[TEMPORARY_CACHE_BUDGET_BYTES]
+                ?: DEFAULT_TEMPORARY_CACHE_BUDGET_BYTES).coerceIn(
+                MIN_TEMPORARY_CACHE_BUDGET_BYTES,
+                MAX_TEMPORARY_CACHE_BUDGET_BYTES,
+            ),
+        )
+    }
+
     override val telegramForwardSettings: Flow<TelegramForwardSettings> = safeData.map { values ->
         TelegramForwardSettings(
             includeSourceAttribution = values[FORWARD_INCLUDE_SOURCE] ?: true,
@@ -63,6 +76,15 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setPrefetchEnabled(enabled: Boolean) = set(PREFETCH, enabled)
     override suspend fun setPrefetchOnMetered(enabled: Boolean) = set(PREFETCH_METERED, enabled)
     override suspend fun setListeningHistoryEnabled(enabled: Boolean) = set(LISTENING_HISTORY, enabled)
+
+    override suspend fun setTemporaryCacheBudgetBytes(bytes: Long) {
+        context.settingsDataStore.edit {
+            it[TEMPORARY_CACHE_BUDGET_BYTES] = bytes.coerceIn(
+                MIN_TEMPORARY_CACHE_BUDGET_BYTES,
+                MAX_TEMPORARY_CACHE_BUDGET_BYTES,
+            )
+        }
+    }
 
     override suspend fun setTelegramForwardDefaults(includeSourceAttribution: Boolean, keepCaption: Boolean) {
         context.settingsDataStore.edit {
@@ -89,9 +111,12 @@ class DataStoreSettingsRepository @Inject constructor(
         val PREFETCH = booleanPreferencesKey("prefetch_enabled")
         val PREFETCH_METERED = booleanPreferencesKey("prefetch_on_metered")
         val LISTENING_HISTORY = booleanPreferencesKey("listening_history_enabled")
+        val TEMPORARY_CACHE_BUDGET_BYTES = longPreferencesKey("temporary_cache_budget_bytes")
         val FORWARD_INCLUDE_SOURCE = booleanPreferencesKey("telegram_forward_include_source")
         val FORWARD_KEEP_CAPTION = booleanPreferencesKey("telegram_forward_keep_caption")
         val LIBRARY_SORT_MODE = stringPreferencesKey("library_sort_mode")
         val LIBRARY_GROUP_MODE = stringPreferencesKey("library_group_mode")
+        const val MIN_TEMPORARY_CACHE_BUDGET_BYTES = 64L * 1024L * 1024L
+        const val MAX_TEMPORARY_CACHE_BUDGET_BYTES = 8L * 1024L * 1024L * 1024L
     }
 }
