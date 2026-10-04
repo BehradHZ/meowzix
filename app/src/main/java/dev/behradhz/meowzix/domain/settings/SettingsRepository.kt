@@ -10,6 +10,12 @@ data class NetworkPlaybackSettings(
     val listeningHistoryEnabled: Boolean = true,
 )
 
+data class StoragePolicySettings(
+    val temporaryCacheBudgetBytes: Long = DEFAULT_TEMPORARY_CACHE_BUDGET_BYTES,
+)
+
+const val DEFAULT_TEMPORARY_CACHE_BUDGET_BYTES: Long = 512L * 1024L * 1024L
+
 data class TelegramForwardSettings(
     val includeSourceAttribution: Boolean = true,
     val keepCaption: Boolean = true,
@@ -37,6 +43,7 @@ data class LibraryDisplaySettings(
 
 interface SettingsRepository {
     val networkPlaybackSettings: Flow<NetworkPlaybackSettings>
+    val storagePolicySettings: Flow<StoragePolicySettings>
     val telegramForwardSettings: Flow<TelegramForwardSettings>
     val libraryDisplaySettings: Flow<LibraryDisplaySettings>
 
@@ -45,6 +52,7 @@ interface SettingsRepository {
     suspend fun setPrefetchEnabled(enabled: Boolean)
     suspend fun setPrefetchOnMetered(enabled: Boolean)
     suspend fun setListeningHistoryEnabled(enabled: Boolean)
+    suspend fun setTemporaryCacheBudgetBytes(bytes: Long)
     suspend fun setTelegramForwardDefaults(includeSourceAttribution: Boolean, keepCaption: Boolean)
     suspend fun setLibrarySortMode(mode: LibrarySortMode)
     suspend fun setLibraryGroupMode(mode: LibraryGroupMode)
