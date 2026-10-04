@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -43,7 +42,7 @@ private val HeroSecondary = Color(0xFFCFC7C0)
  * below the same artwork and fades out as the hero becomes the expanded horizontal header.
  */
 @Composable
-fun MorphingPlayerHero(
+internal fun MorphingPlayerHero(
     state: PlaybackState,
     queueState: QueueState,
     expanded: Boolean,
