@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -20,7 +21,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -29,16 +32,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.QueueState
-import kotlin.math.max
 import kotlin.math.min
 
 private val HeroPrimary = Color(0xFFF7F3EF)
 private val HeroSecondary = Color(0xFFCFC7C0)
 
 /**
- * One artwork node and one identity node are retained for the whole transition. The custom layout
- * interpolates their measured bounds, positions and typography instead of swapping to a second
- * header, so rapid expand/collapse simply reverses the same morph.
+ * One artwork node and one identity node are retained for the whole transition. Their bounds,
+ * positions and typography are interpolated; the compact lyric preview occupies the space directly
+ * below the same artwork and fades out as the hero becomes the expanded horizontal header.
  */
 @Composable
 fun MorphingPlayerHero(
@@ -51,6 +53,7 @@ fun MorphingPlayerHero(
     onToggleFavorite: () -> Unit,
     favorite: Boolean,
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit,
+    compactLyrics: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val track = state.currentTrack ?: return
@@ -61,7 +64,7 @@ fun MorphingPlayerHero(
     )
 
     Layout(
-        modifier = modifier,
+        modifier = modifier.clipToBounds(),
         content = {
             Box {
                 ArtworkGestureZoneForMorph(
@@ -76,6 +79,7 @@ fun MorphingPlayerHero(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+            Box(Modifier.graphicsLayer { alpha = 1f - progress }) { compactLyrics() }
             MorphingIdentity(
                 title = track.title,
                 artist = track.artist ?: "Unknown artist",
@@ -89,15 +93,26 @@ fun MorphingPlayerHero(
         val height = constraints.maxHeight.takeIf { it != Constraints.Infinity } ?: width
         val compactArt = 64.dp.roundToPx()
         val gap = 12.dp.roundToPx()
+        val previewHeight = 118.dp.roundToPx()
         val identityReserve = 66.dp.roundToPx()
-        val collapsedArt = min(width, (height - identityReserve).coerceAtLeast(compactArt))
+        val collapsedArt = min(
+            width,
+            (height - previewHeight - identityReserve - 8.dp.roundToPx()).coerceAtLeast(compactArt),
+        )
         val artSize = lerpInt(collapsedArt, compactArt, progress).coerceAtLeast(1)
-        val collapsedIdentityWidth = width
         val expandedIdentityWidth = (width - compactArt - gap).coerceAtLeast(1)
-        val identityWidth = lerpInt(collapsedIdentityWidth, expandedIdentityWidth, progress).coerceAtLeast(1)
+        val identityWidth = lerpInt(width, expandedIdentityWidth, progress).coerceAtLeast(1)
 
         val artwork = measurables[0].measure(Constraints.fixed(artSize, artSize))
-        val identity = measurables[1].measure(
+        val preview = measurables[1].measure(
+            Constraints(
+                minWidth = width,
+                maxWidth = width,
+                minHeight = previewHeight,
+                maxHeight = previewHeight,
+            ),
+        )
+        val identity = measurables[2].measure(
             Constraints(
                 minWidth = identityWidth,
                 maxWidth = identityWidth,
@@ -105,16 +120,18 @@ fun MorphingPlayerHero(
                 maxHeight = height,
             ),
         )
+
         val collapsedArtX = (width - artSize) / 2
         val artX = lerpInt(collapsedArtX, 0, progress)
         val artY = lerpInt(0, 4.dp.roundToPx(), progress)
-        val collapsedIdentityY = (collapsedArt + 8.dp.roundToPx()).coerceAtMost(height)
-        val expandedIdentityY = 2.dp.roundToPx()
+        val previewY = collapsedArt + 4.dp.roundToPx()
+        val collapsedIdentityY = (collapsedArt + previewHeight + 8.dp.roundToPx()).coerceAtMost(height)
         val identityX = lerpInt(0, compactArt + gap, progress)
-        val identityY = lerpInt(collapsedIdentityY, expandedIdentityY, progress)
+        val identityY = lerpInt(collapsedIdentityY, 2.dp.roundToPx(), progress)
 
         layout(width, height) {
             artwork.placeRelative(artX, artY)
+            preview.placeRelative(0, previewY)
             identity.placeRelative(identityX, identityY)
         }
     }
