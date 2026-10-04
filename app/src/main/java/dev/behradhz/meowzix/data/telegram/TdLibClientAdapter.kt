@@ -1,5 +1,7 @@
 package dev.behradhz.meowzix.data.telegram
 
+import dev.behradhz.meowzix.data.downloads.ProcessTransferBudget
+import dev.behradhz.meowzix.data.downloads.TransferPriority
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -50,12 +52,19 @@ class TdLibClientAdapter {
     }
 
     suspend fun <R : TdApi.Object> send(function: TdApi.Function<R>): R {
-        val active = activeInstance
-        return if (active != null && active !== this) {
-            active.sendDirect(function)
-        } else {
-            sendDirect(function)
+        val target = activeInstance?.takeIf { it !== this } ?: this
+        if (function is TdApi.DownloadFile) {
+            val key = "td:${function.fileId}:${function.offset}:${function.limit}:${function.synchronous}"
+            val result = ProcessTransferBudget.scheduler.run(
+                physicalKey = key,
+                priority = transferPriority(function.priority),
+            ) {
+                target.sendDirect(function)
+            }
+            @Suppress("UNCHECKED_CAST")
+            return result as R
         }
+        return target.sendDirect(function)
     }
 
     private suspend fun <R : TdApi.Object> sendDirect(function: TdApi.Function<R>): R =
@@ -124,6 +133,14 @@ class TdLibClientAdapter {
             }
         }
     }
+}
+
+private fun transferPriority(tdPriority: Int): TransferPriority = when {
+    tdPriority >= TdDownloadPriority.CURRENT_TRACK_AUDIO -> TransferPriority.IMMEDIATE_PLAYBACK
+    tdPriority >= TdDownloadPriority.USER_REQUESTED_DOWNLOAD -> TransferPriority.USER_ACTION
+    tdPriority == TdDownloadPriority.NEXT_TRACK_PRELOAD -> TransferPriority.SPECULATIVE_PREFETCH
+    tdPriority <= TdDownloadPriority.ARTWORK_MAINTENANCE -> TransferPriority.SPECULATIVE_PREFETCH
+    else -> TransferPriority.BULK_DOWNLOAD
 }
 
 internal class AuthorizationReadyGate {
