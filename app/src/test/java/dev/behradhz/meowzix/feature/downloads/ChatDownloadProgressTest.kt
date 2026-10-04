@@ -4,50 +4,73 @@ import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import java.util.UUID
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatDownloadProgressTest {
     @Test
-    fun `progress counts completed tracks instead of byte progress`() {
-        val completedA = UUID.randomUUID()
-        val completedB = UUID.randomUUID()
-        val downloading = UUID.randomUUID()
-        val failed = UUID.randomUUID()
-        val trackIds = setOf(completedA, completedB, downloading, failed)
-        val records = listOf(
-            record(completedA, DownloadStatus.COMPLETED),
-            record(completedB, DownloadStatus.COMPLETED),
-            record(downloading, DownloadStatus.DOWNLOADING),
-            record(failed, DownloadStatus.FAILED),
+    fun `progress uses bytes when every selected track has a known size`() {
+        val first = UUID.randomUUID()
+        val second = UUID.randomUUID()
+        val progress = calculateChatDownloadProgress(
+            setOf(first, second),
+            listOf(
+                record(first, DownloadStatus.DOWNLOADING, downloaded = 50L, total = 100L),
+                record(second, DownloadStatus.DOWNLOADING, downloaded = 100L, total = 300L),
+            ),
         )
 
-        val progress = calculateChatDownloadProgress(trackIds, records)
-
-        assertEquals(2, progress.completedTracks)
-        assertEquals(4, progress.totalTracks)
-        assertEquals(0.5f, progress.fraction, 0.0001f)
+        assertTrue(progress.usesBytes)
+        assertEquals(150L, progress.downloadedBytes)
+        assertEquals(400L, progress.totalBytes)
+        assertEquals(0.375f, progress.fraction, 0.0001f)
     }
 
     @Test
-    fun `progress includes tracks already available offline`() {
-        val alreadyOffline = UUID.randomUUID()
-        val newDownload = UUID.randomUUID()
-
+    fun `progress falls back to completed track count when any size is unknown`() {
+        val completed = UUID.randomUUID()
+        val queued = UUID.randomUUID()
         val progress = calculateChatDownloadProgress(
-            trackIds = setOf(alreadyOffline, newDownload),
-            records = listOf(record(alreadyOffline, DownloadStatus.COMPLETED)),
+            setOf(completed, queued),
+            listOf(
+                record(completed, DownloadStatus.COMPLETED, downloaded = 100L, total = 100L),
+                record(queued, DownloadStatus.QUEUED, downloaded = 0L, total = null),
+            ),
         )
 
+        assertFalse(progress.usesBytes)
         assertEquals(1, progress.completedTracks)
         assertEquals(2, progress.totalTracks)
         assertEquals(0.5f, progress.fraction, 0.0001f)
     }
 
-    private fun record(trackId: UUID, status: DownloadStatus) = OfflineDownload(
+    @Test
+    fun `progress falls back to track count while a selected track has no record yet`() {
+        val alreadyOffline = UUID.randomUUID()
+        val newDownload = UUID.randomUUID()
+
+        val progress = calculateChatDownloadProgress(
+            trackIds = setOf(alreadyOffline, newDownload),
+            records = listOf(record(alreadyOffline, DownloadStatus.COMPLETED, 1L, 1L)),
+        )
+
+        assertFalse(progress.usesBytes)
+        assertEquals(1, progress.completedTracks)
+        assertEquals(2, progress.totalTracks)
+        assertEquals(0.5f, progress.fraction, 0.0001f)
+    }
+
+    private fun record(
+        trackId: UUID,
+        status: DownloadStatus,
+        downloaded: Long,
+        total: Long?,
+    ) = OfflineDownload(
         trackId = trackId,
         status = status,
-        downloadedBytes = if (status == DownloadStatus.COMPLETED) 1L else 0L,
-        totalBytes = 1L,
+        downloadedBytes = downloaded,
+        totalBytes = total,
         pinned = true,
         failureReason = null,
         updatedAtEpochMs = 1L,
