@@ -14,17 +14,24 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * One process-wide transfer budget for Telegram audio work.
- *
- * Requests with the same physical key share one execution. A cancelled consumer only cancels the
- * underlying task when it was the last consumer, so playback and offline pinning can safely share
- * a transfer. Persistence remains owned by DownloadRecord + WorkManager; this class only controls
- * active bandwidth/concurrency while the process is alive.
+ * Injectable facade over the process-wide transfer budget. TDLib's adapter also uses this same
+ * scheduler, so playback, explicit downloads, bulk jobs, artwork and prefetch cannot accidentally
+ * create separate concurrency pools.
  */
 @Singleton
-class PriorityTransferScheduler @Inject constructor() : TransferScheduler(
-    maxConcurrentTransfers = DEFAULT_MAX_CONCURRENT_TRANSFERS,
-)
+class PriorityTransferScheduler @Inject constructor() {
+    suspend fun <T : Any> run(
+        physicalKey: String,
+        priority: TransferPriority,
+        block: suspend () -> T,
+    ): T = ProcessTransferBudget.scheduler.run(physicalKey, priority, block)
+
+    suspend fun snapshot(): TransferSchedulerSnapshot = ProcessTransferBudget.scheduler.snapshot()
+}
+
+internal object ProcessTransferBudget {
+    val scheduler = TransferScheduler(DEFAULT_MAX_CONCURRENT_TRANSFERS)
+}
 
 open class TransferScheduler(
     private val maxConcurrentTransfers: Int,
