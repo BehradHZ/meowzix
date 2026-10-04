@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.playback.persistence
 
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.QueueItemOrigin
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 
 data class PersistedPlaybackItem(
@@ -19,6 +20,7 @@ data class PersistedPlaybackSession(
     val playbackMode: PlaybackMode,
     val repeatMode: RepeatMode,
     val logicalMediaIds: List<String> = emptyList(),
+    val logicalOrigins: List<QueueItemOrigin> = emptyList(),
     val logicalCurrentIndex: Int = -1,
     val materializedStartIndex: Int = 0,
     val materializedEndExclusive: Int = 0,
