@@ -39,9 +39,6 @@ class ProgressiveQueue @Inject constructor() {
     private var shuffleSeed: Long? = null
     private var revision = 0L
 
-    // Playback position updates ask for a queue snapshot frequently. The logical queue usually does
-    // not change between those ticks, so keep one immutable snapshot and invalidate it only when a
-    // queue field actually changes. This prevents repeatedly copying a large queue during playback.
     private var cachedSnapshot: ProgressiveQueueSnapshot? = null
 
     @Synchronized
@@ -61,7 +58,6 @@ class ProgressiveQueue @Inject constructor() {
         trackIds.clear()
         trackIds.addAll(orderedTracks.map(PlayableTrack::id))
         currentIndex = requestedStartIndex.coerceIn(tracks.indices)
-        // The selected/current occurrence is protected regardless of mode and is durable as manual.
         origins[currentIndex] = QueueItemOrigin.MANUAL
         playbackMode = mode
         repeatMode = repeat
@@ -82,9 +78,10 @@ class ProgressiveQueue @Inject constructor() {
         seed: Long?,
         requestedOrigins: List<QueueItemOrigin>? = null,
     ): Boolean {
+        val restoredOrigins = requestedOrigins ?: QueueProvenanceRestoreHints.consume(orderedTrackIds)
         val fallbackOrigin = if (mode == PlaybackMode.SMART_SHUFFLE) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL
         val restored = orderedTrackIds.mapIndexedNotNull { index, id ->
-            availableTracks[id]?.let { it to (requestedOrigins?.getOrNull(index) ?: fallbackOrigin) }
+            availableTracks[id]?.let { it to (restoredOrigins?.getOrNull(index) ?: fallbackOrigin) }
         }
         if (restored.isEmpty()) {
             clearLocked()
@@ -97,6 +94,7 @@ class ProgressiveQueue @Inject constructor() {
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
         currentIndex = requestedCurrentIndex.coerceIn(tracks.indices)
+        origins[currentIndex] = QueueItemOrigin.MANUAL
         materializedStartIndex = requestedMaterializedStartIndex.coerceIn(0, currentIndex)
         materializedEndExclusive = requestedMaterializedEndExclusive
             .coerceIn(currentIndex + 1, tracks.size)
@@ -115,11 +113,6 @@ class ProgressiveQueue @Inject constructor() {
         cachedSnapshot = it
     }
 
-    /**
-     * Fallback id-based current-item synchronization. If duplicate occurrences exist, preserve the
-     * already selected occurrence when its id still matches; otherwise prefer the next matching
-     * occurrence before searching backwards.
-     */
     @Synchronized
     fun updateCurrent(mediaId: String?): Boolean {
         val id = mediaId?.let { runCatching { UUID.fromString(it) }.getOrNull() } ?: return false
@@ -129,15 +122,12 @@ class ProgressiveQueue @Inject constructor() {
         val index = forwardIndex ?: backwardIndex ?: return false
         if (index != currentIndex) {
             currentIndex = index
+            origins[currentIndex] = QueueItemOrigin.MANUAL
             bumpRevision()
         }
         return true
     }
 
-    /**
-     * Synchronizes logical current from Media3's index inside the materialized window. Unlike an
-     * id lookup this is unambiguous when two adjacent queue entries reference the same Track.id.
-     */
     @Synchronized
     fun updateCurrentFromWindowIndex(windowIndex: Int): Boolean {
         if (windowIndex < 0) return false
@@ -145,19 +135,17 @@ class ProgressiveQueue @Inject constructor() {
         if (logicalIndex !in tracks.indices || logicalIndex >= materializedEndExclusive) return false
         if (logicalIndex != currentIndex) {
             currentIndex = logicalIndex
+            origins[currentIndex] = QueueItemOrigin.MANUAL
             bumpRevision()
         }
         return true
     }
 
-    /** Returns and reserves the next forward batch when the refill threshold is reached. */
     @Synchronized
     fun takeForwardBatchIfNeeded(): List<PlayableTrack> {
         if (tracks.isEmpty() || currentIndex < 0) return emptyList()
         val remainingAhead = materializedEndExclusive - currentIndex - 1
-        if (remainingAhead > REFILL_THRESHOLD || materializedEndExclusive >= tracks.size) {
-            return emptyList()
-        }
+        if (remainingAhead > REFILL_THRESHOLD || materializedEndExclusive >= tracks.size) return emptyList()
         val oldEnd = materializedEndExclusive
         val newEnd = (oldEnd + REFILL_BATCH_SIZE).coerceAtMost(tracks.size)
         materializedEndExclusive = newEnd
@@ -165,7 +153,6 @@ class ProgressiveQueue @Inject constructor() {
         return tracks.subList(oldEnd, newEnd).toList()
     }
 
-    /** Drops materialized history older than the bounded Previous window. */
     @Synchronized
     fun trimMaterializedHistory(): Int {
         if (tracks.isEmpty() || currentIndex < 0) return 0
@@ -177,7 +164,6 @@ class ProgressiveQueue @Inject constructor() {
         return removed
     }
 
-    /** Returns and reserves an earlier batch so repeated Previous presses can cross window edges. */
     @Synchronized
     fun takeBackwardBatchIfNeeded(): List<PlayableTrack> {
         if (tracks.isEmpty() || currentIndex < 0 || materializedStartIndex == 0) return emptyList()
@@ -201,16 +187,12 @@ class ProgressiveQueue @Inject constructor() {
         if (index !in tracks.indices) return null
         if (currentIndex != index) {
             currentIndex = index
+            origins[currentIndex] = QueueItemOrigin.MANUAL
             bumpRevision()
         }
         return resetWindowLocked()
     }
 
-    /**
-     * Places [track] immediately after current. Existing non-adjacent occurrences are moved, but
-     * choosing the current track or the already-next track is an explicit request for another queue
-     * occurrence, so a duplicate is inserted instead. Every explicit insertion becomes MANUAL.
-     */
     @Synchronized
     fun insertNext(track: PlayableTrack): Boolean {
         if (tracks.isEmpty()) {
@@ -295,6 +277,7 @@ class ProgressiveQueue @Inject constructor() {
             index < currentIndex -> currentIndex - 1
             else -> currentIndex
         }
+        origins[currentIndex] = QueueItemOrigin.MANUAL
         bumpRevision()
         return true
     }
@@ -306,7 +289,6 @@ class ProgressiveQueue @Inject constructor() {
         val item = tracks.removeAt(fromIndex)
         origins.removeAt(fromIndex)
         tracks.add(toIndex, item)
-        // A drag/reorder is explicit intent even if the entry was previously generated.
         origins.add(toIndex, QueueItemOrigin.MANUAL)
         currentIndex = if (movingCurrent) {
             toIndex
@@ -316,6 +298,7 @@ class ProgressiveQueue @Inject constructor() {
             if (toIndex <= adjusted) adjusted += 1
             adjusted
         }
+        origins[currentIndex] = QueueItemOrigin.MANUAL
         bumpRevision()
         return true
     }
@@ -359,19 +342,11 @@ class ProgressiveQueue @Inject constructor() {
         trackIds.addAll(tracks.map(PlayableTrack::id))
         playbackMode = mode
         shuffleSeed = seed
-        // Keep the already materialized history/current item stable. Only the future portion of
-        // the Media3 window needs to be replaced when shuffle mode changes, so preserve the window
-        // start and reserve a fresh bounded forward window without forcing setMediaItems/prepare.
         materializedStartIndex = materializedStartIndex.coerceIn(0, currentIndex)
         materializedEndExclusive = (currentIndex + 1 + INITIAL_FORWARD_COUNT).coerceAtMost(tracks.size)
         bumpRevision()
     }
 
-    /**
-     * Atomically applies a Smart ranking only to generated future slots. Manual items keep their
-     * positions and order. A stale ranking never mutates the queue. Only a bounded future window is
-     * eligible so evidence does not cause jarring whole-queue churn.
-     */
     @Synchronized
     fun rerankGeneratedFuture(
         rankedTrackIds: List<UUID>,
@@ -424,7 +399,7 @@ class ProgressiveQueue @Inject constructor() {
     }
 
     @Synchronized
-    fun contains(trackId: UUID): Boolean = containsLocked(trackId)
+    fun contains(trackId: UUID): Boolean = trackId in trackIds
 
     @Synchronized
     fun hasPrevious(): Boolean = currentIndex > 0
@@ -461,8 +436,6 @@ class ProgressiveQueue @Inject constructor() {
         )
     }
 
-    private fun containsLocked(trackId: UUID): Boolean = trackId in trackIds
-
     private fun clearLocked() {
         val hadState = tracks.isNotEmpty() || currentIndex >= 0
         tracks.clear()
@@ -474,6 +447,7 @@ class ProgressiveQueue @Inject constructor() {
         playbackMode = PlaybackMode.ORDERED
         repeatMode = RepeatMode.OFF
         shuffleSeed = null
+        QueueProvenanceRestoreHints.clear()
         if (hadState) bumpRevision() else invalidateSnapshot()
     }
 
