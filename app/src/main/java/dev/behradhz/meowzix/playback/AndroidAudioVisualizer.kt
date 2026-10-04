@@ -1,14 +1,10 @@
 package dev.behradhz.meowzix.playback
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
 import android.media.audiofx.Visualizer
-import androidx.core.content.ContextCompat
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.domain.playback.AUDIO_SPECTRUM_BAND_COUNT
 import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
+import dev.behradhz.meowzix.domain.playback.EqualizerRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.pow
@@ -19,7 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 @Singleton
 class AndroidAudioVisualizer @Inject constructor(
-    @ApplicationContext private val context: Context,
+    private val equalizerRepository: EqualizerRepository,
 ) : AudioVisualizerRepository {
     private val lock = Any()
     private val _spectrum = MutableStateFlow(AudioSpectrumState())
@@ -62,23 +58,26 @@ class AndroidAudioVisualizer @Inject constructor(
                 _spectrum.value = AudioSpectrumState()
                 return
             }
-            val hasPermission = hasRecordAudioPermission()
             _spectrum.value = AudioSpectrumState(
                 sourceUri = sourceUri,
-                isAnalyzing = visualizer == null && hasPermission,
-                errorMessage = if (hasPermission) null else PERMISSION_ERROR,
+                isAnalyzing = visualizer == null && audioSessionId > 0,
             )
         }
         refresh()
     }
 
     override fun attachToAudioSession(audioSessionId: Int) {
+        if (audioSessionId <= 0) return
         synchronized(lock) {
-            if (this.audioSessionId == audioSessionId && visualizer != null) return
-            releaseVisualizerLocked()
-            this.audioSessionId = audioSessionId
-            smoothedBands.fill(0f)
+            if (this.audioSessionId != audioSessionId) {
+                releaseVisualizerLocked()
+                this.audioSessionId = audioSessionId
+                smoothedBands.fill(0f)
+            }
         }
+        // The real EQ owns the same playback session and remains independent of whether Android's
+        // optional Visualizer capture path is permitted/supported on this device.
+        equalizerRepository.attachToAudioSession(audioSessionId)
         refresh()
     }
 
@@ -89,19 +88,8 @@ class AndroidAudioVisualizer @Inject constructor(
                 _spectrum.value = AudioSpectrumState()
                 return
             }
-            if (!hasRecordAudioPermission()) {
-                releaseVisualizerLocked()
-                _spectrum.value = AudioSpectrumState(
-                    sourceUri = uri,
-                    errorMessage = PERMISSION_ERROR,
-                )
-                return
-            }
             if (audioSessionId <= 0) {
-                _spectrum.value = AudioSpectrumState(
-                    sourceUri = uri,
-                    isAnalyzing = true,
-                )
+                _spectrum.value = AudioSpectrumState(sourceUri = uri, isAnalyzing = true)
                 return
             }
             if (visualizer != null) {
@@ -130,14 +118,17 @@ class AndroidAudioVisualizer @Inject constructor(
             smoothedBands.fill(0f)
             _spectrum.value = AudioSpectrumState()
         }
+        equalizerRepository.release()
     }
 
     private fun startVisualizerLocked(): Boolean {
         if (visualizer != null) return true
-        if (audioSessionId <= 0 || !hasRecordAudioPermission()) return false
+        if (audioSessionId <= 0) return false
 
         val created = try {
             Visualizer(audioSessionId)
+        } catch (_: SecurityException) {
+            return false
         } catch (_: RuntimeException) {
             return false
         } catch (_: UnsupportedOperationException) {
@@ -160,7 +151,7 @@ class AndroidAudioVisualizer @Inject constructor(
             created.enabled = true
             visualizer = created
             true
-        } catch (_: RuntimeException) {
+        } catch (_: Throwable) {
             runCatching { created.enabled = false }
             runCatching { created.release() }
             false
@@ -220,10 +211,6 @@ class AndroidAudioVisualizer @Inject constructor(
             .coerceIn(1, binCount - 1)
     }
 
-    private fun hasRecordAudioPermission(): Boolean =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-            PackageManager.PERMISSION_GRANTED
-
     private companion object {
         const val NO_AUDIO_SESSION = -1
         const val FFT_MAX_MAGNITUDE = 181.02f
@@ -231,7 +218,6 @@ class AndroidAudioVisualizer @Inject constructor(
         const val ATTACK = 0.68f
         const val RELEASE = 0.20f
         const val NOISE_FLOOR = 0.012f
-        const val PERMISSION_ERROR = "Allow microphone access for the live equalizer"
-        const val VISUALIZER_ERROR = "Live equalizer is unavailable on this audio output"
+        const val VISUALIZER_ERROR = "Live spectrum is unavailable on this device or audio path"
     }
 }
