@@ -49,7 +49,6 @@ import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
-import dev.behradhz.meowzix.domain.playback.AudioOutputController
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
@@ -61,7 +60,6 @@ import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
-import dev.behradhz.meowzix.playback.AndroidAudioOutputController
 import dev.behradhz.meowzix.playback.AndroidAudioVisualizer
 import dev.behradhz.meowzix.playback.ResolvingPlaybackController
 import javax.inject.Singleton
@@ -88,10 +86,6 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindAudioVisualizerRepository(impl: AndroidAudioVisualizer): AudioVisualizerRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindAudioOutputController(impl: AndroidAudioOutputController): AudioOutputController
 
     @Binds
     @Singleton
@@ -135,11 +129,15 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindTrainingScheduler(impl: dev.behradhz.meowzix.data.recommendation.RecommendationWorkScheduler): dev.behradhz.meowzix.domain.recommendation.TrainingScheduler
+    abstract fun bindTrainingScheduler(
+        impl: dev.behradhz.meowzix.data.recommendation.RecommendationWorkScheduler,
+    ): dev.behradhz.meowzix.domain.recommendation.TrainingScheduler
 
     @Binds
     @Singleton
-    abstract fun bindPersonalizationMaintenance(impl: dev.behradhz.meowzix.data.recommendation.LocalPersonalizationMaintenance): dev.behradhz.meowzix.domain.recommendation.PersonalizationMaintenance
+    abstract fun bindPersonalizationMaintenance(
+        impl: dev.behradhz.meowzix.data.recommendation.LocalPersonalizationMaintenance,
+    ): dev.behradhz.meowzix.domain.recommendation.PersonalizationMaintenance
 
     @Binds
     @Singleton
