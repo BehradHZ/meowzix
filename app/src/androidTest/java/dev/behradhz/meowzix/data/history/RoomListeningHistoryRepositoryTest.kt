@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.data.recommendation.TrainingDatasetBuilder
 import dev.behradhz.meowzix.domain.history.ListeningEventType
 import dev.behradhz.meowzix.domain.history.PlaybackInitiator
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.SmartQueueAdaptationBus
 import dev.behradhz.meowzix.domain.recommendation.AudioFeatureExtractor
 import dev.behradhz.meowzix.domain.recommendation.AudioFeatureSource
 import dev.behradhz.meowzix.domain.recommendation.AudioFeatureVector
@@ -46,6 +47,7 @@ class RoomListeningHistoryRepositoryTest {
             ),
             model = NoOpPersonalizationModel(),
             scheduler = object : dev.behradhz.meowzix.domain.recommendation.TrainingScheduler { override fun scheduleTraining(rebuild: Boolean) {} },
+            adaptationBus = SmartQueueAdaptationBus(),
         )
         repository = RoomListeningHistoryRepository(database, database.historyDao(), trainer, dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(context))
     }
