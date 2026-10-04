@@ -37,9 +37,18 @@ data class DownloadRow(
 data class ChatDownloadProgress(
     val completedTracks: Int,
     val totalTracks: Int,
+    val downloadedBytes: Long?,
+    val totalBytes: Long?,
 ) {
+    val usesBytes: Boolean
+        get() = totalBytes != null && totalBytes > 0L && downloadedBytes != null
+
     val fraction: Float
-        get() = if (totalTracks <= 0) 0f else {
+        get() = if (usesBytes) {
+            (downloadedBytes!!.toDouble() / totalBytes!!.toDouble()).toFloat().coerceIn(0f, 1f)
+        } else if (totalTracks <= 0) {
+            0f
+        } else {
             (completedTracks.toFloat() / totalTracks.toFloat()).coerceIn(0f, 1f)
         }
 }
@@ -185,12 +194,26 @@ internal fun calculateChatDownloadProgress(
     records: List<OfflineDownload>,
 ): ChatDownloadProgress {
     val recordsByTrack = records.associateBy(OfflineDownload::trackId)
+    val relevant = trackIds.mapNotNull(recordsByTrack::get)
     val completed = trackIds.count { trackId ->
         recordsByTrack[trackId]?.status == DownloadStatus.COMPLETED
     }
+
+    val allSizesKnown = relevant.size == trackIds.size && relevant.all { (it.totalBytes ?: 0L) > 0L }
+    val totalBytes = if (allSizesKnown) relevant.sumOf { requireNotNull(it.totalBytes) } else null
+    val downloadedBytes = if (allSizesKnown) {
+        relevant.sumOf { record ->
+            minOf(record.downloadedBytes.coerceAtLeast(0L), requireNotNull(record.totalBytes))
+        }
+    } else {
+        null
+    }
+
     return ChatDownloadProgress(
         completedTracks = completed,
         totalTracks = trackIds.size,
+        downloadedBytes = downloadedBytes,
+        totalBytes = totalBytes,
     )
 }
 
