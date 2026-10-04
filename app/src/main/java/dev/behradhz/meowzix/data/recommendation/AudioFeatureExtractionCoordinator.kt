@@ -6,6 +6,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.*
+import dev.behradhz.meowzix.domain.downloads.ManagedStorageRepository
 import dev.behradhz.meowzix.domain.recommendation.*
 import java.io.File
 import java.security.MessageDigest
@@ -27,22 +28,29 @@ class AudioFeatureExtractionCoordinator @Inject constructor(
     private val audioFeatureDao: AudioFeatureDao,
     private val extractor: AudioFeatureExtractor,
     private val scheduler: RecommendationWorkScheduler,
+    private val managedStorage: ManagedStorageRepository,
     @param:ApplicationContext private val context: Context,
 ) {
     private val gate = Mutex()
     fun schedule(trackIds: Collection<UUID>) = scheduler.scheduleAudio(trackIds)
     fun schedule(trackId: UUID) = schedule(listOf(trackId))
-    suspend fun scheduleBulk() = scheduler.scheduleAudio(libraryDao.allTracks().map { UUID.fromString(it.id) }, bulk = true)
+    suspend fun scheduleBulk() {
+        if (managedStorage.usage().lowSpace) return
+        scheduler.scheduleAudio(libraryDao.allTracks().map { UUID.fromString(it.id) }, bulk = true)
+    }
 
     suspend fun extractIfNeeded(trackId: UUID) = withContext(Dispatchers.IO) {
+        // Analysis is opportunistic. Low disk space must preserve playback/download headroom and
+        // recovery is automatic: a later scheduled extraction rechecks current storage state.
+        if (managedStorage.usage().lowSpace) return@withContext
         gate.withLock {
+            if (managedStorage.usage().lowSpace) return@withLock
             val sources = libraryDao.sourcesForTrack(trackId.toString()).filter {
                 it.trainingEligible && it.availability == SourceAvailability.AVAILABLE_LOCAL &&
                     (!it.contentUri.isNullOrBlank() || !it.localPath.isNullOrBlank())
             }.sortedBy { sourcePriority(it.type) }
             for (source in sources) {
                 currentCoroutineContext().ensureActive()
-                // Actually open/hash the content. A stale priority source must not block a readable fallback.
                 val hash = try { contentHash(source) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null } ?: continue
                 libraryDao.updateContentHash(source.id, hash)
                 val existing = audioFeatureDao.compatibleVector(trackId.toString(), extractor.extractorName, extractor.extractorVersion, extractor.schemaVersion)
@@ -58,7 +66,6 @@ class AudioFeatureExtractionCoordinator @Inject constructor(
                         source.localPath, source.mimeType, source.fileSizeBytes, hash))
                 } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null } ?: continue
                 if (!AudioFeatureSchema.isCompatible(vector.values)) continue
-                // Detect replacement during analysis before committing features for different bytes.
                 val afterHash = try { contentHash(source) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
                 if (afterHash != hash) continue
                 audioFeatureDao.put(AudioFeatureVectorEntity(vector.id.toString(), trackId.toString(), source.id,
