@@ -145,6 +145,8 @@ class DownloadsViewModel @Inject constructor(
     }
 
     fun retry(trackId: UUID) = downloads.retry(trackId)
+    fun pause(trackId: UUID) = downloads.pause(trackId)
+    fun resume(trackId: UUID) = downloads.retry(trackId)
     fun cancel(trackId: UUID) = downloads.cancel(trackId)
     fun remove(trackId: UUID) = viewModelScope.launch { downloads.removeOfflineCopy(trackId) }
     fun setOfflineMode(enabled: Boolean) = viewModelScope.launch { settings.setOfflineMode(enabled) }
@@ -196,6 +198,7 @@ private fun DownloadStatus?.isActiveDownload(): Boolean =
     this == DownloadStatus.QUEUED || this == DownloadStatus.DOWNLOADING
 
 private fun DownloadStatus.isTerminalDownload(): Boolean = when (this) {
+    DownloadStatus.PAUSED,
     DownloadStatus.COMPLETED,
     DownloadStatus.FAILED,
     DownloadStatus.CANCELED,
