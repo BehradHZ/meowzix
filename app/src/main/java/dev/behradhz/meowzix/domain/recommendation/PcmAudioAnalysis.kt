@@ -1,22 +1,43 @@
 package dev.behradhz.meowzix.domain.recommendation
 
 import kotlin.math.PI
-import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** Fixed acoustic order; all descriptors normalized to [0,1], frequency relative to Nyquist. */
+/** Fixed acoustic order; descriptors are normalized to [0,1], frequency relative to Nyquist. */
 object AudioFeatureSchema {
-    const val VERSION = 2
+    const val VERSION = 3
     const val RMS = 0
     const val ZERO_CROSSING_RATE = 1
     const val SILENCE_RATIO = 2
     const val DYNAMIC_RANGE = 3
     const val SPECTRAL_CENTROID = 4
     const val SPECTRAL_ROLLOFF = 5
-    val names = listOf("rms", "zero_crossing_rate", "silence_ratio", "dynamic_range", "spectral_centroid", "spectral_rolloff")
-    fun isCompatible(values: DoubleArray): Boolean = values.size == names.size && values.all { it.isFinite() && it in 0.0..1.0 }
+    const val TEMPO_BPM = 6
+    const val TEMPO_CONFIDENCE = 7
+    const val MIN_TEMPO_BPM = 60.0
+    const val MAX_TEMPO_BPM = 200.0
+    val names = listOf(
+        "rms",
+        "zero_crossing_rate",
+        "silence_ratio",
+        "dynamic_range",
+        "spectral_centroid",
+        "spectral_rolloff",
+        "tempo_bpm_norm",
+        "tempo_confidence",
+    )
+
+    fun isCompatible(values: DoubleArray): Boolean =
+        values.size == names.size && values.all { it.isFinite() && it in 0.0..1.0 }
+
+    fun normalizeTempoBpm(bpm: Double): Double =
+        ((bpm - MIN_TEMPO_BPM) / (MAX_TEMPO_BPM - MIN_TEMPO_BPM)).coerceIn(0.0, 1.0)
+
+    fun denormalizeTempoBpm(value: Double): Double =
+        MIN_TEMPO_BPM + value.coerceIn(0.0, 1.0) * (MAX_TEMPO_BPM - MIN_TEMPO_BPM)
 }
 
 /** In-place radix-2 FFT, forward unscaled transform. Compact bounded implementation, no new dependency. */
@@ -63,8 +84,10 @@ object Radix2Fft {
     }
 }
 
-/** Streaming mono descriptors. Memory is bounded to the short analysis prefix and one FFT frame. */
-class PcmAudioAnalysis {
+/** Streaming mono descriptors with a bounded frame-energy envelope for tempo estimation. */
+class PcmAudioAnalysis(
+    private val sampleRate: Int = DEFAULT_SAMPLE_RATE,
+) {
     private val frame = DoubleArray(FRAME_SIZE)
     private val spectralReal = DoubleArray(FRAME_SIZE)
     private val spectralImaginary = DoubleArray(FRAME_SIZE)
@@ -99,6 +122,7 @@ class PcmAudioAnalysis {
         val sorted = energies.sorted()
         val low = sorted[((sorted.size - 1) * 0.10).toInt()]
         val high = sorted[((sorted.size - 1) * 0.90).toInt()]
+        val tempo = estimateTempo()
         return doubleArrayOf(
             sqrt(sumSquares / sampleCount).coerceIn(0.0, 1.0),
             crossings.toDouble() / (sampleCount - 1).coerceAtLeast(1L),
@@ -106,6 +130,8 @@ class PcmAudioAnalysis {
             (high - low).coerceIn(0.0, 1.0),
             if (spectralFrames == 0) 0.0 else centroidSum / spectralFrames,
             if (spectralFrames == 0) 0.0 else rolloffSum / spectralFrames,
+            tempo?.let { AudioFeatureSchema.normalizeTempoBpm(it.first) } ?: 0.0,
+            tempo?.second ?: 0.0,
         )
     }
 
@@ -115,7 +141,9 @@ class PcmAudioAnalysis {
         for (i in 0 until count) energy += frame[i] * frame[i]
         val rms = sqrt(energy / count)
         energies += rms
-        if (rms < SILENCE_THRESHOLD) silentFrames++ else {
+        if (rms < SILENCE_THRESHOLD) {
+            silentFrames++
+        } else {
             val real = spectralReal
             val imaginary = spectralImaginary
             real.fill(0.0); imaginary.fill(0.0)
@@ -142,9 +170,55 @@ class PcmAudioAnalysis {
         filled = 0
     }
 
+    private fun estimateTempo(): Pair<Double, Double>? {
+        if (energies.size < MIN_TEMPO_FRAMES || sampleRate <= 0) return null
+        val onsets = DoubleArray(energies.size - 1) { index ->
+            max(0.0, energies[index + 1] - energies[index])
+        }
+        val onsetPower = onsets.sumOf { it * it }
+        if (onsetPower <= 1e-8) return null
+
+        val framesPerSecond = sampleRate.toDouble() / FRAME_SIZE
+        val minLag = (framesPerSecond * 60.0 / AudioFeatureSchema.MAX_TEMPO_BPM).toInt().coerceAtLeast(1)
+        val maxLag = (framesPerSecond * 60.0 / AudioFeatureSchema.MIN_TEMPO_BPM).toInt()
+            .coerceAtMost(onsets.size - 2)
+        if (minLag > maxLag) return null
+
+        var bestLag = -1
+        var bestCorrelation = 0.0
+        for (lag in minLag..maxLag) {
+            var dot = 0.0
+            var leftPower = 0.0
+            var rightPower = 0.0
+            for (i in lag until onsets.size) {
+                val left = onsets[i]
+                val right = onsets[i - lag]
+                dot += left * right
+                leftPower += left * left
+                rightPower += right * right
+            }
+            val denominator = sqrt(leftPower * rightPower)
+            if (denominator <= 1e-10) continue
+            val correlation = (dot / denominator).coerceIn(0.0, 1.0)
+            if (correlation > bestCorrelation) {
+                bestCorrelation = correlation
+                bestLag = lag
+            }
+        }
+        if (bestLag <= 0) return null
+        val bpm = (60.0 * framesPerSecond / bestLag)
+            .coerceIn(AudioFeatureSchema.MIN_TEMPO_BPM, AudioFeatureSchema.MAX_TEMPO_BPM)
+        val confidence = ((bestCorrelation - MIN_TEMPO_CORRELATION) / (1.0 - MIN_TEMPO_CORRELATION))
+            .coerceIn(0.0, 1.0)
+        return bpm to confidence
+    }
+
     companion object {
         const val FRAME_SIZE = 1024
         const val SILENCE_THRESHOLD = 0.01
+        const val DEFAULT_SAMPLE_RATE = 44_100
+        const val MIN_TEMPO_FRAMES = 24
+        const val MIN_TEMPO_CORRELATION = 0.15
     }
 }
 
@@ -160,7 +234,6 @@ class LocalTrackSimilarityCalculator : TrackSimilarityCalculator {
         val album = artist && !first.album.isNullOrBlank() && first.album == second.album
         val a = first.audio?.takeIf(AudioFeatureSchema::isCompatible)
         val b = second.audio?.takeIf(AudioFeatureSchema::isCompatible)
-        // Each descriptor has the same normalized range; no raw Hz or amplitude dominates distance.
         val audio = if (a != null && b != null) {
             (1.0 - sqrt(a.indices.sumOf { i -> (a[i] - b[i]) * (a[i] - b[i]) } / a.size)).coerceIn(0.0, 1.0)
         } else null
