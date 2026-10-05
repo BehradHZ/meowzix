@@ -8,7 +8,6 @@ import dev.behradhz.meowzix.data.db.LibraryBrowseDao
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.LibraryToolsDao
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
-import dev.behradhz.meowzix.data.db.PlaylistTrackEntity
 import dev.behradhz.meowzix.data.db.RulePlaylistEntity
 import dev.behradhz.meowzix.data.db.SearchTrackRow
 import dev.behradhz.meowzix.data.db.TrackEntity
@@ -101,6 +100,10 @@ class RoomLibraryToolsRepository @Inject constructor(
                 DuplicateCandidate(
                     track = entity.toDomain(),
                     evidence = if (candidateId in exactIds) DuplicateEvidence.EXACT_CONTENT else DuplicateEvidence.METADATA_AND_DURATION,
+                    sourceLabels = libraryDao.sourcesForTrack(candidateId)
+                        .map { source -> "${source.provider}:${source.type}" }
+                        .distinct()
+                        .sorted(),
                 )
             }
         }.sortedWith(compareBy({ it.evidence != DuplicateEvidence.EXACT_CONTENT }, { it.track.normalizedTitle }))
@@ -255,7 +258,7 @@ class RoomLibraryToolsRepository @Inject constructor(
             )
 
             toolsDao.deleteMetadataOverride(survivorId)
-            snapshot.survivorOverride?.let(toolsDao::upsertMetadataOverride)
+            snapshot.survivorOverride?.let { toolsDao.upsertMetadataOverride(it) }
             database.audioFeatureDao().deleteForTrack(survivorId)
             database.audioFeatureDao().deleteForTrack(mergedId)
             database.historyDao().rebuildPreferenceStats(0L)
