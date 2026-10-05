@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 class TrainingDatasetBuilder @Inject constructor(
     private val historyDao: HistoryDao,
     private val libraryDao: LibraryDao,
+    private val toolsDao: LibraryToolsDao,
     private val audioFeatureDao: AudioFeatureDao,
     private val audioFeatureExtractor: AudioFeatureExtractor,
     private val sampleDao: TrainingSampleDao,
@@ -27,7 +28,14 @@ class TrainingDatasetBuilder @Inject constructor(
         require(outcomeLimit in 1..RecommendationConfig.MAX_REBUILD_OUTCOMES)
         // A finite event boundary keeps replay reproducible while playback continues appending events.
         val through = historyDao.latestEventSequence()
-        val tracks = libraryDao.allTracks().associate { row ->
+        val canonicalAliases = toolsDao.activeMergeJournal().associate { row ->
+            UUID.fromString(row.mergedTrackId) to UUID.fromString(row.survivorTrackId)
+        }
+        fun canonicalTrackId(id: UUID): UUID = canonicalAliases[id] ?: id
+
+        // Hidden merged rows remain in Room so an in-flight Media3 item never loses its FK target,
+        // but they are not separate learning identities. All post-merge events are canonicalized below.
+        val tracks = libraryDao.allTracks().asSequence().filterNot { it.hidden }.associate { row ->
             val id = UUID.fromString(row.id)
             id to TrainingTrack(id, row.normalizedArtist, row.album, row.durationMs)
         }
@@ -35,7 +43,7 @@ class TrainingDatasetBuilder @Inject constructor(
             audioFeatureExtractor.extractorVersion, audioFeatureExtractor.schemaVersion).mapNotNull { row ->
             val values = try { AudioFeatureVectorCodec.decode(row.vectorBlob, AudioVectorFormat.valueOf(row.vectorFormat)) } catch (_: Exception) { null }
             values?.takeIf(AudioFeatureSchema::isCompatible)?.let {
-                UUID.fromString(row.trackId) to TrainingAudio(it, Instant.ofEpochMilli(row.generatedAtEpochMs),
+                canonicalTrackId(UUID.fromString(row.trackId)) to TrainingAudio(it, Instant.ofEpochMilli(row.generatedAtEpochMs),
                     UUID.fromString(row.sourceIdUsed), row.extractorVersion)
             }
         }.toMap()
@@ -57,7 +65,7 @@ class TrainingDatasetBuilder @Inject constructor(
                     try {
                         val event = row.event
                         TrainingEvent(row.sequence, ListeningEvent(
-                            UUID.fromString(event.id), UUID.fromString(event.trackId), ListeningEventType.valueOf(event.type),
+                            UUID.fromString(event.id), canonicalTrackId(UUID.fromString(event.trackId)), ListeningEventType.valueOf(event.type),
                             Instant.ofEpochMilli(event.occurredAtEpochMs), event.localHour, DayOfWeek.of(event.dayOfWeek),
                             TimeBucket.valueOf(event.timeBucket), event.positionMs, event.durationMs, event.completionRatio,
                             dev.behradhz.meowzix.domain.history.PlaybackInitiator.valueOf(event.initiatedBy),
