@@ -18,8 +18,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -48,8 +50,10 @@ class RulePlaylistsViewModel @Inject constructor(
     val state: StateFlow<RulePlaylistsUiState> = _state.asStateFlow()
 
     val selectedTracks: StateFlow<List<Track>> = _state
-        .flatMapLatest { state ->
-            state.selectedPlaylistId?.let(tools::observeRulePlaylistTracks) ?: flowOf(emptyList())
+        .map { it.selectedPlaylistId }
+        .distinctUntilChanged()
+        .flatMapLatest { playlistId ->
+            playlistId?.let(tools::observeRulePlaylistTracks) ?: flowOf(emptyList())
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
