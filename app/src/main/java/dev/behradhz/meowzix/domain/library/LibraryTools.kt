@@ -51,6 +51,11 @@ data class RulePlaylistDefinition(
     val updatedAtEpochMs: Long,
 )
 
+data class RulePlaylistRecord(
+    val title: String,
+    val definition: RulePlaylistDefinition,
+)
+
 interface LibraryToolsRepository {
     fun observeMetadataOverrides(): Flow<Map<UUID, TrackMetadataOverride>>
     suspend fun metadataOverride(trackId: UUID): TrackMetadataOverride?
@@ -72,9 +77,12 @@ interface LibraryToolsRepository {
     suspend fun activeMerges(): List<TrackMergeJournal>
 
     fun observeRulePlaylists(): Flow<List<RulePlaylistDefinition>>
+    fun observeRulePlaylistRecords(): Flow<List<RulePlaylistRecord>>
+    fun observeRulePlaylistTracks(playlistId: UUID): Flow<List<Track>>
     suspend fun rulePlaylist(playlistId: UUID): RulePlaylistDefinition?
     suspend fun saveRulePlaylist(definition: RulePlaylistDefinition)
     suspend fun deleteRulePlaylist(playlistId: UUID)
+    /** Evaluates a bounded membership snapshot. Playback must use this snapshot for the current queue. */
     suspend fun evaluateRulePlaylist(playlistId: UUID, limit: Int = 500): List<Track>
 }
 
