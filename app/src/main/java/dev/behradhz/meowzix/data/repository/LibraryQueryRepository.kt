@@ -66,10 +66,11 @@ class LibraryQueryRepository @Inject constructor(
         }.getOrDefault(emptyList())
         if (ftsResults.isNotEmpty()) return ftsResults
 
-        // FTS is the fast path, but an auxiliary index must never be able to make a real library
-        // track undiscoverable. This token-AND fallback also heals the user-visible failure mode of
-        // an older/stale FTS table (for example searching "Ba To" after an upgrade).
-        return fallbackContainsSearch(normalized, safeLimit)
+        // Keep typo matching as a final fallback: exact/prefix FTS and token-AND contains results
+        // are deterministic and should always outrank approximate matches.
+        val containsResults = fallbackContainsSearch(normalized, safeLimit)
+        if (containsResults.isNotEmpty()) return containsResults
+        return fuzzySearch(normalized, safeLimit)
     }
 
     private suspend fun fallbackContainsSearch(normalized: String, limit: Int): List<Track> {
@@ -105,6 +106,35 @@ class LibraryQueryRepository @Inject constructor(
             LIMIT ?
         """.trimIndent()
         return dao.searchTracks(SimpleSQLiteQuery(sql, args)).map(SearchTrackRow::toDomain)
+    }
+
+    private suspend fun fuzzySearch(normalized: String, limit: Int): List<Track> {
+        val anchor = FuzzyTrackSearch.anchor(normalized) ?: return emptyList()
+        val candidateLimit = maxOf(80, limit * FUZZY_CANDIDATE_MULTIPLIER).coerceAtMost(MAX_FUZZY_CANDIDATES)
+        val sql = """
+            $TRACK_PROJECTION
+            FROM tracks t
+            WHERE $AVAILABLE_TRACK_WHERE
+              AND (
+                  instr(t.normalizedTitle, ?) > 0
+                  OR instr(COALESCE(t.normalizedArtist, ''), ?) > 0
+                  OR instr(LOWER(COALESCE(t.album, '')), ?) > 0
+              )
+            ORDER BY t.updatedAtEpochMs DESC, t.id ASC
+            LIMIT ?
+        """.trimIndent()
+        val candidates = dao.searchTracks(
+            SimpleSQLiteQuery(sql, arrayOf<Any>(anchor, anchor, anchor, candidateLimit)),
+        ).map(SearchTrackRow::toDomain)
+
+        return candidates.asSequence()
+            .mapNotNull { track ->
+                FuzzyTrackSearch.score(normalized, track.title, track.artist, track.album)?.let { score -> score to track }
+            }
+            .sortedWith(compareBy<Pair<Int, Track>>({ it.first }, { it.second.normalizedTitle }, { it.second.id.toString() }))
+            .take(limit)
+            .map { it.second }
+            .toList()
     }
 
     /** Single-row lookup for surfaces that already know the canonical track UUID. */
@@ -197,6 +227,9 @@ class LibraryQueryRepository @Inject constructor(
         ).map(SearchTrackRow::toDomain)
 
     private companion object {
+        const val FUZZY_CANDIDATE_MULTIPLIER = 4
+        const val MAX_FUZZY_CANDIDATES = 200
+
         val TRACK_PROJECTION = """
             SELECT
                 t.id, t.title, t.normalizedTitle, t.artist, t.normalizedArtist, t.album,
@@ -233,8 +266,6 @@ internal fun buildTrackFtsMatchExpression(normalizedQuery: String): String = nor
 
 private fun ftsPrefixToken(token: String): String {
     val escaped = token.replace("\"", "\"\"")
-    // In FTS4 the wildcard must be inside a quoted token. `"radio"*` is an exact quoted
-    // token followed by a no-op wildcard and does not match `radiohead`; `"radio*"` does.
     return "\"$escaped*\""
 }
 
