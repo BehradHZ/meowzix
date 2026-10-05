@@ -9,7 +9,12 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface RulePlaylistQueryDao {
     @RawQuery(
-        observedEntities = [TrackEntity::class, TrackSourceEntity::class, ListeningEventEntity::class],
+        observedEntities = [
+            TrackEntity::class,
+            TrackSourceEntity::class,
+            ListeningEventEntity::class,
+            TrackMetadataOverrideEntity::class,
+        ],
     )
     fun observeTracks(query: SupportSQLiteQuery): Flow<List<SearchTrackRow>>
 
