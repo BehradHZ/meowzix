@@ -22,6 +22,20 @@ data class DuplicateCandidate(
     val evidence: DuplicateEvidence,
 )
 
+data class TrackMergeResult(
+    val journalId: UUID,
+    val survivorTrackId: UUID,
+    val mergedTrackId: UUID,
+    val evidence: DuplicateEvidence,
+)
+
+data class TrackMergeJournal(
+    val id: UUID,
+    val survivorTrackId: UUID,
+    val mergedTrackId: UUID,
+    val createdAtEpochMs: Long,
+)
+
 enum class RuleMatchMode { ALL, ANY }
 enum class RuleKind { FAVORITE, OFFLINE, ADDED_WITHIN_DAYS, NOT_LISTENED_WITHIN_DAYS, ARTIST_IS, ALBUM_IS }
 enum class RulePlaylistSort { RECENTLY_ADDED, TITLE, ARTIST, LAST_PLAYED }
@@ -41,6 +55,20 @@ interface LibraryToolsRepository {
     suspend fun metadataOverride(trackId: UUID): TrackMetadataOverride?
     suspend fun setMetadataOverride(value: TrackMetadataOverride?)
     suspend fun duplicateCandidates(trackId: UUID): List<DuplicateCandidate>
+
+    /**
+     * Merge [mergedTrackId] into [survivorTrackId] without deleting either Track row or any audio.
+     * Metadata-only matches require an explicit confirmation from the user.
+     */
+    suspend fun mergeTracks(
+        survivorTrackId: UUID,
+        mergedTrackId: UUID,
+        confirmMetadataOnly: Boolean = false,
+    ): TrackMergeResult
+
+    /** Undo a merge created by this version of Meowzix using its provenance journal. */
+    suspend fun unmerge(journalId: UUID): Boolean
+    suspend fun activeMerges(): List<TrackMergeJournal>
 
     fun observeRulePlaylists(): Flow<List<RulePlaylistDefinition>>
     suspend fun rulePlaylist(playlistId: UUID): RulePlaylistDefinition?
