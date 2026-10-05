@@ -15,7 +15,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,25 +37,27 @@ internal val LocalLibraryTrackToolsActions = staticCompositionLocalOf<LibraryTra
 @Composable
 internal fun LibraryToolsDialogs(viewModel: LibraryToolsViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    when (state.panel) {
-        LibraryToolsPanel.NONE -> Unit
-        LibraryToolsPanel.METADATA -> MetadataOverrideDialog(state, viewModel)
-        LibraryToolsPanel.DUPLICATES -> DuplicateManagementDialog(state, viewModel)
-    }
-
-    state.pendingMetadataMerge?.let { candidate ->
+    val pendingMerge = state.pendingMetadataMerge
+    if (pendingMerge != null) {
         AlertDialog(
             onDismissRequest = viewModel::cancelMergeConfirmation,
             title = { Text("Merge possible duplicates?") },
             text = {
                 Text(
                     "This match is based on title, artist, and duration rather than identical audio content. " +
-                        "${candidate.track.title} will be merged into the selected track. Audio files are not deleted.",
+                        "${pendingMerge.track.title} will be merged into the selected track. Audio files are not deleted.",
                 )
             },
             confirmButton = { TextButton(onClick = viewModel::confirmMetadataMerge) { Text("Merge") } },
             dismissButton = { TextButton(onClick = viewModel::cancelMergeConfirmation) { Text("Cancel") } },
         )
+        return
+    }
+
+    when (state.panel) {
+        LibraryToolsPanel.NONE -> Unit
+        LibraryToolsPanel.METADATA -> MetadataOverrideDialog(state, viewModel)
+        LibraryToolsPanel.DUPLICATES -> DuplicateManagementDialog(state, viewModel)
     }
 }
 
@@ -129,8 +130,13 @@ private fun DuplicateManagementDialog(state: LibraryToolsUiState, viewModel: Lib
                         Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                             Text(candidate.track.title, style = MaterialTheme.typography.titleSmall)
                             Text(
-                                "${candidate.track.artist ?: "Unknown artist"} · ${formatEvidence(candidate.evidence)}",
+                                "${candidate.track.artist ?: "Unknown artist"} · ${formatDuration(candidate.track.durationMs)} · ${formatEvidence(candidate.evidence)}",
                                 style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                if (candidate.sourceLabels.isEmpty()) "Sources: unavailable" else "Sources: ${candidate.sourceLabels.joinToString()}",
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             TextButton(enabled = !state.busy, onClick = { viewModel.requestMerge(candidate) }) {
@@ -162,4 +168,9 @@ private fun DuplicateManagementDialog(state: LibraryToolsUiState, viewModel: Lib
 private fun formatEvidence(evidence: DuplicateEvidence): String = when (evidence) {
     DuplicateEvidence.EXACT_CONTENT -> "identical audio content"
     DuplicateEvidence.METADATA_AND_DURATION -> "matching metadata + duration"
+}
+
+private fun formatDuration(durationMs: Long): String {
+    val totalSeconds = durationMs.coerceAtLeast(0L) / 1_000L
+    return "%d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
 }
