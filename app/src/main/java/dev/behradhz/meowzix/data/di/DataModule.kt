@@ -11,7 +11,9 @@ import dagger.hilt.components.SingletonComponent
 import dev.behradhz.meowzix.data.db.AudioFeatureDao
 import dev.behradhz.meowzix.data.db.DownloadDao
 import dev.behradhz.meowzix.data.db.HistoryDao
+import dev.behradhz.meowzix.data.db.LibraryBrowseDao
 import dev.behradhz.meowzix.data.db.LibraryDao
+import dev.behradhz.meowzix.data.db.LibraryToolsDao
 import dev.behradhz.meowzix.data.db.LyricsDao
 import dev.behradhz.meowzix.data.db.MIGRATION_1_2
 import dev.behradhz.meowzix.data.db.MIGRATION_2_3
@@ -26,13 +28,14 @@ import dev.behradhz.meowzix.data.db.MIGRATION_10_11
 import dev.behradhz.meowzix.data.db.MIGRATION_11_12
 import dev.behradhz.meowzix.data.db.MIGRATION_12_13
 import dev.behradhz.meowzix.data.db.MIGRATION_13_14
-import dev.behradhz.meowzix.data.db.TrainingSampleDao
+import dev.behradhz.meowzix.data.db.MIGRATION_14_15
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.PlaylistDao
 import dev.behradhz.meowzix.data.db.RecommendationDao
 import dev.behradhz.meowzix.data.db.TRACK_SEARCH_DATABASE_CALLBACK
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramSendDao
+import dev.behradhz.meowzix.data.db.TrainingSampleDao
 import dev.behradhz.meowzix.data.downloads.ResilientDownloadRepository
 import dev.behradhz.meowzix.data.history.RoomListeningHistoryRepository
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
@@ -42,6 +45,7 @@ import dev.behradhz.meowzix.data.recommendation.DataStoreRecommendationFeedbackR
 import dev.behradhz.meowzix.data.recommendation.HeuristicRecommendationEngine
 import dev.behradhz.meowzix.data.recommendation.LocalLinearPersonalizationModel
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
+import dev.behradhz.meowzix.data.repository.RoomLibraryToolsRepository
 import dev.behradhz.meowzix.data.repository.RoomPlaybackCatalog
 import dev.behradhz.meowzix.data.repository.RoomPlaylistRepository
 import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
@@ -50,6 +54,7 @@ import dev.behradhz.meowzix.data.telegram.TdLibTelegramForwardRepository
 import dev.behradhz.meowzix.data.telegram.TdLibTelegramRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
+import dev.behradhz.meowzix.domain.library.LibraryToolsRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
@@ -72,6 +77,7 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
     @Binds @Singleton abstract fun bindMusicLibraryRepository(impl: LocalMusicLibraryRepository): MusicLibraryRepository
+    @Binds @Singleton abstract fun bindLibraryToolsRepository(impl: RoomLibraryToolsRepository): LibraryToolsRepository
     @Binds @Singleton abstract fun bindPlaybackCatalog(impl: RoomPlaybackCatalog): PlaybackCatalog
     @Binds @Singleton abstract fun bindPlaybackController(impl: ResolvingPlaybackController): PlaybackController
     @Binds @Singleton abstract fun bindQueueRepository(impl: ResolvingPlaybackController): QueueRepository
@@ -113,11 +119,14 @@ object DatabaseModule {
                 MIGRATION_11_12,
                 MIGRATION_12_13,
                 MIGRATION_13_14,
+                MIGRATION_14_15,
             )
             .addCallback(TRACK_SEARCH_DATABASE_CALLBACK)
             .build()
 
     @Provides fun provideLibraryDao(database: MeowzixDatabase): LibraryDao = database.libraryDao()
+    @Provides fun provideLibraryBrowseDao(database: MeowzixDatabase): LibraryBrowseDao = database.libraryBrowseDao()
+    @Provides fun provideLibraryToolsDao(database: MeowzixDatabase): LibraryToolsDao = database.libraryToolsDao()
     @Provides fun provideRecommendationDao(database: MeowzixDatabase): RecommendationDao = database.recommendationDao()
     @Provides fun provideTelegramDao(database: MeowzixDatabase): TelegramDao = database.telegramDao()
     @Provides fun provideTelegramSendDao(database: MeowzixDatabase): TelegramSendDao = database.telegramSendDao()
