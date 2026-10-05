@@ -32,4 +32,5 @@ abstract class MeowzixDatabase : RoomDatabase() {
     abstract fun trainingSampleDao(): TrainingSampleDao
     abstract fun lyricsDao(): LyricsDao
     abstract fun libraryToolsDao(): LibraryToolsDao
+    abstract fun trackMergeDao(): TrackMergeDao
 }
