@@ -18,8 +18,13 @@ interface LibraryToolsDao {
 
     @Query("SELECT * FROM track_merge_journal WHERE id = :id LIMIT 1") suspend fun mergeJournal(id: String): TrackMergeJournalEntity?
     @Query("SELECT * FROM track_merge_journal WHERE reversedAtEpochMs IS NULL ORDER BY createdAtEpochMs DESC") suspend fun activeMergeJournal(): List<TrackMergeJournalEntity>
+    @Query("SELECT survivorTrackId FROM track_merge_journal WHERE mergedTrackId = :mergedTrackId AND reversedAtEpochMs IS NULL ORDER BY createdAtEpochMs DESC LIMIT 1")
+    suspend fun activeSurvivorForMerged(mergedTrackId: String): String?
+    @Query("SELECT * FROM track_merge_journal WHERE mergedTrackId = :trackId AND reversedAtEpochMs IS NULL ORDER BY createdAtEpochMs DESC LIMIT 1")
+    suspend fun activeMergeForMerged(trackId: String): TrackMergeJournalEntity?
     @Upsert suspend fun upsertMergeJournal(value: TrackMergeJournalEntity)
-    @Query("UPDATE track_merge_journal SET reversedAtEpochMs = :reversedAtEpochMs WHERE id = :id") suspend fun markMergeReversed(id: String, reversedAtEpochMs: Long)
+    @Query("UPDATE track_merge_journal SET reversedAtEpochMs = :reversedAtEpochMs WHERE id = :id AND reversedAtEpochMs IS NULL")
+    suspend fun markMergeReversed(id: String, reversedAtEpochMs: Long): Int
 
     @Query("SELECT * FROM rule_playlists WHERE playlistId = :playlistId LIMIT 1") suspend fun rulePlaylist(playlistId: String): RulePlaylistEntity?
     @Query("SELECT * FROM rule_playlists ORDER BY playlistId") suspend fun allRulePlaylists(): List<RulePlaylistEntity>
