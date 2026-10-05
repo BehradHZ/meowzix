@@ -1,15 +1,20 @@
 package dev.behradhz.meowzix.data.repository
 
+import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import dev.behradhz.meowzix.core.common.TextNormalizer
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.db.LibraryBrowseDao
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.LibraryToolsDao
+import dev.behradhz.meowzix.data.db.MeowzixDatabase
+import dev.behradhz.meowzix.data.db.PlaylistTrackEntity
 import dev.behradhz.meowzix.data.db.RulePlaylistEntity
 import dev.behradhz.meowzix.data.db.SearchTrackRow
 import dev.behradhz.meowzix.data.db.TrackEntity
+import dev.behradhz.meowzix.data.db.TrackMergeJournalEntity
 import dev.behradhz.meowzix.data.db.TrackMetadataOverrideEntity
+import dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
 import dev.behradhz.meowzix.domain.library.DuplicateCandidate
 import dev.behradhz.meowzix.domain.library.DuplicateEvidence
 import dev.behradhz.meowzix.domain.library.LibraryToolsRepository
@@ -18,8 +23,14 @@ import dev.behradhz.meowzix.domain.library.RuleKind
 import dev.behradhz.meowzix.domain.library.RuleMatchMode
 import dev.behradhz.meowzix.domain.library.RulePlaylistDefinition
 import dev.behradhz.meowzix.domain.library.RulePlaylistSort
+import dev.behradhz.meowzix.domain.library.TrackMergeJournal
+import dev.behradhz.meowzix.domain.library.TrackMergeResult
 import dev.behradhz.meowzix.domain.library.TrackMetadataOverride
+import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedback
+import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
+import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackRepository
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -33,6 +44,9 @@ class RoomLibraryToolsRepository @Inject constructor(
     private val toolsDao: LibraryToolsDao,
     private val libraryDao: LibraryDao,
     private val browseDao: LibraryBrowseDao,
+    private val database: MeowzixDatabase,
+    private val feedbackRepository: RecommendationFeedbackRepository,
+    private val personalizationTrainer: PersonalizationTrainer,
 ) : LibraryToolsRepository {
     private val clock: Clock = Clock.systemUTC()
 
@@ -92,6 +106,225 @@ class RoomLibraryToolsRepository @Inject constructor(
         }.sortedWith(compareBy({ it.evidence != DuplicateEvidence.EXACT_CONTENT }, { it.track.normalizedTitle }))
     }
 
+    override suspend fun mergeTracks(
+        survivorTrackId: UUID,
+        mergedTrackId: UUID,
+        confirmMetadataOnly: Boolean,
+    ): TrackMergeResult {
+        require(survivorTrackId != mergedTrackId) { "A track cannot be merged into itself" }
+        val survivorId = survivorTrackId.toString()
+        val mergedId = mergedTrackId.toString()
+        val survivor = requireNotNull(libraryDao.trackById(survivorId)) { "Survivor track does not exist" }
+        val merged = requireNotNull(libraryDao.trackById(mergedId)) { "Merged track does not exist" }
+        require(!survivor.hidden && !merged.hidden) { "Only visible canonical tracks can be merged" }
+        val active = toolsDao.activeMergeJournal()
+        require(active.none { row ->
+            row.survivorTrackId in setOf(survivorId, mergedId) || row.mergedTrackId in setOf(survivorId, mergedId)
+        }) { "Nested or repeated merges must be undone before merging again" }
+
+        val evidence = duplicateCandidates(survivorTrackId).firstOrNull { it.track.id == mergedTrackId }?.evidence
+            ?: duplicateCandidates(mergedTrackId).firstOrNull { it.track.id == survivorTrackId }?.evidence
+            ?: error("Tracks are not a duplicate candidate pair")
+        require(evidence != DuplicateEvidence.METADATA_AND_DURATION || confirmMetadataOnly) {
+            "Metadata-only duplicate merges require explicit confirmation"
+        }
+
+        val playlistDao = database.playlistDao()
+        val lyricsDao = database.lyricsDao()
+        val mergeDao = database.trackMergeDao()
+        val survivorOverride = toolsDao.metadataOverride(survivorId)
+        val mergedOverride = toolsDao.metadataOverride(mergedId)
+        val mergedPlaylistEntries = playlistDao.entriesForTrack(mergedId)
+        val mergedFeedback = feedbackRepository.snapshot().filter { it.trackId == mergedTrackId }
+        val survivorFeedback = feedbackRepository.snapshot().filter { it.trackId == survivorTrackId }
+        val snapshot = TrackMergeSnapshot(
+            survivorFavorite = survivor.favorite,
+            survivorHidden = survivor.hidden,
+            mergedFavorite = merged.favorite,
+            mergedHidden = merged.hidden,
+            survivorOverride = survivorOverride,
+            sourceIds = libraryDao.sourcesForTrack(mergedId).map { it.id },
+            playlistEntries = mergedPlaylistEntries.map { entry ->
+                PlaylistSnapshotEntry(entry, playlistDao.entry(entry.playlistId, survivorId) != null)
+            },
+            lyricIds = lyricsDao.versionsForTrack(mergedId).map { it.id },
+            historyEventIds = mergeDao.eventIdsForTrack(mergedId),
+            survivorFeedback = survivorFeedback,
+            mergedFeedback = mergedFeedback,
+        )
+        val now = clock.millis()
+        val journalId = UUID.randomUUID()
+
+        database.withTransaction {
+            toolsDao.upsertMergeJournal(
+                TrackMergeJournalEntity(
+                    id = journalId.toString(),
+                    survivorTrackId = survivorId,
+                    mergedTrackId = mergedId,
+                    snapshotJson = TrackMergeSnapshotCodec.encode(snapshot),
+                    createdAtEpochMs = now,
+                    reversedAtEpochMs = null,
+                ),
+            )
+
+            snapshot.sourceIds.forEach { sourceId ->
+                libraryDao.sourceById(sourceId)?.takeIf { it.trackId == mergedId }?.let {
+                    libraryDao.moveSource(sourceId, survivorId)
+                }
+            }
+
+            snapshot.playlistEntries.forEach { row ->
+                playlistDao.removeTrack(row.entry.playlistId, mergedId)
+                if (!row.survivorWasAlreadyPresent) {
+                    playlistDao.insertTrack(row.entry.copy(trackId = survivorId))
+                }
+                playlistDao.touchPlaylist(row.entry.playlistId, now)
+            }
+
+            snapshot.lyricIds.forEach { lyricsDao.moveVersion(it, mergedId, survivorId) }
+            snapshot.historyEventIds.forEach { mergeDao.moveEvent(it, mergedId, survivorId) }
+
+            libraryDao.upsertTrack(survivor.copy(favorite = survivor.favorite || merged.favorite, updatedAtEpochMs = now))
+            libraryDao.upsertTrack(merged.copy(hidden = true, updatedAtEpochMs = now))
+
+            val combinedOverride = combineOverrides(survivorId, survivorOverride, mergedOverride, now)
+            if (combinedOverride != null) toolsDao.upsertMetadataOverride(combinedOverride)
+
+            database.audioFeatureDao().deleteForTrack(survivorId)
+            database.audioFeatureDao().deleteForTrack(mergedId)
+            database.historyDao().rebuildPreferenceStats(0L)
+        }
+
+        mergeFeedback(survivorTrackId, mergedTrackId, survivorFeedback, mergedFeedback)
+        personalizationTrainer.rebuildFromStoredHistory()
+        return TrackMergeResult(journalId, survivorTrackId, mergedTrackId, evidence)
+    }
+
+    override suspend fun unmerge(journalId: UUID): Boolean {
+        val journal = toolsDao.mergeJournal(journalId.toString()) ?: return false
+        if (journal.reversedAtEpochMs != null) return false
+        val snapshot = runCatching { TrackMergeSnapshotCodec.decode(journal.snapshotJson) }.getOrElse { return false }
+        val survivorId = journal.survivorTrackId
+        val mergedId = journal.mergedTrackId
+        val survivor = libraryDao.trackById(survivorId) ?: return false
+        val merged = libraryDao.trackById(mergedId) ?: return false
+        val playlistDao = database.playlistDao()
+        val lyricsDao = database.lyricsDao()
+        val mergeDao = database.trackMergeDao()
+        val now = clock.millis()
+
+        database.withTransaction {
+            snapshot.sourceIds.forEach { sourceId ->
+                libraryDao.sourceById(sourceId)?.takeIf { it.trackId == survivorId }?.let {
+                    libraryDao.moveSource(sourceId, mergedId)
+                }
+            }
+
+            snapshot.playlistEntries.forEach { row ->
+                val currentSurvivor = playlistDao.entry(row.entry.playlistId, survivorId)
+                if (!row.survivorWasAlreadyPresent && currentSurvivor?.addedAtEpochMs == row.entry.addedAtEpochMs) {
+                    playlistDao.removeTrack(row.entry.playlistId, survivorId)
+                }
+                if (playlistDao.entry(row.entry.playlistId, mergedId) == null) {
+                    val current = playlistDao.entries(row.entry.playlistId)
+                    val occupied = current.map { it.position }.toSet()
+                    val restoredPosition = if (row.entry.position !in occupied) row.entry.position else nextFreePosition(occupied, row.entry.position)
+                    playlistDao.insertTrack(row.entry.copy(trackId = mergedId, position = restoredPosition))
+                }
+                playlistDao.touchPlaylist(row.entry.playlistId, now)
+            }
+
+            snapshot.lyricIds.forEach { id ->
+                lyricsDao.byId(id)?.takeIf { it.trackId == survivorId }?.let { lyricsDao.moveVersion(id, survivorId, mergedId) }
+            }
+            snapshot.historyEventIds.forEach { mergeDao.moveEvent(it, survivorId, mergedId) }
+
+            libraryDao.upsertTrack(
+                survivor.copy(
+                    favorite = snapshot.survivorFavorite,
+                    hidden = snapshot.survivorHidden,
+                    updatedAtEpochMs = now,
+                ),
+            )
+            libraryDao.upsertTrack(
+                merged.copy(
+                    favorite = snapshot.mergedFavorite,
+                    hidden = snapshot.mergedHidden,
+                    updatedAtEpochMs = now,
+                ),
+            )
+
+            toolsDao.deleteMetadataOverride(survivorId)
+            snapshot.survivorOverride?.let(toolsDao::upsertMetadataOverride)
+            database.audioFeatureDao().deleteForTrack(survivorId)
+            database.audioFeatureDao().deleteForTrack(mergedId)
+            database.historyDao().rebuildPreferenceStats(0L)
+            check(toolsDao.markMergeReversed(journal.id, now) == 1) { "Merge was already reversed" }
+        }
+
+        restoreFeedback(UUID.fromString(survivorId), snapshot.survivorFeedback)
+        restoreFeedback(UUID.fromString(mergedId), snapshot.mergedFeedback)
+        personalizationTrainer.rebuildFromStoredHistory()
+        return true
+    }
+
+    override suspend fun activeMerges(): List<TrackMergeJournal> = toolsDao.activeMergeJournal().mapNotNull { row ->
+        runCatching {
+            TrackMergeJournal(
+                id = UUID.fromString(row.id),
+                survivorTrackId = UUID.fromString(row.survivorTrackId),
+                mergedTrackId = UUID.fromString(row.mergedTrackId),
+                createdAtEpochMs = row.createdAtEpochMs,
+            )
+        }.getOrNull()
+    }
+
+    private suspend fun mergeFeedback(
+        survivorId: UUID,
+        mergedId: UUID,
+        survivorRows: List<RecommendationFeedback>,
+        mergedRows: List<RecommendationFeedback>,
+    ) {
+        val survivorPreference = survivorRows.filter { it.action != RecommendationFeedbackAction.SNOOZE }.maxByOrNull { it.createdAt }
+        val mergedPreference = mergedRows.filter { it.action != RecommendationFeedbackAction.SNOOZE }.maxByOrNull { it.createdAt }
+        val preference = survivorPreference ?: mergedPreference
+        val snooze = (survivorRows + mergedRows)
+            .filter { it.action == RecommendationFeedbackAction.SNOOZE }
+            .maxByOrNull { it.expiresAt ?: it.createdAt }
+        feedbackRepository.undo(survivorId)
+        feedbackRepository.undo(mergedId)
+        preference?.let { putFeedback(survivorId, it) }
+        snooze?.let { putFeedback(survivorId, it) }
+    }
+
+    private suspend fun restoreFeedback(trackId: UUID, rows: List<RecommendationFeedback>) {
+        feedbackRepository.undo(trackId)
+        rows.sortedBy { it.createdAt }.forEach { putFeedback(trackId, it) }
+    }
+
+    private suspend fun putFeedback(trackId: UUID, row: RecommendationFeedback) {
+        val duration = row.expiresAt?.let { Duration.between(row.createdAt, it) }
+            ?.coerceAtLeast(Duration.ofMinutes(1)) ?: RecommendationFeedback.DEFAULT_SNOOZE
+        feedbackRepository.set(trackId, row.action, row.createdAt, duration)
+    }
+
+    private fun combineOverrides(
+        survivorId: String,
+        survivor: TrackMetadataOverrideEntity?,
+        merged: TrackMetadataOverrideEntity?,
+        now: Long,
+    ): TrackMetadataOverrideEntity? {
+        if (survivor == null && merged == null) return null
+        return TrackMetadataOverrideEntity(
+            trackId = survivorId,
+            title = survivor?.title ?: merged?.title,
+            artist = survivor?.artist ?: merged?.artist,
+            album = survivor?.album ?: merged?.album,
+            artworkRef = survivor?.artworkRef ?: merged?.artworkRef,
+            updatedAtEpochMs = now,
+        )
+    }
+
     override fun observeRulePlaylists(): Flow<List<RulePlaylistDefinition>> =
         toolsDao.observeRulePlaylists().map { rows -> rows.mapNotNull(RulePlaylistEntity::toDomain) }
 
@@ -134,7 +367,7 @@ class RoomLibraryToolsRepository @Inject constructor(
             RulePlaylistSort.ARTIST -> "COALESCE(t.normalizedArtist, ''), t.normalizedTitle, t.id"
             RulePlaylistSort.LAST_PLAYED -> "COALESCE((SELECT MAX(le.occurredAtEpochMs) FROM listening_events le WHERE le.trackId = t.id), 0) DESC, t.id"
         }
-        args += limit.coerceIn(1, 1_000)
+        args.add(limit.coerceIn(1, 1_000))
         val sql = """
             SELECT
                 t.id, t.title, t.normalizedTitle, t.artist, t.normalizedArtist, t.album,
@@ -160,7 +393,7 @@ class RoomLibraryToolsRepository @Inject constructor(
             "t.createdAtEpochMs >= ?" to listOf(nowMs - days * DAY_MS)
         }
         RuleKind.NOT_LISTENED_WITHIN_DAYS -> value.safeDays()?.let { days ->
-            "NOT EXISTS (SELECT 1 FROM listening_events recent WHERE recent.trackId = t.id AND recent.occurredAtEpochMs >= ?)" to listOf(nowMs - days * DAY_MS)
+            "NOT EXISTS (SELECT 1 FROM listening_events recent WHERE recent.trackId = t.id AND recent.occurredAtEpochMs >= ? AND recent.type IN ('PLAY_COMPLETED', 'PLAY_STOPPED', 'SKIPPED_LATE'))" to listOf(nowMs - days * DAY_MS)
         }
         RuleKind.ARTIST_IS -> TextNormalizer.normalize(value)?.let { normalized ->
             "COALESCE(t.normalizedArtist, '') = ?" to listOf(normalized)
@@ -174,6 +407,12 @@ class RoomLibraryToolsRepository @Inject constructor(
         const val MAX_RULES = 32
         const val DAY_MS = 86_400_000L
     }
+}
+
+private fun nextFreePosition(occupied: Set<Int>, preferred: Int): Int {
+    var candidate = preferred.coerceAtLeast(0)
+    while (candidate in occupied) candidate++
+    return candidate
 }
 
 private fun String?.cleaned(maxLength: Int = 512): String? = this?.trim()?.take(maxLength)?.takeIf(String::isNotBlank)
