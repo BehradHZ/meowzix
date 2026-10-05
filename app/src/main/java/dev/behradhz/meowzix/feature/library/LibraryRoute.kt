@@ -15,6 +15,7 @@ fun LibraryRoute(
     viewModel: LibraryViewModel = hiltViewModel(),
     tracksViewModel: LibraryTracksViewModel = hiltViewModel(),
     recommendationActions: RecommendationActionsViewModel = hiltViewModel(),
+    libraryTools: LibraryToolsViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(searchQuery) {
         tracksViewModel.setSearchQuery(searchQuery)
@@ -25,8 +26,13 @@ fun LibraryRoute(
             continueVibe = recommendationActions::continueVibe,
             why = recommendationActions::why,
         ),
+        LocalLibraryTrackToolsActions provides LibraryTrackToolsActions(
+            editMetadata = libraryTools::openMetadata,
+            manageDuplicates = libraryTools::openDuplicates,
+        ),
     ) {
         dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs(recommendationActions)
+        LibraryToolsDialogs(libraryTools)
         LibraryRouteV4(
             onOpenNowPlaying = onOpenNowPlaying,
             viewModel = viewModel,
