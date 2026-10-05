@@ -86,11 +86,7 @@ class RoomLibraryToolsRepository @Inject constructor(
             libraryDao.trackById(candidateId)?.let { entity ->
                 DuplicateCandidate(
                     track = entity.toDomain(),
-                    evidence = if (candidateId in exactIds) {
-                        DuplicateEvidence.EXACT_CONTENT
-                    } else {
-                        DuplicateEvidence.METADATA_AND_DURATION
-                    },
+                    evidence = if (candidateId in exactIds) DuplicateEvidence.EXACT_CONTENT else DuplicateEvidence.METADATA_AND_DURATION,
                 )
             }
         }.sortedWith(compareBy({ it.evidence != DuplicateEvidence.EXACT_CONTENT }, { it.track.normalizedTitle }))
@@ -127,7 +123,7 @@ class RoomLibraryToolsRepository @Inject constructor(
         definition.rules.forEach { rule ->
             rule.toSqlClause(clock.millis())?.let { (sql, values) ->
                 clauses += sql
-                args += values
+                args.addAll(values)
             }
         }
         if (clauses.isEmpty()) return emptyList()
@@ -159,15 +155,12 @@ class RoomLibraryToolsRepository @Inject constructor(
 
     private fun PlaylistRule.toSqlClause(nowMs: Long): Pair<String, List<Any>>? = when (kind) {
         RuleKind.FAVORITE -> "t.favorite = 1" to emptyList()
-        RuleKind.OFFLINE -> (
-            "EXISTS (SELECT 1 FROM track_sources local WHERE local.trackId = t.id AND local.availability = 'AVAILABLE_LOCAL')" to emptyList()
-        )
+        RuleKind.OFFLINE -> "EXISTS (SELECT 1 FROM track_sources local WHERE local.trackId = t.id AND local.availability = 'AVAILABLE_LOCAL')" to emptyList()
         RuleKind.ADDED_WITHIN_DAYS -> value.safeDays()?.let { days ->
             "t.createdAtEpochMs >= ?" to listOf(nowMs - days * DAY_MS)
         }
         RuleKind.NOT_LISTENED_WITHIN_DAYS -> value.safeDays()?.let { days ->
-            "NOT EXISTS (SELECT 1 FROM listening_events recent WHERE recent.trackId = t.id AND recent.occurredAtEpochMs >= ?)" to
-                listOf(nowMs - days * DAY_MS)
+            "NOT EXISTS (SELECT 1 FROM listening_events recent WHERE recent.trackId = t.id AND recent.occurredAtEpochMs >= ?)" to listOf(nowMs - days * DAY_MS)
         }
         RuleKind.ARTIST_IS -> TextNormalizer.normalize(value)?.let { normalized ->
             "COALESCE(t.normalizedArtist, '') = ?" to listOf(normalized)
