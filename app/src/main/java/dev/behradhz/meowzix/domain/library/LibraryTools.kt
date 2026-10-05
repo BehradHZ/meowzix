@@ -20,6 +20,7 @@ enum class DuplicateEvidence { EXACT_CONTENT, METADATA_AND_DURATION }
 data class DuplicateCandidate(
     val track: Track,
     val evidence: DuplicateEvidence,
+    val sourceLabels: List<String> = emptyList(),
 )
 
 data class TrackMergeResult(
