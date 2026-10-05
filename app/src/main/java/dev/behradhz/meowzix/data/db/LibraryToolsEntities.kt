@@ -7,14 +7,7 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "track_metadata_overrides",
-    foreignKeys = [
-        ForeignKey(
-            entity = TrackEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["trackId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = TrackEntity::class, parentColumns = ["id"], childColumns = ["trackId"], onDelete = ForeignKey.CASCADE)],
 )
 data class TrackMetadataOverrideEntity(
     @PrimaryKey val trackId: String,
@@ -25,10 +18,7 @@ data class TrackMetadataOverrideEntity(
     val updatedAtEpochMs: Long,
 )
 
-@Entity(
-    tableName = "track_merge_journal",
-    indices = [Index("survivorTrackId"), Index("mergedTrackId")],
-)
+@Entity(tableName = "track_merge_journal", indices = [Index("survivorTrackId"), Index("mergedTrackId")])
 data class TrackMergeJournalEntity(
     @PrimaryKey val id: String,
     val survivorTrackId: String,
@@ -40,14 +30,7 @@ data class TrackMergeJournalEntity(
 
 @Entity(
     tableName = "rule_playlists",
-    foreignKeys = [
-        ForeignKey(
-            entity = PlaylistEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["playlistId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = PlaylistEntity::class, parentColumns = ["id"], childColumns = ["playlistId"], onDelete = ForeignKey.CASCADE)],
 )
 data class RulePlaylistEntity(
     @PrimaryKey val playlistId: String,
@@ -55,4 +38,18 @@ data class RulePlaylistEntity(
     val rulesJson: String,
     val sortMode: String,
     val updatedAtEpochMs: Long,
+)
+
+@Entity(
+    tableName = "backup_unresolved_references",
+    indices = [Index("backupId"), Index(value = ["ownerType", "ownerId"])],
+)
+data class BackupUnresolvedReferenceEntity(
+    @PrimaryKey val id: String,
+    val backupId: String,
+    val ownerType: String,
+    val ownerId: String,
+    val portableTrackRef: String,
+    val createdAtEpochMs: Long,
+    val resolvedTrackId: String?,
 )

@@ -15,41 +15,26 @@ interface PlaylistDao {
     @Query("SELECT t.* FROM playlist_tracks pt INNER JOIN tracks t ON t.id = pt.trackId WHERE pt.playlistId = :playlistId ORDER BY pt.position")
     fun observeTracks(playlistId: String): Flow<List<TrackEntity>>
 
+    @Query("SELECT * FROM playlists ORDER BY createdAtEpochMs, id")
+    suspend fun allPlaylists(): List<PlaylistEntity>
+
+    @Query("SELECT * FROM playlist_tracks ORDER BY playlistId, position")
+    suspend fun allEntries(): List<PlaylistTrackEntity>
+
     @Query("SELECT * FROM playlist_tracks WHERE playlistId = :playlistId ORDER BY position")
     suspend fun entries(playlistId: String): List<PlaylistTrackEntity>
 
-    @Upsert
-    suspend fun upsertPlaylist(playlist: PlaylistEntity)
-
+    @Upsert suspend fun upsertPlaylist(playlist: PlaylistEntity)
     @Query("UPDATE playlists SET title = :title, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
     suspend fun renamePlaylist(playlistId: String, title: String, updatedAt: Long)
-
     @Query("UPDATE playlists SET title = :title, description = :description, artworkRef = :artworkRef, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
-    suspend fun updatePlaylistMetadata(
-        playlistId: String,
-        title: String,
-        description: String?,
-        artworkRef: String?,
-        updatedAt: Long,
-    )
-
-    @Query("UPDATE playlists SET updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
-    suspend fun touchPlaylist(playlistId: String, updatedAt: Long)
-
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertTrack(entry: PlaylistTrackEntity): Long
-
-    @Upsert
-    suspend fun upsertTracks(entries: List<PlaylistTrackEntity>)
-
-    @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId")
-    suspend fun clearTracks(playlistId: String)
-
-    @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId AND trackId = :trackId")
-    suspend fun removeTrack(playlistId: String, trackId: String)
-
-    @Query("DELETE FROM playlists WHERE id = :playlistId")
-    suspend fun deletePlaylist(playlistId: String)
+    suspend fun updatePlaylistMetadata(playlistId: String, title: String, description: String?, artworkRef: String?, updatedAt: Long)
+    @Query("UPDATE playlists SET updatedAtEpochMs = :updatedAt WHERE id = :playlistId") suspend fun touchPlaylist(playlistId: String, updatedAt: Long)
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertTrack(entry: PlaylistTrackEntity): Long
+    @Upsert suspend fun upsertTracks(entries: List<PlaylistTrackEntity>)
+    @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId") suspend fun clearTracks(playlistId: String)
+    @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId AND trackId = :trackId") suspend fun removeTrack(playlistId: String, trackId: String)
+    @Query("DELETE FROM playlists WHERE id = :playlistId") suspend fun deletePlaylist(playlistId: String)
 }
 
 data class PlaylistSummaryRow(
