@@ -9,6 +9,7 @@ import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.LibraryToolsDao
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.RulePlaylistEntity
+import dev.behradhz.meowzix.data.db.RulePlaylistRecordRow
 import dev.behradhz.meowzix.data.db.SearchTrackRow
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackMergeJournalEntity
@@ -21,6 +22,7 @@ import dev.behradhz.meowzix.domain.library.PlaylistRule
 import dev.behradhz.meowzix.domain.library.RuleKind
 import dev.behradhz.meowzix.domain.library.RuleMatchMode
 import dev.behradhz.meowzix.domain.library.RulePlaylistDefinition
+import dev.behradhz.meowzix.domain.library.RulePlaylistRecord
 import dev.behradhz.meowzix.domain.library.RulePlaylistSort
 import dev.behradhz.meowzix.domain.library.TrackMergeJournal
 import dev.behradhz.meowzix.domain.library.TrackMergeResult
@@ -35,7 +37,13 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 @Singleton
@@ -101,7 +109,7 @@ class RoomLibraryToolsRepository @Inject constructor(
                     track = entity.toDomain(),
                     evidence = if (candidateId in exactIds) DuplicateEvidence.EXACT_CONTENT else DuplicateEvidence.METADATA_AND_DURATION,
                     sourceLabels = libraryDao.sourcesForTrack(candidateId)
-                        .map { source -> "${source.provider}:${source.type}" }
+                        .map { source -> "${source.type.name.lowercase()} · ${source.availability.name.lowercase()}" }
                         .distinct()
                         .sorted(),
                 )
@@ -331,6 +339,27 @@ class RoomLibraryToolsRepository @Inject constructor(
     override fun observeRulePlaylists(): Flow<List<RulePlaylistDefinition>> =
         toolsDao.observeRulePlaylists().map { rows -> rows.mapNotNull(RulePlaylistEntity::toDomain) }
 
+    override fun observeRulePlaylistRecords(): Flow<List<RulePlaylistRecord>> =
+        toolsDao.observeRulePlaylistRecords().map { rows -> rows.mapNotNull(RulePlaylistRecordRow::toDomain) }
+
+    override fun observeRulePlaylistTracks(playlistId: UUID): Flow<List<Track>> =
+        toolsDao.observeRulePlaylists()
+            .map { rows -> rows.firstOrNull { it.playlistId == playlistId.toString() }?.toDomain() }
+            .distinctUntilChanged()
+            .flatMapLatest { definition ->
+                if (definition == null) {
+                    flowOf(emptyList())
+                } else {
+                    ruleBoundaryRefreshes(definition).flatMapLatest { now ->
+                        val query = buildRuleQuery(definition, now, RULE_LIVE_LIMIT)
+                            ?: return@flatMapLatest flowOf(emptyList())
+                        database.rulePlaylistQueryDao().observeTracks(query).map { rows ->
+                            rows.distinctBy { it.id }.map(SearchTrackRow::toDomain)
+                        }
+                    }
+                }
+            }
+
     override suspend fun rulePlaylist(playlistId: UUID): RulePlaylistDefinition? =
         toolsDao.rulePlaylist(playlistId.toString())?.toDomain()
 
@@ -354,15 +383,42 @@ class RoomLibraryToolsRepository @Inject constructor(
 
     override suspend fun evaluateRulePlaylist(playlistId: UUID, limit: Int): List<Track> {
         val definition = rulePlaylist(playlistId) ?: return emptyList()
+        val query = buildRuleQuery(definition, clock.millis(), limit) ?: return emptyList()
+        return browseDao.searchTracks(query).distinctBy { it.id }.map(SearchTrackRow::toDomain)
+    }
+
+    private fun ruleBoundaryRefreshes(definition: RulePlaylistDefinition): Flow<Long> = flow {
+        while (true) {
+            val now = clock.millis()
+            emit(now)
+            val nextBoundary = nextRuleBoundary(definition, now) ?: awaitCancellation()
+            delay((nextBoundary - clock.millis()).coerceAtLeast(MIN_BOUNDARY_DELAY_MS))
+        }
+    }
+
+    private suspend fun nextRuleBoundary(definition: RulePlaylistDefinition, now: Long): Long? {
+        val queryDao = database.rulePlaylistQueryDao()
+        return definition.rules.mapNotNull { rule ->
+            val days = rule.value.safeDays() ?: return@mapNotNull null
+            val windowMs = days * DAY_MS
+            when (rule.kind) {
+                RuleKind.ADDED_WITHIN_DAYS -> queryDao.nextAddedExpiry(windowMs, now)
+                RuleKind.NOT_LISTENED_WITHIN_DAYS -> queryDao.nextMeaningfulListenExpiry(windowMs, now)
+                else -> null
+            }
+        }.minOrNull()
+    }
+
+    private fun buildRuleQuery(definition: RulePlaylistDefinition, now: Long, limit: Int): SimpleSQLiteQuery? {
         val clauses = mutableListOf<String>()
         val args = mutableListOf<Any>()
         definition.rules.forEach { rule ->
-            rule.toSqlClause(clock.millis())?.let { (sql, values) ->
+            rule.toSqlClause(now)?.let { (sql, values) ->
                 clauses += sql
                 args.addAll(values)
             }
         }
-        if (clauses.isEmpty()) return emptyList()
+        if (clauses.isEmpty()) return null
         val operator = if (definition.matchMode == RuleMatchMode.ALL) " AND " else " OR "
         val orderBy = when (definition.sort) {
             RulePlaylistSort.RECENTLY_ADDED -> "t.createdAtEpochMs DESC, t.id ASC"
@@ -373,10 +429,17 @@ class RoomLibraryToolsRepository @Inject constructor(
         args.add(limit.coerceIn(1, 1_000))
         val sql = """
             SELECT
-                t.id, t.title, t.normalizedTitle, t.artist, t.normalizedArtist, t.album,
-                t.durationMs, t.trackNumber, t.year, t.artworkRef, t.favorite, t.hidden,
-                t.createdAtEpochMs, t.updatedAtEpochMs
+                t.id,
+                COALESCE(o.title, t.title) AS title,
+                t.normalizedTitle,
+                COALESCE(o.artist, t.artist) AS artist,
+                t.normalizedArtist,
+                COALESCE(o.album, t.album) AS album,
+                t.durationMs, t.trackNumber, t.year,
+                COALESCE(o.artworkRef, t.artworkRef) AS artworkRef,
+                t.favorite, t.hidden, t.createdAtEpochMs, t.updatedAtEpochMs
             FROM tracks t
+            LEFT JOIN track_metadata_overrides o ON o.trackId = t.id
             WHERE t.hidden = 0
               AND EXISTS (
                   SELECT 1 FROM track_sources active
@@ -386,7 +449,7 @@ class RoomLibraryToolsRepository @Inject constructor(
             ORDER BY $orderBy
             LIMIT ?
         """.trimIndent()
-        return browseDao.searchTracks(SimpleSQLiteQuery(sql, args.toTypedArray())).map(SearchTrackRow::toDomain)
+        return SimpleSQLiteQuery(sql, args.toTypedArray())
     }
 
     private fun PlaylistRule.toSqlClause(nowMs: Long): Pair<String, List<Any>>? = when (kind) {
@@ -399,16 +462,18 @@ class RoomLibraryToolsRepository @Inject constructor(
             "NOT EXISTS (SELECT 1 FROM listening_events recent WHERE recent.trackId = t.id AND recent.occurredAtEpochMs >= ? AND recent.type IN ('PLAY_COMPLETED', 'PLAY_STOPPED', 'SKIPPED_LATE'))" to listOf(nowMs - days * DAY_MS)
         }
         RuleKind.ARTIST_IS -> TextNormalizer.normalize(value)?.let { normalized ->
-            "COALESCE(t.normalizedArtist, '') = ?" to listOf(normalized)
+            "LOWER(TRIM(COALESCE(o.artist, t.artist, ''))) = ?" to listOf(normalized)
         }
         RuleKind.ALBUM_IS -> TextNormalizer.normalize(value)?.let { normalized ->
-            "LOWER(TRIM(COALESCE(t.album, ''))) = ?" to listOf(normalized)
+            "LOWER(TRIM(COALESCE(o.album, t.album, ''))) = ?" to listOf(normalized)
         }
     }
 
     private companion object {
         const val MAX_RULES = 32
         const val DAY_MS = 86_400_000L
+        const val RULE_LIVE_LIMIT = 500
+        const val MIN_BOUNDARY_DELAY_MS = 50L
     }
 }
 
@@ -437,6 +502,17 @@ private fun RulePlaylistEntity.toDomain(): RulePlaylistDefinition? {
     val rules = RulePlaylistCodec.decode(rulesJson)
     if (rules.isEmpty()) return null
     return RulePlaylistDefinition(id, mode, rules, sort, updatedAtEpochMs)
+}
+
+private fun RulePlaylistRecordRow.toDomain(): RulePlaylistRecord? {
+    val definition = RulePlaylistEntity(
+        playlistId = playlistId,
+        matchMode = matchMode,
+        rulesJson = rulesJson,
+        sortMode = sortMode,
+        updatedAtEpochMs = updatedAtEpochMs,
+    ).toDomain() ?: return null
+    return RulePlaylistRecord(title = title, definition = definition)
 }
 
 private fun TrackEntity.toDomain() = Track(
