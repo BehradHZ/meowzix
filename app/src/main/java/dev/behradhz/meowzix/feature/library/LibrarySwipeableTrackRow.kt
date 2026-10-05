@@ -45,8 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -222,6 +222,7 @@ private fun LibraryTrackRowContent(
     containerColor: Color?,
 ) {
     val recommendationActions = LocalLibraryRecommendationActions.current
+    val trackToolsActions = LocalLibraryTrackToolsActions.current
     var menuExpanded by remember { mutableStateOf(false) }
 
     Surface(
@@ -328,6 +329,22 @@ private fun LibraryTrackRowContent(
                             onGoToArtist()
                         },
                     )
+                    trackToolsActions?.let { actions ->
+                        DropdownMenuItem(
+                            text = { Text("Edit metadata") },
+                            onClick = {
+                                menuExpanded = false
+                                actions.editMetadata(track.id)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Manage duplicates") },
+                            onClick = {
+                                menuExpanded = false
+                                actions.manageDuplicates(track.id)
+                            },
+                        )
+                    }
                     recommendationActions?.let { actions ->
                         DropdownMenuItem(text = { Text("Continue the vibe") }, onClick = {
                             menuExpanded = false
