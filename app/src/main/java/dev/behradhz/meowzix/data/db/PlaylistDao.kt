@@ -9,7 +9,12 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PlaylistDao {
-    @Query("SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, COUNT(pt.trackId) AS trackCount FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id GROUP BY p.id ORDER BY p.title COLLATE NOCASE")
+    @Query(
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, COUNT(pt.trackId) AS trackCount " +
+            "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
+            "WHERE NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
+            "GROUP BY p.id ORDER BY p.title COLLATE NOCASE",
+    )
     fun observePlaylists(): Flow<List<PlaylistSummaryRow>>
 
     @Query("SELECT t.* FROM playlist_tracks pt INNER JOIN tracks t ON t.id = pt.trackId WHERE pt.playlistId = :playlistId ORDER BY pt.position")
