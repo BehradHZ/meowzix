@@ -11,7 +11,6 @@ import dagger.hilt.components.SingletonComponent
 import dev.behradhz.meowzix.data.db.AudioFeatureDao
 import dev.behradhz.meowzix.data.db.DownloadDao
 import dev.behradhz.meowzix.data.db.HistoryDao
-import dev.behradhz.meowzix.data.db.LibraryBrowseDao
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.LibraryToolsDao
 import dev.behradhz.meowzix.data.db.LyricsDao
@@ -125,7 +124,6 @@ object DatabaseModule {
             .build()
 
     @Provides fun provideLibraryDao(database: MeowzixDatabase): LibraryDao = database.libraryDao()
-    @Provides fun provideLibraryBrowseDao(database: MeowzixDatabase): LibraryBrowseDao = database.libraryBrowseDao()
     @Provides fun provideLibraryToolsDao(database: MeowzixDatabase): LibraryToolsDao = database.libraryToolsDao()
     @Provides fun provideRecommendationDao(database: MeowzixDatabase): RecommendationDao = database.recommendationDao()
     @Provides fun provideTelegramDao(database: MeowzixDatabase): TelegramDao = database.telegramDao()
