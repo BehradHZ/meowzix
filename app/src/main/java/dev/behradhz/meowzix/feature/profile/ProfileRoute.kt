@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -46,82 +48,52 @@ fun ProfileRoute(
     onOpenTelegram: () -> Unit,
 ) {
     var showEqualizer by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
+        modifier = Modifier.fillMaxSize().statusBarsPadding(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 28.dp, bottom = 188.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item("profile-header") {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Surface(
-                    modifier = Modifier.size(88.dp),
-                    shape = RoundedCornerShape(30.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f),
-                ) {
+                Surface(modifier = Modifier.size(88.dp), shape = RoundedCornerShape(30.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f)) {
                     Box(Modifier.padding(8.dp), contentAlignment = Alignment.Center) {
                         Image(
                             painter = painterResource(R.drawable.meowzix_logo),
                             contentDescription = "Meowzix",
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(24.dp)),
+                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(24.dp)),
                         )
                     }
                 }
-                Text(
-                    text = "Meowzix",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-                Text(
-                    text = "Your music sources and listening activity",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                )
+                Text("Meowzix", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
+                Text("Your music sources and listening activity", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
             }
         }
-
-        item("equalizer") {
+        item("settings") {
             ProfileDestinationRow(
-                title = "Equalizer",
-                subtitle = "Device-aware frequency controls and presets",
-                icon = Icons.Rounded.Tune,
-                onClick = { showEqualizer = true },
+                title = "Settings",
+                subtitle = "Appearance, playback, recommendations, storage and backup",
+                icon = Icons.Rounded.Settings,
+                onClick = { showSettings = true },
             )
+        }
+        item("equalizer") {
+            ProfileDestinationRow("Equalizer", "Device-aware frequency controls and presets", Icons.Rounded.Tune) { showEqualizer = true }
         }
         item("offline") {
-            ProfileDestinationRow(
-                title = "Offline",
-                subtitle = "Downloaded tracks available without a connection",
-                icon = Icons.Rounded.DownloadForOffline,
-                onClick = onOpenOffline,
-            )
+            ProfileDestinationRow("Offline", "Downloaded tracks available without a connection", Icons.Rounded.DownloadForOffline, onOpenOffline)
         }
         item("history") {
-            ProfileDestinationRow(
-                title = "Listening history",
-                subtitle = "Recent plays and personalization controls",
-                icon = Icons.Rounded.History,
-                onClick = onOpenHistory,
-            )
+            ProfileDestinationRow("Listening history", "Recent plays and personalization controls", Icons.Rounded.History, onOpenHistory)
         }
         item("telegram") {
-            ProfileDestinationRow(
-                title = "Telegram",
-                subtitle = "Accounts, sources and Telegram music settings",
-                icon = Icons.Rounded.Cloud,
-                onClick = onOpenTelegram,
-            )
+            ProfileDestinationRow("Telegram", "Accounts, sources and Telegram music settings", Icons.Rounded.Cloud, onOpenTelegram)
         }
     }
 
-    if (showEqualizer) {
-        EqualizerSheet(onDismiss = { showEqualizer = false })
-    }
+    if (showEqualizer) EqualizerSheet(onDismiss = { showEqualizer = false })
+    if (showSettings) UnifiedSettingsSheet(onDismiss = { showSettings = false })
 }
 
 @Composable
@@ -132,40 +104,25 @@ private fun ProfileDestinationRow(
     onClick: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(26.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.68f),
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(
                 modifier = Modifier.size(48.dp),
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                 contentColor = MaterialTheme.colorScheme.primary,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, contentDescription = null)
-                }
+                Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = null) }
             }
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.53f),
-                )
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.53f))
             }
-            Icon(
-                Icons.Rounded.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
-            )
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
         }
     }
 }
