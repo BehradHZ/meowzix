@@ -23,7 +23,7 @@ class TrackMergeSnapshotCodecTest {
                 trackId = survivor.toString(),
                 title = "A\tTitle%",
                 artist = "Line\nArtist",
-                album = null,
+                album = "~",
                 artworkRef = "content://art/1",
                 updatedAtEpochMs = 12L,
             ),
