@@ -128,6 +128,7 @@ internal object TrackMergeSnapshotCodec {
         value.forEach { ch ->
             when (ch) {
                 '%' -> append("%25")
+                '~' -> append("%7E")
                 '\t' -> append("%09")
                 '\n' -> append("%0A")
                 '\r' -> append("%0D")
@@ -138,7 +139,11 @@ internal object TrackMergeSnapshotCodec {
 
     private fun unescape(value: String): String {
         var result = value
-        result = result.replace("%0D", "\r").replace("%0A", "\n").replace("%09", "\t").replace("%25", "%")
+        result = result.replace("%0D", "\r")
+            .replace("%0A", "\n")
+            .replace("%09", "\t")
+            .replace("%7E", "~")
+            .replace("%25", "%")
         return result
     }
 }
