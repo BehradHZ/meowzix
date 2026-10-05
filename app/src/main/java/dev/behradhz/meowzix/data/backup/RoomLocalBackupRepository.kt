@@ -240,10 +240,12 @@ class RoomLocalBackupRepository @Inject constructor(
             val action = runCatching { RecommendationFeedbackAction.valueOf(f.required(0)) }.getOrNull() ?: continue
             val created = Instant.ofEpochMilli(f.long(1))
             val expires = f[2]?.toLongOrNull()?.let(Instant::ofEpochMilli)
-            feedbackRepository.set(
-                UUID.fromString(id), action, created,
-                snoozeDuration = if (expires != null) Duration.between(created, expires).coerceAtLeast(Duration.ZERO) else Duration.ofHours(24),
-            )
+            val snoozeDuration = if (expires != null) {
+                Duration.between(created, expires).let { duration -> if (duration.isNegative) Duration.ZERO else duration }
+            } else {
+                Duration.ofHours(24)
+            }
+            feedbackRepository.set(UUID.fromString(id), action, created, snoozeDuration = snoozeDuration)
         }
     }
 
@@ -259,7 +261,7 @@ class RoomLocalBackupRepository @Inject constructor(
             val trackId = resolver(ref, TYPE_HISTORY, f.getOrNull(0).orEmpty()) ?: continue
             val sessionId = f.required(3)
             if (sessions.add(sessionId)) {
-                historyDao.upsertSession(ListeningSessionEntity(sessionId, f.long(5), null, f.required(15)))
+                historyDao.upsertSession(ListeningSessionEntity(sessionId, f.long(5), null, f.required(14)))
             }
             historyDao.insertEvent(
                 ListeningEventEntity(
