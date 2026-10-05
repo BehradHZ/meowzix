@@ -29,6 +29,13 @@ interface LibraryToolsDao {
     @Query("SELECT * FROM rule_playlists WHERE playlistId = :playlistId LIMIT 1") suspend fun rulePlaylist(playlistId: String): RulePlaylistEntity?
     @Query("SELECT * FROM rule_playlists ORDER BY playlistId") suspend fun allRulePlaylists(): List<RulePlaylistEntity>
     @Query("SELECT * FROM rule_playlists ORDER BY playlistId") fun observeRulePlaylists(): Flow<List<RulePlaylistEntity>>
+    @Query(
+        "SELECT rp.playlistId AS playlistId, p.title AS title, rp.matchMode AS matchMode, " +
+            "rp.rulesJson AS rulesJson, rp.sortMode AS sortMode, rp.updatedAtEpochMs AS updatedAtEpochMs " +
+            "FROM rule_playlists rp INNER JOIN playlists p ON p.id = rp.playlistId " +
+            "ORDER BY p.title COLLATE NOCASE, rp.playlistId",
+    )
+    fun observeRulePlaylistRecords(): Flow<List<RulePlaylistRecordRow>>
     @Upsert suspend fun upsertRulePlaylist(value: RulePlaylistEntity)
     @Query("DELETE FROM rule_playlists WHERE playlistId = :playlistId") suspend fun deleteRulePlaylist(playlistId: String)
 
@@ -37,3 +44,12 @@ interface LibraryToolsDao {
     @Upsert suspend fun upsertUnresolvedBackupReference(value: BackupUnresolvedReferenceEntity)
     @Query("UPDATE backup_unresolved_references SET resolvedTrackId = :trackId WHERE id = :id") suspend fun markBackupReferenceResolved(id: String, trackId: String)
 }
+
+data class RulePlaylistRecordRow(
+    val playlistId: String,
+    val title: String,
+    val matchMode: String,
+    val rulesJson: String,
+    val sortMode: String,
+    val updatedAtEpochMs: Long,
+)
