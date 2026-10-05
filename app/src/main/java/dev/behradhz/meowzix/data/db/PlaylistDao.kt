@@ -24,6 +24,12 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlist_tracks WHERE playlistId = :playlistId ORDER BY position")
     suspend fun entries(playlistId: String): List<PlaylistTrackEntity>
 
+    @Query("SELECT * FROM playlist_tracks WHERE trackId = :trackId ORDER BY playlistId, position")
+    suspend fun entriesForTrack(trackId: String): List<PlaylistTrackEntity>
+
+    @Query("SELECT * FROM playlist_tracks WHERE playlistId = :playlistId AND trackId = :trackId LIMIT 1")
+    suspend fun entry(playlistId: String, trackId: String): PlaylistTrackEntity?
+
     @Upsert suspend fun upsertPlaylist(playlist: PlaylistEntity)
     @Query("UPDATE playlists SET title = :title, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
     suspend fun renamePlaylist(playlistId: String, title: String, updatedAt: Long)
