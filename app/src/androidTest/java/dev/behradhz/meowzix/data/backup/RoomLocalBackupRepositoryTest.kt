@@ -121,6 +121,16 @@ class RoomLocalBackupRepositoryTest {
         )
 
         val bytes = repository.export(BackupOptions(includeHistory = true))
+        val decoded = BackupFormat.decode(bytes)
+        assertTrue(decoded.records.none { it.type.contains("SESSION", ignoreCase = true) || it.type.contains("MODEL", ignoreCase = true) })
+        assertTrue(
+            decoded.records.none { record ->
+                record.fields.any { field ->
+                    field?.contains("content://music/") == true ||
+                        field?.contains("PRIVATE_ABSOLUTE_PATH") == true
+                }
+            },
+        )
         val preview = repository.preview(bytes)
         assertTrue(preview.includeHistory)
         assertEquals(0, preview.unresolvedTrackReferences)
@@ -261,7 +271,7 @@ class RoomLocalBackupRepositoryTest {
                 type = TrackSourceType.LOCAL_MEDIASTORE,
                 availability = SourceAvailability.AVAILABLE_LOCAL,
                 contentUri = "content://music/$id",
-                localPath = null,
+                localPath = "/data/user/0/dev.behradhz.meowzix/cache/PRIVATE_ABSOLUTE_PATH",
                 mimeType = "audio/mpeg",
                 fileSizeBytes = 1_000L,
                 contentHashSha256 = hash,
