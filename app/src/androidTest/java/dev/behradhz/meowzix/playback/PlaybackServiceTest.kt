@@ -144,12 +144,13 @@ class PlaybackServiceTest {
         val firstDurationMs = 6_000
         val first = playableItem("Crossfade First", createWaveFile("crossfade-first.wav", firstDurationMs))
         val second = playableItem("Crossfade Second", createWaveFile("crossfade-second.wav", 6_000))
-        val startedAt = SystemClock.uptimeMillis()
         onMain {
             controller.setMediaItems(listOf(first, second))
             controller.prepare()
             controller.play()
         }
+        waitUntil { onMain { controller.currentMediaItemIndex == 0 && controller.isPlaying } }
+        val startedAt = SystemClock.uptimeMillis()
         waitUntil(timeoutMs = 10_000) {
             onMain { controller.currentMediaItemIndex == 1 && controller.currentMediaItem?.mediaId == second.mediaId }
         }
