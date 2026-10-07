@@ -196,6 +196,7 @@ fun UnifiedSettingsSheet(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("${preview.recordCounts.values.sum()} records")
                     Text("${preview.unresolvedTrackReferences} track references cannot currently be matched")
+                    if (preview.conflicts > 0) Text("${preview.conflicts} existing records have detectable conflicts; restore uses merge/non-destructive semantics.")
                     Text(if (preview.includeHistory) "Listening history is included" else "Listening history is not included")
                     Text("Restore merges state; it does not replace your library or Telegram login.")
                 }

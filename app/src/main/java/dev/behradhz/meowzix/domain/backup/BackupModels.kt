@@ -19,6 +19,7 @@ data class BackupPreview(
     val includeHistory: Boolean,
     val recordCounts: Map<String, Int>,
     val unresolvedTrackReferences: Int = 0,
+    val conflicts: Int = 0,
 )
 
 data class BackupRestoreResult(

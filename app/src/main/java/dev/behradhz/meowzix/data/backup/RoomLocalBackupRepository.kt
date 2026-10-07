@@ -130,7 +130,51 @@ class RoomLocalBackupRepository @Inject constructor(
             includeHistory = decoded.includeHistory,
             recordCounts = decoded.records.groupingBy { it.type }.eachCount(),
             unresolvedTrackReferences = unresolved,
+            conflicts = countPreviewConflicts(decoded.records),
         )
+    }
+
+    private suspend fun countPreviewConflicts(records: List<BackupRecord>): Int {
+        var conflicts = 0
+        val playlists = playlistDao.allPlaylists().associateBy { it.id }
+        val rules = toolsDao.allRulePlaylists().associateBy { it.playlistId }
+        for (record in records) {
+            when (record.type) {
+                TYPE_PLAYLIST -> {
+                    val id = record.fields.getOrNull(0) ?: continue
+                    val existing = playlists[id] ?: continue
+                    val incomingTitle = record.fields.getOrNull(1)
+                    if (incomingTitle != null && existing.title != incomingTitle) conflicts++
+                }
+                TYPE_OVERRIDE -> {
+                    val ref = record.refAt(5) ?: continue
+                    val id = resolve(ref) ?: continue
+                    val existing = toolsDao.metadataOverride(id) ?: continue
+                    val f = record.fields
+                    if (
+                        existing.title != f.getOrNull(0) ||
+                        existing.artist != f.getOrNull(1) ||
+                        existing.album != f.getOrNull(2) ||
+                        existing.artworkRef != f.getOrNull(3)
+                    ) {
+                        conflicts++
+                    }
+                }
+                TYPE_RULE_PLAYLIST -> {
+                    val id = record.fields.getOrNull(0) ?: continue
+                    val existing = rules[id] ?: continue
+                    val f = record.fields
+                    if (
+                        existing.matchMode != f.getOrNull(1) ||
+                        existing.rulesJson != f.getOrNull(2) ||
+                        existing.sortMode != f.getOrNull(3)
+                    ) {
+                        conflicts++
+                    }
+                }
+            }
+        }
+        return conflicts
     }
 
     override suspend fun restore(bytes: ByteArray): BackupRestoreResult {
