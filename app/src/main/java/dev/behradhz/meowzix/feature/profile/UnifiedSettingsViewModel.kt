@@ -13,8 +13,10 @@ import dev.behradhz.meowzix.domain.downloads.ManagedStorageRepository
 import dev.behradhz.meowzix.domain.downloads.ManagedStorageUsage
 import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.playback.SleepTimerManager
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackRepository
 import dev.behradhz.meowzix.domain.settings.AppearanceSettings
@@ -64,6 +66,8 @@ class UnifiedSettingsViewModel @Inject constructor(
     private val telegram: TelegramRepository,
     private val downloads: DownloadRepository,
     private val managedStorage: ManagedStorageRepository,
+    private val playbackController: PlaybackController,
+    private val sleepTimer: SleepTimerManager,
     library: MusicLibraryRepository,
 ) : ViewModel() {
     val state = combine(
@@ -75,6 +79,11 @@ class UnifiedSettingsViewModel @Inject constructor(
     ) { appearance, playback, recommendations, network, storage ->
         UnifiedSettingsState(appearance, playback, recommendations, network, storage)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UnifiedSettingsState())
+
+    val sleepTimerState = sleepTimer.state
+    val hasCurrentTrack = playbackController.state
+        .map { it.currentTrack != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), playbackController.state.value.currentTrack != null)
 
     val telegramAuthState = telegram.authState
     val telegramSourceState = telegram.musicSourceState
@@ -103,6 +112,7 @@ class UnifiedSettingsViewModel @Inject constructor(
 
     init {
         refreshStorageUsage()
+        launch { sleepTimer.restore() }
     }
 
     fun setTheme(value: ThemePreference) = launch { settings.setThemePreference(value) }
@@ -111,6 +121,16 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setDefaultMode(value: PlaybackMode) = launch { settings.setDefaultPlaybackMode(value) }
     fun setDefaultRepeat(value: RepeatMode) = launch { settings.setDefaultRepeatMode(value) }
     fun setResume(value: Boolean) = launch { settings.setResumeOnLaunch(value) }
+    fun setLoudnessNormalization(value: Boolean) = launch { settings.setLoudnessNormalizationEnabled(value) }
+    fun setSleepTimerMinutes(minutes: Int, fade: Boolean) = launch {
+        sleepTimer.setDuration(minutes.coerceIn(1, 24 * 60) * 60_000L, if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L)
+    }
+    fun setSleepTimerEndOfTrack(fade: Boolean) = launch {
+        val mediaId = playbackController.state.value.currentTrack?.id?.toString() ?: return@launch
+        sleepTimer.stopAtEndOfTrack(mediaId, if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L)
+    }
+    fun extendSleepTimer(minutes: Int = 15) = launch { sleepTimer.extend(minutes.coerceAtLeast(1) * 60_000L) }
+    fun cancelSleepTimer() = launch { sleepTimer.cancel() }
     fun setSmart(value: Boolean) = launch { settings.setSmartRecommendationsEnabled(value) }
     fun setExploration(value: Int) = launch { settings.setExplorationPercent(value) }
     fun setAudioAnalysis(value: Boolean) = launch { settings.setAudioAnalysisEnabled(value) }

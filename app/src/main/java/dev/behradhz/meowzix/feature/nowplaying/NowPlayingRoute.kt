@@ -61,11 +61,14 @@ import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.domain.playback.SleepTimerState
 import dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs
 import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.SleepTimerControls
 import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
+import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
 import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -91,8 +94,10 @@ fun NowPlayingRoute(
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
     val lyricsState by lyricsViewModel.state.collectAsStateWithLifecycle()
+    val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val recommendationActions: RecommendationActionsViewModel = hiltViewModel()
     var lyricsExpanded by remember { mutableStateOf(false) }
+    var sleepTimerOpen by remember { mutableStateOf(false) }
 
     RecommendationActionDialogs(recommendationActions)
     BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
@@ -110,6 +115,7 @@ fun NowPlayingRoute(
         isFavorite = isFavorite,
         lyricsState = lyricsState,
         lyricsExpanded = lyricsExpanded,
+        sleepTimer = sleepTimer,
         onBack = closeOrCollapse,
         onToggleLyrics = { lyricsExpanded = !lyricsExpanded },
         onExpandLyrics = { lyricsExpanded = true },
@@ -122,6 +128,7 @@ fun NowPlayingRoute(
         onCycleRepeatMode = viewModel::cycleRepeatMode,
         onOpenForward = viewModel::openForwardPicker,
         onOpenQueue = onOpenQueue,
+        onOpenSleepTimer = { sleepTimerOpen = true },
         onWhyThisSong = {
             state.currentTrack?.id?.let { trackId -> recommendationActions.why(trackId) }
         },
@@ -151,6 +158,24 @@ fun NowPlayingRoute(
         )
     }
 
+    if (sleepTimerOpen) {
+        AlertDialog(
+            onDismissRequest = { sleepTimerOpen = false },
+            title = { Text("Sleep timer") },
+            text = {
+                SleepTimerControls(
+                    state = sleepTimer,
+                    endOfTrackEnabled = state.currentTrack != null,
+                    onSetMinutes = viewModel::setSleepTimerMinutes,
+                    onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
+                    onExtend = viewModel::extendSleepTimer,
+                    onCancel = viewModel::cancelSleepTimer,
+                )
+            },
+            confirmButton = { TextButton(onClick = { sleepTimerOpen = false }) { Text("Done") } },
+        )
+    }
+
     lyricsState.errorMessage?.let { message ->
         AlertDialog(
             onDismissRequest = lyricsViewModel::clearError,
@@ -169,6 +194,7 @@ private fun NowPlayingScreen(
     isFavorite: Boolean,
     lyricsState: NowPlayingLyricsState,
     lyricsExpanded: Boolean,
+    sleepTimer: SleepTimerState,
     onBack: () -> Unit,
     onToggleLyrics: () -> Unit,
     onExpandLyrics: () -> Unit,
@@ -181,6 +207,7 @@ private fun NowPlayingScreen(
     onCycleRepeatMode: () -> Unit,
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenSleepTimer: () -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
     onLyricsImport: (android.net.Uri) -> Unit,
@@ -251,9 +278,11 @@ private fun NowPlayingScreen(
             PlayerHeader(
                 hazeState = hazeState,
                 lyricsExpanded = lyricsExpanded,
+                sleepTimer = sleepTimer,
                 onBack = onBack,
                 onOpenForward = onOpenForward,
                 onOpenQueue = onOpenQueue,
+                onOpenSleepTimer = onOpenSleepTimer,
                 onWhyThisSong = onWhyThisSong,
                 onContinueVibe = onContinueVibe,
                 onToggleLyrics = onToggleLyrics,
@@ -368,9 +397,11 @@ private fun NowPlayingScreen(
 private fun PlayerHeader(
     hazeState: HazeState,
     lyricsExpanded: Boolean,
+    sleepTimer: SleepTimerState,
     onBack: () -> Unit,
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenSleepTimer: () -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
     onToggleLyrics: () -> Unit,
@@ -417,6 +448,13 @@ private fun PlayerHeader(
                         onClick = {
                             menuExpanded = false
                             onToggleLyrics()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Sleep timer · " + sleepTimerStatusLabel(sleepTimer)) },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenSleepTimer()
                         },
                     )
                     DropdownMenuItem(
