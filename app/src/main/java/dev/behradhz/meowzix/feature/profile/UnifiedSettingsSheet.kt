@@ -138,9 +138,18 @@ fun UnifiedSettingsSheet(
                 )
             }
             item {
+                SliderRow(
+                    "Crossfade",
+                    if (state.playback.crossfadeDurationSeconds == 0) "Off" else state.playback.crossfadeDurationSeconds.toString() + " s",
+                    state.playback.crossfadeDurationSeconds.toFloat(),
+                    0f..12f,
+                    11,
+                ) { viewModel.setCrossfadeSeconds(it.toInt().coerceIn(0, 12)) }
+            }
+            item {
                 CapabilityRow(
-                    "Crossfade · Off",
-                    "Unavailable on Media3 1.11.1 with the current single-session player because real overlap is not supported. Meowzix uses the ordinary transition instead of a fake fade-to-silence.",
+                    "Crossfade behavior",
+                    "Real overlap is used only when both adjacent tracks are local/readable. EQ, an active sleep timer, repeat-one, short tracks, queue changes, or preload failure fall back to the ordinary Media3 transition.",
                 )
             }
 

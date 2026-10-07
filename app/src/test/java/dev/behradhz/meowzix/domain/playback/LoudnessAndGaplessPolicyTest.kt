@@ -45,8 +45,65 @@ class LoudnessAndGaplessPolicyTest {
     }
 
     @Test
-    fun crossfadeCapabilityIsTruthfulInsteadOfSilentNoOp() {
-        assertFalse(CrossfadeCapability.CurrentArchitecture.supported)
-        assertTrue(CrossfadeCapability.CurrentArchitecture.reason.contains("real overlapping"))
+    fun crossfadeArchitectureSupportsRealOverlapButPolicyCanFallback() {
+        assertTrue(CrossfadeCapability.CurrentArchitecture.supported)
+        assertTrue(CrossfadeCapability.CurrentArchitecture.reason.contains("overlap"))
+        assertFalse(
+            CrossfadePolicy.capability(
+                configuredSeconds = 6,
+                currentLocallyReadable = false,
+                nextLocallyReadable = true,
+                equalizerEnabled = false,
+                sleepTimerActive = false,
+                repeatMode = RepeatMode.OFF,
+                currentDurationMs = 180_000,
+                nextDurationMs = 180_000,
+            ).supported,
+        )
+    }
+
+    @Test
+    fun crossfadeEligibilityRejectsCompetingAudioEffectsAndShortTracks() {
+        val base = { eq: Boolean, timer: Boolean, repeat: RepeatMode, duration: Long ->
+            CrossfadePolicy.capability(
+                configuredSeconds = 6,
+                currentLocallyReadable = true,
+                nextLocallyReadable = true,
+                equalizerEnabled = eq,
+                sleepTimerActive = timer,
+                repeatMode = repeat,
+                currentDurationMs = duration,
+                nextDurationMs = 180_000,
+            )
+        }
+        assertFalse(base(true, false, RepeatMode.OFF, 180_000).supported)
+        assertFalse(base(false, true, RepeatMode.OFF, 180_000).supported)
+        assertFalse(base(false, false, RepeatMode.ONE, 180_000).supported)
+        assertFalse(base(false, false, RepeatMode.OFF, 6_500).supported)
+        assertTrue(base(false, false, RepeatMode.OFF, 180_000).supported)
+    }
+
+    @Test
+    fun crossfadeCurveIsComplementaryAndIdentitySwitchesAtMidpoint() {
+        val start = CrossfadePolicy.gains(0f)
+        val middle = CrossfadePolicy.gains(0.5f)
+        val end = CrossfadePolicy.gains(1f)
+        assertEquals(1f, start.outgoing, 0.0001f)
+        assertEquals(0f, start.incoming, 0.0001f)
+        assertEquals(0.5f, middle.outgoing, 0.0001f)
+        assertEquals(0.5f, middle.incoming, 0.0001f)
+        assertEquals(0f, end.outgoing, 0.0001f)
+        assertEquals(1f, end.incoming, 0.0001f)
+        assertFalse(CrossfadePolicy.switchIdentity(0.499f))
+        assertTrue(CrossfadePolicy.switchIdentity(0.5f))
+    }
+
+    @Test
+    fun crossfadeDurationIsBoundedAndTooSmallRealOverlapFallsBack() {
+        assertEquals(1, CrossfadePolicy.sanitizeSeconds(1))
+        assertEquals(12, CrossfadePolicy.sanitizeSeconds(99))
+        assertEquals(0, CrossfadePolicy.sanitizeSeconds(0))
+        assertEquals(0L, CrossfadePolicy.effectiveOverlapMs(6, 1_500, 180_000))
+        assertEquals(6_000L, CrossfadePolicy.effectiveOverlapMs(6, 20_000, 180_000))
     }
 }

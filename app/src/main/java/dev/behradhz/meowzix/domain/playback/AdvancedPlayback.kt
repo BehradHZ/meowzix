@@ -285,8 +285,79 @@ data class CrossfadeCapability(
 ) {
     companion object {
         val CurrentArchitecture = CrossfadeCapability(
-            supported = false,
-            reason = "Media3 1.11.1 does not provide real overlapping crossfade for ExoPlayer playlists; Meowzix falls back to the ordinary seamless transition.",
+            supported = true,
+            reason = "Meowzix overlaps two ExoPlayer instances inside one PlaybackService and keeps exactly one MediaSession. Identity switches at the overlap midpoint; unsafe transitions fall back to the ordinary Media3 playlist transition.",
         )
     }
+}
+
+data class CrossfadeGains(
+    val outgoing: Float,
+    val incoming: Float,
+)
+
+object CrossfadePolicy {
+    const val MIN_SECONDS = 1
+    const val MAX_SECONDS = 12
+    const val PRELOAD_LEAD_MS = 4_000L
+    const val MIN_REAL_OVERLAP_MS = 1_000L
+    const val TRACK_GUARD_MS = 750L
+
+    fun sanitizeSeconds(seconds: Int): Int =
+        if (seconds <= 0) 0 else seconds.coerceIn(MIN_SECONDS, MAX_SECONDS)
+
+    fun capability(
+        configuredSeconds: Int,
+        currentLocallyReadable: Boolean,
+        nextLocallyReadable: Boolean,
+        equalizerEnabled: Boolean,
+        sleepTimerActive: Boolean,
+        repeatMode: RepeatMode,
+        currentDurationMs: Long,
+        nextDurationMs: Long,
+    ): CrossfadeCapability {
+        val seconds = sanitizeSeconds(configuredSeconds)
+        if (seconds == 0) return CrossfadeCapability(false, "Crossfade is off.")
+        if (!currentLocallyReadable || !nextLocallyReadable) {
+            return CrossfadeCapability(false, "Crossfade requires two locally readable tracks; progressive/remote transitions use the ordinary player path.")
+        }
+        if (equalizerEnabled) {
+            return CrossfadeCapability(false, "Crossfade falls back while EQ is enabled because one Android Equalizer effect cannot be attached safely to both overlapping audio sessions.")
+        }
+        if (sleepTimerActive) {
+            return CrossfadeCapability(false, "Crossfade falls back while the sleep timer is active so timer fades and stop semantics remain authoritative.")
+        }
+        if (repeatMode == RepeatMode.ONE) {
+            return CrossfadeCapability(false, "Repeat-one uses the ordinary repeat boundary to avoid duplicate overlapping occurrences of the same track.")
+        }
+        val requestedMs = seconds * 1_000L
+        if (currentDurationMs <= requestedMs + TRACK_GUARD_MS || nextDurationMs <= requestedMs + TRACK_GUARD_MS) {
+            return CrossfadeCapability(false, "One of the adjacent tracks is too short for the requested overlap.")
+        }
+        return CurrentArchitecture
+    }
+
+    fun effectiveOverlapMs(
+        configuredSeconds: Int,
+        outgoingRemainingMs: Long,
+        incomingDurationMs: Long,
+    ): Long {
+        val requested = sanitizeSeconds(configuredSeconds) * 1_000L
+        if (requested == 0L) return 0L
+        val safe = minOf(
+            requested,
+            (outgoingRemainingMs - TRACK_GUARD_MS).coerceAtLeast(0L),
+            (incomingDurationMs - TRACK_GUARD_MS).coerceAtLeast(0L),
+        )
+        return safe.takeIf { it >= MIN_REAL_OVERLAP_MS } ?: 0L
+    }
+
+    fun gains(progress: Float): CrossfadeGains {
+        val p = progress.coerceIn(0f, 1f)
+        // Linear complementary gains keep the worst-case correlated sum at unity, avoiding a
+        // clipping-prone equal-power bump when the two sources contain related material.
+        return CrossfadeGains(outgoing = 1f - p, incoming = p)
+    }
+
+    fun switchIdentity(progress: Float): Boolean = progress >= 0.5f
 }

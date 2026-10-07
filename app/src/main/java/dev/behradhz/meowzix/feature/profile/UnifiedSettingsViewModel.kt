@@ -122,6 +122,7 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setDefaultRepeat(value: RepeatMode) = launch { settings.setDefaultRepeatMode(value) }
     fun setResume(value: Boolean) = launch { settings.setResumeOnLaunch(value) }
     fun setLoudnessNormalization(value: Boolean) = launch { settings.setLoudnessNormalizationEnabled(value) }
+    fun setCrossfadeSeconds(value: Int) = launch { settings.setCrossfadeDurationSeconds(value) }
     fun setSleepTimerMinutes(minutes: Int, fade: Boolean) = launch {
         sleepTimer.setDuration(minutes.coerceIn(1, 24 * 60) * 60_000L, if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L)
     }
