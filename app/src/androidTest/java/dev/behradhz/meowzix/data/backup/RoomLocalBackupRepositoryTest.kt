@@ -33,6 +33,7 @@ class RoomLocalBackupRepositoryTest {
     private lateinit var db: MeowzixDatabase
     private lateinit var feedback: DataStoreRecommendationFeedbackRepository
     private lateinit var repository: RoomLocalBackupRepository
+    private lateinit var scheduler: RecordingBackupTrainingScheduler
     private val trackId = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 
     @Before
