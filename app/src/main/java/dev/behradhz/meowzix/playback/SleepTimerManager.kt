@@ -47,7 +47,7 @@ class AndroidPlaybackMonotonicClock @Inject constructor(
 @Singleton
 class SleepTimerManager @Inject constructor(
     private val stateStore: PlaybackStateStore,
-    private val clock: AndroidPlaybackMonotonicClock,
+    private val clock: PlaybackMonotonicClock,
 ) {
     private val mutex = Mutex()
     private val _state = MutableStateFlow(SleepTimerState.Off)

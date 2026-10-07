@@ -334,7 +334,7 @@ object CrossfadePolicy {
         if (currentDurationMs <= requestedMs + TRACK_GUARD_MS || nextDurationMs <= requestedMs + TRACK_GUARD_MS) {
             return CrossfadeCapability(false, "One of the adjacent tracks is too short for the requested overlap.")
         }
-        return CurrentArchitecture
+        return CrossfadeCapability.CurrentArchitecture
     }
 
     fun effectiveOverlapMs(
