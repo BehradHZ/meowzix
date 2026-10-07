@@ -44,8 +44,8 @@ class SleepTimerPolicyTest {
             "boot",
         )
         val extended = SleepTimerPolicy.extend(state, 15_000, 11_000)
-        assertEquals(35_000, extended.remainingMs)
-        assertEquals(46_000, extended.deadlineElapsedRealtimeMs)
+        assertEquals(35_000L, extended.remainingMs)
+        assertEquals(46_000L, extended.deadlineElapsedRealtimeMs)
     }
 
     @Test
@@ -63,7 +63,7 @@ class SleepTimerPolicyTest {
     fun pauseResumeDoesNotSuspendMonotonicCountdown() {
         val persisted = SleepTimerPolicy.duration(60_000, 5_000, "boot", 0)
         val afterLongPause = SleepTimerPolicy.restore(persisted, 45_000, "boot")
-        assertEquals(20_000, afterLongPause.remainingMs)
+        assertEquals(20_000L, afterLongPause.remainingMs)
     }
 
     @Test
