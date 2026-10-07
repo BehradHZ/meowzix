@@ -178,7 +178,7 @@ fun UnifiedSettingsSheet(
             item { ActionRow("Temporary cache", "Clears only evictable app-managed cache; pinned and MediaStore files are preserved", "Clear", viewModel::clearTemporaryCache) }
 
             item { SectionTitle("Backup") }
-            item { ToggleRow("Include listening history", "Off by default; trained model weights are never exported", includeHistoryInBackup) { includeHistoryInBackup = it } }
+            item { ToggleRow("Include listening history", "Off by default; trained model weights are never exported", includeHistoryInBackup, onChecked = { includeHistoryInBackup = it }) }
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(onClick = { exportLauncher.launch("meowzix-backup.mzx") }, modifier = Modifier.weight(1f)) { Text("Export") }
