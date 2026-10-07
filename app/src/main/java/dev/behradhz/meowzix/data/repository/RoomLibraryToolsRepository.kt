@@ -434,8 +434,8 @@ class RoomLibraryToolsRepository @Inject constructor(
         val operator = if (definition.matchMode == RuleMatchMode.ALL) " AND " else " OR "
         val orderBy = when (definition.sort) {
             RulePlaylistSort.RECENTLY_ADDED -> "t.createdAtEpochMs DESC, t.id ASC"
-            RulePlaylistSort.TITLE -> "t.normalizedTitle ASC, t.id ASC"
-            RulePlaylistSort.ARTIST -> "COALESCE(t.normalizedArtist, ''), t.normalizedTitle, t.id"
+            RulePlaylistSort.TITLE -> "search_index.normalizedTitle ASC, t.id ASC"
+            RulePlaylistSort.ARTIST -> "search_index.normalizedArtist, search_index.normalizedTitle, t.id"
             RulePlaylistSort.LAST_PLAYED -> "COALESCE((SELECT MAX(le.occurredAtEpochMs) FROM listening_events le WHERE le.trackId = t.id), 0) DESC, t.id"
         }
         args.add(limit.coerceIn(1, 1_000))
@@ -443,14 +443,15 @@ class RoomLibraryToolsRepository @Inject constructor(
             SELECT
                 t.id,
                 COALESCE(o.title, t.title) AS title,
-                t.normalizedTitle,
+                search_index.normalizedTitle AS normalizedTitle,
                 COALESCE(o.artist, t.artist) AS artist,
-                t.normalizedArtist,
+                NULLIF(search_index.normalizedArtist, '') AS normalizedArtist,
                 COALESCE(o.album, t.album) AS album,
                 t.durationMs, t.trackNumber, t.year,
                 COALESCE(o.artworkRef, t.artworkRef) AS artworkRef,
                 t.favorite, t.hidden, t.createdAtEpochMs, t.updatedAtEpochMs
             FROM tracks t
+            INNER JOIN track_search_fts search_index ON search_index.rowid = t.rowid
             LEFT JOIN track_metadata_overrides o ON o.trackId = t.id
             WHERE t.hidden = 0
               AND EXISTS (
@@ -474,10 +475,10 @@ class RoomLibraryToolsRepository @Inject constructor(
             "NOT EXISTS (SELECT 1 FROM listening_events recent WHERE recent.trackId = t.id AND recent.occurredAtEpochMs >= ? AND recent.type IN ('PLAY_COMPLETED', 'PLAY_STOPPED', 'SKIPPED_LATE'))" to listOf(nowMs - days * DAY_MS)
         }
         RuleKind.ARTIST_IS -> TextNormalizer.normalize(value)?.let { normalized ->
-            "EXISTS (SELECT 1 FROM track_search_fts search_index WHERE search_index.rowid = t.rowid AND search_index.normalizedArtist = ?)" to listOf(normalized)
+            "search_index.normalizedArtist = ?" to listOf(normalized)
         }
         RuleKind.ALBUM_IS -> TextNormalizer.normalize(value)?.let { normalized ->
-            "EXISTS (SELECT 1 FROM track_search_fts search_index WHERE search_index.rowid = t.rowid AND search_index.album = ?)" to listOf(normalized)
+            "search_index.album = ?" to listOf(normalized)
         }
     }
 

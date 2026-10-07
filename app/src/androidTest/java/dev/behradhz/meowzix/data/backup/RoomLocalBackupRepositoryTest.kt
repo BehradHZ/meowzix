@@ -42,6 +42,7 @@ class RoomLocalBackupRepositoryTest {
         feedback = DataStoreRecommendationFeedbackRepository(context, bus)
         feedback.clearAll()
         val extractor = BackupTestExtractor()
+        scheduler = RecordingBackupTrainingScheduler()
         val trainer = PersonalizationTrainer(
             TrainingDatasetBuilder(
                 historyDao = db.historyDao(),
@@ -52,7 +53,7 @@ class RoomLocalBackupRepositoryTest {
                 sampleDao = db.trainingSampleDao(),
             ),
             BackupNoOpModel(),
-            object : TrainingScheduler { override fun scheduleTraining(rebuild: Boolean) = Unit },
+            scheduler,
             bus,
         )
         repository = RoomLocalBackupRepository(
@@ -143,6 +144,7 @@ class RoomLocalBackupRepositoryTest {
         assertEquals(1, db.libraryToolsDao().allRulePlaylists().size)
         assertEquals(1, db.historyDao().allEventsChronological().size)
         assertEquals(1, feedback.snapshot(Instant.now()).size)
+        assertTrue(scheduler.rebuildRequested)
     }
 
     @Test
@@ -268,6 +270,13 @@ class RoomLocalBackupRepositoryTest {
                 lastVerifiedAtEpochMs = 1L,
             ),
         )
+    }
+}
+
+private class RecordingBackupTrainingScheduler : TrainingScheduler {
+    var rebuildRequested: Boolean = false
+    override fun scheduleTraining(rebuild: Boolean) {
+        rebuildRequested = rebuildRequested || rebuild
     }
 }
 
