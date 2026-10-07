@@ -1,6 +1,8 @@
 package dev.behradhz.meowzix.playback
 
+import androidx.annotation.OptIn
 import androidx.media3.common.Metadata
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.extractor.metadata.id3.TextInformationFrame
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
 import dev.behradhz.meowzix.domain.playback.LoudnessAlgorithm
@@ -8,6 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
+@OptIn(markerClass = [UnstableApi::class])
 class ReplayGainMetadataParserTest {
     @Test
     fun trackGainWinsOverAlbumGain() {

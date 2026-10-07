@@ -1,6 +1,8 @@
 package dev.behradhz.meowzix.playback
 
+import androidx.annotation.OptIn
 import androidx.media3.common.Metadata
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.extractor.metadata.id3.InternalFrame
 import androidx.media3.extractor.metadata.id3.TextInformationFrame
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
@@ -9,6 +11,7 @@ import dev.behradhz.meowzix.domain.playback.LoudnessAnalysis
 import dev.behradhz.meowzix.domain.playback.PlaybackGainCoordinator
 import dev.behradhz.meowzix.domain.playback.ReplayGainParser
 
+@OptIn(markerClass = [UnstableApi::class])
 object ReplayGainMetadataParser {
     fun parse(metadata: Metadata): LoudnessAnalysis? {
         var albumGain: Float? = null
