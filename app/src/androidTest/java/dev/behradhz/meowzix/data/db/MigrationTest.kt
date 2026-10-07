@@ -226,6 +226,27 @@ class MigrationTest {
         database.close()
     }
 
+    @Test
+    fun migrateFifteenToSixteenAddsVersionedLoudnessAnalysis() {
+        val database = helper.createDatabase(TEST_DATABASE_15_16, 15)
+        database.execSQL(
+            "INSERT INTO tracks (id, title, normalizedTitle, durationMs, favorite, hidden, createdAtEpochMs, updatedAtEpochMs) " +
+                "VALUES ('loudness-kept', 'Loudness', 'loudness', 100000, 0, 0, 1, 1)",
+        )
+        database.close()
+        val migrated = helper.runMigrationsAndValidate(TEST_DATABASE_15_16, 16, true, MIGRATION_15_16)
+        migrated.query("SELECT title FROM tracks WHERE id='loudness-kept'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("Loudness", cursor.getString(0))
+        }
+        migrated.query("PRAGMA table_info(loudness_analyses)").use { cursor -> assertEquals(12, cursor.count) }
+        migrated.query("PRAGMA foreign_key_list(loudness_analyses)").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("tracks", cursor.getString(cursor.getColumnIndexOrThrow("table")))
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"
@@ -238,5 +259,6 @@ class MigrationTest {
         const val TEST_DATABASE_11_12 = "migration-test-11-12"
         const val TEST_DATABASE_12_13 = "migration-test-12-13"
         const val TEST_DATABASE_13_14 = "migration-test-13-14"
+        const val TEST_DATABASE_15_16 = "migration-test-15-16"
     }
 }

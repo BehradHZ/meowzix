@@ -49,6 +49,24 @@ class SleepTimerPolicyTest {
     }
 
     @Test
+    fun endOfTrackFadeUsesOnlyTheArmedTrackBoundary() {
+        val state = SleepTimerPolicy.restore(
+            SleepTimerPolicy.endOfTrack("track-a", "boot", 5_000),
+            0,
+            "boot",
+        )
+        assertEquals(1f, SleepTimerPolicy.endOfTrackFadeGain(state, "track-b", 98_000, 100_000), 0.0001f)
+        assertEquals(0.4f, SleepTimerPolicy.endOfTrackFadeGain(state, "track-a", 98_000, 100_000), 0.0001f)
+    }
+
+    @Test
+    fun pauseResumeDoesNotSuspendMonotonicCountdown() {
+        val persisted = SleepTimerPolicy.duration(60_000, 5_000, "boot", 0)
+        val afterLongPause = SleepTimerPolicy.restore(persisted, 45_000, "boot")
+        assertEquals(20_000, afterLongPause.remainingMs)
+    }
+
+    @Test
     fun fadeIsNeutralUntilFadeWindowThenReachesZero() {
         val base = SleepTimerPolicy.restore(
             SleepTimerPolicy.duration(30_000, 0, "boot", 5_000),
