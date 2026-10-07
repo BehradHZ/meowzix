@@ -66,7 +66,15 @@ class ScaleTest {
             historyPlan.contains("index_listening_events_occurredAtEpochMs"),
         )
 
-        val library = LibraryQueryRepository(database.libraryBrowseDao(), database.libraryDao())
+        val library = LibraryQueryRepository(
+            database.libraryBrowseDao(),
+            database.libraryDao(),
+            dev.behradhz.meowzix.data.repository.EffectiveTrackSearchIndexer(
+                database,
+                database.libraryDao(),
+                database.libraryToolsDao(),
+            ),
+        )
         library.search("needle", limit = 20) // warm statement/cache paths before timing
         val searchMs = measureMs {
             val results = library.search("needle", limit = 20)
