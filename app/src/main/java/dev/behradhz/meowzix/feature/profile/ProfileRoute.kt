@@ -92,7 +92,23 @@ fun ProfileRoute(
     }
 
     if (showEqualizer) EqualizerSheet(onDismiss = { showEqualizer = false })
-    if (showSettings) UnifiedSettingsSheet(onDismiss = { showSettings = false })
+    if (showSettings) {
+        UnifiedSettingsSheet(
+            onDismiss = { showSettings = false },
+            onOpenEqualizer = {
+                showSettings = false
+                showEqualizer = true
+            },
+            onOpenTelegram = {
+                showSettings = false
+                onOpenTelegram()
+            },
+            onOpenDownloads = {
+                showSettings = false
+                onOpenOffline()
+            },
+        )
+    }
 }
 
 @Composable
