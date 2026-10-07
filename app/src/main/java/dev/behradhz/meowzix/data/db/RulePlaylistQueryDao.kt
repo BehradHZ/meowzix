@@ -14,6 +14,7 @@ interface RulePlaylistQueryDao {
             TrackSourceEntity::class,
             ListeningEventEntity::class,
             TrackMetadataOverrideEntity::class,
+            TrackSearchFtsEntity::class,
         ],
     )
     fun observeTracks(query: SupportSQLiteQuery): Flow<List<SearchTrackRow>>

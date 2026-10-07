@@ -53,6 +53,7 @@ class LocalMusicLibraryRepository @Inject constructor(
     private val telegramDao: TelegramDao,
     private val scanner: LocalMediaScanner,
     private val listeningHistory: dev.behradhz.meowzix.domain.history.ListeningHistoryRepository,
+    private val searchIndexer: EffectiveTrackSearchIndexer,
 ) : MusicLibraryRepository, PlaybackCatalog {
     private val artworkScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val artworkAttempts = ConcurrentHashMap.newKeySet<String>()
@@ -156,6 +157,7 @@ class LocalMusicLibraryRepository @Inject constructor(
         }
 
         lastSuccessfulRefreshAtEpochMs = now
+        searchIndexer.refreshAll()
         return LocalLibraryRefreshResult(
             discovered = plan.discovered,
             created = plan.toCreate.size,

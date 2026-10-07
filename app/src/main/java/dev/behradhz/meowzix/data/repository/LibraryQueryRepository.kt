@@ -37,22 +37,25 @@ data class AlbumSummary(
 class LibraryQueryRepository @Inject constructor(
     private val dao: LibraryBrowseDao,
     private val libraryDao: LibraryDao,
+    private val searchIndexer: EffectiveTrackSearchIndexer,
 ) {
     suspend fun search(query: String, limit: Int = 80): List<Track> {
         val normalized = TextNormalizer.normalize(query) ?: return emptyList()
+        searchIndexer.ensureReady()
         val matchExpression = buildTrackFtsMatchExpression(normalized)
         if (matchExpression.isBlank()) return emptyList()
         val safeLimit = limit.coerceIn(1, 200)
 
+        val candidateLimit = maxOf(safeLimit, safeLimit * SEARCH_CANDIDATE_MULTIPLIER)
+            .coerceAtMost(MAX_SEARCH_CANDIDATES)
         val ftsSql = """
-            ${TRACK_PROJECTION.trimIndent()}
+            ${SEARCH_TRACK_PROJECTION.trimIndent()}
             FROM track_search_fts
             INNER JOIN tracks t ON t.rowid = track_search_fts.rowid
+            LEFT JOIN track_metadata_overrides o ON o.trackId = t.id
             WHERE track_search_fts MATCH ?
               AND $AVAILABLE_TRACK_WHERE
-            ORDER BY
-                CASE WHEN t.normalizedTitle = ? THEN 0 ELSE 1 END,
-                t.normalizedTitle ASC
+            ORDER BY t.id ASC
             LIMIT ?
         """.trimIndent()
 
@@ -60,14 +63,14 @@ class LibraryQueryRepository @Inject constructor(
             dao.searchTracks(
                 SimpleSQLiteQuery(
                     ftsSql,
-                    arrayOf<Any>(matchExpression, normalized, safeLimit),
+                    arrayOf<Any>(matchExpression, candidateLimit),
                 ),
             ).map(SearchTrackRow::toDomain)
         }.getOrDefault(emptyList())
-        if (ftsResults.isNotEmpty()) return ftsResults
+        if (ftsResults.isNotEmpty()) return rankSearchResults(normalized, ftsResults, safeLimit)
 
-        // Keep typo matching as a final fallback: exact/prefix FTS and token-AND contains results
-        // are deterministic and should always outrank approximate matches.
+        // Keep contains and typo matching bounded. They operate on normalized effective FTS fields,
+        // so Persian/Arabic variants and user metadata overrides follow the same normalization path.
         val containsResults = fallbackContainsSearch(normalized, safeLimit)
         if (containsResults.isNotEmpty()) return containsResults
         return fuzzySearch(normalized, safeLimit)
@@ -79,46 +82,49 @@ class LibraryQueryRepository @Inject constructor(
         val tokenClause = tokens.joinToString(" AND ") {
             """
             (
-                instr(t.normalizedTitle, ?) > 0
-                OR instr(COALESCE(t.normalizedArtist, ''), ?) > 0
-                OR instr(LOWER(COALESCE(t.album, '')), ?) > 0
+                instr(track_search_fts.normalizedTitle, ?) > 0
+                OR instr(track_search_fts.normalizedArtist, ?) > 0
+                OR instr(track_search_fts.album, ?) > 0
             )
             """.trimIndent()
         }
+        val candidateLimit = maxOf(limit, limit * SEARCH_CANDIDATE_MULTIPLIER).coerceAtMost(MAX_SEARCH_CANDIDATES)
         val args = buildList<Any> {
             tokens.forEach { token ->
                 add(token)
                 add(token)
                 add(token)
             }
-            add(normalized)
-            add(limit)
+            add(candidateLimit)
         }.toTypedArray()
 
         val sql = """
-            $TRACK_PROJECTION
-            FROM tracks t
+            $SEARCH_TRACK_PROJECTION
+            FROM track_search_fts
+            INNER JOIN tracks t ON t.rowid = track_search_fts.rowid
+            LEFT JOIN track_metadata_overrides o ON o.trackId = t.id
             WHERE $AVAILABLE_TRACK_WHERE
               AND $tokenClause
-            ORDER BY
-                CASE WHEN t.normalizedTitle = ? THEN 0 ELSE 1 END,
-                t.normalizedTitle ASC
+            ORDER BY t.id ASC
             LIMIT ?
         """.trimIndent()
-        return dao.searchTracks(SimpleSQLiteQuery(sql, args)).map(SearchTrackRow::toDomain)
+        val candidates = dao.searchTracks(SimpleSQLiteQuery(sql, args)).map(SearchTrackRow::toDomain)
+        return rankSearchResults(normalized, candidates, limit)
     }
 
     private suspend fun fuzzySearch(normalized: String, limit: Int): List<Track> {
         val anchor = FuzzyTrackSearch.anchor(normalized) ?: return emptyList()
         val candidateLimit = maxOf(80, limit * FUZZY_CANDIDATE_MULTIPLIER).coerceAtMost(MAX_FUZZY_CANDIDATES)
         val sql = """
-            $TRACK_PROJECTION
-            FROM tracks t
+            $SEARCH_TRACK_PROJECTION
+            FROM track_search_fts
+            INNER JOIN tracks t ON t.rowid = track_search_fts.rowid
+            LEFT JOIN track_metadata_overrides o ON o.trackId = t.id
             WHERE $AVAILABLE_TRACK_WHERE
               AND (
-                  instr(t.normalizedTitle, ?) > 0
-                  OR instr(COALESCE(t.normalizedArtist, ''), ?) > 0
-                  OR instr(LOWER(COALESCE(t.album, '')), ?) > 0
+                  instr(track_search_fts.normalizedTitle, ?) > 0
+                  OR instr(track_search_fts.normalizedArtist, ?) > 0
+                  OR instr(track_search_fts.album, ?) > 0
               )
             ORDER BY t.updatedAtEpochMs DESC, t.id ASC
             LIMIT ?
@@ -131,11 +137,20 @@ class LibraryQueryRepository @Inject constructor(
             .mapNotNull { track ->
                 FuzzyTrackSearch.score(normalized, track.title, track.artist, track.album)?.let { score -> score to track }
             }
-            .sortedWith(compareBy<Pair<Int, Track>>({ it.first }, { it.second.normalizedTitle }, { it.second.id.toString() }))
+            .sortedWith(compareBy<Pair<Int, Track>>({ it.first }, { searchEvidenceRank(normalized, it.second) }, { it.second.normalizedTitle }, { it.second.id.toString() }))
             .take(limit)
             .map { it.second }
             .toList()
     }
+
+    private fun rankSearchResults(normalized: String, candidates: List<Track>, limit: Int): List<Track> =
+        candidates.sortedWith(
+            compareBy<Track>(
+                { searchEvidenceRank(normalized, it) },
+                { it.normalizedTitle },
+                { it.id.toString() },
+            ),
+        ).take(limit)
 
     /** Single-row lookup for surfaces that already know the canonical track UUID. */
     suspend fun track(trackId: UUID): Track? =
@@ -229,6 +244,21 @@ class LibraryQueryRepository @Inject constructor(
     private companion object {
         const val FUZZY_CANDIDATE_MULTIPLIER = 4
         const val MAX_FUZZY_CANDIDATES = 200
+        const val SEARCH_CANDIDATE_MULTIPLIER = 3
+        const val MAX_SEARCH_CANDIDATES = 200
+
+        val SEARCH_TRACK_PROJECTION = """
+            SELECT
+                t.id,
+                COALESCE(o.title, t.title) AS title,
+                track_search_fts.normalizedTitle AS normalizedTitle,
+                COALESCE(o.artist, t.artist) AS artist,
+                NULLIF(track_search_fts.normalizedArtist, '') AS normalizedArtist,
+                COALESCE(o.album, t.album) AS album,
+                t.durationMs, t.trackNumber, t.year,
+                COALESCE(o.artworkRef, t.artworkRef) AS artworkRef,
+                t.favorite, t.hidden, t.createdAtEpochMs, t.updatedAtEpochMs
+        """.trimIndent()
 
         val TRACK_PROJECTION = """
             SELECT
@@ -255,6 +285,27 @@ class LibraryQueryRepository @Inject constructor(
             )
         """.trimIndent()
     }
+}
+
+internal fun searchEvidenceRank(normalizedQuery: String, track: Track): Int {
+    val query = TextNormalizer.normalize(normalizedQuery) ?: return Int.MAX_VALUE
+    val title = TextNormalizer.normalize(track.title).orEmpty()
+    val artist = TextNormalizer.normalize(track.artist).orEmpty()
+    val album = TextNormalizer.normalize(track.album).orEmpty()
+    val tokens = query.split(' ').filter(String::isNotBlank)
+    if (title == query) return 0
+    if (title.startsWith(query)) return 10
+    val titleHits = tokens.count { it in title }
+    val artistHits = tokens.count { it in artist }
+    val albumHits = tokens.count { it in album }
+    val titleArtistCoverage = tokens.count { it in title || it in artist }
+    if (titleHits == tokens.size) return 20
+    if (titleHits > 0 && titleArtistCoverage == tokens.size) return 30 + (tokens.size - titleHits)
+    if (titleHits > 0) return 40 + (tokens.size - titleHits)
+    if (artistHits == tokens.size) return 60
+    if (artistHits > 0) return 70 + (tokens.size - artistHits)
+    if (albumHits > 0) return 90 + (tokens.size - albumHits)
+    return 120
 }
 
 internal fun buildTrackFtsMatchExpression(normalizedQuery: String): String = normalizedQuery

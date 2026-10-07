@@ -54,6 +54,7 @@ class RoomLibraryToolsRepository @Inject constructor(
     private val database: MeowzixDatabase,
     private val feedbackRepository: RecommendationFeedbackRepository,
     private val personalizationTrainer: PersonalizationTrainer,
+    private val searchIndexer: EffectiveTrackSearchIndexer,
 ) : LibraryToolsRepository {
     private val clock: Clock = Clock.systemUTC()
 
@@ -66,13 +67,16 @@ class RoomLibraryToolsRepository @Inject constructor(
         toolsDao.metadataOverride(trackId.toString())?.toDomain()
 
     override suspend fun setMetadataOverride(value: TrackMetadataOverride?) {
-        if (value == null || value.isEmpty) {
-            value?.let { toolsDao.deleteMetadataOverride(it.trackId.toString()) }
+        if (value == null) return
+        val trackId = value.trackId.toString()
+        if (value.isEmpty) {
+            toolsDao.deleteMetadataOverride(trackId)
+            searchIndexer.refreshTrack(trackId)
             return
         }
         toolsDao.upsertMetadataOverride(
             TrackMetadataOverrideEntity(
-                trackId = value.trackId.toString(),
+                trackId = trackId,
                 title = value.title.cleaned(),
                 artist = value.artist.cleaned(),
                 album = value.album.cleaned(),
@@ -80,6 +84,7 @@ class RoomLibraryToolsRepository @Inject constructor(
                 updatedAtEpochMs = value.updatedAtEpochMs,
             ),
         )
+        searchIndexer.refreshTrack(trackId)
     }
 
     override suspend fun duplicateCandidates(trackId: UUID): List<DuplicateCandidate> {
@@ -207,6 +212,7 @@ class RoomLibraryToolsRepository @Inject constructor(
         }
 
         mergeFeedback(survivorTrackId, mergedTrackId, survivorFeedback, mergedFeedback)
+        searchIndexer.refreshTracks(listOf(survivorId, mergedId))
         personalizationTrainer.rebuildFromStoredHistory()
         return TrackMergeResult(journalId, survivorTrackId, mergedTrackId, evidence)
     }
@@ -275,6 +281,7 @@ class RoomLibraryToolsRepository @Inject constructor(
 
         restoreFeedback(UUID.fromString(survivorId), snapshot.survivorFeedback)
         restoreFeedback(UUID.fromString(mergedId), snapshot.mergedFeedback)
+        searchIndexer.refreshTracks(listOf(survivorId, mergedId))
         personalizationTrainer.rebuildFromStoredHistory()
         return true
     }
@@ -462,10 +469,10 @@ class RoomLibraryToolsRepository @Inject constructor(
             "NOT EXISTS (SELECT 1 FROM listening_events recent WHERE recent.trackId = t.id AND recent.occurredAtEpochMs >= ? AND recent.type IN ('PLAY_COMPLETED', 'PLAY_STOPPED', 'SKIPPED_LATE'))" to listOf(nowMs - days * DAY_MS)
         }
         RuleKind.ARTIST_IS -> TextNormalizer.normalize(value)?.let { normalized ->
-            "LOWER(TRIM(COALESCE(o.artist, t.artist, ''))) = ?" to listOf(normalized)
+            "EXISTS (SELECT 1 FROM track_search_fts search_index WHERE search_index.rowid = t.rowid AND search_index.normalizedArtist = ?)" to listOf(normalized)
         }
         RuleKind.ALBUM_IS -> TextNormalizer.normalize(value)?.let { normalized ->
-            "LOWER(TRIM(COALESCE(o.album, t.album, ''))) = ?" to listOf(normalized)
+            "EXISTS (SELECT 1 FROM track_search_fts search_index WHERE search_index.rowid = t.rowid AND search_index.album = ?)" to listOf(normalized)
         }
     }
 
