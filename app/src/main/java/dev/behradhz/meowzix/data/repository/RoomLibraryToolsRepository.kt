@@ -55,8 +55,8 @@ class RoomLibraryToolsRepository @Inject constructor(
     private val feedbackRepository: RecommendationFeedbackRepository,
     private val personalizationTrainer: PersonalizationTrainer,
     private val searchIndexer: EffectiveTrackSearchIndexer,
+    private val clock: RulePlaylistClock,
 ) : LibraryToolsRepository {
-    private val clock: Clock = Clock.systemUTC()
 
     override fun observeMetadataOverrides(): Flow<Map<UUID, TrackMetadataOverride>> =
         toolsDao.observeMetadataOverrides().map { rows ->
@@ -206,8 +206,9 @@ class RoomLibraryToolsRepository @Inject constructor(
             val combinedOverride = combineOverrides(survivorId, survivorOverride, mergedOverride, now)
             if (combinedOverride != null) toolsDao.upsertMetadataOverride(combinedOverride)
 
-            database.audioFeatureDao().deleteForTrack(survivorId)
-            database.audioFeatureDao().deleteForTrack(mergedId)
+            // Audio features remain attached to their original logical Track row. While the merge
+            // is active, TrainingDatasetBuilder canonicalizes the merged ID to the survivor; after
+            // unmerge the same vectors become valid for the restored identity again.
             database.historyDao().rebuildPreferenceStats(0L)
         }
 
@@ -273,8 +274,6 @@ class RoomLibraryToolsRepository @Inject constructor(
 
             toolsDao.deleteMetadataOverride(survivorId)
             snapshot.survivorOverride?.let { toolsDao.upsertMetadataOverride(it) }
-            database.audioFeatureDao().deleteForTrack(survivorId)
-            database.audioFeatureDao().deleteForTrack(mergedId)
             database.historyDao().rebuildPreferenceStats(0L)
             check(toolsDao.markMergeReversed(journal.id, now) == 1) { "Merge was already reversed" }
         }
@@ -350,7 +349,12 @@ class RoomLibraryToolsRepository @Inject constructor(
         toolsDao.observeRulePlaylistRecords().map { rows -> rows.mapNotNull(RulePlaylistRecordRow::toDomain) }
 
     override fun observeRulePlaylistTracks(playlistId: UUID): Flow<List<Track>> =
-        toolsDao.observeRulePlaylists()
+        flow {
+            searchIndexer.ensureReady()
+            emit(Unit)
+        }.flatMapLatest {
+            toolsDao.observeRulePlaylists()
+        }
             .map { rows -> rows.firstOrNull { it.playlistId == playlistId.toString() }?.toDomain() }
             .distinctUntilChanged()
             .flatMapLatest { definition ->
@@ -389,6 +393,7 @@ class RoomLibraryToolsRepository @Inject constructor(
     }
 
     override suspend fun evaluateRulePlaylist(playlistId: UUID, limit: Int): List<Track> {
+        searchIndexer.ensureReady()
         val definition = rulePlaylist(playlistId) ?: return emptyList()
         val query = buildRuleQuery(definition, clock.millis(), limit) ?: return emptyList()
         return browseDao.searchTracks(query).distinctBy { it.id }.map(SearchTrackRow::toDomain)
@@ -399,7 +404,7 @@ class RoomLibraryToolsRepository @Inject constructor(
             val now = clock.millis()
             emit(now)
             val nextBoundary = nextRuleBoundary(definition, now) ?: awaitCancellation()
-            delay((nextBoundary - clock.millis()).coerceAtLeast(MIN_BOUNDARY_DELAY_MS))
+            delay(ruleBoundaryDelayMillis(clock, nextBoundary, MIN_BOUNDARY_DELAY_MS))
         }
     }
 

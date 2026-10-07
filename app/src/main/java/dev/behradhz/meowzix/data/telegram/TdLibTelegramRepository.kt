@@ -19,7 +19,7 @@ import dev.behradhz.meowzix.data.db.TelegramSelectedSourceEntity
 import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
-import dev.behradhz.meowzix.data.repository.IncomingTrackIdentity
+import dev.behradhz.meowzix.data.repository.EffectiveTrackSearchIndexer\nimport dev.behradhz.meowzix.data.repository.IncomingTrackIdentity
 import dev.behradhz.meowzix.data.repository.TrackMatchCandidate
 import dev.behradhz.meowzix.data.repository.UnifiedTrackMatcher
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthState
@@ -53,6 +53,7 @@ class TdLibTelegramRepository @Inject constructor(
     private val libraryDao: LibraryDao,
     private val telegramDao: TelegramDao,
     private val playlistDao: PlaylistDao,
+    private val searchIndexer: EffectiveTrackSearchIndexer,
 ) : TelegramRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _authState = MutableStateFlow(TelegramAuthState())
@@ -398,7 +399,8 @@ class TdLibTelegramRepository @Inject constructor(
     private suspend fun persistTelegramMessage(accountId: String, message: TdApi.Message): Boolean? {
         val candidate = message.toAudioCandidate() ?: return null
         val now = Instant.now().toEpochMilli()
-        return database.withTransaction {
+        var affectedTrackId: String? = null
+        val created = database.withTransaction {
             val existingTelegram = telegramDao.telegramSourceForMessage(accountId, message.chatId, message.id)
             val existingSource = existingTelegram?.let { libraryDao.sourceById(it.trackSourceId) }
             val existingTrack = existingSource?.let { libraryDao.trackById(it.trackId) }
@@ -412,6 +414,7 @@ class TdLibTelegramRepository @Inject constructor(
                     durationMs = candidate.durationMs,
                 ),
             ) ?: UUID.randomUUID().toString()
+            affectedTrackId = trackId
             val sourceId = existingSource?.id ?: UUID.randomUUID().toString()
             val canonicalTrack = existingTrack ?: libraryDao.trackById(trackId)
 
@@ -465,6 +468,8 @@ class TdLibTelegramRepository @Inject constructor(
             )
             created
         }
+        affectedTrackId?.let { searchIndexer.refreshTrack(it) }
+        return created
     }
 
     override suspend fun trackIdsForChat(chatId: Long): List<UUID> {

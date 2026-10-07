@@ -6,7 +6,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.android.qualifiers.ApplicationContext\nimport dev.behradhz.meowzix.data.db.LibraryToolsDao
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.QueueProvenanceRestoreHints
 import java.io.IOException
@@ -23,6 +23,7 @@ private val Context.playbackDataStore by preferencesDataStore(name = "playback_s
 class PlaybackStateStore @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val progressiveQueue: ProgressiveQueue,
+    private val toolsDao: LibraryToolsDao,
 ) {
     suspend fun load(): PersistedPlaybackSession = try {
         val preferences = context.playbackDataStore.data
@@ -30,9 +31,11 @@ class PlaybackStateStore @Inject constructor(
                 if (error is IOException) emit(emptyPreferences()) else throw error
             }
             .first()
-        val session = preferences[SESSION]
+        val decoded = preferences[SESSION]
             ?.let(PlaybackSessionCodec::decode)
             ?: PersistedPlaybackSession.Empty
+        val aliases = toolsDao.activeMergeJournal().associate { it.mergedTrackId to it.survivorTrackId }
+        val session = remapPersistedPlaybackSession(decoded, aliases)
         publishRestoreHints(session)
         val savedMediaId = preferences[POSITION_MEDIA_ID]
         val savedPositionMs = preferences[POSITION_MS]
@@ -52,14 +55,18 @@ class PlaybackStateStore @Inject constructor(
     /** Saves queue topology and policies. Call only when the queue/current item materially changes. */
     suspend fun save(session: PersistedPlaybackSession) {
         try {
+            val aliases = toolsDao.activeMergeJournal().associate { it.mergedTrackId to it.survivorTrackId }
+            val canonicalSession = remapPersistedPlaybackSession(session, aliases)
             val logical = progressiveQueue.snapshot()
             val enriched = if (
                 logical != null &&
-                session.logicalMediaIds == logical.tracks.map { it.id.toString() }
+                canonicalSession.logicalMediaIds == logical.tracks.map { track ->
+                    aliases[track.id.toString()] ?: track.id.toString()
+                }
             ) {
-                session.copy(logicalOrigins = logical.origins)
+                canonicalSession.copy(logicalOrigins = logical.origins)
             } else {
-                session
+                canonicalSession
             }
             context.playbackDataStore.edit { preferences ->
                 preferences[SESSION] = PlaybackSessionCodec.encode(enriched)
@@ -105,4 +112,29 @@ class PlaybackStateStore @Inject constructor(
         val POSITION_MEDIA_ID = stringPreferencesKey("position_media_id")
         val POSITION_MS = longPreferencesKey("position_ms")
     }
+}
+
+
+internal fun remapPersistedPlaybackSession(
+    session: PersistedPlaybackSession,
+    aliases: Map<String, String>,
+): PersistedPlaybackSession {
+    if (aliases.isEmpty()) return session
+
+    fun canonical(id: String): String = aliases[id] ?: id
+    val items = session.items.map { item ->
+        val mapped = canonical(item.mediaId)
+        if (mapped == item.mediaId) {
+            item
+        } else {
+            item.copy(
+                mediaId = mapped,
+                uri = item.uri.replace("trackId=${item.mediaId}", "trackId=$mapped"),
+            )
+        }
+    }
+    return session.copy(
+        items = items,
+        logicalMediaIds = session.logicalMediaIds.map(::canonical),
+    )
 }
