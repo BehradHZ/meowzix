@@ -733,8 +733,7 @@ class PlaybackService : MediaSessionService() {
             if (runtime.incoming.playbackState == Player.STATE_READY) {
                 resolveIncomingReplayGain(runtime)
                 val thresholdMs =
-                    CrossfadePolicy.sanitizeSeconds(crossfadeDurationSeconds) * 1_000L +
-                        CrossfadePolicy.TRACK_GUARD_MS
+                    CrossfadePolicy.sanitizeSeconds(crossfadeDurationSeconds) * 1_000L
                 if (outgoingRemaining <= thresholdMs) {
                     val incomingDuration = resolvedDurationMs(runtime.incoming)
                         .takeIf { it > 0L }

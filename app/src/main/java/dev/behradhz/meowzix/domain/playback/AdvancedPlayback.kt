@@ -346,7 +346,7 @@ object CrossfadePolicy {
         if (requested == 0L) return 0L
         val safe = minOf(
             requested,
-            (outgoingRemainingMs - TRACK_GUARD_MS).coerceAtLeast(0L),
+            outgoingRemainingMs.coerceAtLeast(0L),
             (incomingDurationMs - TRACK_GUARD_MS).coerceAtLeast(0L),
         )
         return safe.takeIf { it >= MIN_REAL_OVERLAP_MS } ?: 0L

@@ -103,7 +103,8 @@ class LoudnessAndGaplessPolicyTest {
         assertEquals(1, CrossfadePolicy.sanitizeSeconds(1))
         assertEquals(12, CrossfadePolicy.sanitizeSeconds(99))
         assertEquals(0, CrossfadePolicy.sanitizeSeconds(0))
-        assertEquals(0L, CrossfadePolicy.effectiveOverlapMs(6, 1_500, 180_000))
+        assertEquals(0L, CrossfadePolicy.effectiveOverlapMs(6, 900, 180_000))
+        assertEquals(1_500L, CrossfadePolicy.effectiveOverlapMs(6, 1_500, 180_000))
         assertEquals(6_000L, CrossfadePolicy.effectiveOverlapMs(6, 20_000, 180_000))
     }
 }
