@@ -89,7 +89,14 @@ class LocalRecommendationPersistenceTest {
             db.historyDao().insertEvent(ListeningEventEntity(UUID.randomUUID().toString(), occurrence, trackId.toString(), session,
                 type, 1000, 23, 4, "NIGHT", false, 190_000, 200_000, 0.95, "USER", "ORDERED"))
         }
-        val builder = TrainingDatasetBuilder(db.historyDao(), db.libraryDao(), db.audioFeatureDao(), TestExtractor(), db.trainingSampleDao())
+        val builder = TrainingDatasetBuilder(
+            historyDao = db.historyDao(),
+            libraryDao = db.libraryDao(),
+            toolsDao = db.libraryToolsDao(),
+            audioFeatureDao = db.audioFeatureDao(),
+            audioFeatureExtractor = TestExtractor(),
+            sampleDao = db.trainingSampleDao(),
+        )
         val dataset = builder.materialize(0)
         assertEquals(1, dataset.size)
         assertEquals(trackId, dataset.single().trackId)
@@ -98,7 +105,14 @@ class LocalRecommendationPersistenceTest {
         assertArrayEquals(dataset.single().features, builder.buildAll().single().features, 0.0)
     }
     @Test fun incrementalTrainingWaitsForTenMeaningfulOutcomes() = runTest {
-        val builder = TrainingDatasetBuilder(db.historyDao(), db.libraryDao(), db.audioFeatureDao(), TestExtractor(), db.trainingSampleDao())
+        val builder = TrainingDatasetBuilder(
+            historyDao = db.historyDao(),
+            libraryDao = db.libraryDao(),
+            toolsDao = db.libraryToolsDao(),
+            audioFeatureDao = db.audioFeatureDao(),
+            audioFeatureExtractor = TestExtractor(),
+            sampleDao = db.trainingSampleDao(),
+        )
         val trainer = PersonalizationTrainer(builder, model, object : TrainingScheduler {
             override fun scheduleTraining(rebuild: Boolean) {}
         }, SmartQueueAdaptationBus())
@@ -134,7 +148,14 @@ class LocalRecommendationPersistenceTest {
     }
     @Test fun incrementalBatchesProcessOldestFeedbackBeforeAdvancingTheWatermark() = runTest {
         val versions = (1..5).map { appendOutcome() }
-        val builder = TrainingDatasetBuilder(db.historyDao(), db.libraryDao(), db.audioFeatureDao(), TestExtractor(), db.trainingSampleDao())
+        val builder = TrainingDatasetBuilder(
+            historyDao = db.historyDao(),
+            libraryDao = db.libraryDao(),
+            toolsDao = db.libraryToolsDao(),
+            audioFeatureDao = db.audioFeatureDao(),
+            audioFeatureExtractor = TestExtractor(),
+            sampleDao = db.trainingSampleDao(),
+        )
         val first = builder.buildAll(latestFirst = false, outcomeLimit = 2)
         val second = builder.buildAll(after = first.last().dataVersion, latestFirst = false, outcomeLimit = 2)
         assertEquals(versions.take(2), first.map { it.dataVersion })
@@ -145,7 +166,14 @@ class LocalRecommendationPersistenceTest {
         repeat(5) { appendOutcome("PLAY_STOPPED") }
         val first = appendOutcome()
         val second = appendOutcome()
-        val builder = TrainingDatasetBuilder(db.historyDao(), db.libraryDao(), db.audioFeatureDao(), TestExtractor(), db.trainingSampleDao())
+        val builder = TrainingDatasetBuilder(
+            historyDao = db.historyDao(),
+            libraryDao = db.libraryDao(),
+            toolsDao = db.libraryToolsDao(),
+            audioFeatureDao = db.audioFeatureDao(),
+            audioFeatureExtractor = TestExtractor(),
+            sampleDao = db.trainingSampleDao(),
+        )
         val samples = builder.buildAll(latestFirst = false, outcomeLimit = 2)
         assertEquals(listOf(first, second), samples.map { it.dataVersion })
         assertTrue(samples.all { it.reward > 0.0 })
@@ -162,7 +190,14 @@ class LocalRecommendationPersistenceTest {
     @Test fun explicitRebuildRestoresTheStatisticsUsedByRankingAfterReset() = runTest {
         appendOutcome()
         appendOutcome()
-        val builder = TrainingDatasetBuilder(db.historyDao(), db.libraryDao(), db.audioFeatureDao(), TestExtractor(), db.trainingSampleDao())
+        val builder = TrainingDatasetBuilder(
+            historyDao = db.historyDao(),
+            libraryDao = db.libraryDao(),
+            toolsDao = db.libraryToolsDao(),
+            audioFeatureDao = db.audioFeatureDao(),
+            audioFeatureExtractor = TestExtractor(),
+            sampleDao = db.trainingSampleDao(),
+        )
         val trainer = PersonalizationTrainer(builder, model, object : TrainingScheduler {
             override fun scheduleTraining(rebuild: Boolean) {}
         }, SmartQueueAdaptationBus())
@@ -202,7 +237,14 @@ class LocalRecommendationPersistenceTest {
                 model.rebuild(samples)
             }
         }
-        val builder = TrainingDatasetBuilder(db.historyDao(), db.libraryDao(), db.audioFeatureDao(), TestExtractor(), db.trainingSampleDao())
+        val builder = TrainingDatasetBuilder(
+            historyDao = db.historyDao(),
+            libraryDao = db.libraryDao(),
+            toolsDao = db.libraryToolsDao(),
+            audioFeatureDao = db.audioFeatureDao(),
+            audioFeatureExtractor = TestExtractor(),
+            sampleDao = db.trainingSampleDao(),
+        )
         val trainer = PersonalizationTrainer(builder, slowModel, object : TrainingScheduler {
             override fun scheduleTraining(rebuild: Boolean) {}
         }, SmartQueueAdaptationBus())

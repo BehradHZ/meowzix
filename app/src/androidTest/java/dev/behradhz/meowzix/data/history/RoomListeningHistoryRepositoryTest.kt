@@ -41,6 +41,7 @@ class RoomListeningHistoryRepositoryTest {
             datasetBuilder = TrainingDatasetBuilder(
                 historyDao = database.historyDao(),
                 libraryDao = database.libraryDao(),
+                toolsDao = database.libraryToolsDao(),
                 audioFeatureDao = database.audioFeatureDao(),
                 audioFeatureExtractor = extractor,
                 sampleDao = database.trainingSampleDao(),
@@ -49,7 +50,12 @@ class RoomListeningHistoryRepositoryTest {
             scheduler = object : dev.behradhz.meowzix.domain.recommendation.TrainingScheduler { override fun scheduleTraining(rebuild: Boolean) {} },
             adaptationBus = SmartQueueAdaptationBus(),
         )
-        repository = RoomListeningHistoryRepository(database, database.historyDao(), trainer, dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(context))
+        repository = RoomListeningHistoryRepository(
+            database = database,
+            dao = database.historyDao(),
+            personalizationTrainer = trainer,
+            settings = dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(context),
+        )
     }
 
     @After fun tearDown() = database.close()

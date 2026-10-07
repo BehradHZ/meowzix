@@ -27,11 +27,14 @@ internal data class PlaylistSnapshotEntry(
 )
 
 internal object TrackMergeSnapshotCodec {
-    private const val VERSION = 1
-    private const val NULL = "~"
+    private const val CURRENT_VERSION = 2
+    private const val LEGACY_VERSION = 1
+    private const val LEGACY_NULL = "~"
+    private const val NULL_TAG = "N"
+    private const val VALUE_TAG = "V"
 
     fun encode(value: TrackMergeSnapshot): String = buildString {
-        line("v", VERSION.toString())
+        line("v", CURRENT_VERSION.toString())
         line(
             "flags",
             value.survivorFavorite.toString(), value.survivorHidden.toString(),
@@ -57,6 +60,18 @@ internal object TrackMergeSnapshotCodec {
     }
 
     fun decode(raw: String): TrackMergeSnapshot {
+        val rows = raw.lineSequence()
+            .filter(String::isNotBlank)
+            .map { line -> line.split('\t').map(::unescape) }
+            .toList()
+
+        val versionRows = rows.filter { it.firstOrNull() == "v" }
+        require(versionRows.size == 1 && versionRows.single().size == 2) { "Malformed merge snapshot version" }
+        val version = versionRows.single()[1].toIntOrNull()
+        require(version == LEGACY_VERSION || version == CURRENT_VERSION) {
+            "Unsupported merge snapshot version: $version"
+        }
+
         var survivorFavorite = false
         var survivorHidden = false
         var mergedFavorite = false
@@ -68,35 +83,58 @@ internal object TrackMergeSnapshotCodec {
         val events = mutableListOf<String>()
         val survivorFeedback = mutableListOf<RecommendationFeedback>()
         val mergedFeedback = mutableListOf<RecommendationFeedback>()
-        var version: Int? = null
+        var flagsSeen = false
+        var overrideSeen = false
 
-        raw.lineSequence().filter(String::isNotBlank).forEach { line ->
-            val f = line.split('\t').map(::unescape)
+        rows.forEach { f ->
             when (f.firstOrNull()) {
-                "v" -> version = f.getOrNull(1)?.toIntOrNull()
+                "v" -> Unit
                 "flags" -> {
-                    survivorFavorite = f.required(1).toBooleanStrict()
-                    survivorHidden = f.required(2).toBooleanStrict()
-                    mergedFavorite = f.required(3).toBooleanStrict()
-                    mergedHidden = f.required(4).toBooleanStrict()
+                    require(!flagsSeen && f.size == 5) { "Malformed merge snapshot flags" }
+                    flagsSeen = true
+                    survivorFavorite = f[1].toBooleanStrict()
+                    survivorHidden = f[2].toBooleanStrict()
+                    mergedFavorite = f[3].toBooleanStrict()
+                    mergedHidden = f[4].toBooleanStrict()
                 }
-                "override" -> survivorOverride = TrackMetadataOverrideEntity(
-                    trackId = f.required(1), title = denull(f.required(2)), artist = denull(f.required(3)),
-                    album = denull(f.required(4)), artworkRef = denull(f.required(5)),
-                    updatedAtEpochMs = f.required(6).toLong(),
-                )
-                "source" -> sources += f.required(1)
-                "playlist" -> playlists += PlaylistSnapshotEntry(
-                    PlaylistTrackEntity(f.required(1), f.required(2), f.required(3).toInt(), f.required(4).toLong()),
-                    f.required(5).toBooleanStrict(),
-                )
-                "lyric" -> lyrics += f.required(1)
-                "event" -> events += f.required(1)
-                "feedback-survivor" -> survivorFeedback += decodeFeedback(f)
-                "feedback-merged" -> mergedFeedback += decodeFeedback(f)
+                "override" -> {
+                    require(!overrideSeen && f.size == 7) { "Malformed merge snapshot override" }
+                    overrideSeen = true
+                    survivorOverride = TrackMetadataOverrideEntity(
+                        trackId = f[1],
+                        title = denull(f[2], version),
+                        artist = denull(f[3], version),
+                        album = denull(f[4], version),
+                        artworkRef = denull(f[5], version),
+                        updatedAtEpochMs = f[6].toLong(),
+                    )
+                }
+                "source" -> {
+                    require(f.size == 2) { "Malformed merge snapshot source" }
+                    sources += f[1]
+                }
+                "playlist" -> {
+                    require(f.size == 6) { "Malformed merge snapshot playlist" }
+                    playlists += PlaylistSnapshotEntry(
+                        PlaylistTrackEntity(f[1], f[2], f[3].toInt(), f[4].toLong()),
+                        f[5].toBooleanStrict(),
+                    )
+                }
+                "lyric" -> {
+                    require(f.size == 2) { "Malformed merge snapshot lyric" }
+                    lyrics += f[1]
+                }
+                "event" -> {
+                    require(f.size == 2) { "Malformed merge snapshot event" }
+                    events += f[1]
+                }
+                "feedback-survivor" -> survivorFeedback += decodeFeedback(f, version)
+                "feedback-merged" -> mergedFeedback += decodeFeedback(f, version)
+                else -> require(false) { "Malformed merge snapshot row" }
             }
         }
-        require(version == VERSION) { "Unsupported merge snapshot version: $version" }
+
+        require(flagsSeen) { "Malformed merge snapshot: missing flags" }
         return TrackMergeSnapshot(
             survivorFavorite, survivorHidden, mergedFavorite, mergedHidden, survivorOverride,
             sources.distinct(), playlists, lyrics.distinct(), events.distinct(), survivorFeedback, mergedFeedback,
@@ -106,23 +144,34 @@ internal object TrackMergeSnapshotCodec {
     private fun StringBuilder.feedback(type: String, value: RecommendationFeedback) = line(
         type,
         value.trackId.toString(), value.action.name, value.createdAt.toEpochMilli().toString(),
-        value.expiresAt?.toEpochMilli()?.toString() ?: NULL,
+        nullable(value.expiresAt?.toEpochMilli()?.toString()),
     )
 
-    private fun decodeFeedback(f: List<String>): RecommendationFeedback = RecommendationFeedback(
-        trackId = UUID.fromString(f.required(1)),
-        action = RecommendationFeedbackAction.valueOf(f.required(2)),
-        createdAt = Instant.ofEpochMilli(f.required(3).toLong()),
-        expiresAt = f.required(4).takeUnless { it == NULL }?.toLong()?.let(Instant::ofEpochMilli),
-    )
+    private fun decodeFeedback(f: List<String>, version: Int): RecommendationFeedback {
+        require(f.size == 5) { "Malformed merge snapshot feedback" }
+        return RecommendationFeedback(
+            trackId = UUID.fromString(f[1]),
+            action = RecommendationFeedbackAction.valueOf(f[2]),
+            createdAt = Instant.ofEpochMilli(f[3].toLong()),
+            expiresAt = denull(f[4], version)?.toLong()?.let(Instant::ofEpochMilli),
+        )
+    }
 
     private fun StringBuilder.line(vararg fields: String) {
         append(fields.joinToString("\t") { escape(it) }).append('\n')
     }
 
-    private fun nullable(value: String?): String = value ?: NULL
-    private fun denull(value: String): String? = value.takeUnless { it == NULL }
-    private fun List<String>.required(index: Int): String = getOrNull(index) ?: error("Malformed merge snapshot")
+    private fun nullable(value: String?): String = if (value == null) NULL_TAG else VALUE_TAG + value
+
+    private fun denull(value: String, version: Int): String? = when (version) {
+        LEGACY_VERSION -> value.takeUnless { it == LEGACY_NULL }
+        CURRENT_VERSION -> when {
+            value == NULL_TAG -> null
+            value.startsWith(VALUE_TAG) -> value.substring(VALUE_TAG.length)
+            else -> throw IllegalArgumentException("Malformed nullable merge snapshot field")
+        }
+        else -> throw IllegalArgumentException("Unsupported merge snapshot version: $version")
+    }
 
     private fun escape(value: String): String = buildString(value.length) {
         value.forEach { ch ->
@@ -137,13 +186,25 @@ internal object TrackMergeSnapshotCodec {
         }
     }
 
-    private fun unescape(value: String): String {
-        var result = value
-        result = result.replace("%0D", "\r")
-            .replace("%0A", "\n")
-            .replace("%09", "\t")
-            .replace("%7E", "~")
-            .replace("%25", "%")
-        return result
+    private fun unescape(value: String): String = buildString(value.length) {
+        var index = 0
+        while (index < value.length) {
+            val ch = value[index]
+            if (ch != '%') {
+                append(ch)
+                index += 1
+                continue
+            }
+            require(index + 2 < value.length) { "Malformed merge snapshot escape" }
+            when (value.substring(index, index + 3)) {
+                "%25" -> append('%')
+                "%7E" -> append('~')
+                "%09" -> append('\t')
+                "%0A" -> append('\n')
+                "%0D" -> append('\r')
+                else -> throw IllegalArgumentException("Malformed merge snapshot escape")
+            }
+            index += 3
+        }
     }
 }
