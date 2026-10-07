@@ -247,6 +247,11 @@ object GaplessPolicy {
     }
 }
 
+interface LoudnessNormalizationRepository {
+    suspend fun fallbackAnalysis(trackId: java.util.UUID): LoudnessAnalysis
+    suspend fun persistReplayGain(trackId: java.util.UUID, analysis: LoudnessAnalysis): LoudnessAnalysis
+}
+
 data class CrossfadeCapability(
     val supported: Boolean,
     val reason: String,

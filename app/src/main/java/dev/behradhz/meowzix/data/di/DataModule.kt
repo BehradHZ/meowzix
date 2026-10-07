@@ -28,6 +28,8 @@ import dev.behradhz.meowzix.data.db.MIGRATION_11_12
 import dev.behradhz.meowzix.data.db.MIGRATION_12_13
 import dev.behradhz.meowzix.data.db.MIGRATION_13_14
 import dev.behradhz.meowzix.data.db.MIGRATION_14_15
+import dev.behradhz.meowzix.data.db.MIGRATION_15_16
+import dev.behradhz.meowzix.data.db.LoudnessAnalysisDao
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.PlaylistDao
 import dev.behradhz.meowzix.data.db.RecommendationDao
@@ -43,6 +45,7 @@ import dev.behradhz.meowzix.data.recommendation.AndroidPcmAudioFeatureExtractor
 import dev.behradhz.meowzix.data.recommendation.DataStoreRecommendationFeedbackRepository
 import dev.behradhz.meowzix.data.recommendation.HeuristicRecommendationEngine
 import dev.behradhz.meowzix.data.recommendation.LocalLinearPersonalizationModel
+import dev.behradhz.meowzix.data.recommendation.RoomLoudnessNormalizationRepository
 import dev.behradhz.meowzix.data.repository.LocalMusicLibraryRepository
 import dev.behradhz.meowzix.data.repository.RoomLibraryToolsRepository
 import dev.behradhz.meowzix.data.repository.RoomPlaybackCatalog
@@ -57,6 +60,7 @@ import dev.behradhz.meowzix.domain.library.LibraryToolsRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
+import dev.behradhz.meowzix.domain.playback.LoudnessNormalizationRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.QueueRepository
@@ -92,6 +96,7 @@ abstract class RepositoryModule {
     @Binds @Singleton abstract fun bindRecommendationFeedbackRepository(impl: DataStoreRecommendationFeedbackRepository): RecommendationFeedbackRepository
     @Binds @Singleton abstract fun bindPersonalizationModel(impl: LocalLinearPersonalizationModel): PersonalizationModel
     @Binds @Singleton abstract fun bindAudioFeatureExtractor(impl: AndroidPcmAudioFeatureExtractor): AudioFeatureExtractor
+    @Binds @Singleton abstract fun bindLoudnessNormalizationRepository(impl: RoomLoudnessNormalizationRepository): LoudnessNormalizationRepository
     @Binds @Singleton abstract fun bindTrainingScheduler(impl: dev.behradhz.meowzix.data.recommendation.RecommendationWorkScheduler): dev.behradhz.meowzix.domain.recommendation.TrainingScheduler
     @Binds @Singleton abstract fun bindPersonalizationMaintenance(impl: dev.behradhz.meowzix.data.recommendation.LocalPersonalizationMaintenance): dev.behradhz.meowzix.domain.recommendation.PersonalizationMaintenance
     @Binds @Singleton abstract fun bindLocalMediaScanner(impl: MediaStoreScanner): LocalMediaScanner
@@ -119,6 +124,7 @@ object DatabaseModule {
                 MIGRATION_12_13,
                 MIGRATION_13_14,
                 MIGRATION_14_15,
+                MIGRATION_15_16,
             )
             .addCallback(TRACK_SEARCH_DATABASE_CALLBACK)
             .build()
@@ -132,6 +138,7 @@ object DatabaseModule {
     @Provides fun providePlaylistDao(database: MeowzixDatabase): PlaylistDao = database.playlistDao()
     @Provides fun provideHistoryDao(database: MeowzixDatabase): HistoryDao = database.historyDao()
     @Provides fun provideAudioFeatureDao(database: MeowzixDatabase): AudioFeatureDao = database.audioFeatureDao()
+    @Provides fun provideLoudnessAnalysisDao(database: MeowzixDatabase): LoudnessAnalysisDao = database.loudnessAnalysisDao()
     @Provides fun provideTrainingSampleDao(database: MeowzixDatabase): TrainingSampleDao = database.trainingSampleDao()
     @Provides fun provideLyricsDao(database: MeowzixDatabase): LyricsDao = database.lyricsDao()
 }
