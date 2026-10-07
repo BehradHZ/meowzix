@@ -55,7 +55,13 @@ class LibraryQueryRepository @Inject constructor(
             LEFT JOIN track_metadata_overrides o ON o.trackId = t.id
             WHERE track_search_fts MATCH ?
               AND $AVAILABLE_TRACK_WHERE
-            ORDER BY t.id ASC
+            ORDER BY CASE
+                WHEN track_search_fts.normalizedTitle = ? THEN 0
+                WHEN substr(track_search_fts.normalizedTitle, 1, length(?)) = ? THEN 1
+                WHEN instr(track_search_fts.normalizedTitle, ?) > 0 THEN 2
+                WHEN instr(track_search_fts.normalizedArtist, ?) > 0 THEN 3
+                ELSE 4
+            END, t.id ASC
             LIMIT ?
         """.trimIndent()
 
@@ -63,7 +69,15 @@ class LibraryQueryRepository @Inject constructor(
             dao.searchTracks(
                 SimpleSQLiteQuery(
                     ftsSql,
-                    arrayOf<Any>(matchExpression, candidateLimit),
+                    arrayOf<Any>(
+                        matchExpression,
+                        normalized,
+                        normalized,
+                        normalized,
+                        normalized,
+                        normalized,
+                        candidateLimit,
+                    ),
                 ),
             ).map(SearchTrackRow::toDomain)
         }.getOrDefault(emptyList())
@@ -95,6 +109,11 @@ class LibraryQueryRepository @Inject constructor(
                 add(token)
                 add(token)
             }
+            add(normalized)
+            add(normalized)
+            add(normalized)
+            add(normalized)
+            add(normalized)
             add(candidateLimit)
         }.toTypedArray()
 
@@ -105,7 +124,13 @@ class LibraryQueryRepository @Inject constructor(
             LEFT JOIN track_metadata_overrides o ON o.trackId = t.id
             WHERE $AVAILABLE_TRACK_WHERE
               AND $tokenClause
-            ORDER BY t.id ASC
+            ORDER BY CASE
+                WHEN track_search_fts.normalizedTitle = ? THEN 0
+                WHEN substr(track_search_fts.normalizedTitle, 1, length(?)) = ? THEN 1
+                WHEN instr(track_search_fts.normalizedTitle, ?) > 0 THEN 2
+                WHEN instr(track_search_fts.normalizedArtist, ?) > 0 THEN 3
+                ELSE 4
+            END, t.id ASC
             LIMIT ?
         """.trimIndent()
         val candidates = dao.searchTracks(SimpleSQLiteQuery(sql, args)).map(SearchTrackRow::toDomain)
