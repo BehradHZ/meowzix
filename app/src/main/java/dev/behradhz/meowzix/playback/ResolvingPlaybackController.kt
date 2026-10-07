@@ -37,6 +37,7 @@ class ResolvingPlaybackController @Inject constructor(
     private val remoteResolver: RemoteTrackPlaybackResolver,
     private val history: ListeningHistoryRepository,
     private val settingsRepository: SettingsRepository,
+    private val sleepTimer: SleepTimerManager,
 ) : PlaybackController, QueueRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _state = MutableStateFlow(delegate.state.value)
@@ -58,6 +59,23 @@ class ResolvingPlaybackController @Inject constructor(
             delegate.state.collect { playback ->
                 recordHistoryTransition(playback)
                 if (!resolvingRemote) _state.value = playback
+            }
+        }
+        scope.launch {
+            sleepTimer.terminations.collect { termination ->
+                val playbackId = activeHistoryId ?: return@collect
+                historySafely {
+                    history.finalizePlayback(
+                        playbackId,
+                        listenedMs,
+                        termination.durationMs.takeIf { it > 0L } ?: lastPlaybackState.durationMs,
+                        false,
+                    )
+                }
+                activeHistoryId = null
+                lastHistoryInstanceId = null
+                listenedMs = 0L
+                intentionalSkip = false
             }
         }
         scope.launch {
@@ -84,18 +102,21 @@ class ResolvingPlaybackController @Inject constructor(
     }
 
     override fun playTrack(trackId: UUID) {
+        neutralizeTimerFadeForManualPlayback()
         nextInitiator = PlaybackInitiator.USER
         intentionalSkip = historyTrackId != null
         resolveAndPlayNow(trackId)
     }
 
     override fun playNow(trackId: UUID) {
+        neutralizeTimerFadeForManualPlayback()
         nextInitiator = PlaybackInitiator.USER
         intentionalSkip = historyTrackId != null
         resolveAndPlayNow(trackId)
     }
 
     override fun playAt(index: Int) {
+        neutralizeTimerFadeForManualPlayback()
         val trackId = queueState.value.items.getOrNull(index)?.id ?: return
         nextInitiator = PlaybackInitiator.USER
         intentionalSkip = historyTrackId != null
@@ -148,6 +169,7 @@ class ResolvingPlaybackController @Inject constructor(
     }
 
     override fun replaceAndPlay(trackIds: List<UUID>, startTrackId: UUID, mode: PlaybackMode) {
+        neutralizeTimerFadeForManualPlayback()
         nextInitiator = PlaybackInitiator.USER
         intentionalSkip = historyTrackId != null
         scope.launch {
@@ -198,11 +220,13 @@ class ResolvingPlaybackController @Inject constructor(
     }
 
     override fun skipToPrevious() {
+        neutralizeTimerFadeForManualPlayback()
         intentionalSkip = true
         delegate.skipToPrevious()
     }
 
     override fun skipToNext() {
+        neutralizeTimerFadeForManualPlayback()
         intentionalSkip = true
         // The next queue item already carries a Media3-playable TDLib URI and is prefetched while
         // the current track is playing. Do not synchronously resolve/download it again here: doing
@@ -283,6 +307,10 @@ class ResolvingPlaybackController @Inject constructor(
         }
         if (playback.status == PlaybackStatus.ERROR) clearPendingSelection()
         lastPlaybackState = playback
+    }
+
+    private fun neutralizeTimerFadeForManualPlayback() {
+        scope.launch { sleepTimer.neutralizeFadeForManualPlayback() }
     }
 
     private fun clearPendingSelection() { nextInitiator = null; intentionalSkip = false }

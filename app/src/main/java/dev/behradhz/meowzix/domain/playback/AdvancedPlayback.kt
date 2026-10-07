@@ -120,7 +120,34 @@ object SleepTimerPolicy {
         if (state.remainingMs >= state.fadeDurationMs) return 1f
         return (state.remainingMs.toDouble() / state.fadeDurationMs).coerceIn(0.0, 1.0).toFloat()
     }
+
+    fun endOfTrackFadeGain(
+        state: SleepTimerState,
+        currentMediaId: String?,
+        positionMs: Long,
+        durationMs: Long,
+    ): Float {
+        if (state.mode != SleepTimerMode.END_OF_TRACK || state.fadeDurationMs <= 0L) return 1f
+        if (state.armedMediaId != null && state.armedMediaId != currentMediaId) return 1f
+        if (durationMs <= 0L) return 1f
+        val remaining = (durationMs - positionMs).coerceAtLeast(0L)
+        if (remaining >= state.fadeDurationMs) return 1f
+        return (remaining.toDouble() / state.fadeDurationMs).coerceIn(0.0, 1.0).toFloat()
+    }
 }
+
+enum class SleepTimerTerminationReason {
+    DURATION_EXPIRED,
+    END_OF_TRACK_REACHED,
+    END_OF_TRACK_PLAYBACK_ERROR,
+}
+
+data class SleepTimerTermination(
+    val reason: SleepTimerTerminationReason,
+    val mediaId: String?,
+    val positionMs: Long,
+    val durationMs: Long,
+)
 
 data class PlaybackGainState(
     val userBaseVolume: Float = 1f,

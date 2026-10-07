@@ -21,8 +21,10 @@ class RoomLoudnessNormalizationRepository @Inject constructor(
     private val loudnessDao: LoudnessAnalysisDao,
     private val audioFeatureDao: AudioFeatureDao,
     private val extractor: AudioFeatureExtractor,
+    private val extractionCoordinator: AudioFeatureExtractionCoordinator,
 ) : LoudnessNormalizationRepository {
     override suspend fun fallbackAnalysis(trackId: UUID): LoudnessAnalysis {
+        extractionCoordinator.extractIfNeeded(trackId)
         val existing = loudnessDao.latest(trackId.toString(), ANALYSIS_VERSION)
         val feature = audioFeatureDao.compatibleVector(
             trackId.toString(),

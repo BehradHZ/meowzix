@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Metadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -29,11 +30,19 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.MainActivity
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
+import dev.behradhz.meowzix.domain.playback.EqualizerRepository
+import dev.behradhz.meowzix.domain.playback.LoudnessNormalizationRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
+import dev.behradhz.meowzix.domain.playback.PlaybackGainCoordinator
+import dev.behradhz.meowzix.domain.playback.PlaybackGainState
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.domain.playback.SleepTimerMode
+import dev.behradhz.meowzix.domain.playback.SleepTimerPolicy
+import dev.behradhz.meowzix.domain.playback.SleepTimerTerminationReason
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
@@ -58,6 +67,10 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var audioVisualizer: AudioVisualizerRepository
     @Inject lateinit var libraryRepository: MusicLibraryRepository
     @Inject lateinit var progressiveQueue: ProgressiveQueue
+    @Inject lateinit var sleepTimer: SleepTimerManager
+    @Inject lateinit var equalizer: EqualizerRepository
+    @Inject lateinit var loudnessNormalization: LoudnessNormalizationRepository
+    @Inject lateinit var settingsRepository: SettingsRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
@@ -70,6 +83,12 @@ class PlaybackService : MediaSessionService() {
     private var isChangingQueueCycle = false
     private var isExpandingWindow = false
     private var currentFavorite = false
+    private var normalizationEnabled = false
+    private var localAudioAnalysisEnabled = true
+    private var normalizationGainDb = 0f
+    private var equalizerPeakBoostDb = 0f
+    private var sleepTimerGain = 1f
+    private var normalizationRefreshJob: Job? = null
 
     private val forwardCommand = SessionCommand(ACTION_OPEN_TELEGRAM_FORWARD, Bundle.EMPTY)
     private val shuffleCommand = SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY)
@@ -187,8 +206,15 @@ class PlaybackService : MediaSessionService() {
                 expandProgressiveWindow()
                 runCatching { audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString()) }
                 refreshFavoriteState()
+                refreshNormalizationGain()
+                if (sleepTimer.state.value.mode == SleepTimerMode.END_OF_TRACK) {
+                    serviceScope.launch { sleepTimer.rearmEndOfTrack(player.currentMediaItem?.mediaId) }
+                }
             } else if (events.contains(Player.EVENT_TIMELINE_CHANGED)) {
                 expandProgressiveWindow()
+            }
+            if (events.contains(Player.EVENT_TRACKS_CHANGED)) {
+                refreshNormalizationGain()
             }
             if (
                 events.containsAny(
@@ -207,6 +233,16 @@ class PlaybackService : MediaSessionService() {
 
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
             runCatching { audioVisualizer.attachToAudioSession(audioSessionId) }
+            runCatching { equalizer.attachToAudioSession(audioSessionId) }
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!playWhenReady &&
+                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM &&
+                sleepTimer.state.value.mode == SleepTimerMode.END_OF_TRACK
+            ) {
+                serviceScope.launch { completeSleepTimer(SleepTimerTerminationReason.END_OF_TRACK_REACHED) }
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -247,6 +283,64 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         serviceScope.launch {
+            settingsRepository.playbackPreferenceSettings.collect { preferences ->
+                normalizationEnabled = preferences.loudnessNormalizationEnabled
+                if (!normalizationEnabled) {
+                    normalizationRefreshJob?.cancel()
+                    normalizationGainDb = 0f
+                    applyGain()
+                } else refreshNormalizationGain()
+            }
+        }
+        serviceScope.launch {
+            settingsRepository.recommendationPreferenceSettings.collect { preferences ->
+                localAudioAnalysisEnabled = preferences.audioAnalysisEnabled
+                if (normalizationEnabled) refreshNormalizationGain()
+            }
+        }
+        serviceScope.launch {
+            equalizer.state.collect { state ->
+                equalizerPeakBoostDb = if (state.enabled) {
+                    state.bands.maxOfOrNull { it.levelDb.coerceAtLeast(0f) } ?: 0f
+                } else 0f
+                applyGain()
+            }
+        }
+        serviceScope.launch {
+            sleepTimer.state.collect { timer ->
+                player.setPauseAtEndOfMediaItems(timer.mode == SleepTimerMode.END_OF_TRACK)
+                if (timer.mode == SleepTimerMode.OFF) {
+                    sleepTimerGain = 1f
+                    applyGain()
+                }
+                if (timer.mode == SleepTimerMode.END_OF_TRACK && timer.armedMediaId == null) {
+                    sleepTimer.rearmEndOfTrack(player.currentMediaItem?.mediaId)
+                }
+            }
+        }
+        serviceScope.launch {
+            sleepTimer.restore()
+            while (isActive) {
+                val timer = sleepTimer.refresh()
+                sleepTimerGain = when (timer.mode) {
+                    SleepTimerMode.DURATION -> SleepTimerPolicy.fadeGain(timer)
+                    SleepTimerMode.END_OF_TRACK -> SleepTimerPolicy.endOfTrackFadeGain(
+                        timer,
+                        player.currentMediaItem?.mediaId,
+                        player.currentPosition.coerceAtLeast(0L),
+                        player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L,
+                    )
+                    SleepTimerMode.OFF -> 1f
+                }
+                applyGain()
+                if (timer.mode == SleepTimerMode.DURATION && timer.remainingMs <= 0L) {
+                    completeSleepTimer(SleepTimerTerminationReason.DURATION_EXPIRED)
+                }
+                delay(SLEEP_TIMER_TICK_MS)
+            }
+        }
+
+        serviceScope.launch {
             try {
                 try {
                     restoreSession()
@@ -261,6 +355,7 @@ class PlaybackService : MediaSessionService() {
                     audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString())
                 }
                 refreshFavoriteState()
+                refreshNormalizationGain()
                 while (isActive) {
                     delay(POSITION_SAVE_INTERVAL_MS)
                     if (player.isPlaying) persistPositionSafely()
@@ -277,6 +372,8 @@ class PlaybackService : MediaSessionService() {
         clearPlaybackRetry()
         player.removeListener(playerListener)
         audioVisualizer.release()
+        equalizer.release()
+        normalizationRefreshJob?.cancel()
         mediaSession.release()
         player.release()
         serviceScope.cancel()
@@ -441,6 +538,9 @@ class PlaybackService : MediaSessionService() {
         Log.w(TAG, "Playback failed; keeping the current queue item selected", error)
         clearPlaybackRetry()
         player.pause()
+        if (sleepTimer.state.value.mode == SleepTimerMode.END_OF_TRACK) {
+            serviceScope.launch { completeSleepTimer(SleepTimerTerminationReason.END_OF_TRACK_PLAYBACK_ERROR) }
+        }
         schedulePersist()
     }
 
@@ -449,6 +549,78 @@ class PlaybackService : MediaSessionService() {
         playbackRetryJob = null
         retryMediaId = null
         retryCount = 0
+    }
+
+    private fun applyGain() {
+        player.volume = PlaybackGainCoordinator.resolve(
+            PlaybackGainState(
+                userBaseVolume = 1f,
+                normalizationGainDb = normalizationGainDb,
+                equalizerPeakBoostDb = equalizerPeakBoostDb,
+                sleepTimerGain = sleepTimerGain,
+                crossfadeGain = 1f,
+            ),
+        ).playerVolume
+    }
+
+    private fun refreshNormalizationGain() {
+        normalizationRefreshJob?.cancel()
+        if (!normalizationEnabled) {
+            normalizationGainDb = 0f
+            applyGain()
+            return
+        }
+        val mediaId = player.currentMediaItem?.mediaId
+        val trackId = mediaId?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+        if (trackId == null) {
+            normalizationGainDb = 0f
+            applyGain()
+            return
+        }
+        val replayGain = selectedAudioMetadata()?.let(ReplayGainMetadataParser::parse)
+        if (replayGain != null) {
+            normalizationGainDb = replayGain.suggestedGainDb
+            applyGain()
+            normalizationRefreshJob = serviceScope.launch(Dispatchers.IO) {
+                runCatching { loudnessNormalization.persistReplayGain(trackId, replayGain) }
+            }
+            return
+        }
+        if (!localAudioAnalysisEnabled) {
+            normalizationGainDb = 0f
+            applyGain()
+            return
+        }
+        normalizationRefreshJob = serviceScope.launch {
+            val analysis = runCatching { loudnessNormalization.fallbackAnalysis(trackId) }.getOrNull()
+            if (player.currentMediaItem?.mediaId == mediaId && normalizationEnabled) {
+                normalizationGainDb = analysis?.suggestedGainDb ?: 0f
+                applyGain()
+            }
+        }
+    }
+
+    private fun selectedAudioMetadata(): Metadata? {
+        player.currentTracks.groups.forEach { group ->
+            if (group.type != C.TRACK_TYPE_AUDIO) return@forEach
+            for (index in 0 until group.length) {
+                if (group.isTrackSelected(index)) return group.getTrackFormat(index).metadata
+            }
+        }
+        return null
+    }
+
+    private suspend fun completeSleepTimer(reason: SleepTimerTerminationReason) {
+        val mediaId = player.currentMediaItem?.mediaId
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L }
+            ?: player.currentMediaItem?.mediaMetadata?.durationMs?.coerceAtLeast(0L)
+            ?: 0L
+        player.pause()
+        sleepTimer.complete(reason, mediaId, position, duration)
+        sleepTimerGain = 1f
+        applyGain()
+        schedulePersist()
     }
 
     private fun toggleSystemShuffle() {
@@ -839,6 +1011,7 @@ class PlaybackService : MediaSessionService() {
         const val FORWARD_INCREMENT_MS = 15_000L
         const val PERSIST_DEBOUNCE_MS = 250L
         const val POSITION_SAVE_INTERVAL_MS = 1_000L
+        const val SLEEP_TIMER_TICK_MS = 250L
     }
 }
 
