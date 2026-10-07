@@ -21,4 +21,20 @@ class SleepTimerListeningSignalTest {
         assertEquals(ListeningEventType.PLAY_STOPPED, neutral)
         assertEquals(ListeningEventType.SKIPPED_EARLY, userSkip)
     }
+
+    @Test
+    fun crossfadeMidpointNeverTurnsNaturalPlaybackIntoNegativeFeedback() {
+        val longTrackOutcome = ListeningEventSemantics.outcome(
+            positionMs = 177_000,
+            durationMs = 180_000,
+            intentionalSkip = false,
+        )
+        val shortTrackOutcome = ListeningEventSemantics.outcome(
+            positionMs = 17_000,
+            durationMs = 20_000,
+            intentionalSkip = false,
+        )
+        assertEquals(ListeningEventType.PLAY_COMPLETED, longTrackOutcome)
+        assertEquals(ListeningEventType.PLAY_STOPPED, shortTrackOutcome)
+    }
 }

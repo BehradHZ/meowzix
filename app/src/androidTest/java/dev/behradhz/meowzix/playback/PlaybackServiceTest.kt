@@ -16,6 +16,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.common.util.concurrent.ListenableFuture
 import dev.behradhz.meowzix.MainActivity
+import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import java.io.File
@@ -24,6 +25,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.PI
 import kotlin.math.sin
@@ -34,6 +36,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
 class PlaybackServiceTest {
@@ -61,6 +64,11 @@ class PlaybackServiceTest {
 
     @After
     fun tearDown() {
+        runBlocking {
+            val settings = DataStoreSettingsRepository(context)
+            settings.setCrossfadeDurationSeconds(0)
+            settings.setLoudnessNormalizationEnabled(false)
+        }
         onMain {
             controller.stop()
             controller.clearMediaItems()
@@ -96,6 +104,62 @@ class PlaybackServiceTest {
         waitUntil { onMain { controller.currentMediaItemIndex == 1 } }
 
         assertEquals("Second", onMain { controller.currentMediaItem?.mediaMetadata?.title })
+    }
+
+    @Test
+    fun localPlaylistBoundaryDoesNotEnterEndedStateBeforeNextTrack() {
+        val first = playableItem("Gapless First", createWaveFile("gapless-first.wav", 1_500))
+        val second = playableItem("Gapless Second", createWaveFile("gapless-second.wav", 1_500))
+        val endedOnFirst = AtomicBoolean(false)
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED && controller.currentMediaItemIndex == 0) {
+                    endedOnFirst.set(true)
+                }
+            }
+        }
+        onMain {
+            controller.addListener(listener)
+            controller.setMediaItems(listOf(first, second))
+            controller.prepare()
+            controller.play()
+        }
+        waitUntil(timeoutMs = 8_000) { onMain { controller.currentMediaItemIndex == 1 && controller.isPlaying } }
+        onMain { controller.removeListener(listener) }
+
+        assertTrue("Playlist transition must remain continuous instead of ending between items", !endedOnFirst.get())
+        assertEquals("Gapless Second", onMain { controller.currentMediaItem?.mediaMetadata?.title })
+    }
+
+    @Test
+    fun localCrossfadeHandsMediaSessionToIncomingBeforeOutgoingNaturalEnd() {
+        runBlocking {
+            val settings = DataStoreSettingsRepository(context)
+            settings.setLoudnessNormalizationEnabled(false)
+            settings.setCrossfadeDurationSeconds(2)
+        }
+        // Give the service's DataStore collector a deterministic opportunity to apply the setting.
+        Thread.sleep(300)
+
+        val firstDurationMs = 6_000
+        val first = playableItem("Crossfade First", createWaveFile("crossfade-first.wav", firstDurationMs))
+        val second = playableItem("Crossfade Second", createWaveFile("crossfade-second.wav", 6_000))
+        val startedAt = SystemClock.uptimeMillis()
+        onMain {
+            controller.setMediaItems(listOf(first, second))
+            controller.prepare()
+            controller.play()
+        }
+        waitUntil(timeoutMs = 10_000) {
+            onMain { controller.currentMediaItemIndex == 1 && controller.currentMediaItem?.mediaId == second.mediaId }
+        }
+        val handoffElapsedMs = SystemClock.uptimeMillis() - startedAt
+
+        assertTrue(
+            "Real crossfade should hand session identity to the incoming track before the outgoing track naturally ends",
+            handoffElapsedMs < firstDurationMs,
+        )
+        assertTrue(onMain { controller.isPlaying })
     }
 
     @Test
