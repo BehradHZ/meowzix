@@ -33,6 +33,8 @@ class TrackMergeIntegrationTest {
     private lateinit var feedback: DataStoreRecommendationFeedbackRepository
     private lateinit var datasetBuilder: TrainingDatasetBuilder
     private lateinit var repository: RoomLibraryToolsRepository
+    private lateinit var searchIndexer: EffectiveTrackSearchIndexer
+    private lateinit var search: LibraryQueryRepository
     private val survivorId = UUID.fromString("11111111-1111-1111-1111-111111111111")
     private val mergedId = UUID.fromString("22222222-2222-2222-2222-222222222222")
 
@@ -57,6 +59,7 @@ class TrackMergeIntegrationTest {
             object : TrainingScheduler { override fun scheduleTraining(rebuild: Boolean) = Unit },
             bus,
         )
+        searchIndexer = EffectiveTrackSearchIndexer(db, db.libraryDao(), db.libraryToolsDao())
         repository = RoomLibraryToolsRepository(
             toolsDao = db.libraryToolsDao(),
             libraryDao = db.libraryDao(),
@@ -64,9 +67,10 @@ class TrackMergeIntegrationTest {
             database = db,
             feedbackRepository = feedback,
             personalizationTrainer = trainer,
-            searchIndexer = EffectiveTrackSearchIndexer(db, db.libraryDao(), db.libraryToolsDao()),
+            searchIndexer = searchIndexer,
             clock = FixedMergeClock(5_000L),
         )
+        search = LibraryQueryRepository(db.libraryBrowseDao(), db.libraryDao(), searchIndexer)
         seed()
     }
 
@@ -78,6 +82,9 @@ class TrackMergeIntegrationTest {
     @Test
     fun mergeThenUnmergePreservesCrossFeatureProvenanceAndSingleLearningOutcome() = runTest {
         assertEquals(1, datasetBuilder.buildAll().size)
+        // Prime the effective index before merging so post-merge assertions prove that merge
+        // invalidation refreshes the already-initialized search identity.
+        assertEquals(listOf(mergedId), search.search("merged album").map { it.id })
 
         val merged = repository.mergeTracks(survivorId, mergedId, confirmMetadataOnly = false)
 
@@ -104,6 +111,7 @@ class TrackMergeIntegrationTest {
         assertEquals(1, mergedDataset.size)
         assertEquals(survivorId, mergedDataset.single().trackId)
         assertEquals(listOf(survivorId), repository.evaluateRulePlaylist(UUID.fromString(SMART_ID)).map { it.id })
+        assertEquals(listOf(survivorId), search.search("merged album").map { it.id })
 
         assertTrue(repository.unmerge(merged.journalId))
 
@@ -128,6 +136,7 @@ class TrackMergeIntegrationTest {
         assertEquals(1, restoredDataset.size)
         assertEquals(mergedId, restoredDataset.single().trackId)
         assertEquals(listOf(mergedId), repository.evaluateRulePlaylist(UUID.fromString(SMART_ID)).map { it.id })
+        assertEquals(listOf(mergedId), search.search("merged album").map { it.id })
         assertEquals(1, feedback.snapshot(Instant.now()).count { it.trackId == mergedId })
     }
 
