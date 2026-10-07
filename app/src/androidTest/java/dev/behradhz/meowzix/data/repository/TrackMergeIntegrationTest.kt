@@ -166,7 +166,7 @@ class TrackMergeIntegrationTest {
         listOf("AUTO_SELECTED", "PLAY_STARTED", "PLAY_COMPLETED").forEachIndexed { index, type ->
             db.historyDao().insertEvent(
                 ListeningEventEntity(
-                    id = "event-$index",
+                    id = UUID.nameUUIDFromBytes("merge-event-$index".toByteArray()).toString(),
                     playbackInstanceId = playback,
                     trackId = mergedId.toString(),
                     sessionId = session,
