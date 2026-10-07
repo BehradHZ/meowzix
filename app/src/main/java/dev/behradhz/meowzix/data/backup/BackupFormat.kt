@@ -14,7 +14,8 @@ data class DecodedBackup(
 )
 
 object BackupFormat {
-    const val VERSION = 2\n    const val LEGACY_VERSION = 1
+    const val VERSION = 2
+    const val LEGACY_VERSION = 1
     const val MAX_BYTES = 16 * 1024 * 1024
     const val MAX_RECORDS = 500_000
     const val MAX_FIELD_BYTES = 1 * 1024 * 1024
