@@ -6,6 +6,7 @@ import java.util.Base64
 
 data class BackupRecord(val type: String, val fields: List<String?>)
 data class DecodedBackup(
+    val version: Int,
     val backupId: String,
     val createdAtEpochMs: Long,
     val includeHistory: Boolean,
@@ -13,7 +14,7 @@ data class DecodedBackup(
 )
 
 object BackupFormat {
-    const val VERSION = 1
+    const val VERSION = 2\n    const val LEGACY_VERSION = 1
     const val MAX_BYTES = 16 * 1024 * 1024
     const val MAX_RECORDS = 500_000
     const val MAX_FIELD_BYTES = 1 * 1024 * 1024
@@ -53,7 +54,10 @@ object BackupFormat {
         val lines = bodyText.lineSequence().filter(String::isNotEmpty).iterator()
         require(lines.hasNext()) { "Missing backup header" }
         val header = lines.next().removeSuffix("\r").split('|')
-        require(header.size == 5 && header[0] == MAGIC && header[1].toIntOrNull() == VERSION) { "Unsupported backup version" }
+        require(header.size == 5 && header[0] == MAGIC) { "Invalid backup header" }
+        val version = header[1].toIntOrNull() ?: error("Invalid backup version")
+        require(version == LEGACY_VERSION || version == VERSION) { "Unsupported backup version" }
+        require(header[4] == "0" || header[4] == "1") { "Invalid history flag" }
         val records = ArrayList<BackupRecord>()
         while (lines.hasNext()) {
             require(records.size < MAX_RECORDS) { "Too many backup records" }
@@ -63,6 +67,7 @@ object BackupFormat {
             records += BackupRecord(parts[0], parts.drop(1).map(::decodeField))
         }
         return DecodedBackup(
+            version = version,
             backupId = header[2],
             createdAtEpochMs = header[3].toLongOrNull() ?: error("Invalid backup timestamp"),
             includeHistory = header[4] == "1",

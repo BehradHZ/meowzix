@@ -64,6 +64,8 @@ interface HistoryDao {
 
     @Query("SELECT * FROM listening_events ORDER BY occurredAtEpochMs ASC")
     suspend fun allEventsChronological(): List<ListeningEventEntity>
+    @Query("SELECT EXISTS(SELECT 1 FROM listening_events WHERE id = :eventId)")
+    suspend fun hasEvent(eventId: String): Boolean
 
     @Query("SELECT * FROM listening_events WHERE playbackInstanceId = :playbackInstanceId ORDER BY occurredAtEpochMs ASC")
     suspend fun eventsForPlayback(playbackInstanceId: String): List<ListeningEventEntity>

@@ -15,6 +15,9 @@ import dev.behradhz.meowzix.data.db.PlaylistEntity
 import dev.behradhz.meowzix.data.db.PlaylistTrackEntity
 import dev.behradhz.meowzix.data.db.RulePlaylistEntity
 import dev.behradhz.meowzix.data.db.TrackMetadataOverrideEntity
+import dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
+import dev.behradhz.meowzix.data.repository.EffectiveTrackSearchIndexer
+import dev.behradhz.meowzix.data.repository.RulePlaylistCodec
 import dev.behradhz.meowzix.domain.backup.BackupOptions
 import dev.behradhz.meowzix.domain.backup.BackupPreview
 import dev.behradhz.meowzix.domain.backup.BackupRestoreResult
@@ -46,6 +49,8 @@ class RoomLocalBackupRepository @Inject constructor(
     private val historyDao: HistoryDao,
     private val feedbackRepository: RecommendationFeedbackRepository,
     private val settingsRepository: SettingsRepository,
+    private val personalizationTrainer: PersonalizationTrainer,
+    private val searchIndexer: EffectiveTrackSearchIndexer,
 ) : LocalBackupRepository {
 
     override suspend fun export(options: BackupOptions): ByteArray {
@@ -120,7 +125,7 @@ class RoomLocalBackupRepository @Inject constructor(
             .count { resolve(it) == null }
         return BackupPreview(
             backupId = decoded.backupId,
-            version = BackupFormat.VERSION,
+            version = decoded.version,
             createdAtEpochMs = decoded.createdAtEpochMs,
             includeHistory = decoded.includeHistory,
             recordCounts = decoded.records.groupingBy { it.type }.eachCount(),
@@ -139,9 +144,13 @@ class RoomLocalBackupRepository @Inject constructor(
         var restored = 0
         var unresolved = 0
         var skipped = 0
+        val searchTrackIds = linkedSetOf<String>()
 
         suspend fun trackId(ref: PortableTrackRef?, ownerType: String, ownerId: String): String? {
-            if (ref == null) { skipped += 1; return null }
+            if (ref == null) {
+                skipped += 1
+                return null
+            }
             val key = ref.originalTrackId?.toString()
             val id = key?.let { resolution[it] } ?: resolve(ref)
             if (id != null) return id
@@ -162,70 +171,94 @@ class RoomLocalBackupRepository @Inject constructor(
 
         database.withTransaction {
             for (record in decoded.records) {
-                runCatching {
-                    when (record.type) {
-                        TYPE_TRACK -> {
-                            val ref = record.refAt(0) ?: return@runCatching
-                            val id = trackId(ref, TYPE_TRACK, ref.originalTrackId?.toString().orEmpty()) ?: return@runCatching
-                            libraryDao.setFavorite(id, record.fields.getOrNull(5).toBooleanSafe(), System.currentTimeMillis())
-                            restored++
-                        }
-                        TYPE_PLAYLIST -> {
-                            val f = record.fields
-                            val id = f.required(0)
-                            playlistDao.upsertPlaylist(
-                                PlaylistEntity(id, f.required(1).take(256), f[2]?.take(2_048), f[3]?.take(4_096), f.long(4), f.long(5)),
-                            )
-                            restored++
-                        }
-                        TYPE_PLAYLIST_TRACK -> {
-                            val f = record.fields
-                            val playlistId = f.required(0)
-                            val ref = record.refAt(3)
-                            val id = trackId(ref, TYPE_PLAYLIST_TRACK, playlistId) ?: return@runCatching
-                            val current = playlistDao.entries(playlistId)
-                            if (current.none { it.trackId == id }) {
-                                val requested = f.int(1).coerceAtLeast(0)
-                                val used = current.map { it.position }.toSet()
-                                val position = if (requested !in used) requested else (current.maxOfOrNull { it.position } ?: -1) + 1
-                                playlistDao.insertTrack(PlaylistTrackEntity(playlistId, id, position, f.long(2)))
-                            }
-                            restored++
-                        }
-                        TYPE_LYRICS -> {
-                            val f = record.fields
-                            val id = trackId(record.refAt(10), TYPE_LYRICS, f.required(0)) ?: return@runCatching
-                            lyricsDao.upsert(
-                                LyricsVersionEntity(
-                                    id = f.required(0), trackId = id, sourceType = f.required(1), sourceLabel = f[2], rawText = f.required(3),
-                                    contentType = f.required(4), selected = f[5].toBooleanSafe(), userSelected = f[6].toBooleanSafe(),
-                                    userDelayMs = f.long(7), createdAtEpochMs = f.long(8), updatedAtEpochMs = f.long(9),
-                                ),
-                            )
-                            restored++
-                        }
-                        TYPE_OVERRIDE -> {
-                            val f = record.fields
-                            val id = trackId(record.refAt(5), TYPE_OVERRIDE, record.refAt(5)?.originalTrackId?.toString().orEmpty()) ?: return@runCatching
-                            toolsDao.upsertMetadataOverride(TrackMetadataOverrideEntity(id, f[0], f[1], f[2], f[3], f.long(4)))
-                            restored++
-                        }
-                        TYPE_RULE_PLAYLIST -> {
-                            val f = record.fields
-                            if (playlistDao.allPlaylists().any { it.id == f.required(0) }) {
-                                toolsDao.upsertRulePlaylist(RulePlaylistEntity(f.required(0), f.required(1), f.required(2), f.required(3), f.long(4)))
-                                restored++
-                            } else skipped++
-                        }
-                        else -> Unit
+                when (record.type) {
+                    TYPE_TRACK -> {
+                        val ref = record.refAt(0) ?: error("Malformed TRACK record")
+                        val id = trackId(ref, TYPE_TRACK, ref.originalTrackId?.toString().orEmpty()) ?: continue
+                        libraryDao.setFavorite(id, record.fields.getOrNull(5).toBooleanSafe(), System.currentTimeMillis())
+                        restored++
                     }
-                }.onFailure { skipped++ }
+                    TYPE_PLAYLIST -> {
+                        val f = record.fields
+                        val id = f.required(0)
+                        playlistDao.upsertPlaylist(
+                            PlaylistEntity(id, f.required(1).take(256), f[2]?.take(2_048), f[3]?.take(4_096), f.long(4), f.long(5)),
+                        )
+                        restored++
+                    }
+                    TYPE_PLAYLIST_TRACK -> {
+                        val f = record.fields
+                        val playlistId = f.required(0)
+                        val ref = record.refAt(3)
+                        val id = trackId(ref, TYPE_PLAYLIST_TRACK, playlistId) ?: continue
+                        val current = playlistDao.entries(playlistId)
+                        if (current.none { it.trackId == id }) {
+                            val requested = f.int(1).coerceAtLeast(0)
+                            val used = current.map { it.position }.toSet()
+                            val position = if (requested !in used) requested else (current.maxOfOrNull { it.position } ?: -1) + 1
+                            playlistDao.insertTrack(PlaylistTrackEntity(playlistId, id, position, f.long(2)))
+                        }
+                        restored++
+                    }
+                    TYPE_LYRICS -> {
+                        val f = record.fields
+                        val id = trackId(record.refAt(10), TYPE_LYRICS, f.required(0)) ?: continue
+                        lyricsDao.upsert(
+                            LyricsVersionEntity(
+                                id = f.required(0),
+                                trackId = id,
+                                sourceType = f.required(1),
+                                sourceLabel = f[2],
+                                rawText = f.required(3),
+                                contentType = f.required(4),
+                                selected = f[5].toBooleanSafe(),
+                                userSelected = f[6].toBooleanSafe(),
+                                userDelayMs = f.long(7),
+                                createdAtEpochMs = f.long(8),
+                                updatedAtEpochMs = f.long(9),
+                            ),
+                        )
+                        restored++
+                    }
+                    TYPE_OVERRIDE -> {
+                        val f = record.fields
+                        val ref = record.refAt(5)
+                        val id = trackId(ref, TYPE_OVERRIDE, ref?.originalTrackId?.toString().orEmpty()) ?: continue
+                        toolsDao.upsertMetadataOverride(TrackMetadataOverrideEntity(id, f[0], f[1], f[2], f[3], f.long(4)))
+                        searchTrackIds += id
+                        restored++
+                    }
+                    TYPE_RULE_PLAYLIST -> {
+                        val f = record.fields
+                        val playlistId = f.required(0)
+                        validateRuleRecord(f)
+                        if (playlistDao.allPlaylists().any { it.id == playlistId }) {
+                            toolsDao.upsertRulePlaylist(
+                                RulePlaylistEntity(playlistId, f.required(1), f.required(2), f.required(3), f.long(4)),
+                            )
+                            restored++
+                        } else {
+                            skipped++
+                        }
+                    }
+                    TYPE_FEEDBACK,
+                    TYPE_SETTING,
+                    TYPE_HISTORY,
+                    -> Unit
+                    else -> skipped++
+                }
+            }
+            if (decoded.includeHistory) {
+                restoreHistory(decoded.records, ::trackId)
             }
         }
 
+        if (searchTrackIds.isNotEmpty()) searchIndexer.refreshTracks(searchTrackIds)
         restoreFeedback(decoded.records, ::trackId)
         restoreSettings(decoded.records)
-        if (decoded.includeHistory) restoreHistory(decoded.records, ::trackId)
+        if (decoded.includeHistory) {
+            personalizationTrainer.rebuildFromStoredHistory()
+        }
         return BackupRestoreResult(restored, unresolved, skipped)
     }
 
@@ -233,6 +266,8 @@ class RoomLocalBackupRepository @Inject constructor(
         records: List<BackupRecord>,
         resolver: suspend (PortableTrackRef?, String, String) -> String?,
     ) {
+        val now = Instant.now()
+        val existing = feedbackRepository.snapshot(now).associateBy { it.trackId to it.action }
         for (record in records.filter { it.type == TYPE_FEEDBACK }) {
             val f = record.fields
             val ref = record.refAt(3)
@@ -240,12 +275,15 @@ class RoomLocalBackupRepository @Inject constructor(
             val action = runCatching { RecommendationFeedbackAction.valueOf(f.required(0)) }.getOrNull() ?: continue
             val created = Instant.ofEpochMilli(f.long(1))
             val expires = f[2]?.toLongOrNull()?.let(Instant::ofEpochMilli)
+            if (expires != null && !expires.isAfter(now)) continue
+            val uuid = UUID.fromString(id)
+            if (existing[uuid to action]?.createdAt?.let { !it.isBefore(created) } == true) continue
             val snoozeDuration = if (expires != null) {
                 Duration.between(created, expires).let { duration -> if (duration.isNegative) Duration.ZERO else duration }
             } else {
                 Duration.ofHours(24)
             }
-            feedbackRepository.set(UUID.fromString(id), action, created, snoozeDuration = snoozeDuration)
+            feedbackRepository.set(uuid, action, created, snoozeDuration = snoozeDuration)
         }
     }
 
@@ -257,6 +295,7 @@ class RoomLocalBackupRepository @Inject constructor(
         val sessions = mutableSetOf<String>()
         for (record in events) {
             val f = record.fields
+            if (historyDao.hasEvent(f.required(0))) continue
             val ref = record.refAt(HISTORY_FIELD_COUNT)
             val trackId = resolver(ref, TYPE_HISTORY, f.getOrNull(0).orEmpty()) ?: continue
             val sessionId = f.required(3)
@@ -321,6 +360,34 @@ class RoomLocalBackupRepository @Inject constructor(
                     "audio_analysis" -> settingsRepository.setAudioAnalysisEnabled(value.toBoolean())
                     "diagnostics" -> settingsRepository.setDiagnosticsVisible(value.toBoolean())
                 }
+            }
+        }
+    }
+
+    private fun validateRuleRecord(fields: List<String?>) {
+        val matchMode = runCatching {
+            dev.behradhz.meowzix.domain.library.RuleMatchMode.valueOf(fields.required(1))
+        }.getOrElse { throw IllegalArgumentException("Invalid rule playlist match mode", it) }
+        val sort = runCatching {
+            dev.behradhz.meowzix.domain.library.RulePlaylistSort.valueOf(fields.required(3))
+        }.getOrElse { throw IllegalArgumentException("Invalid rule playlist sort", it) }
+        check(matchMode.name.isNotBlank() && sort.name.isNotBlank())
+        val rules = RulePlaylistCodec.decode(fields.required(2))
+        require(rules.isNotEmpty() && rules.size <= 32) { "Invalid rule playlist definition" }
+        rules.forEach { rule ->
+            when (rule.kind) {
+                dev.behradhz.meowzix.domain.library.RuleKind.FAVORITE,
+                dev.behradhz.meowzix.domain.library.RuleKind.OFFLINE,
+                -> Unit
+                dev.behradhz.meowzix.domain.library.RuleKind.ADDED_WITHIN_DAYS,
+                dev.behradhz.meowzix.domain.library.RuleKind.NOT_LISTENED_WITHIN_DAYS,
+                -> {
+                    val days = rule.value?.toLongOrNull()
+                    require(days != null && days in 1L..3_650L) { "Invalid rule day window" }
+                }
+                dev.behradhz.meowzix.domain.library.RuleKind.ARTIST_IS,
+                dev.behradhz.meowzix.domain.library.RuleKind.ALBUM_IS,
+                -> require(dev.behradhz.meowzix.core.common.TextNormalizer.normalize(rule.value) != null) { "Invalid rule text value" }
             }
         }
     }
