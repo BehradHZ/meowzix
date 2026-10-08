@@ -526,6 +526,7 @@ class PlaybackService : MediaLibraryService() {
         audioVisualizer.release()
         equalizer.release()
         normalizationRefreshJob?.cancel()
+        widgetRefreshJob?.cancel()
         mediaSession.release()
         player.release()
         serviceScope.cancel()
