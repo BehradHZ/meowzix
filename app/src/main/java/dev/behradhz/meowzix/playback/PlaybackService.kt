@@ -535,7 +535,8 @@ class PlaybackService : MediaLibraryService() {
 
     private fun refreshPlaybackWidget() {
         val state = PlaybackWidgetState.fromPlayer(player)
-        serviceScope.launch(Dispatchers.IO) {
+        widgetRefreshJob?.cancel()
+        widgetRefreshJob = serviceScope.launch(Dispatchers.IO) {
             runCatching {
                 PlaybackWidgetProvider.updateAll(this@PlaybackService.applicationContext, state)
             }
