@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 
 /**
  * Stable, privacy-bounded Media3 browse tree shared by Android Auto and other MediaBrowser clients.
@@ -33,7 +34,7 @@ class MeowzixMediaLibrary @Inject constructor(
         add(browsable(ALBUMS_ID, "Albums"))
         add(browsable(PLAYLISTS_ID, "Playlists"))
         add(browsable(FAVORITES_ID, "Favorites"))
-        if (mixProvider.mixes().isNotEmpty()) add(browsable(MIXES_ID, "Mixes"))
+        if (safeMixes().isNotEmpty()) add(browsable(MIXES_ID, "Mixes"))
     }
 
     suspend fun children(parentId: String, page: Int, pageSize: Int): List<MediaItem>? {
@@ -41,12 +42,12 @@ class MeowzixMediaLibrary @Inject constructor(
         return when {
             parentId == ROOT_ID -> if (page == 0) rootChildren().take(window.limit) else emptyList()
             parentId == MIXES_ID -> {
-                val mixes = mixProvider.mixes()
+                val mixes = safeMixes()
                 mixes.drop(window.offset).take(window.limit).map(::mixItem)
             }
             parentId.startsWith(MIX_PREFIX) -> {
                 val mixId = parentId.removePrefix(MIX_PREFIX)
-                val mix = mixProvider.mixes().firstOrNull { it.id == mixId } ?: return null
+                val mix = safeMixes().firstOrNull { it.id == mixId } ?: return null
                 val ids = mix.trackIds.drop(window.offset).take(window.limit)
                 catalog.browseTracksByIds(ids).map(::trackItem)
             }
@@ -109,6 +110,14 @@ class MeowzixMediaLibrary @Inject constructor(
         else -> null
     }
 
+    private suspend fun safeMixes(): List<MediaBrowseMix> = try {
+        mixProvider.mixes()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        emptyList()
+    }
+
     fun parseTrackId(mediaId: String): UUID? = when {
         mediaId.startsWith(TRACK_PREFIX) -> mediaId.removePrefix(TRACK_PREFIX).toUuidOrNull()
         else -> mediaId.toUuidOrNull()
@@ -152,7 +161,7 @@ class MeowzixMediaLibrary @Inject constructor(
                 .setAlbumTitle(track.album)
                 .setDurationMs(track.durationMs)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                .setArtworkUri(track.artworkRef?.let(Uri::parse))
+                .setArtworkUri(track.artworkRef?.let(::safeArtworkUri))
                 .setIsBrowsable(false)
                 .setIsPlayable(track.isPlayable)
                 .build(),
@@ -170,12 +179,16 @@ class MeowzixMediaLibrary @Inject constructor(
             MediaMetadata.Builder()
                 .setTitle(title)
                 .setSubtitle(subtitle)
-                .setArtworkUri(artworkRef?.let(Uri::parse))
+                .setArtworkUri(artworkRef?.let(::safeArtworkUri))
                 .setIsBrowsable(true)
                 .setIsPlayable(false)
                 .build(),
         )
         .build()
+
+    private fun safeArtworkUri(ref: String): Uri? = runCatching { Uri.parse(ref) }
+        .getOrNull()
+        ?.takeIf { it.scheme == "content" || it.scheme == "android.resource" }
 
     private data class PageWindow(val offset: Int, val limit: Int) {
         companion object {
