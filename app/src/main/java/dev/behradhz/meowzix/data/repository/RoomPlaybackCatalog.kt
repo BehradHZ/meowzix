@@ -183,6 +183,19 @@ class RoomPlaybackCatalog @Inject constructor(
             }
         }
 
+    override suspend fun browsePlaylist(playlistId: UUID): BrowsePlaylist? =
+        withContext(Dispatchers.Default) {
+            playlistDao.browsePlaylist(playlistId.toString())?.let { row ->
+                BrowsePlaylist(
+                    id = UUID.fromString(row.id),
+                    title = row.title,
+                    description = row.description,
+                    artworkRef = row.artworkRef,
+                    trackCount = row.trackCount,
+                )
+            }
+        }
+
     override suspend fun browsePlaylistTracks(
         playlistId: UUID,
         offset: Int,
