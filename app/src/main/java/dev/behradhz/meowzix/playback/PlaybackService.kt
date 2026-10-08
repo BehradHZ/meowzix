@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Metadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -17,13 +18,17 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSession.ConnectionResult
 import androidx.media3.session.MediaSession.ConnectionResult.AcceptedResultBuilder
 import androidx.media3.session.MediaSession.ControllerInfo
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
@@ -63,7 +68,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(markerClass = [UnstableApi::class])
 @AndroidEntryPoint
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
     @Inject lateinit var stateStore: PlaybackStateStore
     @Inject lateinit var playbackCatalog: PlaybackCatalog
     @Inject lateinit var audioVisualizer: AudioVisualizerRepository
@@ -73,10 +78,11 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var equalizer: EqualizerRepository
     @Inject lateinit var loudnessNormalization: LoudnessNormalizationRepository
     @Inject lateinit var settingsRepository: SettingsRepository
+    @Inject lateinit var mediaLibrary: MeowzixMediaLibrary
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
-    private lateinit var mediaSession: MediaSession
+    private lateinit var mediaSession: MediaLibrarySession
     private lateinit var playbackAudioAttributes: AudioAttributes
     private var persistJob: Job? = null
     private var playbackRetryJob: Job? = null
@@ -100,7 +106,7 @@ class PlaybackService : MediaSessionService() {
     private val repeatCommand = SessionCommand(ACTION_CYCLE_REPEAT, Bundle.EMPTY)
     private val favoriteCommand = SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY)
 
-    private val sessionCallback = object : MediaSession.Callback {
+    private val sessionCallback = object : MediaLibrarySession.Callback {
         override fun onConnectAsync(
             session: MediaSession,
             controller: ControllerInfo,
@@ -119,6 +125,7 @@ class PlaybackService : MediaSessionService() {
                     Player.COMMAND_PLAY_PAUSE,
                     Player.COMMAND_PREPARE,
                     Player.COMMAND_STOP,
+                    Player.COMMAND_SET_MEDIA_ITEM,
                     Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
                     Player.COMMAND_SEEK_TO_PREVIOUS,
                     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
@@ -132,6 +139,103 @@ class PlaybackService : MediaSessionService() {
                     .setAvailablePlayerCommands(playerCommands)
                     .build(),
             )
+        }
+
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: ControllerInfo,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<MediaItem>> =
+            Futures.immediateFuture(LibraryResult.ofItem(mediaLibrary.root(), params))
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val items = mediaLibrary.children(parentId, page, pageSize)
+                    future.set(
+                        if (items == null) {
+                            LibraryResult.ofError(SessionError.ERROR_BAD_VALUE, params)
+                        } else {
+                            LibraryResult.ofItemList(items, params)
+                        },
+                    )
+                } catch (cancelled: CancellationException) {
+                    future.cancel(false)
+                    throw cancelled
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_IO, params))
+                }
+            }
+            return future
+        }
+
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: ControllerInfo,
+            mediaId: String,
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val future = SettableFuture.create<LibraryResult<MediaItem>>()
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val item = mediaLibrary.item(mediaId)
+                    future.set(
+                        if (item == null) {
+                            LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
+                        } else {
+                            LibraryResult.ofItem(item, null)
+                        },
+                    )
+                } catch (cancelled: CancellationException) {
+                    future.cancel(false)
+                    throw cancelled
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_IO))
+                }
+            }
+            return future
+        }
+
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: ControllerInfo,
+            mediaItems: List<MediaItem>,
+        ): ListenableFuture<List<MediaItem>> = resolveRequestedMediaItems(mediaItems)
+
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: ControllerInfo,
+            mediaItems: List<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            val resolvedFuture = resolveRequestedMediaItems(mediaItems)
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val resolved = resolvedFuture.get()
+                    future.set(
+                        MediaSession.MediaItemsWithStartPosition(
+                            resolved,
+                            startIndex,
+                            startPositionMs,
+                        ),
+                    )
+                } catch (cancelled: CancellationException) {
+                    future.cancel(false)
+                    throw cancelled
+                } catch (error: Throwable) {
+                    future.setException(error)
+                }
+            }
+            return future
         }
 
         override fun onPlaybackResumption(
@@ -290,8 +394,7 @@ class PlaybackService : MediaSessionService() {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        mediaSession = MediaSession.Builder(this, player)
-            .setCallback(sessionCallback)
+        mediaSession = MediaLibrarySession.Builder(this, player, sessionCallback)
             .setSessionActivity(openPlayerIntent)
             .setMediaButtonPreferences(mediaButtons())
             .build()
@@ -402,7 +505,7 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    override fun onGetSession(controllerInfo: ControllerInfo): MediaSession = mediaSession
+    override fun onGetSession(controllerInfo: ControllerInfo): MediaLibrarySession = mediaSession
 
     override fun onDestroy() {
         clearPlaybackRetry()
@@ -415,6 +518,35 @@ class PlaybackService : MediaSessionService() {
         player.release()
         serviceScope.cancel()
         super.onDestroy()
+    }
+
+    private fun resolveRequestedMediaItems(mediaItems: List<MediaItem>): ListenableFuture<List<MediaItem>> {
+        if (mediaItems.all { it.localConfiguration != null }) {
+            return Futures.immediateFuture(mediaItems)
+        }
+        val future = SettableFuture.create<List<MediaItem>>()
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val resolved = mediaItems.map { requested ->
+                    if (requested.localConfiguration != null) {
+                        requested
+                    } else {
+                        val trackId = mediaLibrary.parseTrackId(requested.mediaId)
+                            ?: throw IllegalArgumentException("Unsupported media id")
+                        playbackCatalog.playableTrack(trackId)
+                            ?.toMediaItem(currentPlaybackMode(), currentRepeatMode())
+                            ?: throw IllegalStateException("Track is currently unavailable")
+                    }
+                }
+                future.set(resolved)
+            } catch (cancelled: CancellationException) {
+                future.cancel(false)
+                throw cancelled
+            } catch (error: Throwable) {
+                future.setException(error)
+            }
+        }
+        return future
     }
 
     private fun buildPlayer(handleAudioFocus: Boolean): ExoPlayer {
