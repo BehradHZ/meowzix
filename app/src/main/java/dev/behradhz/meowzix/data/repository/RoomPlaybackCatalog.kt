@@ -2,12 +2,18 @@ package dev.behradhz.meowzix.data.repository
 
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
+import dev.behradhz.meowzix.data.db.LibraryBrowseDao
 import dev.behradhz.meowzix.data.db.LibraryDao
+import dev.behradhz.meowzix.data.db.PlaylistDao
 import dev.behradhz.meowzix.data.db.RecommendationDao
 import dev.behradhz.meowzix.data.db.TelegramDao
+import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
-import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
+import dev.behradhz.meowzix.domain.playback.BrowseAlbum
+import dev.behradhz.meowzix.domain.playback.BrowseArtist
+import dev.behradhz.meowzix.domain.playback.BrowsePlaylist
+import dev.behradhz.meowzix.domain.playback.BrowseTrack
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import java.io.File
@@ -23,10 +29,16 @@ import kotlinx.coroutines.withContext
  * Unlike LocalMusicLibraryRepository.availableTracks(), bounded queue resolution never reads every
  * TrackSource in the database just to play one requested UUID list. Queries are chunked below the
  * SQLite bind-variable limit and results are restored to the caller's logical queue order.
+ *
+ * The Android media-library projections intentionally live here as bounded views over the same
+ * canonical library/source resolution used by phone playback. Android Auto does not get a parallel
+ * repository or provider-specific identity model.
  */
 @Singleton
 class RoomPlaybackCatalog @Inject constructor(
     private val libraryDao: LibraryDao,
+    private val libraryBrowseDao: LibraryBrowseDao,
+    private val playlistDao: PlaylistDao,
     private val recommendationDao: RecommendationDao,
     private val telegramDao: TelegramDao,
 ) : PlaybackCatalog {
@@ -86,6 +98,138 @@ class RoomPlaybackCatalog @Inject constructor(
         availableTracks(ids).sortedBy { it.title.lowercase() }
     }
 
+    override suspend fun browseTracks(offset: Int, limit: Int): List<BrowseTrack> =
+        withContext(Dispatchers.Default) {
+            val window = browseWindow(offset, limit)
+            toBrowseTracks(libraryBrowseDao.browseTracks(window.limit, window.offset))
+        }
+
+    override suspend fun browseFavorites(offset: Int, limit: Int): List<BrowseTrack> =
+        withContext(Dispatchers.Default) {
+            val window = browseWindow(offset, limit)
+            toBrowseTracks(libraryBrowseDao.browseFavoriteTracks(window.limit, window.offset))
+        }
+
+    override suspend fun browseArtists(offset: Int, limit: Int): List<BrowseArtist> =
+        withContext(Dispatchers.Default) {
+            val window = browseWindow(offset, limit)
+            libraryBrowseDao.browseArtistSummaries(window.limit, window.offset).map { row ->
+                BrowseArtist(
+                    name = row.name,
+                    normalizedName = row.normalizedName,
+                    trackCount = row.trackCount,
+                    artworkRef = row.artworkRef,
+                )
+            }
+        }
+
+    override suspend fun browseAlbums(offset: Int, limit: Int): List<BrowseAlbum> =
+        withContext(Dispatchers.Default) {
+            val window = browseWindow(offset, limit)
+            libraryBrowseDao.browseAlbumSummaries(window.limit, window.offset).map { row ->
+                BrowseAlbum(
+                    name = row.name,
+                    artist = row.artist,
+                    normalizedArtist = row.normalizedArtist,
+                    trackCount = row.trackCount,
+                    artworkRef = row.artworkRef,
+                )
+            }
+        }
+
+    override suspend fun browseTracksByArtist(
+        normalizedArtist: String,
+        offset: Int,
+        limit: Int,
+    ): List<BrowseTrack> = withContext(Dispatchers.Default) {
+        val window = browseWindow(offset, limit)
+        toBrowseTracks(
+            libraryBrowseDao.browseTracksByArtist(
+                normalizedArtist = normalizedArtist,
+                limit = window.limit,
+                offset = window.offset,
+            ),
+        )
+    }
+
+    override suspend fun browseTracksByAlbum(
+        album: String,
+        normalizedArtist: String,
+        offset: Int,
+        limit: Int,
+    ): List<BrowseTrack> = withContext(Dispatchers.Default) {
+        val window = browseWindow(offset, limit)
+        toBrowseTracks(
+            libraryBrowseDao.browseTracksByAlbum(
+                album = album,
+                normalizedArtist = normalizedArtist,
+                limit = window.limit,
+                offset = window.offset,
+            ),
+        )
+    }
+
+    override suspend fun browsePlaylists(offset: Int, limit: Int): List<BrowsePlaylist> =
+        withContext(Dispatchers.Default) {
+            val window = browseWindow(offset, limit)
+            playlistDao.browsePlaylists(window.limit, window.offset).map { row ->
+                BrowsePlaylist(
+                    id = UUID.fromString(row.id),
+                    title = row.title,
+                    description = row.description,
+                    artworkRef = row.artworkRef,
+                    trackCount = row.trackCount,
+                )
+            }
+        }
+
+    override suspend fun browsePlaylistTracks(
+        playlistId: UUID,
+        offset: Int,
+        limit: Int,
+    ): List<BrowseTrack> = withContext(Dispatchers.Default) {
+        val window = browseWindow(offset, limit)
+        toBrowseTracks(
+            playlistDao.browseTracks(
+                playlistId = playlistId.toString(),
+                limit = window.limit,
+                offset = window.offset,
+            ),
+        )
+    }
+
+    override suspend fun browseTrack(trackId: UUID): BrowseTrack? = withContext(Dispatchers.Default) {
+        val track = libraryDao.trackById(trackId.toString())
+            ?.takeUnless(TrackEntity::hidden)
+            ?: return@withContext null
+        toBrowseTracks(listOf(track)).firstOrNull()
+    }
+
+    private suspend fun toBrowseTracks(tracks: List<TrackEntity>): List<BrowseTrack> {
+        if (tracks.isEmpty()) return emptyList()
+        val ids = tracks.map(TrackEntity::id)
+        val sourcesByTrack = recommendationDao.activeSourcesForTracks(ids).groupBy(TrackSourceEntity::trackId)
+        val telegramBySource = telegramDao.selectedTelegramTrackSourcesForTrackIds(ids)
+            .associateBy(TelegramTrackSourceEntity::trackSourceId)
+
+        return tracks.map { track ->
+            BrowseTrack(
+                id = UUID.fromString(track.id),
+                title = track.title,
+                artist = track.artist,
+                album = track.album,
+                durationMs = track.durationMs,
+                artworkRef = track.artworkRef,
+                favorite = track.favorite,
+                isPlayable = resolvePlayableTrack(
+                    track,
+                    sourcesByTrack[track.id].orEmpty(),
+                    telegramBySource,
+                ) != null,
+            )
+        }
+    }
+
     private fun resolvePlayableTrack(
         track: TrackEntity,
         sources: List<TrackSourceEntity>,
@@ -125,10 +269,18 @@ class RoomPlaybackCatalog @Inject constructor(
         )
     }
 
+    private fun browseWindow(offset: Int, limit: Int): BrowseWindow = BrowseWindow(
+        offset = offset.coerceAtLeast(0),
+        limit = limit.coerceIn(1, MAX_BROWSE_PAGE_SIZE),
+    )
+
     private companion object {
         const val QUERY_CHUNK_SIZE = 400
+        const val MAX_BROWSE_PAGE_SIZE = 100
     }
 }
+
+private data class BrowseWindow(val offset: Int, val limit: Int)
 
 private fun localSourcePriority(source: TrackSourceEntity): Int = when (source.type) {
     TrackSourceType.LOCAL_MEDIASTORE -> 0
