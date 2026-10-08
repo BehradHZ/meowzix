@@ -1215,12 +1215,15 @@ class PlaybackService : MediaLibraryService() {
             ?: return
         serviceScope.launch {
             try {
-                val track = libraryRepository.observeTracks().first().firstOrNull { it.id == trackId }
-                    ?: return@launch
+                // A track transition must never collect the entire 10k-track library just to
+                // resolve a single favorite. The playback catalog is already UUID-indexed.
+                val track = playbackCatalog.browseTrack(trackId) ?: return@launch
                 val favorite = !track.favorite
                 libraryRepository.setFavorite(trackId, favorite)
-                currentFavorite = favorite
-                refreshMediaButtons()
+                if (player.currentMediaItem?.mediaId == trackId.toString()) {
+                    currentFavorite = favorite
+                    refreshMediaButtons()
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
@@ -1237,14 +1240,18 @@ class PlaybackService : MediaLibraryService() {
             return
         }
         serviceScope.launch {
-            currentFavorite = try {
-                libraryRepository.observeTracks().first().firstOrNull { it.id == trackId }?.favorite == true
+            val favorite = try {
+                playbackCatalog.browseTrack(trackId)?.favorite == true
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
                 false
             }
-            refreshMediaButtons()
+            // An older lookup must not overwrite the favorite state of a newer track.
+            if (player.currentMediaItem?.mediaId == trackId.toString()) {
+                currentFavorite = favorite
+                refreshMediaButtons()
+            }
         }
     }
 
