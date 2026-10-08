@@ -110,6 +110,9 @@ interface PlaybackCatalog {
         limit: Int,
     ): List<BrowseTrack> = emptyList()
 
+    suspend fun browseTracksByIds(trackIds: List<UUID>): List<BrowseTrack> =
+        trackIds.distinct().mapNotNull { browseTrack(it) }
+
     suspend fun browseTrack(trackId: UUID): BrowseTrack? =
         playableTrack(trackId)?.let { track ->
             BrowseTrack(
