@@ -7,6 +7,7 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 enum class ListeningEventType { PLAY_STARTED, PLAY_COMPLETED, PLAY_STOPPED, SKIPPED_EARLY, SKIPPED_LATE, MANUAL_SELECTED, AUTO_SELECTED, REPLAYED, FAVORITED, UNFAVORITED, SEEKED, QUEUE_REMOVED, QUEUE_OVERRIDDEN }
 enum class PlaybackInitiator { USER, PURE_SHUFFLE, SMART_SHUFFLE, QUEUE, SYSTEM_RESUME }
@@ -49,7 +50,17 @@ data class TrackPreferenceStats(
 
 interface ListeningHistoryRepository {
     fun observeEvents(): Flow<List<ListeningEvent>>
-    fun observeRecentDisplayEvents(limit: Int): Flow<List<ListeningHistoryDisplayEvent>>
+    fun observeRecentDisplayEvents(limit: Int): Flow<List<ListeningHistoryDisplayEvent>> =
+        observeEvents().map { events ->
+            events.take(limit.coerceAtLeast(0)).map { event ->
+                ListeningHistoryDisplayEvent(
+                    trackId = event.trackId,
+                    title = "Unknown track",
+                    type = event.type,
+                    occurredAt = event.occurredAt,
+                )
+            }
+        }
     fun observeTrackStats(): Flow<List<TrackPreferenceStats>>
     suspend fun startPlayback(trackId: UUID, initiatedBy: PlaybackInitiator, mode: PlaybackMode): UUID
     suspend fun finalizePlayback(playbackInstanceId: UUID, positionMs: Long, durationMs: Long, intentionalSkip: Boolean)
