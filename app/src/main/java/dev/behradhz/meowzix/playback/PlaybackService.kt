@@ -31,6 +31,7 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import dagger.hilt.android.AndroidEntryPoint
@@ -159,7 +160,7 @@ class PlaybackService : MediaLibraryService() {
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
-            serviceScope.launch(Dispatchers.IO) {
+            val job = serviceScope.launch(Dispatchers.IO) {
                 try {
                     val items = mediaLibrary.children(parentId, page, pageSize)
                     future.set(
@@ -176,6 +177,7 @@ class PlaybackService : MediaLibraryService() {
                     future.set(LibraryResult.ofError(SessionError.ERROR_IO, params))
                 }
             }
+            future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
             return future
         }
 
@@ -185,7 +187,7 @@ class PlaybackService : MediaLibraryService() {
             mediaId: String,
         ): ListenableFuture<LibraryResult<MediaItem>> {
             val future = SettableFuture.create<LibraryResult<MediaItem>>()
-            serviceScope.launch(Dispatchers.IO) {
+            val job = serviceScope.launch(Dispatchers.IO) {
                 try {
                     val item = mediaLibrary.item(mediaId)
                     future.set(
@@ -202,6 +204,7 @@ class PlaybackService : MediaLibraryService() {
                     future.set(LibraryResult.ofError(SessionError.ERROR_IO))
                 }
             }
+            future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
             return future
         }
 
@@ -220,7 +223,7 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
             val resolvedFuture = resolveRequestedMediaItems(mediaItems)
-            serviceScope.launch(Dispatchers.IO) {
+            val job = serviceScope.launch(Dispatchers.IO) {
                 try {
                     val resolved = resolvedFuture.get()
                     future.set(
@@ -237,6 +240,7 @@ class PlaybackService : MediaLibraryService() {
                     future.setException(error)
                 }
             }
+            future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
             return future
         }
 
@@ -548,7 +552,7 @@ class PlaybackService : MediaLibraryService() {
             return Futures.immediateFuture(mediaItems)
         }
         val future = SettableFuture.create<List<MediaItem>>()
-        serviceScope.launch(Dispatchers.IO) {
+        val job = serviceScope.launch(Dispatchers.IO) {
             try {
                 val resolved = mediaItems.map { requested ->
                     if (requested.localConfiguration != null) {
@@ -569,6 +573,7 @@ class PlaybackService : MediaLibraryService() {
                 future.setException(error)
             }
         }
+        future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
         return future
     }
 
