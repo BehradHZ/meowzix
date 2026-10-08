@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.feature.nowplaying
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -95,6 +96,7 @@ fun NowPlayingRoute(
     val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
     val lyricsState by lyricsViewModel.state.collectAsStateWithLifecycle()
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
+    val appearance by viewModel.appearanceSettings.collectAsStateWithLifecycle()
     val recommendationActions: RecommendationActionsViewModel = hiltViewModel()
     var lyricsExpanded by remember { mutableStateOf(false) }
     var sleepTimerOpen by remember { mutableStateOf(false) }
@@ -116,6 +118,7 @@ fun NowPlayingRoute(
         lyricsState = lyricsState,
         lyricsExpanded = lyricsExpanded,
         sleepTimer = sleepTimer,
+        reduceMotion = appearance.reduceMotion,
         onBack = closeOrCollapse,
         onToggleLyrics = { lyricsExpanded = !lyricsExpanded },
         onExpandLyrics = { lyricsExpanded = true },
@@ -195,6 +198,7 @@ private fun NowPlayingScreen(
     lyricsState: NowPlayingLyricsState,
     lyricsExpanded: Boolean,
     sleepTimer: SleepTimerState,
+    reduceMotion: Boolean,
     onBack: () -> Unit,
     onToggleLyrics: () -> Unit,
     onExpandLyrics: () -> Unit,
@@ -228,7 +232,7 @@ private fun NowPlayingScreen(
     var backdropTransition by remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
     val heroWeight by animateFloatAsState(
         targetValue = if (lyricsExpanded) 0.02f else 1f,
-        animationSpec = spring(dampingRatio = 0.90f, stiffness = 520f),
+        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.90f, stiffness = 520f),
         label = "lyrics-hero-space",
     )
     val duration = state.durationMs.coerceAtLeast(1L)
@@ -299,11 +303,13 @@ private fun NowPlayingScreen(
                 onNext = onNext,
                 onToggleFavorite = onToggleFavorite,
                 favorite = isFavorite,
+                reduceMotion = reduceMotion,
                 onBackdropTransition = { backdropTransition = it },
                 compactLyrics = {
                     CompactLyricsPreview(
                         state = lyricsState,
                         onExpand = onExpandLyrics,
+                        reduceMotion = reduceMotion,
                     )
                 },
                 modifier = Modifier
@@ -320,6 +326,7 @@ private fun NowPlayingScreen(
                     onPaste = onLyricsPaste,
                     onAdjustDelay = onLyricsDelay,
                     onSelectVersion = onLyricsVersion,
+                    reduceMotion = reduceMotion,
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
             }
@@ -347,6 +354,9 @@ private fun NowPlayingScreen(
                 inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),
                 pointerColor = PlayerPrimaryContent,
                 loadingShimmerColor = PlayerLoadingShimmer,
+                reduceMotion = reduceMotion,
+                accessibilityLabel = "Playback position",
+                accessibilityValue = "${formatDuration(shownPosition)} of ${formatDuration(duration)}",
                 modifier = Modifier.fillMaxWidth(),
             )
 
