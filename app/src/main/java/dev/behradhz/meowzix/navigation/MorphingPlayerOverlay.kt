@@ -128,6 +128,8 @@ internal fun MorphingPlayerOverlay(
 ) {
     val track = state.currentTrack ?: return
     val queueState by viewModel.queueState.collectAsStateWithLifecycle()
+    val appearance by viewModel.appearanceSettings.collectAsStateWithLifecycle()
+    val reduceMotion = appearance.reduceMotion
     val density = LocalDensity.current
     val animationScope = rememberCoroutineScope()
     var expansionFraction by remember(track.id) {
@@ -137,6 +139,10 @@ internal fun MorphingPlayerOverlay(
     var queueFeedbackVisible by remember { mutableStateOf(false) }
 
     suspend fun animateTo(target: Float, durationMillis: Int = 360) {
+        if (reduceMotion) {
+            expansionFraction = target
+            return
+        }
         animate(
             initialValue = expansionFraction,
             targetValue = target,
@@ -260,6 +266,7 @@ internal fun MorphingPlayerOverlay(
                 onTogglePlayPause = viewModel::togglePlayPause,
                 onNext = viewModel::next,
                 onPlayQueueItemAt = viewModel::playQueueItemAt,
+                reduceMotion = reduceMotion,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -302,13 +309,13 @@ internal fun MorphingPlayerOverlay(
                     bottom = collapsedBottom + CollapsedPlayerHeight + 10.dp,
                 ),
             enter = slideInVertically(
-                animationSpec = tween(260, easing = FastOutSlowInEasing),
-                initialOffsetY = { it / 2 },
-            ) + fadeIn(animationSpec = tween(180)),
+                animationSpec = tween(if (reduceMotion) 0 else 260, easing = FastOutSlowInEasing),
+                initialOffsetY = { if (reduceMotion) 0 else it / 2 },
+            ) + fadeIn(animationSpec = tween(if (reduceMotion) 0 else 180)),
             exit = slideOutVertically(
-                animationSpec = tween(240, easing = FastOutSlowInEasing),
-                targetOffsetY = { it / 2 },
-            ) + fadeOut(animationSpec = tween(170)),
+                animationSpec = tween(if (reduceMotion) 0 else 240, easing = FastOutSlowInEasing),
+                targetOffsetY = { if (reduceMotion) 0 else it / 2 },
+            ) + fadeOut(animationSpec = tween(if (reduceMotion) 0 else 170)),
         ) {
             queueFeedback?.let { feedback ->
                 QueueActionFeedbackPill(hazeState = hazeState, feedback = feedback)
@@ -362,6 +369,7 @@ private fun MiniPlayerContent(
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     onPlayQueueItemAt: (Int) -> Unit,
+    reduceMotion: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val playingTrack = state.currentTrack ?: return
@@ -404,7 +412,7 @@ private fun MiniPlayerContent(
             if (activeIndex !in queueState.items.indices) {
                 MiniPlayerTrackSummary(
                     track = playingTrack.toMiniCard(),
-                    showWaveform = hasWaveform && state.status == PlaybackStatus.PLAYING,
+                    showWaveform = !reduceMotion && hasWaveform && state.status == PlaybackStatus.PLAYING,
                     compactBands = compactBands,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -417,6 +425,7 @@ private fun MiniPlayerContent(
                     hasWaveform = hasWaveform,
                     onNext = onNext,
                     onPlayQueueItemAt = onPlayQueueItemAt,
+                    reduceMotion = reduceMotion,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -459,6 +468,7 @@ private fun InteractiveMiniTrackPager(
     hasWaveform: Boolean,
     onNext: () -> Unit,
     onPlayQueueItemAt: (Int) -> Unit,
+    reduceMotion: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -493,11 +503,13 @@ private fun InteractiveMiniTrackPager(
     fun animateBack() {
         transitionJob?.cancel()
         transitionJob = scope.launch {
-            animate(
-                initialValue = swipeProgress,
-                targetValue = 0f,
-                animationSpec = tween(150, easing = FastOutSlowInEasing),
-            ) { value, _ -> swipeProgress = value }
+            if (!reduceMotion) {
+                animate(
+                    initialValue = swipeProgress,
+                    targetValue = 0f,
+                    animationSpec = tween(150, easing = FastOutSlowInEasing),
+                ) { value, _ -> swipeProgress = value }
+            }
             resetTransition(displayedIndex)
         }
     }
@@ -512,13 +524,15 @@ private fun InteractiveMiniTrackPager(
                 MiniCardDirection.NEXT -> latestNext()
                 MiniCardDirection.PREVIOUS -> latestPlayQueueItemAt(requestedTarget)
             }
-            animate(
-                initialValue = swipeProgress,
-                targetValue = 1f,
-                animationSpec = tween(180, easing = FastOutSlowInEasing),
-            ) { value, _ -> swipeProgress = value }
-            delay(24)
-            if (latestActiveIndex == requestedTarget) {
+            if (!reduceMotion) {
+                animate(
+                    initialValue = swipeProgress,
+                    targetValue = 1f,
+                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                ) { value, _ -> swipeProgress = value }
+                delay(24)
+            }
+            if (latestActiveIndex == requestedTarget || reduceMotion) {
                 resetTransition(requestedTarget)
             } else {
                 animate(
@@ -549,11 +563,13 @@ private fun InteractiveMiniTrackPager(
             direction = if (delta > 0) MiniCardDirection.NEXT else MiniCardDirection.PREVIOUS
             targetIndex = activeIndex
             swipeProgress = 0f
-            animate(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = tween(220, easing = FastOutSlowInEasing),
-            ) { value, _ -> swipeProgress = value }
+            if (!reduceMotion) {
+                animate(
+                    initialValue = 0f,
+                    targetValue = 1f,
+                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                ) { value, _ -> swipeProgress = value }
+            }
             resetTransition(activeIndex)
         }
     }
@@ -628,7 +644,7 @@ private fun InteractiveMiniTrackPager(
         if (!hasTarget) {
             MiniPlayerTrackSummary(
                 track = currentCard,
-                showWaveform = currentCard.id == state.currentTrack?.id &&
+                showWaveform = !reduceMotion && currentCard.id == state.currentTrack?.id &&
                     hasWaveform && state.status == PlaybackStatus.PLAYING,
                 compactBands = compactBands,
                 modifier = Modifier.fillMaxSize(),
@@ -675,7 +691,7 @@ private fun InteractiveMiniTrackPager(
                             val desiredGlobalX = fullWidth * (1f - p)
                             MiniPlayerTrackSummary(
                                 track = targetCard,
-                                showWaveform = targetCard.id == state.currentTrack?.id &&
+                                showWaveform = !reduceMotion && targetCard.id == state.currentTrack?.id &&
                                     hasWaveform && state.status == PlaybackStatus.PLAYING,
                                 compactBands = compactBands,
                                 modifier = Modifier
@@ -706,7 +722,7 @@ private fun InteractiveMiniTrackPager(
                             val desiredGlobalX = -(fullWidth * (1f - p))
                             MiniPlayerTrackSummary(
                                 track = targetCard,
-                                showWaveform = targetCard.id == state.currentTrack?.id &&
+                                showWaveform = !reduceMotion && targetCard.id == state.currentTrack?.id &&
                                     hasWaveform && state.status == PlaybackStatus.PLAYING,
                                 compactBands = compactBands,
                                 modifier = Modifier
