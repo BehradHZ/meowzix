@@ -195,7 +195,9 @@ class MeowzixMediaLibrary @Inject constructor(
             fun of(page: Int, pageSize: Int): PageWindow {
                 val safePage = page.coerceAtLeast(0)
                 val safeLimit = pageSize.coerceIn(1, MAX_PAGE_SIZE)
-                val offset = (safePage.toLong() * safeLimit.toLong())
+                // Page indexes use the browser's requested page size. Truncating the returned
+                // page to MAX_PAGE_SIZE must not cause later pages to overlap earlier pages.
+                val offset = (safePage.toLong() * pageSize.coerceAtLeast(1).toLong())
                     .coerceAtMost(Int.MAX_VALUE.toLong())
                     .toInt()
                 return PageWindow(offset, safeLimit)
