@@ -54,6 +54,8 @@ import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
+import dev.behradhz.meowzix.widget.PlaybackWidgetProvider
+import dev.behradhz.meowzix.widget.PlaybackWidgetState
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -353,6 +355,16 @@ class PlaybackService : MediaLibraryService() {
                 refreshMediaButtons()
                 schedulePersist()
             }
+            if (
+                events.containsAny(
+                    Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                    Player.EVENT_PLAYBACK_STATE_CHANGED,
+                    Player.EVENT_TIMELINE_CHANGED,
+                )
+            ) {
+                refreshPlaybackWidget()
+            }
         }
 
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -519,6 +531,15 @@ class PlaybackService : MediaLibraryService() {
         player.release()
         serviceScope.cancel()
         super.onDestroy()
+    }
+
+    private fun refreshPlaybackWidget() {
+        val state = PlaybackWidgetState.fromPlayer(player)
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching {
+                PlaybackWidgetProvider.updateAll(this@PlaybackService.applicationContext, state)
+            }
+        }
     }
 
     private fun resolveRequestedMediaItems(mediaItems: List<MediaItem>): ListenableFuture<List<MediaItem>> {
