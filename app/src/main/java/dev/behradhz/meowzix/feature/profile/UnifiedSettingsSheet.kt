@@ -28,6 +28,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -278,14 +281,31 @@ fun UnifiedSettingsSheet(
             Text(title, style = MaterialTheme.typography.bodyLarge)
             if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onChecked, enabled = enabled)
+        Switch(
+            checked = checked,
+            onCheckedChange = onChecked,
+            enabled = enabled,
+            modifier = Modifier.semantics {
+                contentDescription = title
+                stateDescription = if (checked) "On" else "Off"
+            },
+        )
     }
 }
 
 @Composable private fun SliderRow(title: String, valueLabel: String, value: Float, range: ClosedFloatingPointRange<Float>, steps: Int, onValue: (Float) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(title); Text(valueLabel, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        Slider(value = value.coerceIn(range.start, range.endInclusive), onValueChange = onValue, valueRange = range, steps = steps)
+        Slider(
+            value = value.coerceIn(range.start, range.endInclusive),
+            onValueChange = onValue,
+            valueRange = range,
+            steps = steps,
+            modifier = Modifier.semantics {
+                contentDescription = title
+                stateDescription = "$valueLabel; range ${range.start} to ${range.endInclusive}"
+            },
+        )
     }
 }
 
