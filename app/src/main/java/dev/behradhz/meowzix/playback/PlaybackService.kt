@@ -114,14 +114,12 @@ class PlaybackService : MediaLibraryService() {
             session: MediaSession,
             controller: ControllerInfo,
         ): ListenableFuture<ConnectionResult> {
-            val sessionCommands = ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+            val defaultResult = AcceptedResultBuilder(session, controller).build()
+            val sessionCommands = defaultResult.availableSessionCommands.buildUpon()
                 .add(forwardCommand)
                 .add(shuffleCommand)
                 .add(repeatCommand)
                 .add(favoriteCommand)
-                .build()
-            val defaultResult = AcceptedResultBuilder(session, controller)
-                .setAvailableSessionCommands(sessionCommands)
                 .build()
             val playerCommands = defaultResult.availablePlayerCommands.buildUpon()
                 .addAll(
