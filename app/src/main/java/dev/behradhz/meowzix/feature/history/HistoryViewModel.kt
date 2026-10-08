@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.domain.history.ListeningEventType
 import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
-import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.time.Instant
 import java.util.UUID
@@ -14,9 +13,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -25,14 +24,14 @@ data class HistoryRow(val trackId: UUID, val title: String, val type: ListeningE
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
     private val history: ListeningHistoryRepository,
-    library: MusicLibraryRepository,
     private val settings: SettingsRepository,
     private val maintenance: dev.behradhz.meowzix.domain.recommendation.PersonalizationMaintenance,
 ) : ViewModel() {
-    val rows = combine(history.observeEvents(), library.observeTracks()) { events, tracks ->
-        val titles = tracks.associate { it.id to it.title }
-        events.map { HistoryRow(it.trackId, titles[it.trackId] ?: "Unknown track", it.type, it.occurredAt) }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val rows = history.observeRecentDisplayEvents(HISTORY_UI_LIMIT)
+        .map { events ->
+            events.map { HistoryRow(it.trackId, it.title, it.type, it.occurredAt) }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val privacy = settings.networkPlaybackSettings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings())
@@ -54,3 +53,5 @@ class HistoryViewModel @Inject constructor(
     fun analyzeAudio() = action("Local audio analysis has been scheduled.") { maintenance.analyzeAvailableAudio() }
     fun exportPersonalizationDebugReport() = action("Report ready.") { _debugReports.emit(maintenance.debugReport()) }
 }
+
+private const val HISTORY_UI_LIMIT = 500
