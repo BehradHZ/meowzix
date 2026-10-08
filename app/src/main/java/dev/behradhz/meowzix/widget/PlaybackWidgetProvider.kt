@@ -207,7 +207,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
             var sample = 1
-            while (bounds.outWidth / sample > maxSizePx * 2 || bounds.outHeight / sample > maxSizePx * 2) {
+            while (bounds.outWidth / sample > maxSizePx || bounds.outHeight / sample > maxSizePx) {
                 sample *= 2
             }
             val options = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
