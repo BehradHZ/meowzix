@@ -52,6 +52,23 @@ data class PlaybackWidgetState(
     }
 }
 
+data class PlaybackWidgetRenderModel(
+    val title: String,
+    val artist: String,
+    val playPauseIcon: Int,
+    val playPauseDescription: String,
+    val artworkDescription: String,
+)
+
+internal fun PlaybackWidgetState.toRenderModel(): PlaybackWidgetRenderModel =
+    PlaybackWidgetRenderModel(
+        title = title ?: "Nothing playing",
+        artist = artist ?: if (hasTrack) "Unknown artist" else "Open Meowzix to choose a track",
+        playPauseIcon = if (isPlaying) R.drawable.widget_pause else R.drawable.widget_play,
+        playPauseDescription = if (isPlaying) "Pause" else "Play",
+        artworkDescription = title?.let { "$it cover art" } ?: "Meowzix",
+    )
+
 @UnstableApi
 class PlaybackWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(
@@ -119,6 +136,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             state: PlaybackWidgetState,
             artwork: Bitmap?,
         ): RemoteViews = RemoteViews(context.packageName, R.layout.widget_playback).apply {
+            val model = state.toRenderModel()
             setOnClickPendingIntent(R.id.widget_artwork, openAppIntent(context))
             setOnClickPendingIntent(R.id.widget_title, openAppIntent(context))
             setOnClickPendingIntent(R.id.widget_artist, openAppIntent(context))
@@ -135,28 +153,16 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                 mediaButtonIntent(context, KeyEvent.KEYCODE_MEDIA_NEXT, REQUEST_NEXT),
             )
 
-            setTextViewText(R.id.widget_title, state.title ?: "Nothing playing")
-            setTextViewText(
-                R.id.widget_artist,
-                state.artist ?: if (state.hasTrack) "Unknown artist" else "Open Meowzix to choose a track",
-            )
+            setTextViewText(R.id.widget_title, model.title)
+            setTextViewText(R.id.widget_artist, model.artist)
             if (artwork != null) {
                 setImageViewBitmap(R.id.widget_artwork, artwork)
             } else {
                 setImageViewResource(R.id.widget_artwork, R.drawable.meowzix_logo)
             }
-            setImageViewResource(
-                R.id.widget_play_pause,
-                if (state.isPlaying) R.drawable.widget_pause else R.drawable.widget_play,
-            )
-            setContentDescription(
-                R.id.widget_play_pause,
-                if (state.isPlaying) "Pause" else "Play",
-            )
-            setContentDescription(
-                R.id.widget_artwork,
-                state.title?.let { "$it cover art" } ?: "Meowzix",
-            )
+            setImageViewResource(R.id.widget_play_pause, model.playPauseIcon)
+            setContentDescription(R.id.widget_play_pause, model.playPauseDescription)
+            setContentDescription(R.id.widget_artwork, model.artworkDescription)
         }
 
         private fun openAppIntent(context: Context): PendingIntent = PendingIntent.getActivity(
