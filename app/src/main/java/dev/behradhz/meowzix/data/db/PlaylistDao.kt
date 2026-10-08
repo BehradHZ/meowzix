@@ -45,6 +45,14 @@ interface PlaylistDao {
     suspend fun browsePlaylists(limit: Int, offset: Int): List<PlaylistSummaryRow>
 
     @Query(
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, COUNT(pt.trackId) AS trackCount " +
+            "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
+            "WHERE p.id = :playlistId AND NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
+            "GROUP BY p.id LIMIT 1",
+    )
+    suspend fun browsePlaylist(playlistId: String): PlaylistSummaryRow?
+
+    @Query(
         "SELECT t.* FROM playlist_tracks pt INNER JOIN tracks t ON t.id = pt.trackId " +
             "WHERE pt.playlistId = :playlistId AND t.hidden = 0 ORDER BY pt.position LIMIT :limit OFFSET :offset",
     )
