@@ -40,7 +40,7 @@ class MeowzixMediaLibrary @Inject constructor(
     suspend fun children(parentId: String, page: Int, pageSize: Int): List<MediaItem>? {
         val window = PageWindow.of(page, pageSize)
         return when {
-            parentId == ROOT_ID -> if (page == 0) rootChildren().take(window.limit) else emptyList()
+            parentId == ROOT_ID -> rootChildren().drop(window.offset).take(window.limit)
             parentId == MIXES_ID -> {
                 val mixes = safeMixes()
                 mixes.drop(window.offset).take(window.limit).map(::mixItem)
