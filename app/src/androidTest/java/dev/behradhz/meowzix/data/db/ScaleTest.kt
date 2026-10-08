@@ -147,6 +147,7 @@ class ScaleTest {
             assertEquals(reduced.size, SmartSelector.order(scores, seed = 42L).size)
         }
         assertTrue("800-candidate SmartSelector ordering took ${scoringMs}ms", scoringMs < CPU_BUDGET_MS)
+        Log.i(TAG, "scale-post recommendationReduceMs=$reduceMs recommendationScoreMs=$scoringMs")
     }
 
     private fun seedScaleDatabase() {
