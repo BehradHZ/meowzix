@@ -86,9 +86,7 @@ class MeowzixMediaLibrary @Inject constructor(
         }
         mediaId.startsWith(PLAYLIST_PREFIX) -> {
             val playlistId = mediaId.removePrefix(PLAYLIST_PREFIX).toUuidOrNull() ?: return null
-            val playlist = catalog.browsePlaylists(0, MAX_PAGE_SIZE)
-                .firstOrNull { it.id == playlistId }
-                ?: return null
+            val playlist = catalog.browsePlaylist(playlistId) ?: return null
             playlistItem(playlist)
         }
         else -> null
