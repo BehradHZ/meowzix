@@ -29,6 +29,9 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlist_tracks WHERE playlistId = :playlistId ORDER BY position")
     suspend fun entries(playlistId: String): List<PlaylistTrackEntity>
 
+    @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlistId = :playlistId")
+    suspend fun nextPosition(playlistId: String): Int
+
     @Query("SELECT * FROM playlist_tracks WHERE trackId = :trackId ORDER BY playlistId, position")
     suspend fun entriesForTrack(trackId: String): List<PlaylistTrackEntity>
 
