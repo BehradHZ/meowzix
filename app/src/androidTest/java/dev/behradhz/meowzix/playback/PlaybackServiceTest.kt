@@ -87,15 +87,15 @@ class PlaybackServiceTest {
         ).buildAsync()
         val browser = browserFuture.get(10, TimeUnit.SECONDS)
         try {
-            val rootResult = browser.getLibraryRoot(null).get(10, TimeUnit.SECONDS)
+            val rootResult = onMain { browser.getLibraryRoot(null) }.get(10, TimeUnit.SECONDS)
             assertEquals(MeowzixMediaLibrary.ROOT_ID, rootResult.value?.mediaId)
 
-            val childrenResult = browser.getChildren(
+            val childrenResult = onMain { browser.getChildren(
                 MeowzixMediaLibrary.ROOT_ID,
                 0,
                 20,
                 null,
-            ).get(10, TimeUnit.SECONDS)
+            ) }.get(10, TimeUnit.SECONDS)
             assertEquals(
                 listOf(
                     MeowzixMediaLibrary.TRACKS_ID,
@@ -109,9 +109,9 @@ class PlaybackServiceTest {
 
             // MediaBrowser is also a controller for this exact session. Existing transport tests in
             // this class therefore validate playback on the same service/session used for browse.
-            assertEquals(controller.connectedToken, browser.connectedToken)
+            assertEquals(onMain { controller.connectedToken }, onMain { browser.connectedToken })
         } finally {
-            MediaController.releaseFuture(browserFuture)
+            onMain { MediaController.releaseFuture(browserFuture) }
         }
     }
 
@@ -127,15 +127,15 @@ class PlaybackServiceTest {
         }
 
         val (firstFuture, first) = connect()
-        assertEquals(MeowzixMediaLibrary.ROOT_ID, first.getLibraryRoot(null).get(10, TimeUnit.SECONDS).value?.mediaId)
-        MediaController.releaseFuture(firstFuture)
+        assertEquals(MeowzixMediaLibrary.ROOT_ID, onMain { first.getLibraryRoot(null) }.get(10, TimeUnit.SECONDS).value?.mediaId)
+        onMain { MediaController.releaseFuture(firstFuture) }
 
         val (secondFuture, second) = connect()
         try {
-            assertEquals(MeowzixMediaLibrary.ROOT_ID, second.getLibraryRoot(null).get(10, TimeUnit.SECONDS).value?.mediaId)
-            assertEquals(controller.connectedToken, second.connectedToken)
+            assertEquals(MeowzixMediaLibrary.ROOT_ID, onMain { second.getLibraryRoot(null) }.get(10, TimeUnit.SECONDS).value?.mediaId)
+            assertEquals(onMain { controller.connectedToken }, onMain { second.connectedToken })
         } finally {
-            MediaController.releaseFuture(secondFuture)
+            onMain { MediaController.releaseFuture(secondFuture) }
         }
     }
 
