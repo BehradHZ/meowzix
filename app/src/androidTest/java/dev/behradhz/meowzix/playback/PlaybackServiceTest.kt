@@ -8,6 +8,7 @@ import android.os.SystemClock
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.session.MediaBrowser
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.test.core.app.ActivityScenario
@@ -76,6 +77,42 @@ class PlaybackServiceTest {
         onMain { MediaController.releaseFuture(controllerFuture) }
         activityScenario.close()
         files.forEach(File::delete)
+    }
+
+    @Test
+    fun mediaBrowserUsesTheAuthoritativePlaybackServiceAndExposesRootTree() {
+        val browserFuture = MediaBrowser.Builder(
+            context,
+            SessionToken(context, ComponentName(context, PlaybackService::class.java)),
+        ).buildAsync()
+        val browser = browserFuture.get(10, TimeUnit.SECONDS)
+        try {
+            val rootResult = browser.getLibraryRoot(null).get(10, TimeUnit.SECONDS)
+            assertEquals(MeowzixMediaLibrary.ROOT_ID, rootResult.value?.mediaId)
+
+            val childrenResult = browser.getChildren(
+                MeowzixMediaLibrary.ROOT_ID,
+                0,
+                20,
+                null,
+            ).get(10, TimeUnit.SECONDS)
+            assertEquals(
+                listOf(
+                    MeowzixMediaLibrary.TRACKS_ID,
+                    MeowzixMediaLibrary.ARTISTS_ID,
+                    MeowzixMediaLibrary.ALBUMS_ID,
+                    MeowzixMediaLibrary.PLAYLISTS_ID,
+                    MeowzixMediaLibrary.FAVORITES_ID,
+                ),
+                childrenResult.value?.map(MediaItem::mediaId),
+            )
+
+            // MediaBrowser is also a controller for this exact session. Existing transport tests in
+            // this class therefore validate playback on the same service/session used for browse.
+            assertEquals(controller.connectedToken, browser.connectedToken)
+        } finally {
+            MediaController.releaseFuture(browserFuture)
+        }
     }
 
     @Test
