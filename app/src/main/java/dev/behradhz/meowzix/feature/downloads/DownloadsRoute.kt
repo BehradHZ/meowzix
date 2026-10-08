@@ -280,7 +280,16 @@ private fun DownloadRowCard(
             }
             if (row.status == DownloadStatus.DOWNLOADING || row.status == DownloadStatus.QUEUED) {
                 Spacer(Modifier.size(8.dp))
-                if (row.progress != null) LinearProgressIndicator(progress = { row.progress }, modifier = Modifier.fillMaxWidth()) else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                if (row.progress != null) {
+                    LinearProgressIndicator(
+                        progress = { row.progress },
+                        modifier = Modifier.fillMaxWidth().clearAndSetSemantics {},
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().clearAndSetSemantics {},
+                    )
+                }
             }
             if (row.status == DownloadStatus.PAUSED) {
                 OutlinedButton(onClick = onCancel) { Text("Cancel") }
@@ -292,7 +301,22 @@ private fun DownloadRowCard(
 
 @Composable private fun SectionTitle(text: String) { Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
 @Composable private fun SettingToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, enabled: Boolean = true) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Text(label, modifier = Modifier.weight(1f)); Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, modifier = Modifier.weight(1f))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            modifier = Modifier.semantics {
+                contentDescription = label
+                stateDescription = if (checked) "On" else "Off"
+            },
+        )
+    }
 }
 private val DownloadStatus.label: String get() = when (this) {
     DownloadStatus.QUEUED -> "Queued"
