@@ -85,6 +85,31 @@ class MeowzixMediaLibraryTest {
         assertEquals(listOf("meowzix:track:$playableId"), library.children(playlist.mediaId, 0, 10)!!.map { it.mediaId })
     }
 
+
+    @Test
+    fun personalizedMixesAppearOnlyWhenProviderHasRealItems() = runBlocking {
+        val mixProvider = object : MediaBrowseMixProvider {
+            override suspend fun mixes(): List<MediaBrowseMix> = listOf(
+                MediaBrowseMix(
+                    id = "FOR_YOU_NOW",
+                    title = "For You Now",
+                    trackIds = listOf(playableId),
+                ),
+            )
+        }
+        val mixedLibrary = MeowzixMediaLibrary(catalog, mixProvider)
+
+        val rootChildren = mixedLibrary.children(MeowzixMediaLibrary.ROOT_ID, 0, 100)!!
+        assertTrue(rootChildren.any { it.mediaId == MeowzixMediaLibrary.MIXES_ID })
+
+        val mixNodes = mixedLibrary.children(MeowzixMediaLibrary.MIXES_ID, 0, 10)!!
+        assertEquals(listOf("meowzix:mix:FOR_YOU_NOW"), mixNodes.map { it.mediaId })
+        assertEquals(true, mixNodes.single().mediaMetadata.isBrowsable)
+
+        val mixTracks = mixedLibrary.children("meowzix:mix:FOR_YOU_NOW", 0, 10)!!
+        assertEquals(listOf("meowzix:track:$playableId"), mixTracks.map { it.mediaId })
+    }
+
     @Test
     fun browsePagesAreBoundedAndUnknownIdsFailClosed() = runBlocking {
         library.children(MeowzixMediaLibrary.TRACKS_ID, page = 3, pageSize = 10_000)
