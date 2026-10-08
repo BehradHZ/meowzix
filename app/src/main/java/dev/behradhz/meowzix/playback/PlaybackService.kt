@@ -88,6 +88,7 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var mediaSession: MediaLibrarySession
     private lateinit var playbackAudioAttributes: AudioAttributes
     private var persistJob: Job? = null
+    private var widgetRefreshJob: Job? = null
     private var playbackRetryJob: Job? = null
     private var retryMediaId: String? = null
     private var retryCount = 0
