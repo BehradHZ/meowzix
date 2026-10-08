@@ -261,4 +261,7 @@ class RoomListeningHistoryRepository @Inject constructor(
     private data class ActivePlayback(val id: UUID, val trackId: UUID, val sessionId: UUID, val initiatedBy: PlaybackInitiator, val mode: PlaybackMode, val timeBucket: dev.behradhz.meowzix.domain.history.TimeBucket)
     private data class Session(val id: UUID, val startedAtEpochMs: Long, var lastActivityEpochMs: Long, val initialMode: PlaybackMode)
 
+    private companion object {
+        const val MAX_UI_HISTORY_ROWS = 500
+    }
 }
