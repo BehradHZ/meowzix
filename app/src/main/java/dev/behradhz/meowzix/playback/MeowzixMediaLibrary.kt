@@ -130,6 +130,7 @@ class MeowzixMediaLibrary @Inject constructor(
                 .setArtist(track.artist)
                 .setAlbumTitle(track.album)
                 .setDurationMs(track.durationMs)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                 .setArtworkUri(track.artworkRef?.let(Uri::parse))
                 .setIsBrowsable(false)
                 .setIsPlayable(track.isPlayable)
