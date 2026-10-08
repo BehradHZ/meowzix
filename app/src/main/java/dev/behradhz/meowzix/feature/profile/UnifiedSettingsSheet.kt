@@ -37,6 +37,8 @@ import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.settings.ThemePreference
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
+import dev.behradhz.meowzix.ui.components.SleepTimerControls
+import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,10 +57,13 @@ fun UnifiedSettingsSheet(
     val telegramSources by viewModel.telegramSourceState.collectAsStateWithLifecycle()
     val downloadSummary by viewModel.downloadSummary.collectAsStateWithLifecycle()
     val storageUsage by viewModel.storageUsage.collectAsStateWithLifecycle()
+    val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
+    val hasCurrentTrack by viewModel.hasCurrentTrack.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var includeHistoryInBackup by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<Pair<ByteArray, BackupPreview>?>(null) }
+    var showSleepTimer by remember { mutableStateOf(false) }
     val telegramConnected = telegramAuth.step is TelegramAuthStep.Ready
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -117,8 +122,36 @@ fun UnifiedSettingsSheet(
             item { ChoiceRow("Default repeat", state.playback.defaultRepeat.name, RepeatMode.entries.map { it.name }) { viewModel.setDefaultRepeat(RepeatMode.valueOf(it)) } }
             item { ToggleRow("Resume playback state", "Restore the previous queue and position", state.playback.resumeOnLaunch, viewModel::setResume) }
             item { ActionRow("Equalizer", "Open the existing device-aware EQ", "Open", onOpenEqualizer) }
-            item { CapabilityRow("Sleep timer", "Not available in this build yet.") }
-            item { CapabilityRow("Playback enhancements", "Gapless, crossfade and loudness controls appear only when supported by the playback engine.") }
+            item { ActionRow("Sleep timer", sleepTimerStatusLabel(sleepTimer), "Configure", { showSleepTimer = true }) }
+            item {
+                ToggleRow(
+                    "Loudness normalization",
+                    "ReplayGain metadata first; readable local audio may use a conservative RMS dBFS fallback. This is not LUFS.",
+                    state.playback.loudnessNormalizationEnabled,
+                    viewModel::setLoudnessNormalization,
+                )
+            }
+            item {
+                CapabilityRow(
+                    "Gapless playback",
+                    "Automatic for supported local/downloaded audio. Media3 honors encoder delay/padding when available; progressive Telegram playback is not guaranteed gapless.",
+                )
+            }
+            item {
+                SliderRow(
+                    "Crossfade",
+                    if (state.playback.crossfadeDurationSeconds == 0) "Off" else state.playback.crossfadeDurationSeconds.toString() + " s",
+                    state.playback.crossfadeDurationSeconds.toFloat(),
+                    0f..12f,
+                    11,
+                ) { viewModel.setCrossfadeSeconds(it.toInt().coerceIn(0, 12)) }
+            }
+            item {
+                CapabilityRow(
+                    "Crossfade behavior",
+                    "Real overlap is used only when both adjacent tracks are local/readable. EQ, an active sleep timer, repeat-one, short tracks, queue changes, or preload failure fall back to the ordinary Media3 transition.",
+                )
+            }
 
             item { SectionTitle("Recommendations") }
             item { ToggleRow("Smart recommendations", "Enable learned recommendation surfaces", state.recommendations.smartRecommendationsEnabled, viewModel::setSmart) }
@@ -186,6 +219,24 @@ fun UnifiedSettingsSheet(
                 }
             }
         }
+    }
+
+    if (showSleepTimer) {
+        AlertDialog(
+            onDismissRequest = { showSleepTimer = false },
+            title = { Text("Sleep timer") },
+            text = {
+                SleepTimerControls(
+                    state = sleepTimer,
+                    endOfTrackEnabled = hasCurrentTrack,
+                    onSetMinutes = viewModel::setSleepTimerMinutes,
+                    onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
+                    onExtend = { viewModel.extendSleepTimer(15) },
+                    onCancel = viewModel::cancelSleepTimer,
+                )
+            },
+            confirmButton = { TextButton(onClick = { showSleepTimer = false }) { Text("Done") } },
+        )
     }
 
     pendingRestore?.let { (bytes, preview) ->

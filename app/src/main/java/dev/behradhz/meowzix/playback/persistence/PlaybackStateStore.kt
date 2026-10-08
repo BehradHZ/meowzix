@@ -8,8 +8,10 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.data.db.LibraryToolsDao
+import dev.behradhz.meowzix.domain.playback.PersistedSleepTimer
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.QueueProvenanceRestoreHints
+import dev.behradhz.meowzix.domain.playback.SleepTimerMode
 import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
@@ -51,6 +53,50 @@ class PlaybackStateStore @Inject constructor(
     } catch (_: Throwable) {
         QueueProvenanceRestoreHints.clear()
         PersistedPlaybackSession.Empty
+    }
+
+    suspend fun loadSleepTimer(): PersistedSleepTimer? = try {
+        val preferences = context.playbackDataStore.data
+            .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
+            .first()
+        val mode = preferences[SLEEP_TIMER_MODE]
+            ?.let { runCatching { SleepTimerMode.valueOf(it) }.getOrNull() }
+            ?: return null
+        if (mode == SleepTimerMode.OFF) return null
+        PersistedSleepTimer(
+            mode = mode,
+            deadlineElapsedRealtimeMs = preferences[SLEEP_TIMER_DEADLINE],
+            bootIdentity = preferences[SLEEP_TIMER_BOOT],
+            armedMediaId = preferences[SLEEP_TIMER_MEDIA_ID],
+            fadeDurationMs = preferences[SLEEP_TIMER_FADE_MS] ?: 0L,
+        )
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        null
+    }
+
+    suspend fun saveSleepTimer(timer: PersistedSleepTimer) {
+        context.playbackDataStore.edit { preferences ->
+            preferences[SLEEP_TIMER_MODE] = timer.mode.name
+            timer.deadlineElapsedRealtimeMs?.let { preferences[SLEEP_TIMER_DEADLINE] = it }
+                ?: preferences.remove(SLEEP_TIMER_DEADLINE)
+            timer.bootIdentity?.let { preferences[SLEEP_TIMER_BOOT] = it }
+                ?: preferences.remove(SLEEP_TIMER_BOOT)
+            timer.armedMediaId?.let { preferences[SLEEP_TIMER_MEDIA_ID] = it }
+                ?: preferences.remove(SLEEP_TIMER_MEDIA_ID)
+            preferences[SLEEP_TIMER_FADE_MS] = timer.fadeDurationMs.coerceAtLeast(0L)
+        }
+    }
+
+    suspend fun clearSleepTimer() {
+        context.playbackDataStore.edit { preferences ->
+            preferences.remove(SLEEP_TIMER_MODE)
+            preferences.remove(SLEEP_TIMER_DEADLINE)
+            preferences.remove(SLEEP_TIMER_BOOT)
+            preferences.remove(SLEEP_TIMER_MEDIA_ID)
+            preferences.remove(SLEEP_TIMER_FADE_MS)
+        }
     }
 
     /** Saves queue topology and policies. Call only when the queue/current item materially changes. */
@@ -112,6 +158,11 @@ class PlaybackStateStore @Inject constructor(
         val SESSION = stringPreferencesKey("session")
         val POSITION_MEDIA_ID = stringPreferencesKey("position_media_id")
         val POSITION_MS = longPreferencesKey("position_ms")
+        val SLEEP_TIMER_MODE = stringPreferencesKey("sleep_timer_mode")
+        val SLEEP_TIMER_DEADLINE = longPreferencesKey("sleep_timer_deadline_elapsed_ms")
+        val SLEEP_TIMER_BOOT = stringPreferencesKey("sleep_timer_boot_identity")
+        val SLEEP_TIMER_MEDIA_ID = stringPreferencesKey("sleep_timer_media_id")
+        val SLEEP_TIMER_FADE_MS = longPreferencesKey("sleep_timer_fade_ms")
     }
 }
 

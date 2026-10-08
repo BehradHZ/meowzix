@@ -13,6 +13,7 @@ import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.playback.SleepTimerManager
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardOptions
@@ -53,6 +54,7 @@ class NowPlayingViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val artworkRepairCoordinator: ArtworkRepairCoordinator,
     private val playbackContextPolicyStore: PlaybackContextPolicyStore,
+    private val sleepTimerManager: SleepTimerManager,
     queueActionFeedbackBus: QueueActionFeedbackBus,
 ) : ViewModel() {
     val queueActionFeedback = queueActionFeedbackBus.events
@@ -118,6 +120,7 @@ class NowPlayingViewModel @Inject constructor(
     )
 
     val spectrum = audioVisualizerRepository.spectrum
+    val sleepTimerState = sleepTimerManager.state
 
     val isFavorite = combine(
         currentTrackId,
@@ -135,6 +138,7 @@ class NowPlayingViewModel @Inject constructor(
     private var forwardSearchJob: Job? = null
 
     init {
+        viewModelScope.launch { sleepTimerManager.restore() }
         viewModelScope.launch {
             combine(
                 playbackController.state
@@ -173,6 +177,24 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun refreshVisualizer() = audioVisualizerRepository.refresh()
+
+    fun setSleepTimerMinutes(minutes: Int, fade: Boolean) = viewModelScope.launch {
+        sleepTimerManager.setDuration(
+            minutes.coerceIn(1, 24 * 60) * 60_000L,
+            if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L,
+        )
+    }
+
+    fun setSleepTimerEndOfTrack(fade: Boolean) = viewModelScope.launch {
+        val mediaId = state.value.currentTrack?.id?.toString() ?: return@launch
+        sleepTimerManager.stopAtEndOfTrack(
+            mediaId,
+            if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L,
+        )
+    }
+
+    fun extendSleepTimer() = viewModelScope.launch { sleepTimerManager.extend(15 * 60_000L) }
+    fun cancelSleepTimer() = viewModelScope.launch { sleepTimerManager.cancel() }
 
     fun togglePlayPause() = playbackController.togglePlayPause()
 
