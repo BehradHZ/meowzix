@@ -29,6 +29,13 @@ data class ListeningEvent(
     val sessionId: UUID? = null,
 )
 
+data class ListeningHistoryDisplayEvent(
+    val trackId: UUID,
+    val title: String,
+    val type: ListeningEventType,
+    val occurredAt: Instant,
+)
+
 data class TrackPreferenceStats(
     val trackId: UUID,
     val totalStarts: Int,
@@ -42,6 +49,7 @@ data class TrackPreferenceStats(
 
 interface ListeningHistoryRepository {
     fun observeEvents(): Flow<List<ListeningEvent>>
+    fun observeRecentDisplayEvents(limit: Int): Flow<List<ListeningHistoryDisplayEvent>>
     fun observeTrackStats(): Flow<List<TrackPreferenceStats>>
     suspend fun startPlayback(trackId: UUID, initiatedBy: PlaybackInitiator, mode: PlaybackMode): UUID
     suspend fun finalizePlayback(playbackInstanceId: UUID, positionMs: Long, durationMs: Long, intentionalSkip: Boolean)
