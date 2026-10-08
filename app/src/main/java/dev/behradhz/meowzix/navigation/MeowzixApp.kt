@@ -113,6 +113,8 @@ fun MeowzixApp(
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
     val queueState by playerViewModel.queueState.collectAsStateWithLifecycle()
     val spectrum by playerViewModel.spectrum.collectAsStateWithLifecycle()
+    val appearance by playerViewModel.appearanceSettings.collectAsStateWithLifecycle()
+    val reduceMotion = appearance.reduceMotion
     val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: HOME_ROUTE
@@ -215,10 +217,10 @@ fun MeowzixApp(
             modifier = Modifier
                 .fillMaxSize()
                 .hazeSource(hazeState),
-            enterTransition = { fadeIn(animationSpec = tween(TOP_LEVEL_ENTER_DURATION_MS)) },
-            exitTransition = { fadeOut(animationSpec = tween(TOP_LEVEL_EXIT_DURATION_MS)) },
-            popEnterTransition = { fadeIn(animationSpec = tween(TOP_LEVEL_ENTER_DURATION_MS)) },
-            popExitTransition = { fadeOut(animationSpec = tween(TOP_LEVEL_EXIT_DURATION_MS)) },
+            enterTransition = { fadeIn(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS)) },
+            exitTransition = { fadeOut(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS)) },
+            popExitTransition = { fadeOut(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS)) },
         ) {
             composable(HOME_ROUTE) {
                 HomeRoute(
@@ -322,6 +324,7 @@ fun MeowzixApp(
                         navigateTopLevel(route)
                     }
                 },
+                reduceMotion = reduceMotion,
                 onCloseSearch = {
                     if (searchQuery.isNotBlank()) {
                         searchQuery = ""
@@ -357,6 +360,7 @@ private fun MorphingDock(
     onSearchFocusChanged: (Boolean) -> Unit,
     onSelect: (String) -> Unit,
     onCloseSearch: () -> Unit,
+    reduceMotion: Boolean = false,
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -368,7 +372,7 @@ private fun MorphingDock(
 
     LaunchedEffect(searchActive) {
         if (searchActive) {
-            delay(110)
+            if (!reduceMotion) delay(110)
             focusSearch()
         }
     }
@@ -378,7 +382,10 @@ private fun MorphingDock(
         modifier = Modifier
             .fillMaxWidth()
             .height(72.dp)
-            .animateContentSize(animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f)),
+            .then(
+                if (reduceMotion) Modifier
+                else Modifier.animateContentSize(animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f)),
+            ),
         shape = RoundedCornerShape(36.dp),
         fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = if (searchActive) 0.90f else 0.78f),
         tint = Color.White.copy(alpha = if (searchActive) 0.15f else 0.09f),
@@ -386,8 +393,10 @@ private fun MorphingDock(
         AnimatedContent(
             targetState = searchActive,
             transitionSpec = {
-                (fadeIn(tween(210, easing = FastOutSlowInEasing)) + scaleIn(initialScale = 0.96f)) togetherWith
-                    (fadeOut(tween(150)) + scaleOut(targetScale = 0.98f))
+                (fadeIn(tween(if (reduceMotion) 0 else 210, easing = FastOutSlowInEasing)) +
+                    scaleIn(initialScale = if (reduceMotion) 1f else 0.96f, animationSpec = tween(if (reduceMotion) 0 else 210))) togetherWith
+                    (fadeOut(tween(if (reduceMotion) 0 else 150)) +
+                        scaleOut(targetScale = if (reduceMotion) 1f else 0.98f, animationSpec = tween(if (reduceMotion) 0 else 150)))
             },
             label = "dock-search-morph",
         ) { isSearch ->
