@@ -211,6 +211,15 @@ class RoomPlaybackCatalog @Inject constructor(
         )
     }
 
+    override suspend fun browseTracksByIds(trackIds: List<UUID>): List<BrowseTrack> =
+        withContext(Dispatchers.Default) {
+            val orderedIds = trackIds.distinct().take(MAX_BROWSE_PAGE_SIZE)
+            if (orderedIds.isEmpty()) return@withContext emptyList()
+            val tracks = recommendationDao.tracksByIds(orderedIds.map(UUID::toString))
+            val byId = toBrowseTracks(tracks).associateBy(BrowseTrack::id)
+            orderedIds.mapNotNull(byId::get)
+        }
+
     override suspend fun browseTrack(trackId: UUID): BrowseTrack? = withContext(Dispatchers.Default) {
         val track = libraryDao.trackById(trackId.toString())
             ?.takeUnless(TrackEntity::hidden)
