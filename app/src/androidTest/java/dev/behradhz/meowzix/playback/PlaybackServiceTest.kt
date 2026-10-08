@@ -115,6 +115,30 @@ class PlaybackServiceTest {
         }
     }
 
+
+    @Test
+    fun mediaBrowserCanReconnectToTheSameServiceAfterClientRelease() {
+        fun connect(): Pair<ListenableFuture<MediaBrowser>, MediaBrowser> {
+            val future = MediaBrowser.Builder(
+                context,
+                SessionToken(context, ComponentName(context, PlaybackService::class.java)),
+            ).buildAsync()
+            return future to future.get(10, TimeUnit.SECONDS)
+        }
+
+        val (firstFuture, first) = connect()
+        assertEquals(MeowzixMediaLibrary.ROOT_ID, first.getLibraryRoot(null).get(10, TimeUnit.SECONDS).value?.mediaId)
+        MediaController.releaseFuture(firstFuture)
+
+        val (secondFuture, second) = connect()
+        try {
+            assertEquals(MeowzixMediaLibrary.ROOT_ID, second.getLibraryRoot(null).get(10, TimeUnit.SECONDS).value?.mediaId)
+            assertEquals(controller.connectedToken, second.connectedToken)
+        } finally {
+            MediaController.releaseFuture(secondFuture)
+        }
+    }
+
     @Test
     fun playPauseSeekNextAndNotificationWorkThroughMediaSession() {
         val first = playableItem("First", createWaveFile("first.wav", 4_000))
