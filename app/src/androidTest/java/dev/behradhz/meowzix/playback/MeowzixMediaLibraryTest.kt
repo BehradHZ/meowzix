@@ -113,7 +113,7 @@ class MeowzixMediaLibraryTest {
     @Test
     fun browsePagesAreBoundedAndUnknownIdsFailClosed() = runBlocking {
         library.children(MeowzixMediaLibrary.TRACKS_ID, page = 3, pageSize = 10_000)
-        assertEquals(300, catalog.lastTrackOffset)
+        assertEquals(30_000, catalog.lastTrackOffset)
         assertEquals(MeowzixMediaLibrary.MAX_PAGE_SIZE, catalog.lastTrackLimit)
 
         assertNull(library.children("meowzix:telegram:private-chat", 0, 10))
