@@ -194,7 +194,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
         }
 
         private fun decodeArtwork(context: Context, ref: String, maxSizePx: Int): Bitmap? {
-            val uri = runCatching(Uri::parse).getOrNull() ?: return null
+            val uri = runCatching { Uri.parse(ref) }.getOrNull() ?: return null
 
             fun open() = when (uri.scheme?.lowercase()) {
                 "file" -> uri.path?.let(::File)?.takeIf(File::isFile)?.let(::FileInputStream)
