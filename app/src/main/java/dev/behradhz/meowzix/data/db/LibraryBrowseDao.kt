@@ -179,6 +179,147 @@ interface LibraryBrowseDao {
         """,
     )
     fun observeFavoriteTracks(): Flow<List<TrackEntity>>
+
+    @Query(
+        """
+        SELECT t.*
+        FROM tracks t
+        WHERE t.hidden = 0 AND (
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              OR EXISTS (
+                  SELECT 1
+                  FROM telegram_track_sources tg
+                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+              )
+          )
+        ORDER BY t.normalizedTitle ASC, t.id ASC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun browseTracks(limit: Int, offset: Int): List<TrackEntity>
+
+    @Query(
+        """
+        SELECT t.*
+        FROM tracks t
+        WHERE t.hidden = 0 AND t.favorite = 1 AND (
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              OR EXISTS (
+                  SELECT 1
+                  FROM telegram_track_sources tg
+                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+              )
+          )
+        ORDER BY t.normalizedTitle ASC, t.id ASC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun browseFavoriteTracks(limit: Int, offset: Int): List<TrackEntity>
+
+    @Query(
+        """
+        SELECT
+            MIN(COALESCE(NULLIF(TRIM(t.artist), ''), 'Unknown artist')) AS name,
+            COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist') AS normalizedName,
+            COUNT(*) AS trackCount,
+            MAX(t.artworkRef) AS artworkRef
+        FROM tracks t
+        WHERE t.hidden = 0 AND (
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              OR EXISTS (
+                  SELECT 1
+                  FROM telegram_track_sources tg
+                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+              )
+          )
+        GROUP BY COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist')
+        ORDER BY normalizedName ASC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun browseArtistSummaries(limit: Int, offset: Int): List<ArtistSummaryRow>
+
+    @Query(
+        """
+        SELECT
+            COALESCE(NULLIF(TRIM(t.album), ''), 'Unknown album') AS name,
+            MIN(COALESCE(NULLIF(TRIM(t.artist), ''), 'Unknown artist')) AS artist,
+            COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist') AS normalizedArtist,
+            COUNT(*) AS trackCount,
+            MAX(t.artworkRef) AS artworkRef
+        FROM tracks t
+        WHERE t.hidden = 0 AND (
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              OR EXISTS (
+                  SELECT 1
+                  FROM telegram_track_sources tg
+                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+              )
+          )
+        GROUP BY COALESCE(NULLIF(TRIM(t.album), ''), 'Unknown album'),
+                 COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist')
+        ORDER BY name COLLATE NOCASE ASC, artist COLLATE NOCASE ASC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun browseAlbumSummaries(limit: Int, offset: Int): List<AlbumSummaryRow>
+
+    @Query(
+        """
+        SELECT t.*
+        FROM tracks t
+        WHERE t.hidden = 0
+          AND COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist') = :normalizedArtist
+          AND (
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              OR EXISTS (
+                  SELECT 1
+                  FROM telegram_track_sources tg
+                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+              )
+          )
+        ORDER BY t.normalizedTitle ASC, t.id ASC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun browseTracksByArtist(
+        normalizedArtist: String,
+        limit: Int,
+        offset: Int,
+    ): List<TrackEntity>
+
+    @Query(
+        """
+        SELECT t.*
+        FROM tracks t
+        WHERE t.hidden = 0
+          AND COALESCE(NULLIF(TRIM(t.album), ''), 'Unknown album') = :album
+          AND COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist') = :normalizedArtist
+          AND (
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              OR EXISTS (
+                  SELECT 1
+                  FROM telegram_track_sources tg
+                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+              )
+          )
+        ORDER BY t.normalizedTitle ASC, t.id ASC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun browseTracksByAlbum(
+        album: String,
+        normalizedArtist: String,
+        limit: Int,
+        offset: Int,
+    ): List<TrackEntity>
+
 }
 
 data class SearchTrackRow(
