@@ -103,6 +103,7 @@ interface PlaybackCatalog {
     ): List<BrowseTrack> = emptyList()
 
     suspend fun browsePlaylists(offset: Int, limit: Int): List<BrowsePlaylist> = emptyList()
+    suspend fun browsePlaylist(playlistId: UUID): BrowsePlaylist? = null
     suspend fun browsePlaylistTracks(
         playlistId: UUID,
         offset: Int,
