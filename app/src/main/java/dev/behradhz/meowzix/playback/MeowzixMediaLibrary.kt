@@ -23,21 +23,33 @@ import javax.inject.Singleton
 @Singleton
 class MeowzixMediaLibrary @Inject constructor(
     private val catalog: PlaybackCatalog,
+    private val mixProvider: MediaBrowseMixProvider = MediaBrowseMixProvider.Empty,
 ) {
     fun root(): MediaItem = browsable(ROOT_ID, "Meowzix")
 
-    fun rootChildren(): List<MediaItem> = listOf(
-        browsable(TRACKS_ID, "Tracks"),
-        browsable(ARTISTS_ID, "Artists"),
-        browsable(ALBUMS_ID, "Albums"),
-        browsable(PLAYLISTS_ID, "Playlists"),
-        browsable(FAVORITES_ID, "Favorites"),
-    )
+    suspend fun rootChildren(): List<MediaItem> = buildList {
+        add(browsable(TRACKS_ID, "Tracks"))
+        add(browsable(ARTISTS_ID, "Artists"))
+        add(browsable(ALBUMS_ID, "Albums"))
+        add(browsable(PLAYLISTS_ID, "Playlists"))
+        add(browsable(FAVORITES_ID, "Favorites"))
+        if (mixProvider.mixes().isNotEmpty()) add(browsable(MIXES_ID, "Mixes"))
+    }
 
     suspend fun children(parentId: String, page: Int, pageSize: Int): List<MediaItem>? {
         val window = PageWindow.of(page, pageSize)
         return when {
             parentId == ROOT_ID -> if (page == 0) rootChildren().take(window.limit) else emptyList()
+            parentId == MIXES_ID -> {
+                val mixes = mixProvider.mixes()
+                mixes.drop(window.offset).take(window.limit).map(::mixItem)
+            }
+            parentId.startsWith(MIX_PREFIX) -> {
+                val mixId = parentId.removePrefix(MIX_PREFIX)
+                val mix = mixProvider.mixes().firstOrNull { it.id == mixId } ?: return null
+                val ids = mix.trackIds.drop(window.offset).take(window.limit)
+                catalog.browseTracksByIds(ids).map(::trackItem)
+            }
             parentId == TRACKS_ID -> catalog.browseTracks(window.offset, window.limit).map(::trackItem)
             parentId == FAVORITES_ID -> catalog.browseFavorites(window.offset, window.limit).map(::trackItem)
             parentId == ARTISTS_ID -> catalog.browseArtists(window.offset, window.limit).map(::artistItem)
@@ -70,6 +82,11 @@ class MeowzixMediaLibrary @Inject constructor(
         mediaId == ALBUMS_ID -> browsable(ALBUMS_ID, "Albums")
         mediaId == PLAYLISTS_ID -> browsable(PLAYLISTS_ID, "Playlists")
         mediaId == FAVORITES_ID -> browsable(FAVORITES_ID, "Favorites")
+        mediaId == MIXES_ID -> browsable(MIXES_ID, "Mixes")
+        mediaId.startsWith(MIX_PREFIX) -> {
+            val mixId = mediaId.removePrefix(MIX_PREFIX)
+            mixProvider.mixes().firstOrNull { it.id == mixId }?.let(::mixItem)
+        }
         mediaId.startsWith(TRACK_PREFIX) -> {
             val trackId = parseTrackId(mediaId) ?: return null
             catalog.browseTrack(trackId)?.let(::trackItem)
@@ -111,6 +128,12 @@ class MeowzixMediaLibrary @Inject constructor(
         title = album.name,
         subtitle = "${album.artist} · ${album.trackCount} track${if (album.trackCount == 1) "" else "s"}",
         artworkRef = album.artworkRef,
+    )
+
+    private fun mixItem(mix: MediaBrowseMix): MediaItem = browsable(
+        mediaId = MIX_PREFIX + mix.id,
+        title = mix.title,
+        subtitle = "${mix.trackIds.size} track${if (mix.trackIds.size == 1) "" else "s"}",
     )
 
     private fun playlistItem(playlist: BrowsePlaylist): MediaItem = browsable(
@@ -174,6 +197,8 @@ class MeowzixMediaLibrary @Inject constructor(
         const val ALBUMS_ID = "meowzix:albums"
         const val PLAYLISTS_ID = "meowzix:playlists"
         const val FAVORITES_ID = "meowzix:favorites"
+        const val MIXES_ID = "meowzix:mixes"
+        const val MIX_PREFIX = "meowzix:mix:"
         const val TRACK_PREFIX = "meowzix:track:"
         const val ARTIST_PREFIX = "meowzix:artist:"
         const val ALBUM_PREFIX = "meowzix:album:"
