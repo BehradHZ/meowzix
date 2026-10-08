@@ -6,7 +6,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
-import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
@@ -64,7 +63,6 @@ private data class ChatDownloadSession(
 @HiltViewModel
 class DownloadsViewModel @Inject constructor(
     private val downloads: DownloadRepository,
-    library: MusicLibraryRepository,
     private val settings: SettingsRepository,
     private val telegram: TelegramRepository,
 ) : ViewModel() {
@@ -72,24 +70,25 @@ class DownloadsViewModel @Inject constructor(
     private val bulkDownloadSessions = MutableStateFlow<Map<Long, ChatDownloadSession>>(emptyMap())
     private val bulkMonitorJobs = mutableMapOf<Long, Job>()
 
-    val rows = combine(downloads.observeDownloads(), library.observeTracks()) { records, tracks ->
-        val byId = tracks.associateBy { it.id }
-        records.map { record ->
-            val track = byId[record.trackId]
-            DownloadRow(
-                trackId = record.trackId,
-                title = track?.title ?: "Unknown track",
-                artworkRef = track?.artworkRef,
-                status = record.status,
-                progress = record.totalBytes?.takeIf { it > 0L }?.let {
-                    (record.downloadedBytes.toFloat() / it).coerceIn(0f, 1f)
-                },
-                downloadedBytes = record.downloadedBytes,
-                totalBytes = record.totalBytes,
-                failureReason = record.failureReason,
-            )
+    val rows = downloads.observeDownloadDisplayRecords()
+        .map { records ->
+            records.map { display ->
+                val record = display.download
+                DownloadRow(
+                    trackId = record.trackId,
+                    title = display.title,
+                    artworkRef = display.artworkRef,
+                    status = record.status,
+                    progress = record.totalBytes?.takeIf { it > 0L }?.let {
+                        (record.downloadedBytes.toFloat() / it).coerceIn(0f, 1f)
+                    },
+                    downloadedBytes = record.downloadedBytes,
+                    totalBytes = record.totalBytes,
+                    failureReason = record.failureReason,
+                )
+            }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val selectedTelegramChats = telegram.musicSourceState
         .map { state -> state.chats.filter(TelegramChatSummary::selected) }
