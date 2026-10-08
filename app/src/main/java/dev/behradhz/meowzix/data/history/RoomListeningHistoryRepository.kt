@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
 import dev.behradhz.meowzix.domain.history.ListeningEvent
 import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
 import dev.behradhz.meowzix.domain.history.ListeningEventType
+import dev.behradhz.meowzix.domain.history.ListeningHistoryDisplayEvent
 import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
 import dev.behradhz.meowzix.domain.history.PlaybackInitiator
 import dev.behradhz.meowzix.domain.history.TrackPreferenceStats
@@ -61,6 +62,18 @@ class RoomListeningHistoryRepository @Inject constructor(
             )
         }
     }
+
+    override fun observeRecentDisplayEvents(limit: Int): Flow<List<ListeningHistoryDisplayEvent>> =
+        dao.observeRecentDisplayEvents(limit.coerceIn(1, MAX_UI_HISTORY_ROWS)).map { rows ->
+            rows.map { row ->
+                ListeningHistoryDisplayEvent(
+                    trackId = UUID.fromString(row.trackId),
+                    title = row.title,
+                    type = ListeningEventType.valueOf(row.type),
+                    occurredAt = Instant.ofEpochMilli(row.occurredAtEpochMs),
+                )
+            }
+        }
 
     override fun observeTrackStats(): Flow<List<TrackPreferenceStats>> = dao.observeTrackStats().map { rows ->
         rows.map { row ->
