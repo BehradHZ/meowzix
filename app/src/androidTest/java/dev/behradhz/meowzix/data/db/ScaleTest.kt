@@ -45,7 +45,8 @@ class ScaleTest {
     }
 
     @Test
-    fun syntheticScaleDatabaseKeepsSearchHistoryAndScoringBounded() = runBlocking {
+    fun syntheticScaleDatabaseKeepsSearchHistoryAndScoringBounded() {
+        runBlocking {
         val sql = database.openHelper.writableDatabase
         assertEquals(TRACK_COUNT, scalarInt(sql, "SELECT COUNT(*) FROM tracks"))
         assertEquals(ARTIST_COUNT, scalarInt(sql, "SELECT COUNT(DISTINCT normalizedArtist) FROM tracks"))
@@ -148,6 +149,7 @@ class ScaleTest {
         }
         assertTrue("800-candidate SmartSelector ordering took ${scoringMs}ms", scoringMs < CPU_BUDGET_MS)
         Log.i(TAG, "scale-post recommendationReduceMs=$reduceMs recommendationScoreMs=$scoringMs")
+        }
     }
 
     private fun seedScaleDatabase() {
