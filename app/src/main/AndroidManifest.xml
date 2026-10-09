@@ -20,6 +20,11 @@
         android:label="Meowzix"
         android:supportsRtl="true"
         android:theme="@style/Theme.Meowzix">
+        <!-- Required for Android Auto to discover this media-browser app. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
