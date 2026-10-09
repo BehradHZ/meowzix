@@ -134,26 +134,10 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         shell: bash
         run: |
-          cat > release-notes.md <<EOF
-          # Meowzix ${VERSION}
-
-          GitHub release of Meowzix.
-
-          Highlights:
-          - Android Auto library browsing, bounded search, and voice-search integration
-          - Home-screen playback widget and reduced-motion accessibility support
-          - Faster library/playlist operations with improved performance at scale
-          - Improved gapless transitions, crossfade behavior, and playback resilience
-          - Pure Shuffle cycle correctness and expanded automated regression coverage
-          - Source-agnostic on-device listening recommendations with local-first playback
-
-          Download **Meowzix-v${VERSION}.apk** and install it on Android 8.0 or newer.
-          The APK is release-signed and **SHA256SUMS.txt** is included for verification.
-          EOF
-
           gh release create "$TAG" \
             --target "${{ github.event.workflow_run.head_sha }}" \
             --title "Meowzix ${VERSION}" \
-            --notes-file release-notes.md \
+            --generate-notes \
+            --notes "Download **Meowzix-v${VERSION}.apk** for Android 8.0 or newer. The APK is release-signed; verify the download with the included **SHA256SUMS.txt** file." \
             "dist/Meowzix-v${VERSION}.apk#Meowzix Android APK" \
             "dist/SHA256SUMS.txt#SHA-256 checksums"
