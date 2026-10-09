@@ -140,6 +140,29 @@ class PlaybackServiceTest {
     }
 
     @Test
+    fun mediaBrowserSearchReturnsBoundedCarSafeResultsWithoutProviderDetails() {
+        val browserFuture = MediaBrowser.Builder(
+            context,
+            SessionToken(context, ComponentName(context, PlaybackService::class.java)),
+        ).buildAsync()
+        val browser = browserFuture.get(10, TimeUnit.SECONDS)
+        try {
+            // An intentionally unmatched query exercises the complete indexed-search callback
+            // without relying on a live Telegram account or a separate playback engine.
+            val query = "meowzix-no-such-canonical-track-80938"
+            val searchResult = onMain { browser.search(query, null) }.get(10, TimeUnit.SECONDS)
+            assertEquals(0, searchResult.resultCode)
+
+            val matches = onMain { browser.getSearchResult(query, 0, 20, null) }
+                .get(10, TimeUnit.SECONDS)
+            assertEquals(0, matches.resultCode)
+            assertTrue(matches.value.isNullOrEmpty())
+        } finally {
+            onMain { MediaController.releaseFuture(browserFuture) }
+        }
+    }
+
+    @Test
     fun playPauseSeekNextAndNotificationWorkThroughMediaSession() {
         val first = playableItem("First", createWaveFile("first.wav", 4_000))
         val second = playableItem("Second", createWaveFile("second.wav", 4_000))
