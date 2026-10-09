@@ -15,6 +15,7 @@
 - [Android 37904820763](https://github.com/BehradHZ/meowzix/actions/runs/37904820763) passed **88/88 instrumentation tests**, but lint failed on missing Android Auto voice-search intent. This was corrected in `3091df43`. Indexed car browse/voice search and tests were added in `8eb68d4`, `b89b8aea`, and `3416cfa0`.
 - [Android 37906473258](https://github.com/BehradHZ/meowzix/actions/runs/37906473258) passed unit tests/lint/debug build and **88/89 instrumentation tests**; `PlaybackServiceTest.pureShuffleRepeatAllStartsANewCycleWithoutBoundaryDuplicate` exposed mutable terminal-track capture in the asynchronous legacy shuffle restart. Fixed in `0eab6bab` by snapshotting `currentItems.last()` before launching the coroutine; all meaningful assertions preserved.
 - [Android 37913240466](https://github.com/BehradHZ/meowzix/actions/runs/37913240466), source commit `0eab6babdb5bfd0d7bdb37b30a62fb98cdfa8c6e`: **all jobs passed** (unit, lint, debug assembly, and 89/89 Android instrumentation tests; zero skipped, errors, or failures). This includes the Room migration, MediaLibrary, widget, scale, car manifest and voice-search tests. A documentation-only ledger revision follows; verify its exact commit before merge.
+- [Android 37914557976](https://github.com/BehradHZ/meowzix/actions/runs/37914557976) on documentation SHA `d83ebc72`: build/unit/lint **passed**, 88/89 emulator tests passed. The remaining test, `PlaybackServiceTest.localCrossfadeHandsMediaSessionToIncomingBeforeOutgoingNaturalEnd`, asserted that crossfade of a 6-second WAV completed within 6 seconds of wall-clock time. A heavily loaded emulator advanced audio media time much more slowly; logcat confirms actual playback and session handoff, so wall time is not an accurate proxy for whether two tracks overlap. Fixed in `16c9ebf0` and `d9b770e0`: capture the incoming playback media position at the first Media3 session item transition, and assert an actual overlap threshold; no assertions were suppressed. Final exact-HEAD CI remains required.
 - `AGENTS.md` is absent on `main`. The original improvement-status file was an outdated historical ledger, not evidence that implemented A–G items were still missing.
 - Status vocabulary: `verified`, `implemented awaiting device verification`, `partially verified`, `blocked`. “Implemented awaiting device verification” means that code and regression test coverage exist; it does **not** mean hardware UX/acoustics have been manually certified.
 - CI is the automated-verification source. Device and car-host checks have a separate three-valued status matrix (`passed`, `failed`, `not run`).
@@ -71,22 +72,22 @@ The synthetic Android Room scale test seeds **10,000 tracks, 1,000 artists, 100 
 
 Identical Pixel 6 emulator profile, Android API 35, x86_64, GitHub Actions debug instrumentation and 10k/1k/100/100k seeded Room fixture. Both runs warm the same search/history/recommendation operations once before recording elapsed-realtime millisecond timings, then assert their result counts. **Each number is one timing sample**; submillisecond measurements truncate to `0 ms`. Thus differences are indicative only, not statistically validated improvements. Comparability for the four common operations is stronger than for new H-only projections.
 
-| Operation | Pre-H `main` baseline | H run 37904820763 | H run 37906473258 | H final source run 37913240466 |
-|---|---:|---:|---:|---:|
-| Indexed track search | 1 ms | 0 ms | 0 ms | 2 ms |
-| 100 recent history events | 1 ms | 0 ms | 0 ms | 1 ms |
-| Reduce 10k IDs to 800 candidates | 11 ms | 7 ms | 8 ms | 27 ms |
-| Rank/score 800 candidates | 18 ms | 12 ms | 19 ms | 27 ms |
-| Bounded history-display projection (500) | not measured | 1 ms | 1 ms | 7 ms |
-| Late bounded track browse page (100) | not measured | 6 ms | 6 ms | 18 ms |
-| 100-playlist browse page | not measured | 0 ms | 0 ms | 2 ms |
-| Native memory profiling | not run | not run | not run | not run |
-| Cold startup profiling | not run | not run | not run | not run |
-| UI scroll-frame/jank tracing | not run | not run | not run | not run |
+| Operation | Pre-H `main` baseline | H run 37904820763 | H run 37906473258 | H final source run 37913240466  H run 37914557976 |
+|---|---:|---:|---:|---:---:|
+| Indexed track search | 1 ms | 0 ms | 0 ms | 2 ms  1 ms |
+| 100 recent history events | 1 ms | 0 ms | 0 ms | 1 ms  6 ms |
+| Reduce 10k IDs to 800 candidates | 11 ms | 7 ms | 8 ms | 27 ms  21 ms |
+| Rank/score 800 candidates | 18 ms | 12 ms | 19 ms | 27 ms  22 ms |
+| Bounded history-display projection (500) | not measured | 1 ms | 1 ms | 7 ms  6 ms |
+| Late bounded track browse page (100) | not measured | 6 ms | 6 ms | 18 ms  20 ms |
+| 100-playlist browse page | not measured | 0 ms | 0 ms | 2 ms  0 ms |
+| Native memory profiling | not run | not run | not run | not run  not run |
+| Cold startup profiling | not run | not run | not run | not run  not run |
+| UI scroll-frame/jank tracing | not run | not run | not run | not run  not run |
 
-All three post-H measurements executed the same scale fixture and warm-up on GitHub Pixel 6 API 35 emulator, x86_64, debug instrumentation. **Variability is considerable** (reduction 7–27 ms; scoring 12–27 ms), and the baseline has only one timing sample: no statistically reliable before/after improvement is claimed. No timing assertion exceeded its generous regression budget. Values reported as `0 ms` are submillisecond after integer truncation. The final passing source run is the authoritative latest sample.
+All four post-H measurements executed the same scale fixture and warm-up on GitHub Pixel 6 API 35 emulator, x86_64, debug instrumentation. **Variability is considerable** (reduction 7–27 ms; scoring 12–27 ms; history retrieval 0–6 ms), and the baseline has only one timing sample: no statistically reliable before/after improvement is claimed. No timing assertion exceeded its generous regression budget. Values reported as `0 ms` are submillisecond after integer truncation. The latest fully green source run is `37913240466`; the later ledger run adds a performance sample but failed an unrelated emulator wall-clock timing assertion now corrected in the test harness.
 
-**Evidence:** Pre-H [Android CI 37833562131](https://github.com/BehradHZ/meowzix/actions/runs/37833562131) (temporary benchmark PR #36, closed unmerged). Post-H [CI 37904820763](https://github.com/BehradHZ/meowzix/actions/runs/37904820763), [CI 37906473258](https://github.com/BehradHZ/meowzix/actions/runs/37906473258), and [CI 37913240466](https://github.com/BehradHZ/meowzix/actions/runs/37913240466), `MeowzixScaleTest` logcat timings in instrumentation artifacts. Query timing is not frame-time measurement and does not certify smooth UI scrolling.
+**Evidence:** Pre-H [Android CI 37833562131](https://github.com/BehradHZ/meowzix/actions/runs/37833562131) (temporary benchmark PR #36, closed unmerged). Post-H [CI 37904820763](https://github.com/BehradHZ/meowzix/actions/runs/37904820763), [CI 37906473258](https://github.com/BehradHZ/meowzix/actions/runs/37906473258), [CI 37913240466](https://github.com/BehradHZ/meowzix/actions/runs/37913240466), and [CI 37914557976](https://github.com/BehradHZ/meowzix/actions/runs/37914557976), `MeowzixScaleTest` logcat timings in instrumentation artifacts. Query timing is not frame-time measurement and does not certify smooth UI scrolling.
 
 ### Accessibility
 
@@ -122,7 +123,7 @@ Offline or expired Telegram playback can still require phone-side recovery, and 
 
 The Android workflow in `.github/workflows/android.yml` executes equivalent unit, lint and debug build tasks plus startup/migration/device instrumentation on a GitHub-hosted Android emulator. Room export schema is preserved at `app/schemas`; migration tests cover versions through 16. The system spec's scale test and MediaLibrary/widget instrumentation are included in the default connected suite.
 
-**Current verification evidence:** A–G baseline Android [run 37822880813](https://github.com/BehradHZ/meowzix/actions/runs/37822880813) passed at `2e6fd83`; H exact source commit `0eab6bab` **passed all jobs** in [run 37913240466](https://github.com/BehradHZ/meowzix/actions/runs/37913240466), including **89/89 connected tests, unit, lint and debug build**. Room migrations are included in the connected suite. A ledger-only follow-up commit must also pass exact-HEAD CI before merging PR [#35](https://github.com/BehradHZ/meowzix/pull/35). Code implementation, automated verification, manual validation, merge integration, and release certification remain separate statuses.
+**Current verification evidence:** A–G baseline Android [run 37822880813](https://github.com/BehradHZ/meowzix/actions/runs/37822880813) passed at `2e6fd83`; H exact source commit `0eab6bab` **passed all jobs** in [run 37913240466](https://github.com/BehradHZ/meowzix/actions/runs/37913240466), including **89/89 connected tests, unit, lint and debug build**. Room migrations are included in the connected suite. The latest crossfade-test and ledger changes must also pass exact-HEAD CI before merging PR [#35](https://github.com/BehradHZ/meowzix/pull/35). Code implementation, automated verification, manual validation, merge integration, and release certification remain separate statuses.
 
 ## Divergent-branch reconciliation
 
@@ -180,7 +181,7 @@ Only use `passed`, `failed` or `not run`. These are manual checks; GitHub JVM/An
 
 ## Remaining gates
 
-1. Confirm CI on the final ledger/documentation commit as well as the successful source commit `0eab6bab` ([run 37913240466](https://github.com/BehradHZ/meowzix/actions/runs/37913240466), 89/89 instrumentation).
+1. Confirm CI on the final crossfade-test/ledger commit as well as the successful source commit `0eab6bab` ([run 37913240466](https://github.com/BehradHZ/meowzix/actions/runs/37913240466), 89/89 instrumentation).
 2. Record actual before/after scale numbers and identified emulator/device build; do not conflate Room SQL timings with scrolling frames.
 3. Execute the manual 27-scenario device matrix, including Android Auto DHU/car host, TalkBack, RTL and audible DSP. Leave unavailable scenarios `not run` rather than inventing a pass.
 4. Merge into `main` only after exact-head automated CI is green; then verify the new `main` SHA and its own GitHub Actions outcome.
