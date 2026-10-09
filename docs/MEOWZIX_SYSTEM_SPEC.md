@@ -1,5 +1,5 @@
 # Meowzix — Local-First Adaptive Music Player
-## Product Definition, System Architecture, Increment Plan, and AI-Agent Implementation Specification
+## Product Definition, System Architecture, Increment Plan, and Implementation Specification
 
 **Product name:** Meowzix  
 **Repository:** `BehradHZ/meowzix`
@@ -8,7 +8,7 @@
 **Primary target:** Android  
 **Reference stack:** Kotlin, Jetpack Compose, Jetpack Media3 / ExoPlayer, Room, TDLib  
 **Last reviewed against official platform documentation:** 2026-09-17  
-**Audience:** AI coding agents and human developers  
+**Audience:** Contributors and maintainers  
 **Language:** English  
 **Normative terms:** `MUST`, `MUST NOT`, `SHOULD`, `SHOULD NOT`, and `MAY` are requirements with their usual RFC-style meanings.
 
@@ -2950,9 +2950,9 @@ Verify acceptable query and scoring performance.
 
 ---
 
-# 32. AI Agent Execution Rules
+# 32. Implementation and Review Rules
 
-Any AI agent implementing this project MUST follow these rules.
+Any contribution to this project MUST follow these rules.
 
 ## 32.1 Work one increment at a time
 
@@ -2975,7 +2975,7 @@ If a minor unspecified implementation choice is required:
 
 ## 32.3 Keep hard boundaries
 
-The agent must preserve:
+The implementation must preserve:
 
 ```text
 UI
@@ -3300,7 +3300,7 @@ A clever recommendation system on top of unreliable playback is considered a fai
 
 # 40. Official References
 
-Agents should prefer these official sources and re-check them before implementation because APIs and policies can change.
+Contributors should prefer these official sources and re-check them before implementation because APIs and policies can change.
 
 ## Telegram
 
@@ -3324,7 +3324,7 @@ Agents should prefer these official sources and re-check them before implementat
 
 ---
 
-# 41. Final Directive to an AI Coding Agent
+# 41. Implementation Directive
 
 Build this system as a **local-first Android music player whose canonical library can be backed by local device audio, Telegram, app-managed offline files, and future music-source adapters**.
 
