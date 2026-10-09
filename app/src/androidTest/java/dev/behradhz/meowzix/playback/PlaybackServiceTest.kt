@@ -222,29 +222,44 @@ class PlaybackServiceTest {
             settings.setLoudnessNormalizationEnabled(false)
             settings.setCrossfadeDurationSeconds(2)
         }
-        // Give the service's DataStore collector a deterministic opportunity to apply the setting.
-        Thread.sleep(300)
-
+        // The source files are actual audio, and the test must check an audible-media
+        // invariant, not elapsed wall time: an overloaded emulator can take 12+ wall-clock
+        // seconds to advance a 6-second WAV, despite valid overlapped player playback.
         val firstDurationMs = 6_000
         val first = playableItem("Crossfade First", createWaveFile("crossfade-first.wav", firstDurationMs))
         val second = playableItem("Crossfade Second", createWaveFile("crossfade-second.wav", 6_000))
+        val incomingPositionAtHandoffMs = AtomicReference<Long?>(null)
+        val handoffListener = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (mediaItem?.mediaId == second.mediaId) {
+                    // In real crossfade the incoming ExoPlayer has *already been playing* when
+                    // MediaLibrarySession.setPlayer hands the authoritative identity over.
+                    // Ordinary gapless/sequential advancement begins the new track at ~0 ms.
+                    incomingPositionAtHandoffMs.set(controller.currentPosition)
+                }
+            }
+        }
         onMain {
+            controller.addListener(handoffListener)
             controller.setMediaItems(listOf(first, second))
             controller.prepare()
             controller.play()
         }
-        waitUntil { onMain { controller.currentMediaItemIndex == 0 && controller.isPlaying } }
-        val startedAt = SystemClock.uptimeMillis()
-        waitUntil(timeoutMs = 10_000) {
-            onMain { controller.currentMediaItemIndex == 1 && controller.currentMediaItem?.mediaId == second.mediaId }
+        try {
+            waitUntil { onMain { controller.currentMediaItemIndex == 0 && controller.isPlaying } }
+            waitUntil(timeoutMs = 15_000) {
+                onMain { controller.currentMediaItemIndex == 1 && controller.currentMediaItem?.mediaId == second.mediaId }
+            }
+            val incomingPositionMs = incomingPositionAtHandoffMs.get()
+            assertNotNull("Must observe Media3 session item handoff", incomingPositionMs)
+            assertTrue(
+                "Crossfade must hand off an already-playing incoming track (position=$incomingPositionMs ms)",
+                incomingPositionMs!! >= CrossfadePolicy.MIN_REAL_OVERLAP_MS / 2,
+            )
+            assertTrue(onMain { controller.isPlaying })
+        } finally {
+            onMain { controller.removeListener(handoffListener) }
         }
-        val handoffElapsedMs = SystemClock.uptimeMillis() - startedAt
-
-        assertTrue(
-            "Real crossfade should hand session identity to the incoming track before the outgoing track naturally ends",
-            handoffElapsedMs < firstDurationMs,
-        )
-        assertTrue(onMain { controller.isPlaying })
     }
 
     @Test
