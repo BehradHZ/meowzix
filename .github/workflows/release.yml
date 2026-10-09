@@ -140,14 +140,12 @@ jobs:
           GitHub release of Meowzix.
 
           Highlights:
-          - Redesigned glassmorphism Home with a stable three-hour recommendation/feed refresh cadence
-          - Context-aware dock search that expands inline and searches Library, Queue, or the full library as appropriate
-          - More reliable multi-word search, including titles such as “Ba To”
-          - Deterministic Back behavior: nested destinations return to their tab root, then to Home
-          - Telegram imports remain in Library and playable even after their source chat is unchecked
-          - Telegram recovery control can restart a stuck client without logging out or deleting imported music
-          - Downloaded Telegram tracks continue automatically from Queue using their completed local copy
-          - Mini-player horizontal track gestures now follow the finger with adjacent-card transitions
+          - Android Auto library browsing, bounded search, and voice-search integration
+          - Home-screen playback widget and reduced-motion accessibility support
+          - Faster library/playlist operations with improved performance at scale
+          - Improved gapless transitions, crossfade behavior, and playback resilience
+          - Pure Shuffle cycle correctness and expanded automated regression coverage
+          - Source-agnostic on-device listening recommendations with local-first playback
 
           Download **Meowzix-v${VERSION}.apk** and install it on Android 8.0 or newer.
           The APK is release-signed and **SHA256SUMS.txt** is included for verification.

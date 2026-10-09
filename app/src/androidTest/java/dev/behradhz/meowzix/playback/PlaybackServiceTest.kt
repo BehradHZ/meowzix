@@ -302,13 +302,16 @@ class PlaybackServiceTest {
             controller.play()
         }
         waitUntil(timeoutMs = 15_000) { onMain { controller.currentMediaItemIndex == 2 } }
+        // Capture the actual terminal item: by the time an async assertion runs, the
+        // player may have completed more than one short shuffle cycle.
+        val previousLastId = onMain { controller.getMediaItemAt(2).mediaId }
         waitUntil(timeoutMs = 15_000) { onMain { controller.currentMediaItemIndex == 0 } }
 
         val nextCycleIds = onMain {
             (0 until controller.mediaItemCount).map { controller.getMediaItemAt(it).mediaId }
         }
         assertEquals(items.map(MediaItem::mediaId).toSet(), nextCycleIds.toSet())
-        assertTrue(nextCycleIds.first() != items.last().mediaId)
+        assertTrue("New cycle must not repeat the preceding terminal track", nextCycleIds.first() != previousLastId)
         assertTrue(onMain { controller.playWhenReady })
     }
 
