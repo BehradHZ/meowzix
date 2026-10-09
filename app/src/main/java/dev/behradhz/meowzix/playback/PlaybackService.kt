@@ -1575,18 +1575,20 @@ class PlaybackService : MediaLibraryService() {
         val currentItems = (0 until player.mediaItemCount).map(player::getMediaItemAt)
         val playbackMode = currentItems.first().playbackMode()
         if (playbackMode != PlaybackMode.PURE_SHUFFLE) return
+        // STATE_ENDED is reached at the end of this exact queue. Capture the terminal item
+        // before dispatching an asynchronous restart; currentMediaItem/currentIndex can
+        // already have advanced or reset by the time the coroutine is scheduled.
+        val previousLastItem = currentItems.last()
         isChangingQueueCycle = true
         serviceScope.launch {
             try {
                 val repeatMode = currentItems.first().repeatMode()
-                val previousLastId = player.currentMediaItem?.mediaId
                 val shouldContinue = repeatMode == RepeatMode.ALL && player.playWhenReady
                 if (repeatMode != RepeatMode.ALL) return@launch
                 // A legacy/controller-provided queue is already the authoritative eligible set.
                 // Expanding it through the whole library at the cycle boundary can block playback,
                 // leak unrelated tracks into a selected collection, and violates Pure Shuffle's
                 // collection isolation. Re-permute exactly the current canonical queue instead.
-                val previousLastItem = currentItems.firstOrNull { it.mediaId == previousLastId }
                 val nextCycle = PureShuffleEngine.newCycle(currentItems, previousLastItem).order
                 player.repeatMode = Player.REPEAT_MODE_OFF
                 player.setMediaItems(nextCycle, 0, 0)
