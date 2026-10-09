@@ -72,18 +72,18 @@ The synthetic Android Room scale test seeds **10,000 tracks, 1,000 artists, 100 
 
 Identical Pixel 6 emulator profile, Android API 35, x86_64, GitHub Actions debug instrumentation and 10k/1k/100/100k seeded Room fixture. Both runs warm the same search/history/recommendation operations once before recording elapsed-realtime millisecond timings, then assert their result counts. **Each number is one timing sample**; submillisecond measurements truncate to `0 ms`. Thus differences are indicative only, not statistically validated improvements. Comparability for the four common operations is stronger than for new H-only projections.
 
-| Operation | Pre-H `main` baseline | H run 37904820763 | H run 37906473258 | H final source run 37913240466  H run 37914557976 |
-|---|---:|---:|---:|---:---:|
-| Indexed track search | 1 ms | 0 ms | 0 ms | 2 ms  1 ms |
-| 100 recent history events | 1 ms | 0 ms | 0 ms | 1 ms  6 ms |
-| Reduce 10k IDs to 800 candidates | 11 ms | 7 ms | 8 ms | 27 ms  21 ms |
-| Rank/score 800 candidates | 18 ms | 12 ms | 19 ms | 27 ms  22 ms |
-| Bounded history-display projection (500) | not measured | 1 ms | 1 ms | 7 ms  6 ms |
-| Late bounded track browse page (100) | not measured | 6 ms | 6 ms | 18 ms  20 ms |
-| 100-playlist browse page | not measured | 0 ms | 0 ms | 2 ms  0 ms |
-| Native memory profiling | not run | not run | not run | not run  not run |
-| Cold startup profiling | not run | not run | not run | not run  not run |
-| UI scroll-frame/jank tracing | not run | not run | not run | not run  not run |
+| Operation | Pre-H baseline | H run 37904820763 | H run 37906473258 | H run 37913240466 | H run 37914557976 |
+|---|---:|---:|---:|---:|---:|
+| Indexed track search | 1 ms | 0 ms | 0 ms | 2 ms | 1 ms |
+| 100 recent history events | 1 ms | 0 ms | 0 ms | 1 ms | 6 ms |
+| Reduce 10k IDs to 800 candidates | 11 ms | 7 ms | 8 ms | 27 ms | 21 ms |
+| Rank/score 800 candidates | 18 ms | 12 ms | 19 ms | 27 ms | 22 ms |
+| Bounded history-display projection (500) | not measured | 1 ms | 1 ms | 7 ms | 6 ms |
+| Late bounded track browse page (100) | not measured | 6 ms | 6 ms | 18 ms | 20 ms |
+| 100-playlist browse page | not measured | 0 ms | 0 ms | 2 ms | 0 ms |
+| Native memory profiling | not run | not run | not run | not run | not run |
+| Cold startup profiling | not run | not run | not run | not run | not run |
+| UI scroll-frame/jank tracing | not run | not run | not run | not run | not run |
 
 All four post-H measurements executed the same scale fixture and warm-up on GitHub Pixel 6 API 35 emulator, x86_64, debug instrumentation. **Variability is considerable** (reduction 7–27 ms; scoring 12–27 ms; history retrieval 0–6 ms), and the baseline has only one timing sample: no statistically reliable before/after improvement is claimed. No timing assertion exceeded its generous regression budget. Values reported as `0 ms` are submillisecond after integer truncation. The latest fully green source run is `37913240466`; the later ledger run adds a performance sample but failed an unrelated emulator wall-clock timing assertion now corrected in the test harness.
 
