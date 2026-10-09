@@ -1,19 +1,26 @@
-<div align="center">
+<p align="center">
   <img src="app/src/main/res/drawable/meowzix_logo.jpg" alt="Meowzix logo" width="112">
+</p>
 
-  # Meowzix
+<h1 align="center">Meowzix</h1>
 
-  **Your music, wherever it lives.**
+<p align="center"><strong>Your music, wherever it lives.</strong></p>
 
-  A local-first Android music player that brings device audio and music from your chosen Telegram chats into one library.
+<p align="center">A local-first Android music player that brings device audio and music from your chosen Telegram chats into one library.</p>
 
-  [![Android CI](https://github.com/BehradHZ/meowzix/actions/workflows/android.yml/badge.svg)](https://github.com/BehradHZ/meowzix/actions/workflows/android.yml)
-  [![Latest release](https://img.shields.io/github/v/release/BehradHZ/meowzix?label=release)](https://github.com/BehradHZ/meowzix/releases/latest)
-  ![Platform](https://img.shields.io/badge/platform-Android%208%2B-3DDC84)
-  ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
+<p align="center">
+  <a href="https://github.com/BehradHZ/meowzix/actions/workflows/android.yml"><img alt="Android CI" src="https://github.com/BehradHZ/meowzix/actions/workflows/android.yml/badge.svg"></a>
+  <a href="https://github.com/BehradHZ/meowzix/releases/latest"><img alt="Latest release: v0.6" src="https://img.shields.io/badge/release-v0.6-FFB38A"></a>
+  <img alt="Android 8+" src="https://img.shields.io/badge/platform-Android%208%2B-3DDC84">
+  <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
+</p>
 
-  [Download](https://github.com/BehradHZ/meowzix/releases/latest) · [Features](#features) · [Build](#build-from-source) · [Architecture](#architecture)
-</div>
+<p align="center">
+  <a href="https://github.com/BehradHZ/meowzix/releases/latest">Download</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#build-from-source">Build</a> ·
+  <a href="#architecture">Architecture</a>
+</p>
 
 ## Overview
 
