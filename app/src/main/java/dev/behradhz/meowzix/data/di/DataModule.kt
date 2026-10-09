@@ -72,6 +72,8 @@ import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackReposito
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
+import dev.behradhz.meowzix.playback.MediaBrowseMixProvider
+import dev.behradhz.meowzix.playback.RecommendationMediaBrowseMixProvider
 import dev.behradhz.meowzix.playback.AndroidAudioVisualizer
 import dev.behradhz.meowzix.playback.ResolvingPlaybackController
 import javax.inject.Singleton
@@ -82,6 +84,7 @@ abstract class RepositoryModule {
     @Binds @Singleton abstract fun bindMusicLibraryRepository(impl: LocalMusicLibraryRepository): MusicLibraryRepository
     @Binds @Singleton abstract fun bindLibraryToolsRepository(impl: RoomLibraryToolsRepository): LibraryToolsRepository
     @Binds @Singleton abstract fun bindPlaybackCatalog(impl: RoomPlaybackCatalog): PlaybackCatalog
+    @Binds @Singleton abstract fun bindMediaBrowseMixProvider(impl: RecommendationMediaBrowseMixProvider): MediaBrowseMixProvider
     @Binds @Singleton abstract fun bindPlaybackController(impl: ResolvingPlaybackController): PlaybackController
     @Binds @Singleton abstract fun bindQueueRepository(impl: ResolvingPlaybackController): QueueRepository
     @Binds @Singleton abstract fun bindAudioVisualizerRepository(impl: AndroidAudioVisualizer): AudioVisualizerRepository

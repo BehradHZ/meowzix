@@ -7,6 +7,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
@@ -45,6 +46,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -58,6 +62,7 @@ import kotlinx.coroutines.delay
 fun CompactLyricsPreview(
     state: NowPlayingLyricsState,
     onExpand: () -> Unit,
+    reduceMotion: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val selected = state.selected
@@ -81,8 +86,12 @@ fun CompactLyricsPreview(
             LyricsContentType.TIMED -> AnimatedContent(
                 targetState = state.activeLineIndex,
                 transitionSpec = {
-                    (slideInVertically { it / 3 } + fadeIn()) togetherWith
-                        (slideOutVertically { -it / 3 } + fadeOut())
+                    if (reduceMotion) {
+                        fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                    } else {
+                        (slideInVertically { it / 3 } + fadeIn()) togetherWith
+                            (slideOutVertically { -it / 3 } + fadeOut())
+                    }
                 },
                 label = "lyrics-preview-line-change",
                 modifier = Modifier.fillMaxSize(),
@@ -129,7 +138,12 @@ private fun PreviewLine(text: String?, current: Boolean) {
                 style = if (current) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
-                modifier = Modifier.padding(horizontal = 10.dp),
+                modifier = Modifier
+                    .padding(horizontal = 10.dp)
+                    .semantics {
+                        selected = current
+                        if (current) stateDescription = "Current lyric"
+                    },
             )
         }
     }
@@ -143,6 +157,7 @@ fun ExpandedLyricsPanel(
     onPaste: (String) -> Unit,
     onAdjustDelay: (Long) -> Unit,
     onSelectVersion: (java.util.UUID) -> Unit,
+    reduceMotion: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     var pasteDialog by remember { mutableStateOf(false) }
@@ -205,6 +220,7 @@ fun ExpandedLyricsPanel(
             LyricsContentType.TIMED -> TimedLyricsList(
                 state = state,
                 onLineSeek = onLineSeek,
+                reduceMotion = reduceMotion,
                 modifier = Modifier.weight(1f),
             )
             LyricsContentType.PLAIN -> LazyColumn(
@@ -247,6 +263,7 @@ fun ExpandedLyricsPanel(
 private fun TimedLyricsList(
     state: NowPlayingLyricsState,
     onLineSeek: (Int) -> Unit,
+    reduceMotion: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -279,7 +296,9 @@ private fun TimedLyricsList(
     }
 
     LaunchedEffect(activeIndex, mode) {
-        if (activeIndex >= 0 && followMachine.mode == LyricsFollowMode.FOLLOWING) settle(activeIndex)
+        if (activeIndex >= 0 && followMachine.mode == LyricsFollowMode.FOLLOWING) {
+            settle(activeIndex, animated = !reduceMotion)
+        }
     }
 
     LaunchedEffect(listState.isScrollInProgress, activeIndex, mode) {
@@ -309,7 +328,9 @@ private fun TimedLyricsList(
                         android.os.SystemClock.uptimeMillis(),
                     )
                     mode = followMachine.mode
-                    if (action == LyricsFollowAction.SETTLE_AND_FOLLOW) settle(state.activeLineIndex)
+                    if (action == LyricsFollowAction.SETTLE_AND_FOLLOW) {
+                        settle(state.activeLineIndex, animated = !reduceMotion)
+                    }
                 }
             }
         }
@@ -332,7 +353,11 @@ private fun TimedLyricsList(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onLineSeek(index) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .semantics {
+                            selected = current
+                            if (current) stateDescription = "Current lyric"
+                        },
                 )
             }
         }

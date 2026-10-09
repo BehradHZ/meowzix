@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Metadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -17,18 +18,25 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.LibraryParams
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSession.ConnectionResult
 import androidx.media3.session.MediaSession.ConnectionResult.AcceptedResultBuilder
 import androidx.media3.session.MediaSession.ControllerInfo
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.MainActivity
+import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.CrossfadePolicy
@@ -48,6 +56,8 @@ import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
+import dev.behradhz.meowzix.widget.PlaybackWidgetProvider
+import dev.behradhz.meowzix.widget.PlaybackWidgetState
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -63,7 +73,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(markerClass = [UnstableApi::class])
 @AndroidEntryPoint
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
     @Inject lateinit var stateStore: PlaybackStateStore
     @Inject lateinit var playbackCatalog: PlaybackCatalog
     @Inject lateinit var audioVisualizer: AudioVisualizerRepository
@@ -73,12 +83,15 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var equalizer: EqualizerRepository
     @Inject lateinit var loudnessNormalization: LoudnessNormalizationRepository
     @Inject lateinit var settingsRepository: SettingsRepository
+    @Inject lateinit var mediaLibrary: MeowzixMediaLibrary
+    @Inject lateinit var libraryQueryRepository: LibraryQueryRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
-    private lateinit var mediaSession: MediaSession
+    private lateinit var mediaSession: MediaLibrarySession
     private lateinit var playbackAudioAttributes: AudioAttributes
     private var persistJob: Job? = null
+    private var widgetRefreshJob: Job? = null
     private var playbackRetryJob: Job? = null
     private var retryMediaId: String? = null
     private var retryCount = 0
@@ -100,25 +113,28 @@ class PlaybackService : MediaSessionService() {
     private val repeatCommand = SessionCommand(ACTION_CYCLE_REPEAT, Bundle.EMPTY)
     private val favoriteCommand = SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY)
 
-    private val sessionCallback = object : MediaSession.Callback {
+    private val sessionCallback = object : MediaLibrarySession.Callback {
         override fun onConnectAsync(
             session: MediaSession,
             controller: ControllerInfo,
         ): ListenableFuture<ConnectionResult> {
-            val sessionCommands = ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
-                .add(forwardCommand)
+            val defaultResult = AcceptedResultBuilder(session, controller).build()
+            // Android Auto/Automotive hosts must never receive the phone-only Telegram
+            // forwarding action, even as an overflow media-session command.
+            val isCarClient = session.isAutoCompanionController(controller) ||
+                session.isAutomotiveController(controller)
+            val sessionCommands = defaultResult.availableSessionCommands.buildUpon()
+                .apply { if (!isCarClient) add(forwardCommand) }
                 .add(shuffleCommand)
                 .add(repeatCommand)
                 .add(favoriteCommand)
-                .build()
-            val defaultResult = AcceptedResultBuilder(session, controller)
-                .setAvailableSessionCommands(sessionCommands)
                 .build()
             val playerCommands = defaultResult.availablePlayerCommands.buildUpon()
                 .addAll(
                     Player.COMMAND_PLAY_PAUSE,
                     Player.COMMAND_PREPARE,
                     Player.COMMAND_STOP,
+                    Player.COMMAND_SET_MEDIA_ITEM,
                     Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
                     Player.COMMAND_SEEK_TO_PREVIOUS,
                     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
@@ -130,8 +146,162 @@ class PlaybackService : MediaSessionService() {
                 AcceptedResultBuilder(session, controller)
                     .setAvailableSessionCommands(sessionCommands)
                     .setAvailablePlayerCommands(playerCommands)
+                    .setMediaButtonPreferences(mediaButtons(includeForward = !isCarClient))
                     .build(),
             )
+        }
+
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: ControllerInfo,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<MediaItem>> =
+            Futures.immediateFuture(LibraryResult.ofItem(mediaLibrary.root(), params))
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            val job = serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val items = mediaLibrary.children(parentId, page, pageSize)
+                    future.set(
+                        if (items == null) {
+                            LibraryResult.ofError(SessionError.ERROR_BAD_VALUE, params)
+                        } else {
+                            LibraryResult.ofItemList(items, params)
+                        },
+                    )
+                } catch (cancelled: CancellationException) {
+                    future.cancel(false)
+                    throw cancelled
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_IO, params))
+                }
+            }
+            future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
+            return future
+        }
+
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: ControllerInfo,
+            mediaId: String,
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val future = SettableFuture.create<LibraryResult<MediaItem>>()
+            val job = serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val item = mediaLibrary.item(mediaId)
+                    future.set(
+                        if (item == null) {
+                            LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
+                        } else {
+                            LibraryResult.ofItem(item, null)
+                        },
+                    )
+                } catch (cancelled: CancellationException) {
+                    future.cancel(false)
+                    throw cancelled
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_IO))
+                }
+            }
+            future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
+            return future
+        }
+
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: ControllerInfo,
+            query: String,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<Void>> {
+            val future = SettableFuture.create<LibraryResult<Void>>()
+            val job = serviceScope.launch(Dispatchers.IO) {
+                try {
+                    // Notify clients with an accurate, bounded result count. The actual paginated
+                    // projection is fetched in onGetSearchResult; no unbounded library scan.
+                    val count = libraryQueryRepository.search(query, limit = MAX_CAR_SEARCH_RESULTS).size
+                    session.notifySearchResultChanged(browser, query, count, params)
+                    future.set(LibraryResult.ofVoid(params))
+                } catch (cancelled: CancellationException) {
+                    future.cancel(false)
+                    throw cancelled
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_IO, params))
+                }
+            }
+            future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
+            return future
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            val job = serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val offset = (page.coerceAtLeast(0).toLong() * pageSize.coerceAtLeast(1).toLong())
+                        .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    val limit = pageSize.coerceIn(1, MeowzixMediaLibrary.MAX_PAGE_SIZE)
+                    val ids = libraryQueryRepository.search(query, limit = MAX_CAR_SEARCH_RESULTS)
+                        .drop(offset).take(limit).map { it.id }
+                    future.set(LibraryResult.ofItemList(mediaLibrary.searchResults(ids), params))
+                } catch (cancelled: CancellationException) {
+                    future.cancel(false)
+                    throw cancelled
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_IO, params))
+                }
+            }
+            future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
+            return future
+        }
+
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: ControllerInfo,
+            mediaItems: List<MediaItem>,
+        ): ListenableFuture<List<MediaItem>> = resolveRequestedMediaItems(mediaItems)
+
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: ControllerInfo,
+            mediaItems: List<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            val resolvedFuture = resolveRequestedMediaItems(mediaItems)
+            val job = serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val resolved = resolvedFuture.get()
+                    future.set(
+                        MediaSession.MediaItemsWithStartPosition(
+                            resolved,
+                            startIndex,
+                            startPositionMs,
+                        ),
+                    )
+                } catch (cancelled: CancellationException) {
+                    future.cancel(false)
+                    throw cancelled
+                } catch (error: Throwable) {
+                    future.setException(error)
+                }
+            }
+            future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
+            return future
         }
 
         override fun onPlaybackResumption(
@@ -248,6 +418,16 @@ class PlaybackService : MediaSessionService() {
                 refreshMediaButtons()
                 schedulePersist()
             }
+            if (
+                events.containsAny(
+                    Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                    Player.EVENT_PLAYBACK_STATE_CHANGED,
+                    Player.EVENT_TIMELINE_CHANGED,
+                )
+            ) {
+                refreshPlaybackWidget()
+            }
         }
 
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -290,8 +470,7 @@ class PlaybackService : MediaSessionService() {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        mediaSession = MediaSession.Builder(this, player)
-            .setCallback(sessionCallback)
+        mediaSession = MediaLibrarySession.Builder(this, player, sessionCallback)
             .setSessionActivity(openPlayerIntent)
             .setMediaButtonPreferences(mediaButtons())
             .build()
@@ -402,7 +581,7 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    override fun onGetSession(controllerInfo: ControllerInfo): MediaSession = mediaSession
+    override fun onGetSession(controllerInfo: ControllerInfo): MediaLibrarySession = mediaSession
 
     override fun onDestroy() {
         clearPlaybackRetry()
@@ -411,10 +590,69 @@ class PlaybackService : MediaSessionService() {
         audioVisualizer.release()
         equalizer.release()
         normalizationRefreshJob?.cancel()
+        widgetRefreshJob?.cancel()
         mediaSession.release()
         player.release()
         serviceScope.cancel()
         super.onDestroy()
+    }
+
+    private fun refreshPlaybackWidget() {
+        val state = PlaybackWidgetState.fromPlayer(player)
+        widgetRefreshJob?.cancel()
+        widgetRefreshJob = serviceScope.launch(Dispatchers.IO) {
+            runCatching {
+                PlaybackWidgetProvider.updateAll(this@PlaybackService.applicationContext, state)
+            }
+        }
+    }
+
+    private fun resolveRequestedMediaItems(mediaItems: List<MediaItem>): ListenableFuture<List<MediaItem>> {
+        if (mediaItems.all { it.localConfiguration != null }) {
+            return Futures.immediateFuture(mediaItems)
+        }
+        val future = SettableFuture.create<List<MediaItem>>()
+        val job = serviceScope.launch(Dispatchers.IO) {
+            try {
+                val resolved = mediaItems.map { requested ->
+                    if (requested.localConfiguration != null) {
+                        requested
+                    } else {
+                        val trackId = mediaLibrary.parseTrackId(requested.mediaId)
+                        val playable = if (trackId != null) {
+                            playbackCatalog.playableTrack(trackId)
+                        } else {
+                            // Legacy car voice commands arrive through Media3 with a search query
+                            // instead of a canonical mediaId. Resolve it through the *same* local,
+                            // Persian-aware search and authoritative source resolver as the app.
+                            val query = requested.requestMetadata.searchQuery
+                                ?: throw IllegalArgumentException("Unsupported media id")
+                            val matches = if (query.isBlank()) {
+                                libraryQueryRepository.homeFallback(limit = CAR_VOICE_CANDIDATES)
+                            } else {
+                                libraryQueryRepository.search(query, limit = CAR_VOICE_CANDIDATES)
+                            }
+                            var firstPlayable: dev.behradhz.meowzix.domain.playback.PlayableTrack? = null
+                            for (match in matches) {
+                                firstPlayable = playbackCatalog.playableTrack(match.id)
+                                if (firstPlayable != null) break
+                            }
+                            firstPlayable
+                        }
+                        playable?.toMediaItem(currentPlaybackMode(), currentRepeatMode())
+                            ?: throw IllegalStateException("Track is currently unavailable")
+                    }
+                }
+                future.set(resolved)
+            } catch (cancelled: CancellationException) {
+                future.cancel(false)
+                throw cancelled
+            } catch (error: Throwable) {
+                future.setException(error)
+            }
+        }
+        future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
+        return future
     }
 
     private fun buildPlayer(handleAudioFocus: Boolean): ExoPlayer {
@@ -429,7 +667,7 @@ class PlaybackService : MediaSessionService() {
             .build()
     }
 
-    private fun mediaButtons(): List<CommandButton> = listOf(
+    private fun mediaButtons(includeForward: Boolean = true): List<CommandButton> = listOfNotNull(
         CommandButton.Builder(CommandButton.ICON_PREVIOUS)
             .setDisplayName("Previous")
             .setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
@@ -440,11 +678,11 @@ class PlaybackService : MediaSessionService() {
             .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
             .setSlots(CommandButton.SLOT_FORWARD)
             .build(),
-        CommandButton.Builder(CommandButton.ICON_SHARE)
+        if (includeForward) CommandButton.Builder(CommandButton.ICON_SHARE)
             .setDisplayName("Forward on Telegram")
             .setSessionCommand(forwardCommand)
             .setSlots(CommandButton.SLOT_OVERFLOW)
-            .build(),
+            .build() else null,
         CommandButton.Builder(
             if (currentPlaybackMode() == PlaybackMode.PURE_SHUFFLE) CommandButton.ICON_SHUFFLE_ON
             else CommandButton.ICON_SHUFFLE_OFF,
@@ -474,7 +712,12 @@ class PlaybackService : MediaSessionService() {
     )
 
     private fun refreshMediaButtons() {
-        if (::mediaSession.isInitialized) mediaSession.setMediaButtonPreferences(mediaButtons())
+        if (!::mediaSession.isInitialized) return
+        mediaSession.setMediaButtonPreferences(mediaButtons())
+        // A global state refresh must not reintroduce phone-only actions for car hosts.
+        mediaSession.connectedControllers
+            .filter { mediaSession.isAutoCompanionController(it) || mediaSession.isAutomotiveController(it) }
+            .forEach { mediaSession.setMediaButtonPreferences(it, mediaButtons(includeForward = false)) }
     }
 
     @Suppress("DEPRECATION")
@@ -1060,12 +1303,15 @@ class PlaybackService : MediaSessionService() {
             ?: return
         serviceScope.launch {
             try {
-                val track = libraryRepository.observeTracks().first().firstOrNull { it.id == trackId }
-                    ?: return@launch
+                // A track transition must never collect the entire 10k-track library just to
+                // resolve a single favorite. The playback catalog is already UUID-indexed.
+                val track = playbackCatalog.browseTrack(trackId) ?: return@launch
                 val favorite = !track.favorite
                 libraryRepository.setFavorite(trackId, favorite)
-                currentFavorite = favorite
-                refreshMediaButtons()
+                if (player.currentMediaItem?.mediaId == trackId.toString()) {
+                    currentFavorite = favorite
+                    refreshMediaButtons()
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
@@ -1082,14 +1328,18 @@ class PlaybackService : MediaSessionService() {
             return
         }
         serviceScope.launch {
-            currentFavorite = try {
-                libraryRepository.observeTracks().first().firstOrNull { it.id == trackId }?.favorite == true
+            val favorite = try {
+                playbackCatalog.browseTrack(trackId)?.favorite == true
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
                 false
             }
-            refreshMediaButtons()
+            // An older lookup must not overwrite the favorite state of a newer track.
+            if (player.currentMediaItem?.mediaId == trackId.toString()) {
+                currentFavorite = favorite
+                refreshMediaButtons()
+            }
         }
     }
 
@@ -1325,18 +1575,20 @@ class PlaybackService : MediaSessionService() {
         val currentItems = (0 until player.mediaItemCount).map(player::getMediaItemAt)
         val playbackMode = currentItems.first().playbackMode()
         if (playbackMode != PlaybackMode.PURE_SHUFFLE) return
+        // STATE_ENDED is reached at the end of this exact queue. Capture the terminal item
+        // before dispatching an asynchronous restart; currentMediaItem/currentIndex can
+        // already have advanced or reset by the time the coroutine is scheduled.
+        val previousLastItem = currentItems.last()
         isChangingQueueCycle = true
         serviceScope.launch {
             try {
                 val repeatMode = currentItems.first().repeatMode()
-                val previousLastId = player.currentMediaItem?.mediaId
                 val shouldContinue = repeatMode == RepeatMode.ALL && player.playWhenReady
                 if (repeatMode != RepeatMode.ALL) return@launch
                 // A legacy/controller-provided queue is already the authoritative eligible set.
                 // Expanding it through the whole library at the cycle boundary can block playback,
                 // leak unrelated tracks into a selected collection, and violates Pure Shuffle's
                 // collection isolation. Re-permute exactly the current canonical queue instead.
-                val previousLastItem = currentItems.firstOrNull { it.mediaId == previousLastId }
                 val nextCycle = PureShuffleEngine.newCycle(currentItems, previousLastItem).order
                 player.repeatMode = Player.REPEAT_MODE_OFF
                 player.setMediaItems(nextCycle, 0, 0)
@@ -1368,6 +1620,8 @@ class PlaybackService : MediaSessionService() {
 
     private companion object {
         const val TAG = "MeowzixPlayback"
+        const val MAX_CAR_SEARCH_RESULTS = 200
+        const val CAR_VOICE_CANDIDATES = 20
         const val TDLIB_SCHEME = "meowzix-tdlib"
         const val ACTION_OPEN_TELEGRAM_FORWARD = "dev.behradhz.meowzix.action.OPEN_TELEGRAM_FORWARD"
         const val ACTION_TOGGLE_SHUFFLE = "dev.behradhz.meowzix.action.TOGGLE_SHUFFLE"

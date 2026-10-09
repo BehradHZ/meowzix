@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -26,6 +27,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
@@ -60,6 +64,9 @@ fun SyntheticWaveformSeekBar(
     pointerRadius: Dp = 7.dp,
     decayBarCount: Int = 8,
     shimmerDurationMs: Int = 1_400,
+    reduceMotion: Boolean = false,
+    accessibilityLabel: String = "Playback position",
+    accessibilityValue: String? = null,
 ) {
     val resolvedBarCount = barCount.coerceAtLeast(12)
     val liveProfile = remember(liveBands, resolvedBarCount) {
@@ -72,8 +79,8 @@ fun SyntheticWaveformSeekBar(
 
     // Retain the last valid FFT when Media3 briefly stops producing bands around a seek/buffer.
     // While valid bands keep arriving, this profile continues updating during the drag itself.
-    LaunchedEffect(trackKey, resolvedBarCount, liveBands.contentHashCode(), hasLiveSpectrum) {
-        if (hasLiveSpectrum) stableLiveProfile = liveProfile.copyOf()
+    LaunchedEffect(trackKey, resolvedBarCount, liveBands.contentHashCode(), hasLiveSpectrum, reduceMotion) {
+        if (!reduceMotion && hasLiveSpectrum) stableLiveProfile = liveProfile.copyOf()
     }
 
     val interactionSource = remember { MutableInteractionSource() }
@@ -95,12 +102,12 @@ fun SyntheticWaveformSeekBar(
 
     val pointerInteraction by animateFloatAsState(
         targetValue = if (isInteracting) 1f else 0f,
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        animationSpec = if (reduceMotion) snap() else tween(durationMillis = 180, easing = FastOutSlowInEasing),
         label = "waveformPointerInteraction",
     )
     val playbackEnergy by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0f,
-        animationSpec = tween(
+        targetValue = if (isPlaying && !reduceMotion) 1f else 0f,
+        animationSpec = if (reduceMotion) snap() else tween(
             durationMillis = if (isPlaying) 220 else 460,
             easing = FastOutSlowInEasing,
         ),
@@ -111,9 +118,13 @@ fun SyntheticWaveformSeekBar(
     // right edge. Its wider falloff keeps more neighboring bars involved in each pass, while the
     // ease-in/ease-out curve removes the mechanical linear sweep.
     val loadingTravel = remember { Animatable(0f) }
-    LaunchedEffect(effectiveLoading, shimmerDurationMs) {
+    LaunchedEffect(effectiveLoading, shimmerDurationMs, reduceMotion) {
         if (!effectiveLoading) {
             loadingTravel.snapTo(0f)
+            return@LaunchedEffect
+        }
+        if (reduceMotion) {
+            loadingTravel.snapTo(0.5f)
             return@LaunchedEffect
         }
         while (true) {
@@ -251,7 +262,12 @@ fun SyntheticWaveformSeekBar(
                 seekReleaseGeneration += 1
             },
             interactionSource = interactionSource,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .semantics {
+                    contentDescription = accessibilityLabel
+                    accessibilityValue?.let { stateDescription = it }
+                },
             colors = SliderDefaults.colors(
                 thumbColor = Color.Transparent,
                 activeTrackColor = Color.Transparent,

@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.feature.nowplaying
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,6 +52,7 @@ internal fun MorphingPlayerHero(
     onNext: () -> Unit,
     onToggleFavorite: () -> Unit,
     favorite: Boolean,
+    reduceMotion: Boolean,
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit,
     compactLyrics: @Composable () -> Unit,
     modifier: Modifier = Modifier,
@@ -58,7 +60,7 @@ internal fun MorphingPlayerHero(
     val track = state.currentTrack ?: return
     val progress by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.88f, stiffness = 500f),
+        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.88f, stiffness = 500f),
         label = "lyrics-hero-morph",
     )
 

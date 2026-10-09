@@ -82,12 +82,12 @@ class RoomPlaylistRepository @Inject constructor(
     override suspend fun delete(playlistId: UUID) = dao.deletePlaylist(playlistId.toString())
 
     override suspend fun addTrack(playlistId: UUID, trackId: UUID) {
-        val entries = dao.entries(playlistId.toString())
+        val playlistKey = playlistId.toString()
         val inserted = dao.insertTrack(
             PlaylistTrackEntity(
-                playlistId = playlistId.toString(),
+                playlistId = playlistKey,
                 trackId = trackId.toString(),
-                position = entries.size,
+                position = dao.nextPosition(playlistKey),
                 addedAtEpochMs = Instant.now().toEpochMilli(),
             ),
         )

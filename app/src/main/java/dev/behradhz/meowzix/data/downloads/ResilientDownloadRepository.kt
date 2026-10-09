@@ -16,6 +16,7 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.behradhz.meowzix.data.db.DownloadDao
+import dev.behradhz.meowzix.domain.downloads.DownloadDisplayRecord
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
@@ -32,6 +33,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -92,6 +94,27 @@ class ResilientDownloadRepository @Inject constructor(
     }
 
     override fun observeDownloads(): Flow<List<OfflineDownload>> = delegate.observeDownloads()
+
+    override fun observeDownloadDisplayRecords(): Flow<List<DownloadDisplayRecord>> =
+        downloadDao.observeDisplayRows().map { rows ->
+            rows.mapNotNull { row ->
+                val trackId = runCatching { UUID.fromString(row.trackId) }.getOrNull() ?: return@mapNotNull null
+                val status = runCatching { DownloadStatus.valueOf(row.status) }.getOrNull() ?: return@mapNotNull null
+                DownloadDisplayRecord(
+                    download = OfflineDownload(
+                        trackId = trackId,
+                        status = status,
+                        downloadedBytes = row.downloadedBytes,
+                        totalBytes = row.totalBytes,
+                        pinned = row.pinned,
+                        failureReason = row.failureReason,
+                        updatedAtEpochMs = row.updatedAtEpochMs,
+                    ),
+                    title = row.title,
+                    artworkRef = row.artworkRef,
+                )
+            }
+        }
 
     override fun pinOffline(trackId: UUID) {
         delegate.pinOffline(trackId)

@@ -15,6 +15,21 @@ interface HistoryDao {
     fun observeEvents(): Flow<List<ListeningEventEntity>>
 
     @Query(
+        """
+        SELECT e.trackId AS trackId,
+               COALESCE(t.title, 'Unknown track') AS title,
+               e.type AS type,
+               e.occurredAtEpochMs AS occurredAtEpochMs
+        FROM listening_events e
+        LEFT JOIN tracks t ON t.id = e.trackId
+        ORDER BY e.occurredAtEpochMs DESC, e.eventSequence DESC
+        LIMIT :limit
+        """,
+    )
+    fun observeRecentDisplayEvents(limit: Int): Flow<List<ListeningHistoryDisplayRow>>
+
+
+    @Query(
         "SELECT * FROM listening_events " +
             "WHERE type IN ('PLAY_COMPLETED', 'PLAY_STOPPED', 'SKIPPED_EARLY', 'SKIPPED_LATE') " +
             "ORDER BY eventSequence DESC LIMIT :limit",
@@ -160,3 +175,11 @@ interface HistoryDao {
 
 data class SequencedListeningEvent(val sequence: Long, @Embedded val event: ListeningEventEntity)
 data class TrainingOutcomeReference(val playbackInstanceId: String, val sequence: Long)
+
+
+data class ListeningHistoryDisplayRow(
+    val trackId: String,
+    val title: String,
+    val type: String,
+    val occurredAtEpochMs: Long,
+)

@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.data.db
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -10,6 +11,7 @@ import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
 import dev.behradhz.meowzix.domain.recommendation.ScoreBreakdown
 import dev.behradhz.meowzix.domain.recommendation.SmartSelector
 import java.util.UUID
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -43,7 +45,8 @@ class ScaleTest {
     }
 
     @Test
-    fun syntheticScaleDatabaseKeepsSearchHistoryAndScoringBounded() = runBlocking {
+    fun syntheticScaleDatabaseKeepsSearchHistoryAndScoringBounded() {
+        runBlocking {
         val sql = database.openHelper.writableDatabase
         assertEquals(TRACK_COUNT, scalarInt(sql, "SELECT COUNT(*) FROM tracks"))
         assertEquals(ARTIST_COUNT, scalarInt(sql, "SELECT COUNT(DISTINCT normalizedArtist) FROM tracks"))
@@ -89,6 +92,33 @@ class ScaleTest {
         }
         assertTrue("100k-event recent-history query took ${historyMs}ms", historyMs < QUERY_BUDGET_MS)
 
+        database.historyDao().observeRecentDisplayEvents(500).first() // warm
+        val historyDisplayMs = measureMs {
+            val recent = database.historyDao().observeRecentDisplayEvents(500).first()
+            assertEquals(500, recent.size)
+        }
+        assertTrue("100k-event UI history projection took ${historyDisplayMs}ms", historyDisplayMs < QUERY_BUDGET_MS)
+
+        database.libraryBrowseDao().browseTracks(limit = 100, offset = 9_900) // warm
+        val browseMs = measureMs {
+            val page = database.libraryBrowseDao().browseTracks(limit = 100, offset = 9_900)
+            assertEquals(100, page.size)
+        }
+        assertTrue("10k-track bounded browse page took ${browseMs}ms", browseMs < QUERY_BUDGET_MS)
+
+        database.playlistDao().browsePlaylists(limit = 100, offset = 0) // warm
+        val playlistBrowseMs = measureMs {
+            val playlists = database.playlistDao().browsePlaylists(limit = 100, offset = 0)
+            assertEquals(PLAYLIST_COUNT, playlists.size)
+        }
+        assertTrue("100-playlist browse page took ${playlistBrowseMs}ms", playlistBrowseMs < QUERY_BUDGET_MS)
+
+        Log.i(
+            TAG,
+            "scale-post searchMs=$searchMs historyMs=$historyMs historyDisplayMs=$historyDisplayMs " +
+                "browseMs=$browseMs playlistBrowseMs=$playlistBrowseMs",
+        )
+
         val allIds = (0 until TRACK_COUNT).map(::trackId)
         lateinit var reduced: List<UUID>
         val reduceMs = measureMs {
@@ -118,6 +148,8 @@ class ScaleTest {
             assertEquals(reduced.size, SmartSelector.order(scores, seed = 42L).size)
         }
         assertTrue("800-candidate SmartSelector ordering took ${scoringMs}ms", scoringMs < CPU_BUDGET_MS)
+        Log.i(TAG, "scale-post recommendationReduceMs=$reduceMs recommendationScoreMs=$scoringMs")
+        }
     }
 
     private fun seedScaleDatabase() {
@@ -231,6 +263,7 @@ class ScaleTest {
     }
 
     private companion object {
+        const val TAG = "MeowzixScaleTest"
         const val TRACK_COUNT = 10_000
         const val ARTIST_COUNT = 1_000
         const val PLAYLIST_COUNT = 100

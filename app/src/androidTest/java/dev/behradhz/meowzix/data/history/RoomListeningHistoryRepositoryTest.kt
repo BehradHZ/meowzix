@@ -98,6 +98,27 @@ class RoomListeningHistoryRepositoryTest {
         assertEquals(id, override.playbackInstanceId)
         assertEquals(0.60, dev.behradhz.meowzix.domain.recommendation.PersonalizationRewardBuilder.reward(setOf("AUTO_SELECTED", "PLAY_COMPLETED", "QUEUE_OVERRIDDEN")), 0.0)
     }
+
+    @Test fun disabledHistoryBlocksNewLearningEvents() = runTest {
+        database.libraryDao().upsertTrack(track())
+        val settings = dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(
+            ApplicationProvider.getApplicationContext<Context>(),
+        )
+        settings.setListeningHistoryEnabled(false)
+        try {
+            val playbackId = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.SMART_SHUFFLE)
+            repository.recordSeek(playbackId, 20_000, 100_000)
+            repository.recordFavorite(trackId, favorite = true)
+            repository.recordQueueRemoval(trackId, PlaybackMode.SMART_SHUFFLE)
+            repository.finalizePlayback(playbackId, 10_000, 100_000, intentionalSkip = true)
+
+            assertEquals(emptyList<Any>(), repository.observeEvents().first())
+            assertEquals(emptyList<Any>(), repository.observeTrackStats().first())
+        } finally {
+            settings.setListeningHistoryEnabled(true)
+        }
+    }
+
     private fun track() = TrackEntity(
         trackId.toString(), "Track", "track", null, null, null, 100_000,
         null, null, null, false, false, 1, 1,

@@ -29,6 +29,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,6 +44,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 fun DownloadsRoute(
@@ -173,7 +178,20 @@ private fun TelegramDownloadSource(
     progress: ChatDownloadProgress?,
     onToggleDownloadAll: () -> Unit,
 ) {
-    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.52f)) {
+    val coarseProgress = progress?.fraction?.let(::coarsePercent)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = false) {
+                contentDescription = "${chat.title} Telegram downloads"
+                progress?.let {
+                    stateDescription = coarseProgress?.let { percent -> "$percent percent downloaded" }
+                        ?: it.displayText()
+                }
+            },
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.52f),
+    ) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             ChatAvatar(chat.profilePhotoRef, chat.title, size = 48.dp)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
@@ -197,7 +215,7 @@ private fun TelegramDownloadSource(
                     Box(contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(
                             progress = { progress.fraction },
-                            modifier = Modifier.size(50.dp),
+                            modifier = Modifier.size(50.dp).clearAndSetSemantics {},
                             strokeWidth = 4.dp,
                         )
                         Text(
@@ -226,7 +244,22 @@ private fun DownloadRowCard(
     onRetry: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)) {
+    val coarseProgress = row.progress?.let(::coarsePercent)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = "${row.title} download"
+                stateDescription = when {
+                    coarseProgress != null &&
+                        (row.status == DownloadStatus.DOWNLOADING || row.status == DownloadStatus.QUEUED) ->
+                        "${row.status.label}, $coarseProgress percent"
+                    else -> row.status.label
+                }
+            },
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+    ) {
         Column(Modifier.padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TrackArtwork(row.artworkRef, row.title, size = 48.dp)
@@ -247,7 +280,16 @@ private fun DownloadRowCard(
             }
             if (row.status == DownloadStatus.DOWNLOADING || row.status == DownloadStatus.QUEUED) {
                 Spacer(Modifier.size(8.dp))
-                if (row.progress != null) LinearProgressIndicator(progress = { row.progress }, modifier = Modifier.fillMaxWidth()) else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                if (row.progress != null) {
+                    LinearProgressIndicator(
+                        progress = { row.progress },
+                        modifier = Modifier.fillMaxWidth().clearAndSetSemantics {},
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().clearAndSetSemantics {},
+                    )
+                }
             }
             if (row.status == DownloadStatus.PAUSED) {
                 OutlinedButton(onClick = onCancel) { Text("Cancel") }
@@ -259,7 +301,22 @@ private fun DownloadRowCard(
 
 @Composable private fun SectionTitle(text: String) { Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
 @Composable private fun SettingToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, enabled: Boolean = true) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Text(label, modifier = Modifier.weight(1f)); Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, modifier = Modifier.weight(1f))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            modifier = Modifier.semantics {
+                contentDescription = label
+                stateDescription = if (checked) "On" else "Off"
+            },
+        )
+    }
 }
 private val DownloadStatus.label: String get() = when (this) {
     DownloadStatus.QUEUED -> "Queued"
@@ -275,6 +332,9 @@ private fun ChatDownloadProgress.displayText(): String = if (usesBytes) {
 } else {
     "Downloading $completedTracks of $totalTracks · tap the ring to stop"
 }
+
+private fun coarsePercent(fraction: Float): Int =
+    ((fraction.coerceIn(0f, 1f) * 20f).roundToInt() * 5).coerceIn(0, 100)
 
 private fun formatBytes(bytes: Long): String {
     val mib = bytes.toDouble() / (1024.0 * 1024.0)

@@ -12,6 +12,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.domain.settings.AppearanceSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.playback.SleepTimerManager
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
@@ -121,6 +122,12 @@ class NowPlayingViewModel @Inject constructor(
 
     val spectrum = audioVisualizerRepository.spectrum
     val sleepTimerState = sleepTimerManager.state
+    val appearanceSettings = settingsRepository.appearanceSettings
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            AppearanceSettings(),
+        )
 
     val isFavorite = combine(
         currentTrackId,
