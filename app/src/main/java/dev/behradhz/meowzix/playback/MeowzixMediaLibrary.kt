@@ -37,6 +37,10 @@ class MeowzixMediaLibrary @Inject constructor(
         if (safeMixes().isNotEmpty()) add(browsable(MIXES_ID, "Mixes"))
     }
 
+    /** Convert already-ranked canonical search matches to car-safe playable/browsable metadata. */
+    suspend fun searchResults(trackIds: List<UUID>): List<MediaItem> =
+        catalog.browseTracksByIds(trackIds.take(MAX_PAGE_SIZE)).map(::trackItem)
+
     suspend fun children(parentId: String, page: Int, pageSize: Int): List<MediaItem>? {
         val window = PageWindow.of(page, pageSize)
         return when {
