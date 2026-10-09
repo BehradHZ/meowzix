@@ -36,6 +36,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.MainActivity
+import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.CrossfadePolicy
@@ -83,6 +84,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var loudnessNormalization: LoudnessNormalizationRepository
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var mediaLibrary: MeowzixMediaLibrary
+    @Inject lateinit var libraryQueryRepository: LibraryQueryRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
@@ -207,6 +209,59 @@ class PlaybackService : MediaLibraryService() {
                     throw cancelled
                 } catch (_: Throwable) {
                     future.set(LibraryResult.ofError(SessionError.ERROR_IO))
+                }
+            }
+            future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
+            return future
+        }
+
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: ControllerInfo,
+            query: String,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<Void>> {
+            val future = SettableFuture.create<LibraryResult<Void>>()
+            val job = serviceScope.launch(Dispatchers.IO) {
+                try {
+                    // Notify clients with an accurate, bounded result count. The actual paginated
+                    // projection is fetched in onGetSearchResult; no unbounded library scan.
+                    val count = libraryQueryRepository.search(query, limit = MAX_CAR_SEARCH_RESULTS).size
+                    session.notifySearchResultChanged(browser, query, count, params)
+                    future.set(LibraryResult.ofVoid(params))
+                } catch (cancelled: CancellationException) {
+                    future.cancel(false)
+                    throw cancelled
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_IO, params))
+                }
+            }
+            future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
+            return future
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            val job = serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val offset = (page.coerceAtLeast(0).toLong() * pageSize.coerceAtLeast(1).toLong())
+                        .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    val limit = pageSize.coerceIn(1, MeowzixMediaLibrary.MAX_PAGE_SIZE)
+                    val ids = libraryQueryRepository.search(query, limit = MAX_CAR_SEARCH_RESULTS)
+                        .drop(offset).take(limit).map { it.id }
+                    future.set(LibraryResult.ofItemList(mediaLibrary.searchResults(ids), params))
+                } catch (cancelled: CancellationException) {
+                    future.cancel(false)
+                    throw cancelled
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_IO, params))
                 }
             }
             future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
@@ -564,9 +619,27 @@ class PlaybackService : MediaLibraryService() {
                         requested
                     } else {
                         val trackId = mediaLibrary.parseTrackId(requested.mediaId)
-                            ?: throw IllegalArgumentException("Unsupported media id")
-                        playbackCatalog.playableTrack(trackId)
-                            ?.toMediaItem(currentPlaybackMode(), currentRepeatMode())
+                        val playable = if (trackId != null) {
+                            playbackCatalog.playableTrack(trackId)
+                        } else {
+                            // Legacy car voice commands arrive through Media3 with a search query
+                            // instead of a canonical mediaId. Resolve it through the *same* local,
+                            // Persian-aware search and authoritative source resolver as the app.
+                            val query = requested.requestMetadata.searchQuery
+                                ?: throw IllegalArgumentException("Unsupported media id")
+                            val matches = if (query.isBlank()) {
+                                libraryQueryRepository.homeFallback(limit = CAR_VOICE_CANDIDATES)
+                            } else {
+                                libraryQueryRepository.search(query, limit = CAR_VOICE_CANDIDATES)
+                            }
+                            var firstPlayable: dev.behradhz.meowzix.domain.playback.PlayableTrack? = null
+                            for (match in matches) {
+                                firstPlayable = playbackCatalog.playableTrack(match.id)
+                                if (firstPlayable != null) break
+                            }
+                            firstPlayable
+                        }
+                        playable?.toMediaItem(currentPlaybackMode(), currentRepeatMode())
                             ?: throw IllegalStateException("Track is currently unavailable")
                     }
                 }
@@ -1545,6 +1618,8 @@ class PlaybackService : MediaLibraryService() {
 
     private companion object {
         const val TAG = "MeowzixPlayback"
+        const val MAX_CAR_SEARCH_RESULTS = 200
+        const val CAR_VOICE_CANDIDATES = 20
         const val TDLIB_SCHEME = "meowzix-tdlib"
         const val ACTION_OPEN_TELEGRAM_FORWARD = "dev.behradhz.meowzix.action.OPEN_TELEGRAM_FORWARD"
         const val ACTION_TOGGLE_SHUFFLE = "dev.behradhz.meowzix.action.TOGGLE_SHUFFLE"
