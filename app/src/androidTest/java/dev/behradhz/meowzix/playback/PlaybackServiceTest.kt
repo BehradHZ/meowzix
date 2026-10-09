@@ -18,6 +18,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.google.common.util.concurrent.ListenableFuture
 import dev.behradhz.meowzix.MainActivity
 import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
+import dev.behradhz.meowzix.domain.playback.CrossfadePolicy
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import java.io.File
