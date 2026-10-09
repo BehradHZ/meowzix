@@ -117,8 +117,12 @@ class PlaybackService : MediaLibraryService() {
             controller: ControllerInfo,
         ): ListenableFuture<ConnectionResult> {
             val defaultResult = AcceptedResultBuilder(session, controller).build()
+            // Android Auto/Automotive hosts must never receive the phone-only Telegram
+            // forwarding action, even as an overflow media-session command.
+            val isCarClient = session.isAutoCompanionController(controller) ||
+                session.isAutomotiveController(controller)
             val sessionCommands = defaultResult.availableSessionCommands.buildUpon()
-                .add(forwardCommand)
+                .apply { if (!isCarClient) add(forwardCommand) }
                 .add(shuffleCommand)
                 .add(repeatCommand)
                 .add(favoriteCommand)
@@ -140,6 +144,7 @@ class PlaybackService : MediaLibraryService() {
                 AcceptedResultBuilder(session, controller)
                     .setAvailableSessionCommands(sessionCommands)
                     .setAvailablePlayerCommands(playerCommands)
+                    .setMediaButtonPreferences(mediaButtons(includeForward = !isCarClient))
                     .build(),
             )
         }
@@ -589,7 +594,7 @@ class PlaybackService : MediaLibraryService() {
             .build()
     }
 
-    private fun mediaButtons(): List<CommandButton> = listOf(
+    private fun mediaButtons(includeForward: Boolean = true): List<CommandButton> = listOfNotNull(
         CommandButton.Builder(CommandButton.ICON_PREVIOUS)
             .setDisplayName("Previous")
             .setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
@@ -600,11 +605,11 @@ class PlaybackService : MediaLibraryService() {
             .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
             .setSlots(CommandButton.SLOT_FORWARD)
             .build(),
-        CommandButton.Builder(CommandButton.ICON_SHARE)
+        if (includeForward) CommandButton.Builder(CommandButton.ICON_SHARE)
             .setDisplayName("Forward on Telegram")
             .setSessionCommand(forwardCommand)
             .setSlots(CommandButton.SLOT_OVERFLOW)
-            .build(),
+            .build() else null,
         CommandButton.Builder(
             if (currentPlaybackMode() == PlaybackMode.PURE_SHUFFLE) CommandButton.ICON_SHUFFLE_ON
             else CommandButton.ICON_SHUFFLE_OFF,
@@ -634,7 +639,12 @@ class PlaybackService : MediaLibraryService() {
     )
 
     private fun refreshMediaButtons() {
-        if (::mediaSession.isInitialized) mediaSession.setMediaButtonPreferences(mediaButtons())
+        if (!::mediaSession.isInitialized) return
+        mediaSession.setMediaButtonPreferences(mediaButtons())
+        // A global state refresh must not reintroduce phone-only actions for car hosts.
+        mediaSession.connectedControllers
+            .filter { mediaSession.isAutoCompanionController(it) || mediaSession.isAutomotiveController(it) }
+            .forEach { mediaSession.setMediaButtonPreferences(it, mediaButtons(includeForward = false)) }
     }
 
     @Suppress("DEPRECATION")
