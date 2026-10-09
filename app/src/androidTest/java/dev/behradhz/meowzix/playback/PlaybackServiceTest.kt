@@ -235,7 +235,7 @@ class PlaybackServiceTest {
                     // In real crossfade the incoming ExoPlayer has *already been playing* when
                     // MediaLibrarySession.setPlayer hands the authoritative identity over.
                     // Ordinary gapless/sequential advancement begins the new track at ~0 ms.
-                    incomingPositionAtHandoffMs.set(controller.currentPosition)
+                    incomingPositionAtHandoffMs.compareAndSet(null, controller.currentPosition)
                 }
             }
         }
