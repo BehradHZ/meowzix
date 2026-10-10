@@ -51,14 +51,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -92,7 +98,57 @@ private val CollapsedPlayerDockClearance = 90.dp
 private val PlayerSettleDistance = 72.dp
 private const val MINI_CARD_COMMIT_THRESHOLD = 0.35f
 
-private enum class MiniCardDirection { PREVIOUS, NEXT }
+internal enum class MiniCardDirection { PREVIOUS, NEXT }
+
+/**
+ * The foreground card's physical offset in pager widths.
+ * Next slides the incoming card over the stationary current track from the right.
+ * Previous slides the current card right, uncovering the stationary previous track.
+ */
+internal fun miniPlayerForegroundOffsetFraction(
+    direction: MiniCardDirection,
+    progress: Float,
+): Float {
+    val fraction = progress.coerceIn(0f, 1f)
+    return when (direction) {
+        MiniCardDirection.NEXT -> 1f - fraction
+        MiniCardDirection.PREVIOUS -> fraction
+    }
+}
+
+/**
+ * Two actual full-width cards stacked in the same frame. The foreground translates without
+ * resizing; the underlay is stationary and masked only where the foreground covers it.
+ * Masking prevents transparent card content from showing through the foreground on glass.
+ */
+@Composable
+internal fun MiniPlayerStackLayer(
+    direction: MiniCardDirection,
+    progress: Float,
+    modifier: Modifier = Modifier,
+    underlay: @Composable () -> Unit,
+    foreground: @Composable () -> Unit,
+) {
+    val foregroundX = miniPlayerForegroundOffsetFraction(direction, progress)
+    Box(modifier = modifier.clipToBounds()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithContent {
+                    clipRect(right = size.width * foregroundX) { drawContent() }
+                },
+        ) {
+            underlay()
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { translationX = size.width * foregroundX },
+        ) {
+            foreground()
+        }
+    }
+}
 
 private data class MiniTrackCard(
     val id: java.util.UUID,
@@ -488,7 +544,6 @@ private fun InteractiveMiniTrackPager(
     reduceMotion: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val density = LocalDensity.current
     val haptics = rememberMeowzixHaptics()
     val scope = rememberCoroutineScope()
 
@@ -592,8 +647,26 @@ private fun InteractiveMiniTrackPager(
     }
 
     BoxWithConstraints(
-        modifier = modifier.pointerInput(
-            activeIndex,
+        modifier = modifier
+            .semantics {
+                // No visible skip buttons: TalkBack gets equivalent navigation actions.
+                customActions = buildList {
+                    if (state.canSkipPrevious && activeIndex - 1 in queueState.items.indices) {
+                        add(CustomAccessibilityAction("Previous track") {
+                            latestPlayQueueItemAt(activeIndex - 1)
+                            true
+                        })
+                    }
+                    if (state.canSkipNext && activeIndex + 1 in queueState.items.indices) {
+                        add(CustomAccessibilityAction("Next track") {
+                            latestNext()
+                            true
+                        })
+                    }
+                }
+            }
+            .pointerInput(
+                activeIndex,
             state.canSkipPrevious,
             state.canSkipNext,
             queueState.items.size,
@@ -669,113 +742,32 @@ private fun InteractiveMiniTrackPager(
         } else {
             val targetCard = queueState.items[targetIndex].toMiniCard()
             val p = swipeProgress.coerceIn(0f, 1f)
-            val gap = 10.dp * (4f * p * (1f - p)).coerceIn(0f, 1f)
-            val halfGap = gap / 2f
-            val corner = 19.dp
-            val fullWidth = maxWidth
+            val underlayCard = if (activeDirection == MiniCardDirection.NEXT) currentCard else targetCard
+            val movingCard = if (activeDirection == MiniCardDirection.NEXT) targetCard else currentCard
 
-            when (activeDirection) {
-                MiniCardDirection.NEXT -> {
-                    val seam = fullWidth * (1f - p)
-                    val currentRight = (seam - halfGap).coerceAtLeast(0.dp)
-                    val targetLeft = (seam + halfGap).coerceAtMost(fullWidth)
-                    if (currentRight > 0.dp) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .width(currentRight)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(corner)),
-                        ) {
-                            MiniPlayerTrackSummary(
-                                track = currentCard,
-                                showWaveform = currentCard.id == state.currentTrack?.id &&
-                                    hasWaveform && state.status == PlaybackStatus.PLAYING,
-                                compactBands = compactBands,
-                                modifier = Modifier.width(fullWidth).fillMaxHeight(),
-                            )
-                        }
-                    }
-                    val targetWidth = (fullWidth - targetLeft).coerceAtLeast(0.dp)
-                    if (targetWidth > 0.dp) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .width(targetWidth)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(corner)),
-                        ) {
-                            val desiredGlobalX = fullWidth * (1f - p)
-                            MiniPlayerTrackSummary(
-                                track = targetCard,
-                                showWaveform = !reduceMotion && targetCard.id == state.currentTrack?.id &&
-                                    hasWaveform && state.status == PlaybackStatus.PLAYING,
-                                compactBands = compactBands,
-                                modifier = Modifier
-                                    .width(fullWidth)
-                                    .fillMaxHeight()
-                                    .graphicsLayer {
-                                        translationX = with(density) {
-                                            (desiredGlobalX - targetLeft).toPx()
-                                        }
-                                    },
-                            )
-                        }
-                    }
-                }
-
-                MiniCardDirection.PREVIOUS -> {
-                    val seam = fullWidth * p
-                    val targetRight = (seam - halfGap).coerceAtLeast(0.dp)
-                    val currentLeft = (seam + halfGap).coerceAtMost(fullWidth)
-                    if (targetRight > 0.dp) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .width(targetRight)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(corner)),
-                        ) {
-                            val desiredGlobalX = -(fullWidth * (1f - p))
-                            MiniPlayerTrackSummary(
-                                track = targetCard,
-                                showWaveform = !reduceMotion && targetCard.id == state.currentTrack?.id &&
-                                    hasWaveform && state.status == PlaybackStatus.PLAYING,
-                                compactBands = compactBands,
-                                modifier = Modifier
-                                    .width(fullWidth)
-                                    .fillMaxHeight()
-                                    .graphicsLayer {
-                                        translationX = with(density) { desiredGlobalX.toPx() }
-                                    },
-                            )
-                        }
-                    }
-                    val currentWidth = (fullWidth - currentLeft).coerceAtLeast(0.dp)
-                    if (currentWidth > 0.dp) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .width(currentWidth)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(corner)),
-                        ) {
-                            MiniPlayerTrackSummary(
-                                track = currentCard,
-                                showWaveform = currentCard.id == state.currentTrack?.id &&
-                                    hasWaveform && state.status == PlaybackStatus.PLAYING,
-                                compactBands = compactBands,
-                                modifier = Modifier
-                                    .width(fullWidth)
-                                    .fillMaxHeight()
-                                    .graphicsLayer {
-                                        translationX = with(density) { (-currentLeft).toPx() }
-                                    },
-                            )
-                        }
-                    }
-                }
-            }
+            MiniPlayerStackLayer(
+                direction = activeDirection,
+                progress = p,
+                modifier = Modifier.fillMaxSize(),
+                underlay = {
+                    MiniPlayerTrackSummary(
+                        track = underlayCard,
+                        showWaveform = !reduceMotion && underlayCard.id == state.currentTrack?.id &&
+                            hasWaveform && state.status == PlaybackStatus.PLAYING,
+                        compactBands = compactBands,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                },
+                foreground = {
+                    MiniPlayerTrackSummary(
+                        track = movingCard,
+                        showWaveform = !reduceMotion && movingCard.id == state.currentTrack?.id &&
+                            hasWaveform && state.status == PlaybackStatus.PLAYING,
+                        compactBands = compactBands,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                },
+            )
         }
     }
 }
