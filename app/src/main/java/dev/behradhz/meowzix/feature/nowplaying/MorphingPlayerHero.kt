@@ -234,12 +234,13 @@ internal fun collapsedHeroGeometry(
     val withLyrics = min(width, (height - previewHeight - identityReserve - margin).coerceAtLeast(compactArt))
     val withoutLyrics = min(width, (height - identityReserve - margin).coerceAtLeast(compactArt))
     val artworkSize = lerpInt(withoutLyrics, withLyrics, lyricSpace).coerceAtLeast(1)
-    val centeredTop = ((height - artworkSize - identityReserve) / 2).coerceAtLeast(0)
+    val centeredTop = ((height - withoutLyrics - identityReserve) / 2).coerceAtLeast(0)
     val artworkTop = lerpInt(centeredTop, 0, lyricSpace)
-    val identityTop = (
-        artworkTop + artworkSize + margin +
-            lerpInt(0, previewHeight, lyricSpace)
-    ).coerceAtMost(height)
+    // Interpolate both endpoints directly. Recomputing identity position from intermediate
+    // artwork dimensions can overshoot the destination and create a visible bounce.
+    val noLyricsIdentity = centeredTop + withoutLyrics + margin
+    val withLyricsIdentity = withLyrics + previewHeight + margin
+    val identityTop = lerpInt(noLyricsIdentity, withLyricsIdentity, lyricSpace).coerceAtMost(height)
     return CollapsedHeroGeometry(artworkSize, artworkTop, identityTop)
 }
 
