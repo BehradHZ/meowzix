@@ -123,6 +123,7 @@ fun MeowzixApp(
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchFieldFocused by remember { mutableStateOf(false) }
+    var pendingArtist by remember { mutableStateOf<String?>(null) }
     var searchContextRoute by rememberSaveable { mutableStateOf<String?>(null) }
 
     val destinations = remember {
@@ -241,11 +242,17 @@ fun MeowzixApp(
                     onOpenNowPlaying = morphingPlayerState::expand,
                     searchQuery = if (searchActive && searchScope == DockSearchScope.LIBRARY) searchQuery else "",
                     viewModel = libraryViewModel,
+                    requestedArtist = pendingArtist,
+                    onArtistRequestConsumed = { pendingArtist = null },
                 )
             }
             composable(QUEUE_ROUTE) {
                 QueueRoute(
                     searchQuery = if (searchActive && searchScope == DockSearchScope.QUEUE) searchQuery else "",
+                    onGoToArtist = { artist ->
+                        pendingArtist = artist
+                        navigateTopLevel(LIBRARY_ROUTE)
+                    },
                 )
             }
             composable(PROFILE_ROUTE) {

@@ -70,6 +70,7 @@ import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
+import dev.behradhz.meowzix.core.common.TextNormalizer
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.core.permissions.AudioPermission
 import dev.behradhz.meowzix.core.permissions.AudioPermissionStatus
@@ -94,6 +95,8 @@ private enum class LibrarySectionV4(val label: String) {
 internal fun LibraryRouteV4(
     onOpenNowPlaying: () -> Unit,
     viewModel: LibraryViewModel,
+    requestedArtist: String? = null,
+    onArtistRequestConsumed: () -> Unit = {},
     tracksViewModel: LibraryTracksViewModel = hiltViewModel(),
     displayViewModel: LibraryDisplayViewModel = hiltViewModel(),
 ) {
@@ -107,6 +110,12 @@ internal fun LibraryRouteV4(
     val aggregateSelection by tracksViewModel.selectedAggregate.collectAsStateWithLifecycle()
     val aggregateTracks by tracksViewModel.aggregateTracks.collectAsStateWithLifecycle()
     val pagingItems = tracksViewModel.tracks.collectAsLazyPagingItems()
+    LaunchedEffect(requestedArtist, artists) {
+        val normalized = TextNormalizer.normalize(requestedArtist) ?: return@LaunchedEffect
+        val matched = artists.firstOrNull { it.normalizedName == normalized } ?: return@LaunchedEffect
+        tracksViewModel.openArtist(matched)
+        onArtistRequestConsumed()
+    }
 
     val permission = AudioPermission.requiredPermission()
     fun hasPermission() = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
