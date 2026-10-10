@@ -180,8 +180,9 @@ class TdLibTelegramRepository @Inject constructor(
                                 lastSyncedAtEpochMs = existing?.lastSyncedAtEpochMs,
                             ),
                         )
-                        ensureChatPlaylist(accountId, chatId, chat.title)
                     }
+                    // Restore the retained membership immediately, even when sync is already in progress.
+                    syncChatPlaylist(accountId, chatId, chat.title)
                 } else {
                     // Unselect only the source and its generated playlist, not tracks/downloads.
                     database.withTransaction {

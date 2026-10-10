@@ -74,7 +74,7 @@ internal fun TelegramMusicSourcePicker(
         }
 
         Text(
-            text = "Select a channel, chat, group, or Saved Messages. Selecting a source starts its initial scan automatically.",
+            text = "Select a channel, chat, group, or Saved Messages. Deselecting hides that chat's songs from the library but keeps downloads.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
         )

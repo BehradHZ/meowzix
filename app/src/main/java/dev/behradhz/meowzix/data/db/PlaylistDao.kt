@@ -7,10 +7,20 @@ import androidx.room.Query
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
+private const val VISIBLE_PLAYLIST_TRACK_COUNT =
+    "COUNT(CASE WHEN EXISTS (SELECT 1 FROM tracks t WHERE t.id = pt.trackId AND t.hidden = 0 AND (" +
+        "EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id " +
+        "AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') " +
+        "OR EXISTS (SELECT 1 FROM telegram_track_sources tg " +
+        "INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId " +
+        "INNER JOIN track_sources origin ON origin.id = tg.trackSourceId " +
+        "WHERE origin.trackId = t.id AND origin.availability != 'MISSING')" +
+        ")) THEN pt.trackId END)"
+
 @Dao
 interface PlaylistDao {
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, COUNT(pt.trackId) AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id ORDER BY p.title COLLATE NOCASE",
@@ -40,7 +50,7 @@ interface PlaylistDao {
 
 
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, COUNT(pt.trackId) AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id ORDER BY p.title COLLATE NOCASE LIMIT :limit OFFSET :offset",
@@ -48,7 +58,7 @@ interface PlaylistDao {
     suspend fun browsePlaylists(limit: Int, offset: Int): List<PlaylistSummaryRow>
 
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, COUNT(pt.trackId) AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE p.id = :playlistId AND NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id LIMIT 1",

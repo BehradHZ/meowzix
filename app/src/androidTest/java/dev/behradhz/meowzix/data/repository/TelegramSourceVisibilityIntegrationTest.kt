@@ -67,6 +67,7 @@ class TelegramSourceVisibilityIntegrationTest {
         assertEquals(1, db.libraryBrowseDao().observeFavoriteCount().first())
         assertEquals(1, db.libraryBrowseDao().observeArtistSummaries().first().single().trackCount)
         assertEquals(1, playlist.observeTracks("playlist-1").first().size)
+        assertEquals(1, playlist.browsePlaylist("playlist-1")?.trackCount)
 
         db.telegramDao().deleteSelectedSource(account, 10)
 
@@ -78,6 +79,7 @@ class TelegramSourceVisibilityIntegrationTest {
         assertTrue(db.libraryBrowseDao().observeArtistSummaries().first().isEmpty())
         assertTrue(db.libraryBrowseDao().observeAlbumSummaries().first().isEmpty())
         assertTrue(playlist.observeTracks("playlist-1").first().isEmpty())
+        assertEquals(0, playlist.browsePlaylist("playlist-1")?.trackCount)
         assertNotNull(db.libraryDao().trackById(id.toString()))
         assertEquals(2, db.libraryDao().sourcesForTrack(id.toString()).size)
         assertEquals(true, db.downloadDao().byTrackId(id.toString())?.pinned)
@@ -87,6 +89,7 @@ class TelegramSourceVisibilityIntegrationTest {
         assertEquals(listOf(id), library.availableTrackIds())
         assertEquals(listOf(id), orderedIds(LibraryAvailabilityFilter.OFFLINE))
         assertEquals(1, playlist.observeTracks("playlist-1").first().size)
+        assertEquals(1, playlist.browsePlaylist("playlist-1")?.trackCount)
     }
 
     @Test fun otherSelectedChatOrIndependentLocalSourceStillMakesTrackVisible() = runTest {
