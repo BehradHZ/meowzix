@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.feature.telegram
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +33,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -48,7 +48,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -174,6 +177,7 @@ fun TelegramForwardSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = Color.Transparent,
+        scrimColor = Color.Black.copy(alpha = 0.66f),
         contentColor = Color.White,
         dragHandle = null,
         shape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp),
@@ -182,12 +186,23 @@ fun TelegramForwardSheet(
             hazeState = hazeState,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp),
-            fallbackColor = TelegramGlass.copy(alpha = 0.94f),
-            tint = Color.White.copy(alpha = 0.075f),
+            fallbackColor = TelegramGlass.copy(alpha = 0.80f),
+            tint = Color.White.copy(alpha = 0.065f),
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to TelegramGlass.copy(alpha = 0.68f),
+                            0.42f to TelegramGlass.copy(alpha = 0.91f),
+                            1f to TelegramGlass.copy(alpha = 0.99f),
+                        ),
+                    ),
             ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
+                ) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
@@ -273,7 +288,11 @@ fun TelegramForwardSheet(
                         includeSourceAttribution = it
                         if (it) keepCaption = true
                     },
-                    onKeepCaptionChange = { keepCaption = it },
+                    onKeepCaptionChange = {
+                        keepCaption = it
+                        // An attributed forward always includes its original caption.
+                        if (!it) includeSourceAttribution = false
+                    },
                     onRememberDefaultsChange = { rememberDefaults = it },
                 )
 
@@ -354,13 +373,14 @@ fun TelegramForwardSheet(
                     }
                 }
                 Spacer(Modifier.height(14.dp))
+                }
             }
         }
     }
 }
 
 @Composable
-private fun GlassOptionGroup(
+internal fun GlassOptionGroup(
     includeSourceAttribution: Boolean,
     keepCaption: Boolean,
     rememberDefaults: Boolean,
@@ -368,38 +388,81 @@ private fun GlassOptionGroup(
     onKeepCaptionChange: (Boolean) -> Unit,
     onRememberDefaultsChange: (Boolean) -> Unit,
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().border(1.dp, TelegramGlassStroke, RoundedCornerShape(22.dp)),
-        shape = RoundedCornerShape(22.dp),
-        color = TelegramGlassFill,
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(TelegramGlass.copy(alpha = 0.50f), CircleShape)
+            .border(1.dp, TelegramGlassStroke, CircleShape)
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
-            ForwardOptionRow(
-                title = "Keep source attribution",
-                subtitle = "Preserve the original Telegram source when one exists.",
-                checked = includeSourceAttribution,
-                enabled = true,
-                onCheckedChange = onSourceAttributionChange,
-            )
-            ForwardOptionRow(
-                title = "Keep caption",
-                subtitle = if (includeSourceAttribution) {
-                    "Telegram keeps the original caption on attributed forwards."
+        ForwardOptionPill(
+            title = "Sender",
+            selected = includeSourceAttribution,
+            onSelectedChange = onSourceAttributionChange,
+            modifier = Modifier.weight(1f),
+        )
+        ForwardOptionPill(
+            title = "Caption",
+            selected = keepCaption,
+            onSelectedChange = onKeepCaptionChange,
+            modifier = Modifier.weight(1f),
+        )
+        ForwardOptionPill(
+            title = "Remember",
+            selected = rememberDefaults,
+            onSelectedChange = onRememberDefaultsChange,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/** A selectable, glass-tinted capsule with a single-line label and checkbox semantics. */
+@Composable
+internal fun ForwardOptionPill(
+    title: String,
+    selected: Boolean,
+    onSelectedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .background(
+                brush = if (selected) {
+                    Brush.horizontalGradient(
+                        listOf(accent.copy(alpha = 0.38f), accent.copy(alpha = 0.17f)),
+                    )
                 } else {
-                    "Keep the original caption when sending a Telegram copy."
+                    Brush.horizontalGradient(
+                        listOf(Color.White.copy(alpha = 0.065f), Color.White.copy(alpha = 0.025f)),
+                    )
                 },
-                checked = keepCaption,
-                enabled = !includeSourceAttribution,
-                onCheckedChange = onKeepCaptionChange,
+                shape = CircleShape,
             )
-            ForwardOptionRow(
-                title = "Use as default",
-                subtitle = "Remember these send options for the next track.",
-                checked = rememberDefaults,
-                enabled = true,
-                onCheckedChange = onRememberDefaultsChange,
+            .border(
+                1.dp,
+                if (selected) accent.copy(alpha = 0.72f) else Color.White.copy(alpha = 0.10f),
+                CircleShape,
             )
-        }
+            .toggleable(
+                value = selected,
+                role = Role.Checkbox,
+                onValueChange = onSelectedChange,
+            )
+            .testTag("telegram-option-${title.lowercase()}"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            title,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = if (selected) Color.White else Color.White.copy(alpha = 0.72f),
+        )
     }
 }
 
@@ -554,25 +617,4 @@ private fun TelegramSendJob.statusLabel(): String = when (state) {
     TelegramSendState.SENT -> "Sent"
     TelegramSendState.FAILED -> "Couldn't send"
     TelegramSendState.CANCELED -> "Canceled"
-}
-
-@Composable
-private fun ForwardOptionRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    enabled: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.48f))
-        }
-        Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
-    }
 }
