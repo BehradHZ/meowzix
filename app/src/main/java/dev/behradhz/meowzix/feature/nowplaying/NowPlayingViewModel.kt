@@ -20,6 +20,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardOptions
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramSendEnqueueResult
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -143,6 +144,7 @@ class NowPlayingViewModel @Inject constructor(
     private val _forwardState = MutableStateFlow(TelegramForwardUiState())
     val forwardState: StateFlow<TelegramForwardUiState> = _forwardState.asStateFlow()
     private var forwardSearchJob: Job? = null
+    private var forwardTrackId: UUID? = null
 
     init {
         viewModelScope.launch { sleepTimerManager.restore() }
@@ -243,7 +245,12 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun openForwardPicker() {
-        if (state.value.currentTrack == null) return
+        val id = state.value.currentTrack?.id ?: return
+        openForwardPickerForTrack(id)
+    }
+
+    fun openForwardPickerForTrack(trackId: UUID) {
+        forwardTrackId = trackId
         _forwardState.update {
             it.copy(
                 isOpen = true,
@@ -259,6 +266,7 @@ class NowPlayingViewModel @Inject constructor(
 
     fun dismissForwardPicker() {
         forwardSearchJob?.cancel()
+        forwardTrackId = null
         _forwardState.update {
             it.copy(
                 isOpen = false,
@@ -301,7 +309,7 @@ class NowPlayingViewModel @Inject constructor(
         options: TelegramForwardOptions,
         rememberDefaults: Boolean,
     ) {
-        val trackId = state.value.currentTrack?.id ?: return
+        val trackId = forwardTrackId ?: return
         val targetTitle = _forwardState.value.chats.firstOrNull { it.chatId == targetChatId }?.title
         viewModelScope.launch {
             _forwardState.update { it.copy(errorMessage = null, isSending = false) }
