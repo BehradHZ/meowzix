@@ -62,6 +62,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
+import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import java.util.UUID
 
 /** Forward the selected row, not necessarily the track currently playing. */
@@ -266,5 +269,34 @@ private fun ActionLine(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
             fontWeight = FontWeight.Medium)
         if (trailing) Icon(Icons.Rounded.ChevronRight, contentDescription = null)
+    }
+}
+
+/** Centralized overlay hosted by each screen, not once per LazyColumn item. */
+@Composable
+internal fun TrackForwardOverlay(
+    selection: TrackForwardSelection?,
+    viewModel: NowPlayingViewModel,
+    onDismiss: () -> Unit,
+) {
+    val state by viewModel.forwardState.collectAsStateWithLifecycle()
+    if (selection != null && state.isOpen) {
+        TelegramForwardSheet(
+            trackId = selection.id,
+            title = selection.title,
+            artist = selection.artist,
+            query = state.query,
+            chats = state.chats,
+            isSearching = state.isSearching,
+            isSending = state.isSending,
+            errorMessage = state.errorMessage,
+            defaults = state.defaults,
+            onQueryChange = viewModel::searchForwardChats,
+            onForward = viewModel::forwardCurrentTrack,
+            onDismiss = {
+                viewModel.dismissForwardPicker()
+                onDismiss()
+            },
+        )
     }
 }
