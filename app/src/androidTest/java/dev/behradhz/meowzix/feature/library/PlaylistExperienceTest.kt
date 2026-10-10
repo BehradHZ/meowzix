@@ -251,6 +251,13 @@ class PlaylistExperienceTest {
         capture("playlists-light")
         compose.onNodeWithText("New playlist").performClick()
         compose.onNodeWithText("Save queue").performClick()
+        compose.onNodeWithText("Save current queue?").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(0, savedQueue) }
+        compose.onNodeWithText("Cancel").performClick()
+        compose.runOnIdle { assertEquals(0, savedQueue) }
+        compose.onNodeWithText("Save queue").performClick()
+        compose.onNodeWithText("Save as playlist").performClick()
+        compose.runOnIdle { assertEquals(1, savedQueue) }
         compose.onNodeWithText("Favorites", substring = false).performClick()
         compose.mainClock.advanceTimeBy(1_000)
         compose.waitForIdle()

@@ -137,6 +137,26 @@ internal fun PlaylistsSectionV3(
         LaunchedEffect(track.id, track.artworkRef) { onEnsureArtwork(track) }
     }
 
+    var confirmSaveQueue by rememberSaveable { mutableStateOf(false) }
+    if (confirmSaveQueue && onSaveQueue != null) {
+        AlertDialog(
+            onDismissRequest = { confirmSaveQueue = false },
+            title = { Text("Save current queue?") },
+            text = { Text("Create a new playlist from the tracks currently in your queue? Your queue and music files will stay unchanged.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmSaveQueue = false
+                        onSaveQueue()
+                    },
+                ) { Text("Save as playlist") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSaveQueue = false }) { Text("Cancel") }
+            },
+        )
+    }
+
     PlaylistGlassBackdrop { hazeState ->
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 156.dp),
@@ -160,7 +180,7 @@ internal fun PlaylistsSectionV3(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             onCreate?.let { PlaylistGlassAction(hazeState, "New playlist", Icons.Rounded.Add, it, accented = true) }
-                            onSaveQueue?.let { PlaylistGlassAction(hazeState, "Save queue", Icons.Rounded.QueueMusic, it) }
+                            onSaveQueue?.let { PlaylistGlassAction(hazeState, "Save queue", Icons.Rounded.QueueMusic, { confirmSaveQueue = true }) }
                         }
                     }
                 }
