@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -56,6 +57,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -100,17 +102,34 @@ internal fun TrackActionsSheet(
 ) {
     var page by remember { mutableStateOf(TrackActionsPage.ACTIONS) }
     val accent = MaterialTheme.colorScheme.primary
+    val glass = MaterialTheme.colorScheme.surface
+    val glassShape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        scrimColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.62f),
-        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+        scrimColor = Color.Black.copy(alpha = 0.70f),
+        shape = glassShape,
         dragHandle = {
             Box(Modifier.padding(top = 12.dp, bottom = 4.dp).size(38.dp, 4.dp)
                 .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.24f), CircleShape))
         },
     ) {
+        Box(
+            Modifier.fillMaxWidth()
+                .clip(glassShape)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            glass.copy(alpha = 0.92f),
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.97f),
+                            glass.copy(alpha = 0.995f),
+                        ),
+                    ),
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.12f), glassShape)
+                .testTag("glass-track-actions-sheet"),
+        ) {
         AnimatedContent(
             targetState = page,
             transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -185,7 +204,17 @@ internal fun TrackActionsSheet(
                         ActionIcon(Icons.Rounded.Send, "Forward") { onDismiss(); onForward() }
                     }
                     Spacer(Modifier.height(14.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f))
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color.White.copy(alpha = 0.085f), Color.White.copy(alpha = 0.035f)),
+                                ),
+                                RoundedCornerShape(21.dp),
+                            )
+                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(21.dp))
+                            .padding(horizontal = 8.dp),
+                    ) {
                     ActionLine(Icons.Rounded.Person, "Go to artist", enabled = !artist.isNullOrBlank()) {
                         onDismiss(); onGoToArtist()
                     }
@@ -201,7 +230,8 @@ internal fun TrackActionsSheet(
                     ActionLine(Icons.Rounded.ContentCopy, "Manage duplicates") {
                         onDismiss(); onManageDuplicates()
                     }
-                    // Preserve collection management actions previously available on playlist rows.
+                    }
+                    // Keep playlist-only management operations while retaining Why as the last row.
                     onMoveUp?.let { action ->
                         ActionLine(Icons.Rounded.PlaylistPlay, "Move up in playlist") { onDismiss(); action() }
                     }
@@ -211,12 +241,20 @@ internal fun TrackActionsSheet(
                     onRemoveFromPlaylist?.let { action ->
                         ActionLine(Icons.Rounded.DeleteOutline, "Remove from playlist") { onDismiss(); action() }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f))
-                    ActionLine(Icons.Rounded.HelpOutline, "Why this song") {
-                        onDismiss(); onWhy()
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .background(Color.White.copy(alpha = 0.055f), RoundedCornerShape(21.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(21.dp))
+                            .padding(horizontal = 8.dp),
+                    ) {
+                        ActionLine(Icons.Rounded.HelpOutline, "Why this song") {
+                            onDismiss(); onWhy()
+                        }
                     }
                 }
             }
+        }
         }
     }
 }
@@ -236,8 +274,11 @@ private fun ActionIcon(
     Surface(
         modifier = Modifier.size(60.dp).testTag("track-action-${label.lowercase().replace(' ', '-')}"),
         shape = CircleShape,
-        color = color.copy(alpha = if (highlighted) 0.24f else 0.12f),
-        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = if (highlighted) 0.55f else 0.22f)),
+        color = color.copy(alpha = if (highlighted) 0.22f else 0.11f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (highlighted) color.copy(alpha = 0.72f) else Color.White.copy(alpha = 0.17f),
+        ),
         onClick = onClick,
     ) {
         Box(contentAlignment = Alignment.Center) {
