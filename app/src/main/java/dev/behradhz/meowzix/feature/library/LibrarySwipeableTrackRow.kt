@@ -326,7 +326,9 @@ private fun LibraryTrackRowContent(
             onRemoveFromPlaylist = onRemoveFromPlaylist,
         )
     }
-}rivate fun libraryAvailabilityLabel(availability: LibraryTrackAvailability): String = when (availability) {
+}
+
+private fun libraryAvailabilityLabel(availability: LibraryTrackAvailability): String = when (availability) {
     LibraryTrackAvailability.OFFLINE -> "Offline"
     LibraryTrackAvailability.CLOUD -> "Cloud"
     LibraryTrackAvailability.UNAVAILABLE -> "Unavailable"
