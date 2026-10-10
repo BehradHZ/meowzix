@@ -45,6 +45,23 @@ class RoomPlaylistRepositoryTest {
         )
     }
 
+    @Test
+    fun deletingPlaylistRemovesMembershipButPreservesTracksAndOtherPlaylists() = runTest {
+        val trackIds = listOf(UUID.randomUUID(), UUID.randomUUID())
+        trackIds.forEachIndexed { index, id -> database.libraryDao().upsertTrack(track(id, index)) }
+        val deletedId = repository.create("Delete me")
+        val retainedId = repository.create("Keep me")
+        repository.replaceTracks(deletedId, trackIds)
+        repository.replaceTracks(retainedId, listOf(trackIds.first()))
+
+        repository.delete(deletedId)
+
+        assertEquals(emptyList<UUID>(), repository.observeTracks(deletedId).first().map { it.id })
+        assertEquals(listOf(retainedId), repository.observePlaylists().first().map { it.id })
+        assertEquals(listOf(trackIds.first()), repository.observeTracks(retainedId).first().map { it.id })
+        assertEquals(trackIds.toSet(), database.libraryDao().allTracks().map { UUID.fromString(it.id) }.toSet())
+    }
+
     private fun track(id: UUID, index: Int) = TrackEntity(
         id = id.toString(),
         title = "Track $index",

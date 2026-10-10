@@ -59,6 +59,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -68,6 +69,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -296,6 +298,8 @@ internal fun PlaylistDetailScreenV3(
     onMove: (Int, Int) -> Unit,
     onRemove: (Track) -> Unit,
     onEnsureArtwork: (Track) -> Unit,
+    onDelete: () -> Unit,
+    deleting: Boolean = false,
     errorMessage: String? = null,
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
@@ -312,6 +316,30 @@ internal fun PlaylistDetailScreenV3(
             },
         )
         return
+    }
+
+    var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
+    if (showDeleteConfirmation && editable) {
+        AlertDialog(
+            onDismissRequest = { if (!deleting) showDeleteConfirmation = false },
+            title = { Text("Delete playlist?") },
+            text = { Text("Delete \"$title\"? This removes the playlist, not its songs or downloads.") },
+            confirmButton = {
+                TextButton(
+                    enabled = !deleting,
+                    onClick = {
+                        showDeleteConfirmation = false
+                        onDelete()
+                    },
+                ) { Text("Delete playlist", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !deleting,
+                    onClick = { showDeleteConfirmation = false },
+                ) { Text("Cancel") }
+            },
+        )
     }
 
     var sort by rememberSaveable { mutableStateOf(PlaylistTrackSort.CUSTOM) }
@@ -381,7 +409,13 @@ internal fun PlaylistDetailScreenV3(
                     )
                     if (editable) {
                         PlaylistGlassPanel(hazeState, radius = 18.dp) {
-                            IconButton(onClick = { editing = true }) {
+                            IconButton(enabled = !deleting, onClick = { showDeleteConfirmation = true }) {
+                                Icon(Icons.Rounded.DeleteOutline, contentDescription = "Delete playlist")
+                            }
+                        }
+                        Spacer(Modifier.size(8.dp))
+                        PlaylistGlassPanel(hazeState, radius = 18.dp) {
+                            IconButton(enabled = !deleting, onClick = { editing = true }) {
                                 Icon(Icons.Rounded.Edit, contentDescription = "Edit playlist")
                             }
                         }

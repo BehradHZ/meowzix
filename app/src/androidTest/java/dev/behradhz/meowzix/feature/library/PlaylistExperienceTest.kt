@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
@@ -55,6 +56,7 @@ class PlaylistExperienceTest {
         var downloads = 0
         var favorites = 0
         var removed: UUID? = null
+        var deleted = 0
         var artist: UUID? = null
         var added: Pair<UUID, UUID>? = null
     }
@@ -96,6 +98,7 @@ class PlaylistExperienceTest {
                         onMove = { from, to -> calls.moves.add(from to to) },
                         onRemove = { calls.removed = it.id },
                         onEnsureArtwork = {},
+                        onDelete = { calls.deleted++ },
                     )
                 }
             }
@@ -171,8 +174,21 @@ class PlaylistExperienceTest {
         compose.runOnIdle { assertEquals(null, calls.saved?.third) }
     }
 
+    @Test fun deletingPlaylistRequiresExplicitConfirmation() {
+        val calls = showDetail()
+        compose.onNodeWithContentDescription("Delete playlist").performClick()
+        compose.onNodeWithText("Delete playlist?").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(0, calls.deleted) }
+        compose.onNodeWithText("Cancel").performClick()
+        compose.runOnIdle { assertEquals(0, calls.deleted) }
+        compose.onNodeWithContentDescription("Delete playlist").performClick()
+        compose.onNodeWithText("Delete playlist", substring = false).performClick()
+        compose.runOnIdle { assertEquals(1, calls.deleted) }
+    }
+
     @Test fun managedPlaylistsKeepPlaybackAndTrackActionsWithoutEditing() {
         val calls = showDetail(editable = false)
+        compose.onNodeWithContentDescription("Delete playlist").assertDoesNotExist()
         compose.onNodeWithContentDescription("Edit playlist").assertDoesNotExist()
         firstTrackMenu()
         compose.onNodeWithText("Remove from playlist").assertDoesNotExist()
@@ -249,6 +265,7 @@ class PlaylistExperienceTest {
 
     @Test fun emptyFavoritesDisableAllPlaybackModesInLargeText() {
         showDetail(songs = emptyList(), editable = false, favorites = true, dark = false, fontScale = 1.5f)
+        compose.onNodeWithContentDescription("Delete playlist").assertDoesNotExist()
         listOf("Play", "Shuffle", "Smart").forEach { text ->
             scrollToText(text)
             compose.onNodeWithText(text).assertIsNotEnabled()

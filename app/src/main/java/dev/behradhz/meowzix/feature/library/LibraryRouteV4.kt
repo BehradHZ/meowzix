@@ -201,6 +201,14 @@ internal fun LibraryRouteV4(
                 onMove = viewModel::movePlaylistTrack,
                 onRemove = viewModel::removePlaylistTrack,
                 onEnsureArtwork = viewModel::ensureArtwork,
+                onDelete = {
+                    selectedPlaylistId?.let { id ->
+                        viewModel.deletePlaylist(id) {
+                            if (selectedPlaylistKey == id.toString()) closePlaylist()
+                        }
+                    }
+                },
+                deleting = selectedPlaylistId != null && state.deletingPlaylistId == selectedPlaylistId,
                 errorMessage = state.errorMessage,
             )
         }

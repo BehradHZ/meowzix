@@ -50,6 +50,7 @@ data class LibraryUiState(
     val playlistArtwork: Map<UUID, String?> = emptyMap(),
     val selectedPlaylistId: UUID? = null,
     val selectedPlaylistTracks: List<Track> = emptyList(),
+    val deletingPlaylistId: UUID? = null,
     val isRefreshing: Boolean = false,
     val lastRefresh: LocalLibraryRefreshResult? = null,
     val errorMessage: String? = null,
@@ -271,6 +272,23 @@ class LibraryViewModel @Inject constructor(
         runCatching {
             playlistRepository.updateMetadata(playlistId, title, description, artworkRef)
         }.onFailure { reportLoadError(it, "Unable to update playlist") }
+    }
+
+    fun deletePlaylist(playlistId: UUID, onDeleted: () -> Unit) {
+        if (_state.value.deletingPlaylistId != null) return
+        _state.update { it.copy(deletingPlaylistId = playlistId, errorMessage = null) }
+        viewModelScope.launch {
+            try {
+                playlistRepository.delete(playlistId)
+                onDeleted()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                reportLoadError(error, "Unable to delete playlist")
+            } finally {
+                _state.update { it.copy(deletingPlaylistId = null) }
+            }
+        }
     }
 
     fun addToPlaylist(track: Track, playlistId: UUID) = viewModelScope.launch {
