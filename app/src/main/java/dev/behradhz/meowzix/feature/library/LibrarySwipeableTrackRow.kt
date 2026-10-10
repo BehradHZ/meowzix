@@ -223,6 +223,7 @@ private fun LibraryTrackRowContent(
 ) {
     val recommendationActions = LocalLibraryRecommendationActions.current
     val trackToolsActions = LocalLibraryTrackToolsActions.current
+    val forwardAction = LocalTrackForwardAction.current
     var menuExpanded by remember { mutableStateOf(false) }
 
     Surface(
@@ -297,113 +298,35 @@ private fun LibraryTrackRowContent(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
             )
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
-                }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Play next") },
-                        leadingIcon = { Icon(Icons.Rounded.PlaylistPlay, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onPlayNext()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Add to queue") },
-                        leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onAddToQueue()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Go to artist") },
-                        leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onGoToArtist()
-                        },
-                    )
-                    trackToolsActions?.let { actions ->
-                        DropdownMenuItem(
-                            text = { Text("Edit metadata") },
-                            onClick = {
-                                menuExpanded = false
-                                actions.editMetadata(track.id)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Manage duplicates") },
-                            onClick = {
-                                menuExpanded = false
-                                actions.manageDuplicates(track.id)
-                            },
-                        )
-                    }
-                    recommendationActions?.let { actions ->
-                        DropdownMenuItem(text = { Text("Continue the vibe") }, onClick = {
-                            menuExpanded = false
-                            actions.continueVibe(track.id)
-                        })
-                        DropdownMenuItem(text = { Text("Why this song?") }, onClick = {
-                            menuExpanded = false
-                            actions.why(track.id)
-                        })
-                    }
-                    playlists.forEach { playlist ->
-                        DropdownMenuItem(
-                            text = { Text("Add to playlist · ${playlist.title}") },
-                            leadingIcon = { Icon(Icons.Rounded.PlaylistAddCircle, contentDescription = null) },
-                            onClick = {
-                                menuExpanded = false
-                                onAddToPlaylist(playlist.id)
-                            },
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text(if (track.favorite) "Remove favorite" else "Favorite") },
-                        leadingIcon = {
-                            Icon(
-                                if (track.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                contentDescription = null,
-                            )
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onFavorite()
-                        },
-                    )
-                    onMoveUp?.let { action ->
-                        DropdownMenuItem(
-                            text = { Text("Move up") },
-                            onClick = { menuExpanded = false; action() },
-                        )
-                    }
-                    onMoveDown?.let { action ->
-                        DropdownMenuItem(
-                            text = { Text("Move down") },
-                            onClick = { menuExpanded = false; action() },
-                        )
-                    }
-                    onRemoveFromPlaylist?.let { action ->
-                        DropdownMenuItem(
-                            text = { Text("Remove from playlist") },
-                            leadingIcon = { Icon(Icons.Rounded.DeleteOutline, contentDescription = null) },
-                            onClick = { menuExpanded = false; action() },
-                        )
-                    }
-                }
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
             }
         }
     }
-}
-
-private fun libraryAvailabilityLabel(availability: LibraryTrackAvailability): String = when (availability) {
+    if (menuExpanded) {
+        TrackActionsSheet(
+            title = track.title,
+            artist = track.artist,
+            favorite = track.favorite,
+            isQueue = false,
+            playlists = playlists,
+            onDismiss = { menuExpanded = false },
+            onPrimary = onPlayNext,
+            onAddToQueue = onAddToQueue,
+            onFavorite = onFavorite,
+            onForward = { forwardAction(TrackForwardSelection(track.id, track.title, track.artist)) },
+            onGoToArtist = onGoToArtist,
+            onAddToPlaylist = onAddToPlaylist,
+            onContinueVibe = { recommendationActions?.continueVibe?.invoke(track.id) },
+            onEditMetadata = { trackToolsActions?.editMetadata?.invoke(track.id) },
+            onManageDuplicates = { trackToolsActions?.manageDuplicates?.invoke(track.id) },
+            onWhy = { recommendationActions?.why?.invoke(track.id) },
+            onMoveUp = onMoveUp,
+            onMoveDown = onMoveDown,
+            onRemoveFromPlaylist = onRemoveFromPlaylist,
+        )
+    }
+}rivate fun libraryAvailabilityLabel(availability: LibraryTrackAvailability): String = when (availability) {
     LibraryTrackAvailability.OFFLINE -> "Offline"
     LibraryTrackAvailability.CLOUD -> "Cloud"
     LibraryTrackAvailability.UNAVAILABLE -> "Unavailable"
