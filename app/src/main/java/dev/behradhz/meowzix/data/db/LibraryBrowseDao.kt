@@ -29,18 +29,19 @@ interface LibraryBrowseDao {
     suspend fun libraryTrackIds(query: SupportSQLiteQuery): List<TrackIdRow>
 
     /**
-     * Imported Telegram sources remain part of the library after their chat is unchecked. The
-     * selected-source table controls future synchronization only.
+     * Persisted downloads and Telegram origins are retained after deselection, but the
+     * selected-source table controls which Telegram tracks appear in the library.
      */
     @Query(
         """
         SELECT
             s.trackId AS trackId,
             MAX(CASE WHEN s.availability = 'AVAILABLE_LOCAL' THEN 1 ELSE 0 END) AS hasOfflineSource,
-            MAX(CASE WHEN tg.trackSourceId IS NOT NULL AND s.availability != 'MISSING'
+            MAX(CASE WHEN chosen.chatId IS NOT NULL AND s.availability != 'MISSING'
                      THEN 1 ELSE 0 END) AS hasCloudSource
         FROM track_sources s
         LEFT JOIN telegram_track_sources tg ON tg.trackSourceId = s.id
+        LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
         GROUP BY s.trackId
         """,
     )
@@ -52,10 +53,11 @@ interface LibraryBrowseDao {
         FROM tracks t
         WHERE t.favorite = 1 AND t.hidden = 0
           AND (
-              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
@@ -76,11 +78,12 @@ interface LibraryBrowseDao {
           AND (
               EXISTS (
                   SELECT 1 FROM track_sources local
-                  WHERE local.trackId = t.id AND local.availability = 'AVAILABLE_LOCAL'
+                  WHERE local.trackId = t.id AND local.type = 'LOCAL_MEDIASTORE' AND local.availability = 'AVAILABLE_LOCAL'
               )
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
@@ -104,11 +107,12 @@ interface LibraryBrowseDao {
           AND (
               EXISTS (
                   SELECT 1 FROM track_sources local
-                  WHERE local.trackId = t.id AND local.availability = 'AVAILABLE_LOCAL'
+                  WHERE local.trackId = t.id AND local.type = 'LOCAL_MEDIASTORE' AND local.availability = 'AVAILABLE_LOCAL'
               )
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
@@ -127,10 +131,11 @@ interface LibraryBrowseDao {
         WHERE t.hidden = 0
           AND COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist') = :normalizedArtist
           AND (
-              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
@@ -148,10 +153,11 @@ interface LibraryBrowseDao {
           AND COALESCE(NULLIF(TRIM(t.album), ''), 'Unknown album') = :album
           AND COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist') = :normalizedArtist
           AND (
-              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
@@ -167,10 +173,11 @@ interface LibraryBrowseDao {
         FROM tracks t
         WHERE t.hidden = 0 AND t.favorite = 1
           AND (
-              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
@@ -185,10 +192,11 @@ interface LibraryBrowseDao {
         SELECT t.*
         FROM tracks t
         WHERE t.hidden = 0 AND (
-              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
@@ -204,10 +212,11 @@ interface LibraryBrowseDao {
         SELECT t.*
         FROM tracks t
         WHERE t.hidden = 0 AND t.favorite = 1 AND (
-              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
@@ -227,10 +236,11 @@ interface LibraryBrowseDao {
             MAX(t.artworkRef) AS artworkRef
         FROM tracks t
         WHERE t.hidden = 0 AND (
-              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
@@ -252,10 +262,11 @@ interface LibraryBrowseDao {
             MAX(t.artworkRef) AS artworkRef
         FROM tracks t
         WHERE t.hidden = 0 AND (
-              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
@@ -275,10 +286,11 @@ interface LibraryBrowseDao {
         WHERE t.hidden = 0
           AND COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist') = :normalizedArtist
           AND (
-              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
@@ -301,10 +313,11 @@ interface LibraryBrowseDao {
           AND COALESCE(NULLIF(TRIM(t.album), ''), 'Unknown album') = :album
           AND COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist') = :normalizedArtist
           AND (
-              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL')
+              EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )

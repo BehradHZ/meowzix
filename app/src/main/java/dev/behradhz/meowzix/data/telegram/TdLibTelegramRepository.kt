@@ -168,22 +168,26 @@ class TdLibTelegramRepository @Inject constructor(
             runCatching {
                 if (selected) {
                     val existing = telegramDao.selectedSource(accountId, chatId)
-                    telegramDao.upsertSelectedSource(
-                        TelegramSelectedSourceEntity(
-                            accountId = accountId,
-                            chatId = chatId,
-                            title = chat.title,
-                            kind = chat.kind.name,
-                            newestMessageId = existing?.newestMessageId,
-                            initialScanComplete = existing?.initialScanComplete ?: false,
-                            lastSyncedAtEpochMs = existing?.lastSyncedAtEpochMs,
-                        ),
-                    )
-                    ensureChatPlaylist(accountId, chatId, chat.title)
+                    database.withTransaction {
+                        telegramDao.upsertSelectedSource(
+                            TelegramSelectedSourceEntity(
+                                accountId = accountId,
+                                chatId = chatId,
+                                title = chat.title,
+                                kind = chat.kind.name,
+                                newestMessageId = existing?.newestMessageId,
+                                initialScanComplete = existing?.initialScanComplete ?: false,
+                                lastSyncedAtEpochMs = existing?.lastSyncedAtEpochMs,
+                            ),
+                        )
+                        ensureChatPlaylist(accountId, chatId, chat.title)
+                    }
                 } else {
-                    // Selection controls future syncing only. Imported tracks and their remote source
-                    // stay in the library and the generated chat playlist is intentionally retained.
-                    telegramDao.deleteSelectedSource(accountId, chatId)
+                    // Unselect only the source and its generated playlist, not tracks/downloads.
+                    database.withTransaction {
+                        telegramDao.deleteSelectedSource(accountId, chatId)
+                        playlistDao.deletePlaylist(telegramPlaylistId(accountId, chatId).toString())
+                    }
                 }
             }.onSuccess {
                 reloadPersistedSelection(accountId)
@@ -269,6 +273,7 @@ class TdLibTelegramRepository @Inject constructor(
                 currentUserId = me.id
                 val accountId = me.id.toString()
                 reloadPersistedSelection(accountId)
+                pruneDeselectedChatPlaylists(accountId)
                 // Reconcile incrementally whenever the TDLib session becomes ready. This catches
                 // messages that arrived while the process was stopped or before account state was
                 // fully restored, without rebuilding the chat history.
@@ -288,6 +293,14 @@ class TdLibTelegramRepository @Inject constructor(
                 selectedChatIds = selected,
                 chats = state.chats.map { it.copy(selected = it.chatId in selected) },
             )
+        }
+    }
+
+    /** Upgrade older libraries whose deselected chat playlists were left visible. */
+    private suspend fun pruneDeselectedChatPlaylists(accountId: String) {
+        val selectedIds = telegramDao.selectedSources(accountId).mapTo(mutableSetOf()) { it.chatId }
+        telegramDao.knownChatIds(accountId).filterNot(selectedIds::contains).forEach { chatId ->
+            playlistDao.deletePlaylist(telegramPlaylistId(accountId, chatId).toString())
         }
     }
 
@@ -491,9 +504,14 @@ class TdLibTelegramRepository @Inject constructor(
         )
     }
 
-    private suspend fun syncChatPlaylist(accountId: String, chatId: Long, title: String) {
-        ensureChatPlaylist(accountId, chatId, title)
+    private suspend fun syncChatPlaylist(accountId: String, chatId: Long, title: String) = database.withTransaction {
         val playlistId = telegramPlaylistId(accountId, chatId).toString()
+        // A sync started before deselection must not re-create the generated playlist.
+        if (telegramDao.selectedSource(accountId, chatId) == null) {
+            playlistDao.deletePlaylist(playlistId)
+            return@withTransaction
+        }
+        ensureChatPlaylist(accountId, chatId, title)
         val now = Instant.now().toEpochMilli()
         val trackIds = telegramDao.activeTrackIdsForChat(accountId, chatId)
         playlistDao.clearTracks(playlistId)

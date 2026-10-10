@@ -206,7 +206,7 @@ class LibraryQueryRepository @Inject constructor(
                 """
                 $TRACK_PROJECTION
                 FROM tracks t
-                WHERE t.id IN ($placeholders) AND t.hidden = 0
+                WHERE t.id IN ($placeholders) AND $AVAILABLE_TRACK_WHERE
                 """.trimIndent(),
                 distinctIds.map(UUID::toString).toTypedArray(),
             ),
@@ -292,18 +292,18 @@ class LibraryQueryRepository @Inject constructor(
                 t.createdAtEpochMs, t.updatedAtEpochMs
         """.trimIndent()
 
-        // Selecting a Telegram chat controls future sync only. Tracks that were already imported
-        // remain part of the library even after that chat is unchecked.
+        // Source selection controls library visibility, not persistence of downloaded bytes.
         val AVAILABLE_TRACK_WHERE = """
             t.hidden = 0
             AND (
                 EXISTS (
                     SELECT 1 FROM track_sources local
-                    WHERE local.trackId = t.id AND local.availability = 'AVAILABLE_LOCAL'
+                    WHERE local.trackId = t.id AND local.type = 'LOCAL_MEDIASTORE' AND local.availability = 'AVAILABLE_LOCAL'
                 )
                 OR EXISTS (
                     SELECT 1
                     FROM telegram_track_sources tg
+                    INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                     INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                     WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
                 )

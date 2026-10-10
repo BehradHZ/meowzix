@@ -230,9 +230,11 @@ class RoomPlaybackCatalog @Inject constructor(
     private suspend fun toBrowseTracks(tracks: List<TrackEntity>): List<BrowseTrack> {
         // Hidden canonical tracks must not leak through playlist or personalized Mix browsing,
         // even when an external browser presents a previously known Track UUID.
-        val visible = tracks.filterNot(TrackEntity::hidden)
+        val ids = tracks.filterNot(TrackEntity::hidden).map(TrackEntity::id)
+        if (ids.isEmpty()) return emptyList()
+        val visibleIds = libraryDao.visibleTrackIds(ids).toHashSet()
+        val visible = tracks.filter { it.id in visibleIds }
         if (visible.isEmpty()) return emptyList()
-        val ids = visible.map(TrackEntity::id)
         val sourcesByTrack = recommendationDao.activeSourcesForTracks(ids).groupBy(TrackSourceEntity::trackId)
         val telegramBySource = telegramDao.selectedTelegramTrackSourcesForTrackIds(ids)
             .associateBy(TelegramTrackSourceEntity::trackSourceId)

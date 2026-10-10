@@ -33,12 +33,13 @@ interface LibraryDao {
                   FROM track_sources local
                   WHERE local.trackId = t.id
                     AND local.type = 'LOCAL_MEDIASTORE'
-                    AND local.availability != 'MISSING'
+                    AND local.availability = 'AVAILABLE_LOCAL'
               )
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
@@ -64,12 +65,13 @@ interface LibraryDao {
                   FROM track_sources local
                   WHERE local.trackId = t.id
                     AND local.type = 'LOCAL_MEDIASTORE'
-                    AND local.availability != 'MISSING'
+                    AND local.availability = 'AVAILABLE_LOCAL'
               )
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
@@ -102,12 +104,13 @@ interface LibraryDao {
                   SELECT 1 FROM track_sources local
                   WHERE local.trackId = t.id
                     AND local.type = 'LOCAL_MEDIASTORE'
-                    AND local.availability != 'MISSING'
+                    AND local.availability = 'AVAILABLE_LOCAL'
               )
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
@@ -132,12 +135,13 @@ interface LibraryDao {
                   FROM track_sources local
                   WHERE local.trackId = t.id
                     AND local.type = 'LOCAL_MEDIASTORE'
-                    AND local.availability != 'MISSING'
+                    AND local.availability = 'AVAILABLE_LOCAL'
               )
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
@@ -191,7 +195,15 @@ interface LibraryDao {
     @Query("SELECT * FROM track_sources WHERE availability != 'MISSING'")
     fun observeActiveSources(): Flow<List<TrackSourceEntity>>
 
-    @Query("SELECT t.id, t.title, t.artist, t.album, t.durationMs, t.artworkRef, CASE WHEN s.contentUri IS NOT NULL THEN s.contentUri ELSE 'file://' || s.localPath END AS contentUri FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.availability = 'AVAILABLE_LOCAL' AND (s.contentUri IS NOT NULL OR s.localPath IS NOT NULL) AND t.hidden = 0 ORDER BY t.normalizedTitle, CASE s.type WHEN 'LOCAL_MEDIASTORE' THEN 0 WHEN 'APP_OFFLINE_COPY' THEN 1 WHEN 'TDLIB_LOCAL' THEN 2 ELSE 3 END, s.createdAtEpochMs")
+    @Query("SELECT t.id, t.title, t.artist, t.album, t.durationMs, t.artworkRef, CASE WHEN s.contentUri IS NOT NULL THEN s.contentUri ELSE 'file://' || s.localPath END AS contentUri FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.availability = 'AVAILABLE_LOCAL' AND (s.contentUri IS NOT NULL OR s.localPath IS NOT NULL) AND t.hidden = 0 AND (
+        EXISTS (SELECT 1 FROM track_sources independent
+                WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE'
+                  AND independent.availability = 'AVAILABLE_LOCAL')
+        OR EXISTS (SELECT 1 FROM telegram_track_sources tg
+                   INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING')
+      ) ORDER BY t.normalizedTitle, CASE s.type WHEN 'LOCAL_MEDIASTORE' THEN 0 WHEN 'APP_OFFLINE_COPY' THEN 1 WHEN 'TDLIB_LOCAL' THEN 2 ELSE 3 END, s.createdAtEpochMs")
     suspend fun availableLocalPlaybackRows(): List<LocalPlaybackRow>
 
     @Query("SELECT * FROM tracks")
@@ -202,6 +214,20 @@ interface LibraryDao {
 
     @Query("SELECT * FROM track_sources WHERE trackId = :trackId ORDER BY createdAtEpochMs")
     suspend fun sourcesForTrack(trackId: String): List<TrackSourceEntity>
+
+    @Query(
+        """
+        SELECT t.id FROM tracks t WHERE t.id IN (:trackIds) AND t.hidden = 0
+          AND (
+              EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL')
+              OR EXISTS (SELECT 1 FROM telegram_track_sources tg
+                         INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                         INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                         WHERE origin.trackId = t.id AND origin.availability != 'MISSING')
+          )
+        """,
+    )
+    suspend fun visibleTrackIds(trackIds: List<String>): List<String>
 
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
     suspend fun trackById(id: String): TrackEntity?
