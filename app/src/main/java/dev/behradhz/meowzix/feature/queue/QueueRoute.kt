@@ -48,6 +48,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -67,6 +68,19 @@ import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.core.common.TextNormalizer
+import dev.behradhz.meowzix.feature.library.LibraryRecommendationActions
+import dev.behradhz.meowzix.feature.library.LibraryTrackToolsActions
+import dev.behradhz.meowzix.feature.library.LibraryToolsDialogs
+import dev.behradhz.meowzix.feature.library.LibraryToolsViewModel
+import dev.behradhz.meowzix.feature.library.LocalLibraryRecommendationActions
+import dev.behradhz.meowzix.feature.library.LocalLibraryTrackToolsActions
+import dev.behradhz.meowzix.feature.library.LocalTrackForwardAction
+import dev.behradhz.meowzix.feature.library.TrackActionsSheet
+import dev.behradhz.meowzix.feature.library.TrackForwardOverlay
+import dev.behradhz.meowzix.feature.library.TrackForwardSelection
+import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
+import dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs
+import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
@@ -86,25 +100,54 @@ import kotlinx.coroutines.launch
 @Composable
 fun QueueRoute(
     searchQuery: String = "",
+    onGoToArtist: (String) -> Unit = {},
     viewModel: QueueViewModel = hiltViewModel(),
+    recommendationActions: RecommendationActionsViewModel = hiltViewModel(),
+    libraryTools: LibraryToolsViewModel = hiltViewModel(),
+    forwardViewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val aux by viewModel.aux.collectAsStateWithLifecycle()
-    QueueScreen(
-        state = state,
-        aux = aux,
-        searchQuery = searchQuery,
-        onPlay = viewModel::play,
-        onMove = viewModel::move,
-        onRemove = viewModel::remove,
-        onClear = viewModel::clear,
-        onToggleShuffle = viewModel::toggleShuffle,
-        onPlayNext = viewModel::playNext,
-        onAddToQueue = viewModel::addToQueue,
-        onPinOffline = viewModel::pinOffline,
-        onFavorite = viewModel::toggleFavorite,
-        onAddToPlaylist = viewModel::addToPlaylist,
-    )
+    var forwardSelection by remember { mutableStateOf<TrackForwardSelection?>(null) }
+
+    CompositionLocalProvider(
+        LocalLibraryRecommendationActions provides LibraryRecommendationActions(
+            continueVibe = recommendationActions::continueVibe,
+            why = recommendationActions::why,
+        ),
+        LocalLibraryTrackToolsActions provides LibraryTrackToolsActions(
+            editMetadata = libraryTools::openMetadata,
+            manageDuplicates = libraryTools::openDuplicates,
+        ),
+        LocalTrackForwardAction provides { selection ->
+            forwardSelection = selection
+            forwardViewModel.openForwardPickerForTrack(selection.id)
+        },
+    ) {
+        QueueScreen(
+            state = state,
+            aux = aux,
+            searchQuery = searchQuery,
+            onPlay = viewModel::play,
+            onMove = viewModel::move,
+            onRemove = viewModel::remove,
+            onClear = viewModel::clear,
+            onToggleShuffle = viewModel::toggleShuffle,
+            onPlayNext = viewModel::playNext,
+            onAddToQueue = viewModel::addToQueue,
+            onPinOffline = viewModel::pinOffline,
+            onFavorite = viewModel::toggleFavorite,
+            onAddToPlaylist = viewModel::addToPlaylist,
+            onGoToArtist = onGoToArtist,
+        )
+        RecommendationActionDialogs(recommendationActions)
+        LibraryToolsDialogs(libraryTools)
+        TrackForwardOverlay(
+            selection = forwardSelection,
+            viewModel = forwardViewModel,
+            onDismiss = { forwardSelection = null },
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -123,6 +166,7 @@ private fun QueueScreen(
     onPinOffline: (UUID) -> Unit,
     onFavorite: (UUID) -> Unit,
     onAddToPlaylist: (UUID, UUID) -> Unit,
+    onGoToArtist: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -337,6 +381,7 @@ private fun QueueScreen(
                             playlists = aux.playlists,
                             onFavorite = { onFavorite(item.id) },
                             onAddToPlaylist = { playlistId -> onAddToPlaylist(item.id, playlistId) },
+                            onGoToArtist = { artist -> onGoToArtist(artist) },
                         )
                     }
                 }
@@ -403,7 +448,11 @@ private fun SwipeableQueueItem(
     playlists: List<PlaylistSummary>,
     onFavorite: () -> Unit,
     onAddToPlaylist: (UUID) -> Unit,
+    onGoToArtist: (String) -> Unit,
 ) {
+    val recommendationActions = LocalLibraryRecommendationActions.current
+    val trackToolsActions = LocalLibraryTrackToolsActions.current
+    val forwardAction = LocalTrackForwardAction.current
     var menuExpanded by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val haptics = rememberMeowzixHaptics()
@@ -593,41 +642,30 @@ private fun SwipeableQueueItem(
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (reorderEnabled) 1f else 0.28f),
                     )
                 }
-                Box {
-                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
-                        Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
-                    }
-                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Add to queue") },
-                            leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, contentDescription = null) },
-                            onClick = { menuExpanded = false; onAddToQueue() },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Play next") },
-                            leadingIcon = { Icon(Icons.Rounded.PlaylistPlay, contentDescription = null) },
-                            onClick = { menuExpanded = false; onPlayNext() },
-                        )
-                        playlists.forEach { playlist ->
-                            DropdownMenuItem(
-                                text = { Text("Add to playlist · ${playlist.title}") },
-                                leadingIcon = { Icon(Icons.Rounded.PlaylistAddCircle, contentDescription = null) },
-                                onClick = { menuExpanded = false; onAddToPlaylist(playlist.id) },
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text(if (favorite) "Remove favorite" else "Favorite") },
-                            leadingIcon = { Icon(if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, contentDescription = null) },
-                            onClick = { menuExpanded = false; onFavorite() },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Delete from queue") },
-                            leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
-                            onClick = { menuExpanded = false; onRemove() },
-                        )
-                    }
+                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
                 }
             }
+        }
+        if (menuExpanded) {
+            TrackActionsSheet(
+                title = item.title,
+                artist = item.artist,
+                favorite = favorite,
+                isQueue = true,
+                playlists = playlists,
+                onDismiss = { menuExpanded = false },
+                onPrimary = onRemove,
+                onAddToQueue = onAddToQueue,
+                onFavorite = onFavorite,
+                onForward = { forwardAction(TrackForwardSelection(item.id, item.title, item.artist)) },
+                onGoToArtist = { item.artist?.let(onGoToArtist) },
+                onAddToPlaylist = onAddToPlaylist,
+                onContinueVibe = { recommendationActions?.continueVibe?.invoke(item.id) },
+                onEditMetadata = { trackToolsActions?.editMetadata?.invoke(item.id) },
+                onManageDuplicates = { trackToolsActions?.manageDuplicates?.invoke(item.id) },
+                onWhy = { recommendationActions?.why?.invoke(item.id) },
+            )
         }
     }
 }
