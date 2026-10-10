@@ -1,6 +1,11 @@
 package dev.behradhz.meowzix.playback
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.media.audiofx.Visualizer
+import androidx.core.content.ContextCompat
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.domain.playback.AUDIO_SPECTRUM_BAND_COUNT
 import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
@@ -15,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 @Singleton
 class AndroidAudioVisualizer @Inject constructor(
+    @param:ApplicationContext private val context: Context,
     private val equalizerRepository: EqualizerRepository,
 ) : AudioVisualizerRepository {
     private val lock = Any()
@@ -58,9 +64,11 @@ class AndroidAudioVisualizer @Inject constructor(
                 _spectrum.value = AudioSpectrumState()
                 return
             }
+            val hasPermission = hasRecordAudioPermission()
             _spectrum.value = AudioSpectrumState(
                 sourceUri = sourceUri,
-                isAnalyzing = visualizer == null && audioSessionId > 0,
+                isAnalyzing = visualizer == null && audioSessionId > 0 && hasPermission,
+                errorMessage = if (hasPermission) null else PERMISSION_ERROR,
             )
         }
         refresh()
@@ -86,6 +94,14 @@ class AndroidAudioVisualizer @Inject constructor(
             val uri = sourceUri
             if (uri.isNullOrBlank()) {
                 _spectrum.value = AudioSpectrumState()
+                return
+            }
+            if (!hasRecordAudioPermission()) {
+                releaseVisualizerLocked()
+                _spectrum.value = AudioSpectrumState(
+                    sourceUri = uri,
+                    errorMessage = PERMISSION_ERROR,
+                )
                 return
             }
             if (audioSessionId <= 0) {
@@ -211,6 +227,10 @@ class AndroidAudioVisualizer @Inject constructor(
             .coerceIn(1, binCount - 1)
     }
 
+    private fun hasRecordAudioPermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+
     private companion object {
         const val NO_AUDIO_SESSION = -1
         const val FFT_MAX_MAGNITUDE = 181.02f
@@ -218,6 +238,7 @@ class AndroidAudioVisualizer @Inject constructor(
         const val ATTACK = 0.68f
         const val RELEASE = 0.20f
         const val NOISE_FLOOR = 0.012f
+        const val PERMISSION_ERROR = "Allow microphone permission to show the live playback spectrum"
         const val VISUALIZER_ERROR = "Live spectrum is unavailable on this device or audio path"
     }
 }

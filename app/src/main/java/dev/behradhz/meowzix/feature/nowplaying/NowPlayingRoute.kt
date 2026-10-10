@@ -1,6 +1,10 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.snap
@@ -50,11 +54,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -104,7 +110,23 @@ fun NowPlayingRoute(
     RecommendationActionDialogs(recommendationActions)
     BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
     LaunchedEffect(state.currentTrack?.id) { lyricsExpanded = false }
-    LaunchedEffect(Unit) { viewModel.refreshVisualizer() }
+    // Android's Visualizer captures FFT from our own playback session, but requires RECORD_AUDIO.
+    // Request it only when the full player is opened; mini-player never starts a permission prompt.
+    val context = LocalContext.current
+    val liveSpectrumPermission = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) viewModel.refreshVisualizer()
+    }
+    LaunchedEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            viewModel.refreshVisualizer()
+        } else {
+            liveSpectrumPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     val closeOrCollapse = {
         if (lyricsExpanded) lyricsExpanded = false else onBack()
