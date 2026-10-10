@@ -78,6 +78,7 @@ internal fun NowPlayingArtworkPager(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit = {},
+    onTransitionSettled: (java.util.UUID) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // NowPlayingArtworkPager is only hosted by NowPlayingRoute, so this resolves to the same scoped
@@ -109,6 +110,9 @@ internal fun NowPlayingArtworkPager(
     val queueAvailable = activeIndex in queueState.items.indices && queueState.items.isNotEmpty()
 
     if (!queueAvailable) {
+        LaunchedEffect(state.currentTrack?.id) {
+            state.currentTrack?.id?.let(onTransitionSettled)
+        }
         BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
             val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
             NowPlayingArtwork(
@@ -160,6 +164,7 @@ internal fun NowPlayingArtworkPager(
     val latestNext by rememberUpdatedState(onNext)
     val latestTogglePlayPause by rememberUpdatedState(viewModel::togglePlayPause)
     val latestBackdropTransition by rememberUpdatedState(onBackdropTransition)
+    val latestTransitionSettled by rememberUpdatedState(onTransitionSettled)
 
     fun artworkRefAt(index: Int): String? {
         val item = queueState.items.getOrNull(index) ?: return null
@@ -194,6 +199,7 @@ internal fun NowPlayingArtworkPager(
         direction = null
         progress = 0f
         latestBackdropTransition(null)
+        queueState.items.getOrNull(displayedIndex)?.id?.let(latestTransitionSettled)
     }
 
     fun animateBackToCurrent() {
@@ -270,7 +276,10 @@ internal fun NowPlayingArtworkPager(
         }
 
         if (activeIndex == pendingUserTargetIndex) return@LaunchedEffect
-        if (activeIndex == displayedIndex) return@LaunchedEffect
+        if (activeIndex == displayedIndex) {
+            queueState.items.getOrNull(activeIndex)?.id?.let(latestTransitionSettled)
+            return@LaunchedEffect
+        }
 
         val delta = activeIndex - displayedIndex
         if (abs(delta) != 1) {

@@ -80,6 +80,7 @@ import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import java.util.UUID
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 
@@ -252,6 +253,17 @@ private fun NowPlayingScreen(
     var pendingSeek by remember(track.id) { mutableStateOf<Float?>(null) }
     var settlingSeekTarget by remember(track.id) { mutableStateOf<Long?>(null) }
     var backdropTransition by remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
+    val currentTrackId = track.id
+    val currentTrackHasLyrics = lyricsState.trackId == currentTrackId && lyricsState.hasDisplayableLyrics
+    var settledArtworkTrackId by remember { mutableStateOf<UUID?>(null) }
+    var reservedLyricsLayout by remember { mutableStateOf(false) }
+    // Retain the previous cover's layout throughout the swipe/crop animation. Only after the
+    // pager finishes should the new cover ease into its lyrics/no-lyrics layout.
+    LaunchedEffect(currentTrackId, settledArtworkTrackId, currentTrackHasLyrics) {
+        if (settledArtworkTrackId == currentTrackId) {
+            reservedLyricsLayout = currentTrackHasLyrics
+        }
+    }
     val heroWeight by animateFloatAsState(
         targetValue = if (lyricsExpanded) 0.02f else 1f,
         animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.90f, stiffness = 520f),
@@ -320,6 +332,7 @@ private fun NowPlayingScreen(
                 state = state,
                 queueState = queueState,
                 expanded = lyricsExpanded,
+                lyricsLayoutVisible = reservedLyricsLayout,
                 onBack = onBack,
                 onPrevious = onPrevious,
                 onNext = onNext,
@@ -327,12 +340,15 @@ private fun NowPlayingScreen(
                 favorite = isFavorite,
                 reduceMotion = reduceMotion,
                 onBackdropTransition = { backdropTransition = it },
+                onArtworkSettled = { settledArtworkTrackId = it },
                 compactLyrics = {
-                    CompactLyricsPreview(
-                        state = lyricsState,
-                        onExpand = onExpandLyrics,
-                        reduceMotion = reduceMotion,
-                    )
+                    if (settledArtworkTrackId == currentTrackId && currentTrackHasLyrics) {
+                        CompactLyricsPreview(
+                            state = lyricsState,
+                            onExpand = onExpandLyrics,
+                            reduceMotion = reduceMotion,
+                        )
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()

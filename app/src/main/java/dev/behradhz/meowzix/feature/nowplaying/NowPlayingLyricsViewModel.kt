@@ -39,6 +39,11 @@ data class NowPlayingLyricsState(
     val selected: LyricsVersion? get() = trackLyrics?.selected
     val effectiveLines get() = selected?.effectiveLines().orEmpty()
     val hasLyrics: Boolean get() = selected != null
+    val hasDisplayableLyrics: Boolean get() = when (selected?.parsed?.contentType) {
+        LyricsContentType.TIMED -> selected?.parsed?.timedLines?.any { it.text.isNotBlank() } == true
+        LyricsContentType.PLAIN -> selected?.parsed?.plainLines?.any(String::isNotBlank) == true
+        else -> false
+    }
     val isTimed: Boolean get() = selected?.parsed?.contentType == LyricsContentType.TIMED
 }
 

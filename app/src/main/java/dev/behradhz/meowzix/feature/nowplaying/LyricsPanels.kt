@@ -65,23 +65,12 @@ fun CompactLyricsPreview(
     reduceMotion: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val selected = state.selected
+    val selected = state.selected?.takeIf { state.hasDisplayableLyrics } ?: return
     Surface(
         onClick = onExpand,
         modifier = modifier.fillMaxWidth().height(118.dp),
         color = Color.Transparent,
     ) {
-        if (selected == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "Add lyrics",
-                    color = Color.White.copy(alpha = 0.82f),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
-            return@Surface
-        }
-
         when (selected.parsed.contentType) {
             LyricsContentType.TIMED -> AnimatedContent(
                 targetState = state.activeLineIndex,

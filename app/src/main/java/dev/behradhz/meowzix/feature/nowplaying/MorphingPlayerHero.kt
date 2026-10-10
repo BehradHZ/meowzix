@@ -47,6 +47,7 @@ internal fun MorphingPlayerHero(
     state: PlaybackState,
     queueState: QueueState,
     expanded: Boolean,
+    lyricsLayoutVisible: Boolean,
     onBack: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -54,6 +55,7 @@ internal fun MorphingPlayerHero(
     favorite: Boolean,
     reduceMotion: Boolean,
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit,
+    onArtworkSettled: (java.util.UUID) -> Unit,
     compactLyrics: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -62,6 +64,11 @@ internal fun MorphingPlayerHero(
         targetValue = if (expanded) 1f else 0f,
         animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.88f, stiffness = 500f),
         label = "lyrics-hero-morph",
+    )
+    val lyricSpace by animateFloatAsState(
+        targetValue = if (lyricsLayoutVisible) 1f else 0f,
+        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.86f, stiffness = 195f),
+        label = "artwork-lyrics-layout-settle",
     )
 
     Layout(
@@ -77,10 +84,11 @@ internal fun MorphingPlayerHero(
                     onPrevious = onPrevious,
                     onNext = onNext,
                     onBackdropTransition = onBackdropTransition,
+                    onTransitionSettled = onArtworkSettled,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            Box(Modifier.graphicsLayer { alpha = 1f - progress }) { compactLyrics() }
+            Box(Modifier.graphicsLayer { alpha = (1f - progress) * lyricSpace }) { compactLyrics() }
             MorphingIdentity(
                 title = track.title,
                 artist = track.artist ?: "Unknown artist",
@@ -96,11 +104,16 @@ internal fun MorphingPlayerHero(
         val gap = 12.dp.roundToPx()
         val previewHeight = 118.dp.roundToPx()
         val identityReserve = 66.dp.roundToPx()
-        val collapsedArt = min(
-            width,
-            (height - previewHeight - identityReserve - 8.dp.roundToPx()).coerceAtLeast(compactArt),
+        val geometry = collapsedHeroGeometry(
+            width = width,
+            height = height,
+            compactArt = compactArt,
+            previewHeight = previewHeight,
+            identityReserve = identityReserve,
+            margin = gap,
+            lyricSpace = lyricSpace,
         )
-        val artSize = lerpInt(collapsedArt, compactArt, progress).coerceAtLeast(1)
+        val artSize = lerpInt(geometry.artworkSize, compactArt, progress).coerceAtLeast(1)
         val expandedIdentityWidth = (width - compactArt - gap).coerceAtLeast(1)
         val identityWidth = lerpInt(width, expandedIdentityWidth, progress).coerceAtLeast(1)
 
@@ -124,11 +137,10 @@ internal fun MorphingPlayerHero(
 
         val collapsedArtX = (width - artSize) / 2
         val artX = lerpInt(collapsedArtX, 0, progress)
-        val artY = lerpInt(0, 4.dp.roundToPx(), progress)
-        val previewY = collapsedArt + 4.dp.roundToPx()
-        val collapsedIdentityY = (collapsedArt + previewHeight + 8.dp.roundToPx()).coerceAtMost(height)
+        val artY = lerpInt(geometry.artworkTop, 4.dp.roundToPx(), progress)
+        val previewY = geometry.artworkTop + geometry.artworkSize + 4.dp.roundToPx()
         val identityX = lerpInt(0, compactArt + gap, progress)
-        val identityY = lerpInt(collapsedIdentityY, 2.dp.roundToPx(), progress)
+        val identityY = lerpInt(geometry.identityTop, 2.dp.roundToPx(), progress)
 
         layout(width, height) {
             artwork.placeRelative(artX, artY)
@@ -190,6 +202,7 @@ private fun ArtworkGestureZoneForMorph(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit,
+    onTransitionSettled: (java.util.UUID) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     NowPlayingArtworkPager(
@@ -201,8 +214,33 @@ private fun ArtworkGestureZoneForMorph(
         onPrevious = onPrevious,
         onNext = onNext,
         onBackdropTransition = onBackdropTransition,
+        onTransitionSettled = onTransitionSettled,
         modifier = modifier,
     )
+}
+
+/** Pixel-space cover bounds for the compact player; independent of Compose animation or source. */
+internal data class CollapsedHeroGeometry(val artworkSize: Int, val artworkTop: Int, val identityTop: Int)
+
+internal fun collapsedHeroGeometry(
+    width: Int,
+    height: Int,
+    compactArt: Int,
+    previewHeight: Int,
+    identityReserve: Int,
+    margin: Int,
+    lyricSpace: Float,
+): CollapsedHeroGeometry {
+    val withLyrics = min(width, (height - previewHeight - identityReserve - margin).coerceAtLeast(compactArt))
+    val withoutLyrics = min(width, (height - identityReserve - margin).coerceAtLeast(compactArt))
+    val artworkSize = lerpInt(withoutLyrics, withLyrics, lyricSpace).coerceAtLeast(1)
+    val centeredTop = ((height - artworkSize - identityReserve) / 2).coerceAtLeast(0)
+    val artworkTop = lerpInt(centeredTop, 0, lyricSpace)
+    val identityTop = (
+        artworkTop + artworkSize + margin +
+            lerpInt(0, previewHeight, lyricSpace)
+    ).coerceAtMost(height)
+    return CollapsedHeroGeometry(artworkSize, artworkTop, identityTop)
 }
 
 private fun lerpInt(start: Int, stop: Int, fraction: Float): Int =
