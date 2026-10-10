@@ -9,6 +9,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -51,10 +52,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -400,62 +403,76 @@ private fun MiniPlayerContent(
         queueState.items,
     ) { resolveMiniActiveIndex(state, queueState) }
 
-    Row(
-        modifier = modifier.padding(start = 10.dp, end = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
+    // Both the controls and the progress indicator share the same 72.dp coordinate space.
+    // This anchors progress to the card's bottom edge, regardless of text direction.
+    Box(modifier = modifier) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(start = 10.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (activeIndex !in queueState.items.indices) {
-                MiniPlayerTrackSummary(
-                    track = playingTrack.toMiniCard(),
-                    showWaveform = !reduceMotion && hasWaveform && state.status == PlaybackStatus.PLAYING,
-                    compactBands = compactBands,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                InteractiveMiniTrackPager(
-                    state = state,
-                    queueState = queueState,
-                    activeIndex = activeIndex,
-                    compactBands = compactBands,
-                    hasWaveform = hasWaveform,
-                    onNext = onNext,
-                    onPlayQueueItemAt = onPlayQueueItemAt,
-                    reduceMotion = reduceMotion,
-                    modifier = Modifier.fillMaxSize(),
+            BoxWithConstraints(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            ) {
+                if (activeIndex !in queueState.items.indices) {
+                    MiniPlayerTrackSummary(
+                        track = playingTrack.toMiniCard(),
+                        showWaveform = !reduceMotion && hasWaveform && state.status == PlaybackStatus.PLAYING,
+                        compactBands = compactBands,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    InteractiveMiniTrackPager(
+                        state = state,
+                        queueState = queueState,
+                        activeIndex = activeIndex,
+                        compactBands = compactBands,
+                        hasWaveform = hasWaveform,
+                        onNext = onNext,
+                        onPlayQueueItemAt = onPlayQueueItemAt,
+                        reduceMotion = reduceMotion,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+
+            IconButton(onClick = onTogglePlayPause) {
+                Icon(
+                    imageVector = if (state.status == PlaybackStatus.PLAYING) {
+                        Icons.Rounded.Pause
+                    } else {
+                        Icons.Rounded.PlayArrow
+                    },
+                    contentDescription = if (state.status == PlaybackStatus.PLAYING) "Pause" else "Play",
                 )
             }
         }
 
-        IconButton(onClick = onTogglePlayPause) {
-            Icon(
-                imageVector = if (state.status == PlaybackStatus.PLAYING) {
-                    Icons.Rounded.Pause
-                } else {
-                    Icons.Rounded.PlayArrow
-                },
-                contentDescription = if (state.status == PlaybackStatus.PLAYING) "Pause" else "Play",
-            )
-        }
+        MiniPlayerProgressBar(
+            progress = progressValue,
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+        )
     }
+}
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(2.dp)
-            .align(Alignment.BottomCenter),
-    ) {
-        androidx.compose.material3.Surface(
-            modifier = Modifier
-                .fillMaxWidth(progressValue)
-                .height(2.dp)
-                .align(Alignment.CenterStart),
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.88f),
-        ) {}
+/**
+ * Draw the mini-player seek progress from the physical left edge, not the logical
+ * "start" edge. Canvas coordinates stay left-to-right in both LTR and RTL layouts.
+ */
+@Composable
+internal fun MiniPlayerProgressBar(
+    progress: Float,
+    modifier: Modifier = Modifier,
+    progressColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.88f),
+    trackColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+) {
+    Canvas(modifier = modifier.height(2.dp).testTag("mini-player-progress")) {
+        drawRect(color = trackColor)
+        drawRect(
+            color = progressColor,
+            size = Size(size.width * progress.coerceIn(0f, 1f), size.height),
+        )
     }
 }
 
