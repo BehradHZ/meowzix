@@ -5,7 +5,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
+import dev.behradhz.meowzix.core.model.SourceAvailability
+import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.TrackEntity
+import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -33,7 +36,16 @@ class RoomPlaylistRepositoryTest {
     @Test
     fun playlistOrderPersistsAndCanBeReordered() = runTest {
         val trackIds = listOf(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID())
-        trackIds.forEachIndexed { index, id -> database.libraryDao().upsertTrack(track(id, index)) }
+        trackIds.forEachIndexed { index, id ->
+            database.libraryDao().upsertTrack(track(id, index))
+            database.libraryDao().upsertSource(TrackSourceEntity(
+                id = "source-$id", trackId = id.toString(), type = TrackSourceType.LOCAL_MEDIASTORE,
+                availability = SourceAvailability.AVAILABLE_LOCAL,
+                contentUri = "content://media/$id", localPath = null, mimeType = "audio/mpeg",
+                fileSizeBytes = 1, contentHashSha256 = null, trainingEligible = true,
+                createdAtEpochMs = 1, lastVerifiedAtEpochMs = 1,
+            ))
+        }
         val playlistId = repository.create("Road trip")
         repository.replaceTracks(playlistId, trackIds)
 
@@ -48,7 +60,16 @@ class RoomPlaylistRepositoryTest {
     @Test
     fun deletingPlaylistRemovesMembershipButPreservesTracksAndOtherPlaylists() = runTest {
         val trackIds = listOf(UUID.randomUUID(), UUID.randomUUID())
-        trackIds.forEachIndexed { index, id -> database.libraryDao().upsertTrack(track(id, index)) }
+        trackIds.forEachIndexed { index, id ->
+            database.libraryDao().upsertTrack(track(id, index))
+            database.libraryDao().upsertSource(TrackSourceEntity(
+                id = "source-$id", trackId = id.toString(), type = TrackSourceType.LOCAL_MEDIASTORE,
+                availability = SourceAvailability.AVAILABLE_LOCAL,
+                contentUri = "content://media/$id", localPath = null, mimeType = "audio/mpeg",
+                fileSizeBytes = 1, contentHashSha256 = null, trainingEligible = true,
+                createdAtEpochMs = 1, lastVerifiedAtEpochMs = 1,
+            ))
+        }
         val deletedId = repository.create("Delete me")
         val retainedId = repository.create("Keep me")
         repository.replaceTracks(deletedId, trackIds)

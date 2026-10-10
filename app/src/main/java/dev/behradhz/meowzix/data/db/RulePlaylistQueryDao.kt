@@ -12,6 +12,8 @@ interface RulePlaylistQueryDao {
         observedEntities = [
             TrackEntity::class,
             TrackSourceEntity::class,
+            TelegramTrackSourceEntity::class,
+            TelegramSelectedSourceEntity::class,
             ListeningEventEntity::class,
             TrackMetadataOverrideEntity::class,
             TrackSearchFtsEntity::class,
