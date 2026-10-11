@@ -369,7 +369,8 @@ private fun NowPlayingScreen(
                 )
             }
 
-            Spacer(Modifier.height(if (lyricsExpanded) 6.dp else 10.dp))
+            // v0.5 kept the identity immediately above the waveform with a compact 12.dp gap.
+            Spacer(Modifier.height(if (lyricsExpanded) 6.dp else 12.dp))
 
             SyntheticWaveformSeekBar(
                 trackKey = track.id.toString(),

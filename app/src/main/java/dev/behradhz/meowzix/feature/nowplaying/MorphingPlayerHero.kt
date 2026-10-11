@@ -103,20 +103,30 @@ internal fun MorphingPlayerHero(
         val compactArt = 64.dp.roundToPx()
         val gap = 12.dp.roundToPx()
         val previewHeight = 118.dp.roundToPx()
-        val identityReserve = 66.dp.roundToPx()
+        val expandedIdentityWidth = (width - compactArt - gap).coerceAtLeast(1)
+        val identityWidth = lerpInt(width, expandedIdentityWidth, progress).coerceAtLeast(1)
+        // Measure the real title/artist row before sizing artwork. The reserved bottom area must
+        // also support larger accessibility font scales instead of assuming a fixed text height.
+        val identity = measurables[2].measure(
+            Constraints(
+                minWidth = identityWidth,
+                maxWidth = identityWidth,
+                minHeight = 0,
+                maxHeight = height,
+            ),
+        )
+        val identityReserve = maxOf(66.dp.roundToPx(), identity.height)
         val geometry = collapsedHeroGeometry(
             width = width,
             height = height,
             compactArt = compactArt,
             previewHeight = previewHeight,
             identityReserve = identityReserve,
+            identityHeight = identity.height,
             margin = gap,
             lyricSpace = lyricSpace,
         )
         val artSize = lerpInt(geometry.artworkSize, compactArt, progress).coerceAtLeast(1)
-        val expandedIdentityWidth = (width - compactArt - gap).coerceAtLeast(1)
-        val identityWidth = lerpInt(width, expandedIdentityWidth, progress).coerceAtLeast(1)
-
         val artwork = measurables[0].measure(Constraints.fixed(artSize, artSize))
         val preview = measurables[1].measure(
             Constraints(
@@ -124,14 +134,6 @@ internal fun MorphingPlayerHero(
                 maxWidth = width,
                 minHeight = previewHeight,
                 maxHeight = previewHeight,
-            ),
-        )
-        val identity = measurables[2].measure(
-            Constraints(
-                minWidth = identityWidth,
-                maxWidth = identityWidth,
-                minHeight = 0,
-                maxHeight = height,
             ),
         )
 
@@ -219,7 +221,10 @@ private fun ArtworkGestureZoneForMorph(
     )
 }
 
-/** Pixel-space cover bounds for the compact player; independent of Compose animation or source. */
+/** Pixel-space compact player bounds. The title row is pinned to the hero's bottom edge,
+ * as in v0.5, rather than to the artwork/lyrics preview (which may leave empty space on tall screens).
+ * The artwork can still ease between its centered/no-lyrics and compact-lyrics positions independently.
+ */
 internal data class CollapsedHeroGeometry(val artworkSize: Int, val artworkTop: Int, val identityTop: Int)
 
 internal fun collapsedHeroGeometry(
@@ -228,19 +233,18 @@ internal fun collapsedHeroGeometry(
     compactArt: Int,
     previewHeight: Int,
     identityReserve: Int,
+    identityHeight: Int,
     margin: Int,
     lyricSpace: Float,
 ): CollapsedHeroGeometry {
     val withLyrics = min(width, (height - previewHeight - identityReserve - margin).coerceAtLeast(compactArt))
     val withoutLyrics = min(width, (height - identityReserve - margin).coerceAtLeast(compactArt))
     val artworkSize = lerpInt(withoutLyrics, withLyrics, lyricSpace).coerceAtLeast(1)
-    val centeredTop = ((height - withoutLyrics - identityReserve) / 2).coerceAtLeast(0)
+    val centeredTop = ((height - identityHeight - withoutLyrics) / 2).coerceAtLeast(0)
     val artworkTop = lerpInt(centeredTop, 0, lyricSpace)
-    // Interpolate both endpoints directly. Recomputing identity position from intermediate
-    // artwork dimensions can overshoot the destination and create a visible bounce.
-    val noLyricsIdentity = centeredTop + withoutLyrics + margin
-    val withLyricsIdentity = withLyrics + previewHeight + margin
-    val identityTop = lerpInt(noLyricsIdentity, withLyricsIdentity, lyricSpace).coerceAtMost(height)
+    // Keep the title and artist just above the seekbar for all screen heights and lyrics states.
+    // This also prevents their position from jumping when the new artwork finishes sliding.
+    val identityTop = (height - identityHeight).coerceAtLeast(0)
     return CollapsedHeroGeometry(artworkSize, artworkTop, identityTop)
 }
 
