@@ -348,13 +348,14 @@ fun NowPlayingArtwork(
     description: String,
     modifier: Modifier = Modifier,
     showShadow: Boolean = true,
+    cornerRadius: Dp = 28.dp,
 ) {
     val bitmap = rememberArtworkBitmap(
         artworkRef = artworkRef,
         targetPixels = PLAYER_ARTWORK_TARGET_PIXELS,
         retainPreviousWhileLoading = true,
     )
-    val shape = RoundedCornerShape(28.dp)
+    val shape = RoundedCornerShape(cornerRadius)
     val artworkModifier = if (showShadow) {
         modifier.shadow(
             elevation = 18.dp,

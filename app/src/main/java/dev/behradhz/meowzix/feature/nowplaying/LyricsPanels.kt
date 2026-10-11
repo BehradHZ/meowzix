@@ -33,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,7 +60,9 @@ import dev.behradhz.meowzix.domain.lyrics.LyricsContentType
 import dev.behradhz.meowzix.domain.lyrics.LyricsFollowAction
 import dev.behradhz.meowzix.domain.lyrics.LyricsFollowMachine
 import dev.behradhz.meowzix.domain.lyrics.LyricsFollowMode
+import dev.behradhz.meowzix.ui.theme.Vazirmatn
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 @Composable
 fun CompactLyricsPreview(
@@ -106,7 +109,7 @@ fun CompactLyricsPreview(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    lines.forEach { PreviewLine(it, false) }
+                    lines.forEachIndexed { index, line -> PreviewLine(line, index == 1 || lines.size == 1) }
                 }
             }
             LyricsContentType.INSTRUMENTAL -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -125,13 +128,18 @@ private fun PreviewLine(text: String?, current: Boolean) {
         if (!text.isNullOrBlank()) {
             Text(
                 text = text,
-                color = Color.White,
-                fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
-                style = if (current) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = if (current) 1f else 0.52f),
+                fontWeight = if (current) FontWeight.Bold else FontWeight.SemiBold,
+                style = (if (current) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium).copy(
+                    fontFamily = Vazirmatn,
+                    fontSize = if (current) 24.sp else 19.sp,
+                    lineHeight = if (current) 33.sp else 27.sp,
+                ),
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 modifier = Modifier
                     .padding(horizontal = 10.dp)
+                    .blur(if (current) 0.dp else 1.4.dp)
                     .semantics {
                         selected = current
                         if (current) stateDescription = "Current lyric"
@@ -231,7 +239,12 @@ fun ExpandedLyricsPanel(
                     Text(
                         selected.parsed.plainLines[index],
                         color = Color.White,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontFamily = Vazirmatn,
+                            fontSize = 29.sp,
+                            lineHeight = 43.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     )
                 }
@@ -273,13 +286,25 @@ private fun TimedLyricsList(
     var programmaticScroll by remember { mutableStateOf(false) }
     val lines = state.effectiveLines
     val activeIndex = state.activeLineIndex
+    // Visual emphasis belongs to the line in the viewport's focus band, not necessarily the
+    // currently playing line. This also stays correct during manual browsing.
+    val focusIndex by remember(listState) {
+        derivedStateOf {
+            val layout = listState.layoutInfo
+            val anchor = (layout.viewportStartOffset + layout.viewportEndOffset) / 2f
+            focusedLyricIndex(
+                layout.visibleItemsInfo.map { item -> item.index to (item.offset + item.size / 2f) },
+                anchor,
+            )
+        }
+    }
 
     suspend fun settle(index: Int, animated: Boolean = true) {
         if (index !in lines.indices) return
         val viewport = (listState.layoutInfo.viewportEndOffset - listState.layoutInfo.viewportStartOffset).coerceAtLeast(1)
         val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
         val lineHeight = visible?.size ?: 48
-        val anchor = (viewport * 0.40f).toInt()
+        val anchor = (viewport * 0.50f).toInt()
         val offset = -(anchor - lineHeight / 2)
         programmaticScroll = true
         try {
@@ -307,7 +332,7 @@ private fun TimedLyricsList(
         val layout = listState.layoutInfo
         val item = layout.visibleItemsInfo.firstOrNull { it.index == activeIndex } ?: return@LaunchedEffect
         val viewportHeight = (layout.viewportEndOffset - layout.viewportStartOffset).toFloat().coerceAtLeast(1f)
-        val anchor = layout.viewportStartOffset + viewportHeight * 0.40f
+        val anchor = layout.viewportStartOffset + viewportHeight * 0.50f
         val center = item.offset + item.size / 2f
         followMachine.evaluate(center, anchor, item.size.toFloat(), false, false, false, android.os.SystemClock.uptimeMillis())
         mode = followMachine.mode
@@ -318,7 +343,7 @@ private fun TimedLyricsList(
                 if (latest != null) {
                     val latestLayout = listState.layoutInfo
                     val latestViewport = (latestLayout.viewportEndOffset - latestLayout.viewportStartOffset).toFloat().coerceAtLeast(1f)
-                    val latestAnchor = latestLayout.viewportStartOffset + latestViewport * 0.40f
+                    val latestAnchor = latestLayout.viewportStartOffset + latestViewport * 0.50f
                     val action = followMachine.evaluate(
                         latest.offset + latest.size / 2f,
                         latestAnchor,
@@ -340,31 +365,32 @@ private fun TimedLyricsList(
     Box(modifier.fillMaxWidth()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().lyricsEdgeFade(),
+            modifier = Modifier.fillMaxSize().lyricsEdgeFade().testTag("expanded-lyrics-scroll"),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 120.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             items(lines.size, key = { index -> "${lines[index].timeMs}-${lines[index].originalOrder}" }) { index ->
-                val current = index == activeIndex
+                val focused = index == focusIndex
+                val playing = index == activeIndex
                 Text(
                     text = lines[index].text,
-                    color = Color.White.copy(alpha = lyricLineOpacity(index, activeIndex)),
-                    fontWeight = if (current) FontWeight.Bold else FontWeight.SemiBold,
-                    style = if (current) MaterialTheme.typography.headlineMedium.copy(
-                        fontSize = 32.sp,
-                        lineHeight = 39.sp,
-                    ) else MaterialTheme.typography.titleLarge.copy(
-                        fontSize = 25.sp,
-                        lineHeight = 32.sp,
+                    // Only the viewport edge mask fades lines. During manual scrolling, all
+                    // lines near the middle stay legible regardless of playback position.
+                    color = Color.White.copy(alpha = if (focused) 1f else 0.86f),
+                    fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold,
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontFamily = Vazirmatn,
+                        fontSize = if (focused) 34.sp else 30.sp,
+                        lineHeight = if (focused) 47.sp else 43.sp,
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onLineSeek(index) }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
-                        .blur(lyricLineBlur(index, activeIndex).dp)
+                        .testTag("lyrics-line-$index")
                         .semantics {
-                            selected = current
-                            if (current) stateDescription = "Current lyric"
+                            selected = playing
+                            if (playing) stateDescription = "Current lyric"
                         },
                 )
             }
@@ -434,10 +460,10 @@ private fun Modifier.lyricsEdgeFade(): Modifier =
             drawRect(
                 brush = Brush.verticalGradient(
                     0f to Color.Transparent,
-                    0.18f to Color.Black,
+                    0.12f to Color.Black,
                     0.42f to Color.Black,
                     0.64f to Color.Black,
-                    0.84f to Color.Black,
+                    0.88f to Color.Black,
                     1f to Color.Transparent,
                 ),
                 blendMode = BlendMode.DstIn,
@@ -460,3 +486,7 @@ internal fun lyricLineOpacity(index: Int, activeIndex: Int): Float = when {
     kotlin.math.abs(index - activeIndex) == 2 -> 0.38f
     else -> 0.22f
 }
+
+/** Pure viewport focus selector. Playback position does not affect manual browsing emphasis. */
+internal fun focusedLyricIndex(lineCenters: List<Pair<Int, Float>>, viewportAnchorPx: Float): Int =
+    lineCenters.minByOrNull { (_, center) -> abs(center - viewportAnchorPx) }?.first ?: -1

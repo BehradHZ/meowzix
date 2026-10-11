@@ -194,6 +194,7 @@ internal fun MorphingPlayerOverlay(
     var expansionFraction by remember(track.id) {
         mutableFloatStateOf(if (morphState.targetExpanded) 1f else 0f)
     }
+    var lyricsExpanded by remember(track.id) { mutableStateOf(false) }
     var queueFeedback by remember { mutableStateOf<QueueActionFeedback?>(null) }
     var queueFeedbackVisible by remember { mutableStateOf(false) }
 
@@ -251,7 +252,10 @@ internal fun MorphingPlayerOverlay(
                 .fillMaxWidth()
                 .padding(start = horizontalInset, end = horizontalInset, bottom = bottomInset)
                 .height(playerHeight)
-                .pointerInput(track.id, travelPx) {
+                .pointerInput(track.id, travelPx, lyricsExpanded) {
+                    // The expanded lyrics list owns vertical gestures. Do not translate its
+                    // browsing scroll into a swipe that closes the entire player.
+                    if (lyricsExpanded) return@pointerInput
                     awaitEachGesture {
                         val down = awaitFirstDown(
                             requireUnconsumed = false,
@@ -353,6 +357,7 @@ internal fun MorphingPlayerOverlay(
                             onOpenQueue()
                         },
                         viewModel = viewModel,
+                        onLyricsExpandedChange = { lyricsExpanded = it },
                     )
                 }
             }

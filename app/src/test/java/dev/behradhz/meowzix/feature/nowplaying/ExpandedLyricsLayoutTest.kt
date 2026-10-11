@@ -19,6 +19,14 @@ class ExpandedLyricsLayoutTest {
         assertEquals(0.dp, lyricsMorphHeroHeight((-4).dp, 1f))
     }
 
+    @Test fun viewportFocusDoesNotDependOnThePlayingLine() {
+        val centers = listOf(0 to 50f, 1 to 110f, 2 to 170f, 3 to 230f)
+        assertEquals(2, focusedLyricIndex(centers, 180f))
+        assertEquals(0, focusedLyricIndex(centers, 0f))
+        assertEquals(3, focusedLyricIndex(centers, 270f))
+        assertEquals(-1, focusedLyricIndex(emptyList(), 180f))
+    }
+
     @Test fun lyricEmphasisFallsOffWithDistanceFromCurrentLine() {
         val opacities = (0..6).map { lyricLineOpacity(it, 3) }
         assertEquals(1f, opacities[3])

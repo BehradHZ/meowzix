@@ -106,6 +106,7 @@ private val PlayerLoadingShimmer = Color(0xFFFF4D4D)
 fun NowPlayingRoute(
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
+    onLyricsExpandedChange: (Boolean) -> Unit = {},
     viewModel: NowPlayingViewModel = hiltViewModel(),
     lyricsViewModel: NowPlayingLyricsViewModel = hiltViewModel(),
 ) {
@@ -123,6 +124,7 @@ fun NowPlayingRoute(
 
     RecommendationActionDialogs(recommendationActions)
     BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
+    LaunchedEffect(lyricsExpanded) { onLyricsExpandedChange(lyricsExpanded) }
     LaunchedEffect(state.currentTrack?.id) { lyricsExpanded = false }
     // Android's Visualizer captures FFT from our own playback session, but requires RECORD_AUDIO.
     // Request it only when the full player is opened; mini-player never starts a permission prompt.
@@ -339,6 +341,11 @@ private fun NowPlayingScreen(
                 onWhyThisSong = onWhyThisSong,
                 onContinueVibe = onContinueVibe,
                 onToggleLyrics = onToggleLyrics,
+                lyricsState = lyricsState,
+                onLyricsImport = onLyricsImport,
+                onLyricsPaste = onLyricsPaste,
+                onLyricsDelay = onLyricsDelay,
+                onLyricsVersion = onLyricsVersion,
             )
 
             Spacer(Modifier.height(8.dp))
@@ -399,31 +406,10 @@ private fun NowPlayingScreen(
                     )
                 }
 
-                // One top-right action menu, occupying the slot reserved by MorphingIdentity.
-                if (lyricsExpanded) {
-                    ExpandedLyricsHeaderMenu(
-                        state = lyricsState,
-                        sleepTimer = sleepTimer,
-                        onCollapse = onToggleLyrics,
-                        onOpenSleepTimer = onOpenSleepTimer,
-                        onWhyThisSong = onWhyThisSong,
-                        onContinueVibe = onContinueVibe,
-                        onImportLrc = onLyricsImport,
-                        onPaste = onLyricsPaste,
-                        onAdjustDelay = onLyricsDelay,
-                        onSelectVersion = onLyricsVersion,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 10.dp, end = 2.dp)
-                            .graphicsLayer {
-                                alpha = ((lyricsMorph - 0.70f) / 0.30f).coerceIn(0f, 1f)
-                            },
-                    )
-                }
             }
 
             // v0.5 kept the identity immediately above the waveform with a compact 12.dp gap.
-            Spacer(Modifier.height(if (lyricsExpanded) 6.dp else 12.dp))
+            Spacer(Modifier.height(12.dp))
 
             SyntheticWaveformSeekBar(
                 trackKey = track.id.toString(),
@@ -461,7 +447,7 @@ private fun NowPlayingScreen(
                 )
             }
 
-            Spacer(Modifier.height(if (lyricsExpanded) 8.dp else 14.dp))
+            Spacer(Modifier.height(14.dp))
             PlaybackControls(
                 state = state,
                 onPrevious = onPrevious,
@@ -470,28 +456,7 @@ private fun NowPlayingScreen(
                 onTogglePlaybackMode = onTogglePlaybackMode,
                 onCycleRepeatMode = onCycleRepeatMode,
             )
-            AnimatedVisibility(
-                visible = lyricsExpanded,
-                enter = if (reduceMotion) EnterTransition.None else expandVertically() + fadeIn(),
-                exit = if (reduceMotion) ExitTransition.None else shrinkVertically() + fadeOut(),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().height(46.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = onToggleLyrics) {
-                        Icon(Icons.Rounded.MusicNote, contentDescription = "Back to player", tint = PlayerPrimaryContent)
-                    }
-                    IconButton(onClick = onOpenForward) {
-                        Icon(Icons.Rounded.Send, contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
-                    }
-                    IconButton(onClick = onOpenQueue) {
-                        Icon(Icons.Rounded.QueueMusic, contentDescription = "Open queue", tint = PlayerPrimaryContent)
-                    }
-                }
-            }
-            Spacer(Modifier.height(if (lyricsExpanded) 2.dp else 12.dp))
+            Spacer(Modifier.height(12.dp))
         }
 
         state.errorMessage?.let { message ->
@@ -528,29 +493,16 @@ private fun PlayerHeader(
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
     onToggleLyrics: () -> Unit,
+    lyricsState: NowPlayingLyricsState,
+    onLyricsImport: (android.net.Uri) -> Unit,
+    onLyricsPaste: (String) -> Unit,
+    onLyricsDelay: (Long) -> Unit,
+    onLyricsVersion: (UUID) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-
-    if (lyricsExpanded) {
-        // Retain the header's footprint during the morph, but replace the full glass toolbar
-        // with the small, accessible collapse handle from the lyrics-first reference.
-        Box(Modifier.fillMaxWidth().height(50.dp), contentAlignment = Alignment.Center) {
-            Surface(
-                onClick = onBack,
-                modifier = Modifier.size(width = 72.dp, height = 42.dp)
-                    .semantics { contentDescription = "Collapse lyrics" },
-                color = Color.Transparent,
-                shape = RoundedCornerShape(21.dp),
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Box(
-                        Modifier.size(width = 48.dp, height = 5.dp)
-                            .background(PlayerPrimaryContent.copy(alpha = 0.48f), RoundedCornerShape(3.dp)),
-                    )
-                }
-            }
-        }
-        return
+    var pasteDialog by remember(lyricsState.trackId) { mutableStateOf(false) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(onLyricsImport)
     }
 
     GlassSurface(
@@ -571,7 +523,7 @@ private fun PlayerHeader(
             }
             Spacer(Modifier.weight(1f))
             Text(
-                text = if (lyricsExpanded) "Lyrics" else "Now Playing",
+                text = "Now Playing",
                 color = PlayerPrimaryContent,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
@@ -616,97 +568,44 @@ private fun PlayerHeader(
                             onContinueVibe()
                         },
                     )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ExpandedLyricsHeaderMenu(
-    state: NowPlayingLyricsState,
-    sleepTimer: SleepTimerState,
-    onCollapse: () -> Unit,
-    onOpenSleepTimer: () -> Unit,
-    onWhyThisSong: () -> Unit,
-    onContinueVibe: () -> Unit,
-    onImportLrc: (android.net.Uri) -> Unit,
-    onPaste: (String) -> Unit,
-    onAdjustDelay: (Long) -> Unit,
-    onSelectVersion: (UUID) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var expanded by remember(state.trackId) { mutableStateOf(false) }
-    var pasteDialog by remember(state.trackId) { mutableStateOf(false) }
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let(onImportLrc)
-    }
-    Box(modifier) {
-        IconButton(onClick = { expanded = true }) {
-            Icon(Icons.Rounded.MoreVert, contentDescription = "Lyrics and track options", tint = PlayerPrimaryContent)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("Back to player") }, onClick = {
-                expanded = false
-                onCollapse()
-            })
-            DropdownMenuItem(
-                text = { Text("Sleep timer · " + sleepTimerStatusLabel(sleepTimer)) },
-                onClick = { expanded = false; onOpenSleepTimer() },
-            )
-            DropdownMenuItem(text = { Text("Why this song?") }, onClick = {
-                expanded = false
-                onWhyThisSong()
-            })
-            DropdownMenuItem(text = { Text("Continue the vibe") }, onClick = {
-                expanded = false
-                onContinueVibe()
-            })
-            if (state.hasDisplayableLyrics) {
-                DropdownMenuItem(text = { Text("Import .lrc") }, onClick = {
-                    expanded = false
-                    importLauncher.launch(arrayOf("*/*"))
-                })
-                DropdownMenuItem(text = { Text("Paste lyrics") }, onClick = {
-                    expanded = false
-                    pasteDialog = true
-                })
-                if (state.isTimed) {
-                    DropdownMenuItem(text = { Text("Lyrics delay −250 ms") }, onClick = {
-                        expanded = false
-                        onAdjustDelay(-250L)
-                    })
-                    DropdownMenuItem(text = { Text("Lyrics delay +250 ms") }, onClick = {
-                        expanded = false
-                        onAdjustDelay(250L)
-                    })
-                    state.selected?.let { version ->
-                        DropdownMenuItem(
-                            text = { Text("Current delay: ${version.userDelayMs} ms") },
-                            enabled = false,
-                            onClick = {},
-                        )
+                    if (lyricsExpanded && lyricsState.hasDisplayableLyrics) {
+                        DropdownMenuItem(text = { Text("Import .lrc") }, onClick = {
+                            menuExpanded = false
+                            importLauncher.launch(arrayOf("*/*"))
+                        })
+                        DropdownMenuItem(text = { Text("Paste lyrics") }, onClick = {
+                            menuExpanded = false
+                            pasteDialog = true
+                        })
+                        if (lyricsState.isTimed) {
+                            DropdownMenuItem(text = { Text("Lyrics delay −250 ms") }, onClick = {
+                                menuExpanded = false
+                                onLyricsDelay(-250L)
+                            })
+                            DropdownMenuItem(text = { Text("Lyrics delay +250 ms") }, onClick = {
+                                menuExpanded = false
+                                onLyricsDelay(250L)
+                            })
+                        }
+                        lyricsState.trackLyrics?.versions.orEmpty().takeIf { it.size > 1 }?.forEach { version ->
+                            DropdownMenuItem(
+                                text = { Text((version.sourceLabel ?: version.sourceType.name) +
+                                    if (version.selected) " · selected" else "") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onLyricsVersion(version.id)
+                                },
+                            )
+                        }
                     }
                 }
-            }
-            state.trackLyrics?.versions.orEmpty().takeIf { it.size > 1 }?.forEach { version ->
-                DropdownMenuItem(
-                    text = {
-                        Text((version.sourceLabel ?: version.sourceType.name) +
-                            if (version.selected) " · selected" else "")
-                    },
-                    onClick = {
-                        expanded = false
-                        onSelectVersion(version.id)
-                    },
-                )
             }
         }
     }
     if (pasteDialog) {
         PasteLyricsDialog(
             onDismiss = { pasteDialog = false },
-            onSave = { pasteDialog = false; onPaste(it) },
+            onSave = { pasteDialog = false; onLyricsPaste(it) },
         )
     }
 }

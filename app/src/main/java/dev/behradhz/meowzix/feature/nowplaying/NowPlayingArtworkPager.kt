@@ -116,6 +116,8 @@ internal fun NowPlayingArtworkPager(
         BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
             val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
             NowPlayingArtwork(
+
+                cornerRadius = cornerRadius,
                 artworkRef = fallbackArtworkRef,
                 description = fallbackArtworkDescription,
                 modifier = Modifier
@@ -476,6 +478,8 @@ internal fun NowPlayingArtworkPager(
         ) {
             if (!hasTarget) {
                 NowPlayingArtwork(
+
+                    cornerRadius = cornerRadius,
                     artworkRef = currentArtworkRef,
                     description = "${currentItem.title} cover art",
                     modifier = Modifier.fillMaxSize(),
@@ -503,6 +507,8 @@ internal fun NowPlayingArtworkPager(
                         ),
                 ) {
                     NowPlayingArtwork(
+
+                        cornerRadius = cornerRadius,
                         artworkRef = currentArtworkRef,
                         description = "${currentItem.title} cover art",
                         modifier = Modifier.fillMaxSize(),
@@ -522,6 +528,8 @@ internal fun NowPlayingArtworkPager(
                         ),
                 ) {
                     NowPlayingArtwork(
+
+                        cornerRadius = cornerRadius,
                         artworkRef = targetArtworkRef,
                         description = "${targetItem.title} cover art",
                         modifier = Modifier.fillMaxSize(),

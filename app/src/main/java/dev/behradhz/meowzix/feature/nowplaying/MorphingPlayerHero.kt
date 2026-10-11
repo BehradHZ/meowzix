@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.QueueState
 import kotlin.math.min
+import dev.behradhz.meowzix.ui.theme.Vazirmatn
 
 private val HeroPrimary = Color(0xFFF7F3EF)
 private val HeroSecondary = Color(0xFFCFC7C0)
@@ -171,6 +172,7 @@ private fun MorphingIdentity(
                 fontSize = (24f - 8f * progress).sp,
                 lineHeight = (29f - 8f * progress).sp,
                 fontWeight = FontWeight.Bold,
+                fontFamily = Vazirmatn,
                 color = HeroPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -180,6 +182,7 @@ private fun MorphingIdentity(
                 fontSize = (16f - 3f * progress).sp,
                 lineHeight = (21f - 3f * progress).sp,
                 color = HeroSecondary,
+                fontFamily = Vazirmatn,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
