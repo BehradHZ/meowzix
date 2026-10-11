@@ -19,12 +19,30 @@ class ExpandedLyricsLayoutTest {
         assertEquals(0.dp, lyricsMorphHeroHeight((-4).dp, 1f))
     }
 
-    @Test fun viewportFocusDoesNotDependOnThePlayingLine() {
-        val centers = listOf(0 to 50f, 1 to 110f, 2 to 170f, 3 to 230f)
-        assertEquals(2, focusedLyricIndex(centers, 180f))
-        assertEquals(0, focusedLyricIndex(centers, 0f))
-        assertEquals(3, focusedLyricIndex(centers, 270f))
-        assertEquals(-1, focusedLyricIndex(emptyList(), 180f))
+    @Test fun playbackLineRemainsEmphasizedWhileManualBrowsingRevealsTheOthers() {
+        // The synced line never changes its opacity/blur because a different line is centered.
+        assertEquals(1f, lyricLineOpacity(3, 3, 0f))
+        assertEquals(1f, lyricLineOpacity(3, 3, 0.5f))
+        assertEquals(1f, lyricLineOpacity(3, 3, 1f))
+        assertEquals(0f, lyricLineBlur(3, 3, 1f))
+
+        assertEquals(0.38f, lyricLineOpacity(1, 3, 0f))
+        assertEquals(0.69f, lyricLineOpacity(1, 3, 0.5f), 0.0001f)
+        assertEquals(1f, lyricLineOpacity(1, 3, 1f))
+        assertEquals(1.2f, lyricLineBlur(1, 3, 0f))
+        assertEquals(0.6f, lyricLineBlur(1, 3, 0.5f), 0.0001f)
+        assertEquals(0f, lyricLineBlur(1, 3, 1f))
+    }
+
+    @Test fun buttonSkipNeverChangesBackdropBeforeTheArtworkTransition() {
+        val oldCover = "content://cover/old"
+        val newCover = "content://cover/new"
+        // Playback may report the new track a frame before the artwork pager starts its slide.
+        assertEquals(oldCover, backdropSourceArtwork(oldCover, null))
+        val transition = ArtworkBackdropTransition(oldCover, newCover, 0f)
+        assertEquals(oldCover, backdropSourceArtwork(oldCover, transition))
+        assertEquals(oldCover, backdropSourceArtwork(oldCover, transition.copy(progress = 0.5f)))
+        assertEquals(newCover, backdropSourceArtwork(newCover, null))
     }
 
     @Test fun lyricEmphasisFallsOffWithDistanceFromCurrentLine() {

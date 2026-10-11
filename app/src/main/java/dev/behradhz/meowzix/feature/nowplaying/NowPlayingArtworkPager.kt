@@ -153,6 +153,8 @@ internal fun NowPlayingArtworkPager(
     val scope = rememberCoroutineScope()
 
     var displayedIndex by remember { mutableIntStateOf(activeIndex) }
+    // The outgoing artwork must survive the playback state's immediate change on Next/Previous.
+    var displayedArtworkRef by remember { mutableStateOf(fallbackArtworkRef) }
     var targetIndex by remember { mutableIntStateOf(-1) }
     var pendingUserTargetIndex by remember { mutableIntStateOf(-1) }
     var direction by remember { mutableStateOf<ArtworkTransitionDirection?>(null) }
@@ -189,7 +191,7 @@ internal fun NowPlayingArtworkPager(
 
         latestBackdropTransition(
             ArtworkBackdropTransition(
-                fromArtworkRef = artworkRefAt(sourceIndex),
+                fromArtworkRef = artworkRefAt(sourceIndex) ?: displayedArtworkRef,
                 toArtworkRef = artworkRefAt(destinationIndex),
                 progress = value.coerceIn(0f, 1f),
             ),
@@ -198,6 +200,7 @@ internal fun NowPlayingArtworkPager(
 
     fun resetTransition(index: Int = latestActiveIndex) {
         displayedIndex = index.coerceIn(queueState.items.indices)
+        displayedArtworkRef = artworkRefAt(displayedIndex)
         targetIndex = -1
         pendingUserTargetIndex = -1
         direction = null
@@ -441,7 +444,7 @@ internal fun NowPlayingArtworkPager(
         val currentArtworkRef = currentItem.artworkRef ?: if (currentItem.id == state.currentTrack?.id) {
             fallbackArtworkRef
         } else {
-            null
+            displayedArtworkRef
         }
         val activeDirection = direction
         val hasTarget = activeDirection != null && targetIndex in queueState.items.indices

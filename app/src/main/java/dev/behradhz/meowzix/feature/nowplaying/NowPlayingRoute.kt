@@ -56,6 +56,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -267,7 +268,10 @@ private fun NowPlayingScreen(
     val hazeState = rememberHazeState()
     var pendingSeek by remember(track.id) { mutableStateOf<Float?>(null) }
     var settlingSeekTarget by remember(track.id) { mutableStateOf<Long?>(null) }
-    var backdropTransition by remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
+    // Keep the actual displayed artwork until the pager completes its transition. Reading
+    // track.artworkRef here would flash the destination backdrop before a button animation.
+    val backdropTransition = remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
+    val settledBackdropRef = remember { mutableStateOf(track.artworkRef) }
     val currentTrackId = track.id
     val currentTrackHasLyrics = lyricsState.trackId == currentTrackId && lyricsState.hasDisplayableLyrics
     var settledArtworkTrackId by remember { mutableStateOf<UUID?>(null) }
@@ -303,25 +307,8 @@ private fun NowPlayingScreen(
             state.status == PlaybackStatus.PREPARING
 
     Box(Modifier.fillMaxSize()) {
-        val activeBackdropTransition = backdropTransition
-        Box(
-            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
-        ) {
-            TrackArtworkBackdrop(
-                artworkRef = activeBackdropTransition?.fromArtworkRef ?: track.artworkRef,
-                modifier = Modifier.fillMaxSize(),
-            )
-            activeBackdropTransition?.let { transition ->
-                if (transition.progress > 0f) {
-                    TrackArtworkBackdrop(
-                        artworkRef = transition.toArtworkRef,
-                        modifier = Modifier.fillMaxSize().graphicsLayer {
-                            alpha = transition.progress.coerceIn(0f, 1f)
-                        },
-                    )
-                }
-            }
-        }
+        // Read animation progress only in this child, not in the full player composition.
+        AnimatedPlayerBackdrop(hazeState, settledBackdropRef, backdropTransition)
 
         Column(
             modifier = Modifier
@@ -371,8 +358,12 @@ private fun NowPlayingScreen(
                     onToggleFavorite = onToggleFavorite,
                     favorite = isFavorite,
                     reduceMotion = reduceMotion,
-                    onBackdropTransition = { backdropTransition = it },
-                    onArtworkSettled = { settledArtworkTrackId = it },
+                    onBackdropTransition = { backdropTransition.value = it },
+                    onArtworkSettled = { settledId ->
+                        settledArtworkTrackId = settledId
+                        settledBackdropRef.value = queueState.items.firstOrNull { it.id == settledId }?.artworkRef
+                            ?: if (settledId == track.id) track.artworkRef else settledBackdropRef.value
+                    },
                     compactLyrics = {
                         if (settledArtworkTrackId == currentTrackId && currentTrackHasLyrics) {
                             CompactLyricsPreview(
@@ -480,6 +471,33 @@ private fun NowPlayingScreen(
         }
     }
 }
+
+@Composable
+private fun AnimatedPlayerBackdrop(
+    hazeState: HazeState,
+    settledArtwork: State<String?>,
+    transitionState: State<ArtworkBackdropTransition?>,
+) {
+    val transition = transitionState.value
+    Box(Modifier.fillMaxSize().hazeSource(hazeState)) {
+        TrackArtworkBackdrop(
+            artworkRef = backdropSourceArtwork(settledArtwork.value, transition),
+            modifier = Modifier.fillMaxSize(),
+        )
+        transition?.takeIf { it.progress > 0f }?.let { change ->
+            TrackArtworkBackdrop(
+                artworkRef = change.toArtworkRef,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    alpha = change.progress.coerceIn(0f, 1f)
+                },
+            )
+        }
+    }
+}
+
+/** Never source the outgoing backdrop directly from the already-updated playback track. */
+internal fun backdropSourceArtwork(settledRef: String?, transition: ArtworkBackdropTransition?): String? =
+    transition?.fromArtworkRef ?: settledRef
 
 @Composable
 private fun PlayerHeader(

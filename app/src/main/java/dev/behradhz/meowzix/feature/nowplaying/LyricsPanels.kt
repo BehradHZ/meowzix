@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
@@ -33,7 +34,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -286,18 +286,12 @@ private fun TimedLyricsList(
     var programmaticScroll by remember { mutableStateOf(false) }
     val lines = state.effectiveLines
     val activeIndex = state.activeLineIndex
-    // Visual emphasis belongs to the line in the viewport's focus band, not necessarily the
-    // currently playing line. This also stays correct during manual browsing.
-    val focusIndex by remember(listState) {
-        derivedStateOf {
-            val layout = listState.layoutInfo
-            val anchor = (layout.viewportStartOffset + layout.viewportEndOffset) / 2f
-            focusedLyricIndex(
-                layout.visibleItemsInfo.map { item -> item.index to (item.offset + item.size / 2f) },
-                anchor,
-            )
-        }
-    }
+    // The playing line is always active. Manual browsing only reveals surrounding lines.
+    val browsingReveal by animateFloatAsState(
+        targetValue = if (mode == LyricsFollowMode.FOLLOWING) 0f else 1f,
+        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 280),
+        label = "lyrics-browsing-reveal",
+    )
 
     suspend fun settle(index: Int, animated: Boolean = true) {
         if (index !in lines.indices) return
@@ -365,28 +359,28 @@ private fun TimedLyricsList(
     Box(modifier.fillMaxWidth()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().lyricsEdgeFade().testTag("expanded-lyrics-scroll"),
+            modifier = Modifier.fillMaxSize().lyricsEdgeFade(browsingReveal).testTag("expanded-lyrics-scroll"),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 120.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             items(lines.size, key = { index -> "${lines[index].timeMs}-${lines[index].originalOrder}" }) { index ->
-                val focused = index == focusIndex
                 val playing = index == activeIndex
                 Text(
                     text = lines[index].text,
-                    // Only the viewport edge mask fades lines. During manual scrolling, all
-                    // lines near the middle stay legible regardless of playback position.
-                    color = Color.White.copy(alpha = if (focused) 1f else 0.86f),
-                    fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold,
+                    // Playback timing owns emphasis in BOTH modes; only neighboring text changes
+                    // opacity and blur when the user begins or ends browsing.
+                    color = Color.White.copy(alpha = lyricLineOpacity(index, activeIndex, browsingReveal)),
+                    fontWeight = if (playing) FontWeight.Bold else FontWeight.SemiBold,
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontFamily = Vazirmatn,
-                        fontSize = if (focused) 34.sp else 30.sp,
-                        lineHeight = if (focused) 47.sp else 43.sp,
+                        fontSize = if (playing) 34.sp else 30.sp,
+                        lineHeight = if (playing) 47.sp else 43.sp,
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onLineSeek(index) }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .blur(lyricLineBlur(index, activeIndex, browsingReveal).dp)
                         .testTag("lyrics-line-$index")
                         .semantics {
                             selected = playing
@@ -453,40 +447,41 @@ internal fun PasteLyricsDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) 
     )
 }
 
-private fun Modifier.lyricsEdgeFade(): Modifier =
+private fun Modifier.lyricsEdgeFade(browsingReveal: Float = 0f): Modifier =
     graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
         .drawWithContent {
             drawContent()
             drawRect(
                 brush = Brush.verticalGradient(
-                    0f to Color.Transparent,
+                    0f to Color.Black.copy(alpha = browsingReveal.coerceIn(0f, 1f)),
                     0.12f to Color.Black,
                     0.42f to Color.Black,
                     0.64f to Color.Black,
                     0.88f to Color.Black,
-                    1f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = browsingReveal.coerceIn(0f, 1f)),
                 ),
                 blendMode = BlendMode.DstIn,
             )
         }
 
-/** Subtle visual defocus for distant lines; accessibility text remains unchanged. */
-internal fun lyricLineBlur(index: Int, activeIndex: Int): Float = when {
-    activeIndex < 0 -> 0f
-    kotlin.math.abs(index - activeIndex) <= 1 -> 0f
-    kotlin.math.abs(index - activeIndex) == 2 -> 1.2f
-    else -> 2f
+/** Restore the old playback-synced visual hierarchy, interpolating to readable browsing text. */
+internal fun lyricLineOpacity(index: Int, activeIndex: Int, browsingReveal: Float = 0f): Float {
+    val syncOpacity = when {
+        activeIndex < 0 -> 0.70f
+        index == activeIndex -> 1f
+        abs(index - activeIndex) == 1 -> 0.62f
+        abs(index - activeIndex) == 2 -> 0.38f
+        else -> 0.22f
+    }
+    return syncOpacity + (1f - syncOpacity) * browsingReveal.coerceIn(0f, 1f)
 }
 
-/** Secondary lines recede by distance, in addition to the viewport's vertical gradient mask. */
-internal fun lyricLineOpacity(index: Int, activeIndex: Int): Float = when {
-    activeIndex < 0 -> 0.70f
-    index == activeIndex -> 1f
-    kotlin.math.abs(index - activeIndex) == 1 -> 0.62f
-    kotlin.math.abs(index - activeIndex) == 2 -> 0.38f
-    else -> 0.22f
+internal fun lyricLineBlur(index: Int, activeIndex: Int, browsingReveal: Float = 0f): Float {
+    val syncBlur = when {
+        activeIndex < 0 -> 0f
+        abs(index - activeIndex) <= 1 -> 0f
+        abs(index - activeIndex) == 2 -> 1.2f
+        else -> 2f
+    }
+    return syncBlur * (1f - browsingReveal.coerceIn(0f, 1f))
 }
-
-/** Pure viewport focus selector. Playback position does not affect manual browsing emphasis. */
-internal fun focusedLyricIndex(lineCenters: List<Pair<Int, Float>>, viewportAnchorPx: Float): Int =
-    lineCenters.minByOrNull { (_, center) -> abs(center - viewportAnchorPx) }?.first ?: -1
