@@ -40,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -352,6 +353,7 @@ private fun TimedLyricsList(
                         .fillMaxWidth()
                         .clickable { onLineSeek(index) }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .blur(lyricLineBlur(index, activeIndex).dp)
                         .semantics {
                             selected = current
                             if (current) stateDescription = "Current lyric"
@@ -433,3 +435,11 @@ private fun Modifier.lyricsEdgeFade(): Modifier =
                 blendMode = BlendMode.DstIn,
             )
         }
+
+/** Subtle visual defocus for distant lines; accessibility text remains unchanged. */
+internal fun lyricLineBlur(index: Int, activeIndex: Int): Float = when {
+    activeIndex < 0 -> 0f
+    kotlin.math.abs(index - activeIndex) <= 1 -> 0f
+    kotlin.math.abs(index - activeIndex) == 2 -> 1.2f
+    else -> 2f
+}

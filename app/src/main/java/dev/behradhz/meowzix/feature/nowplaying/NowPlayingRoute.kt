@@ -5,11 +5,20 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,11 +30,13 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
@@ -55,7 +66,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -264,10 +277,12 @@ private fun NowPlayingScreen(
             reservedLyricsLayout = currentTrackHasLyrics
         }
     }
-    val heroWeight by animateFloatAsState(
-        targetValue = if (lyricsExpanded) 0.015f else 1f,
+    // A single animated progress drives both the persistent artwork/identity and the lyric
+    // viewport. The expanded endpoint is a genuine compact header, not a near-zero hero.
+    val lyricsMorph by animateFloatAsState(
+        targetValue = if (lyricsExpanded) 1f else 0f,
         animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.90f, stiffness = 520f),
-        label = "lyrics-hero-space",
+        label = "lyrics-screen-morph",
     )
     val duration = state.durationMs.coerceAtLeast(1L)
     val shownPosition = pendingSeek?.toLong() ?: settlingSeekTarget ?: state.positionMs.coerceIn(0L, duration)
@@ -328,47 +343,83 @@ private fun NowPlayingScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // Preserve the same hero during both morph directions, but visually fade its
-            // compact header entirely out instead of leaving a tiny duplicate above lyrics.
-            MorphingPlayerHero(
-                state = state,
-                queueState = queueState,
-                expanded = lyricsExpanded,
-                lyricsLayoutVisible = reservedLyricsLayout,
-                onBack = onBack,
-                onPrevious = onPrevious,
-                onNext = onNext,
-                onToggleFavorite = onToggleFavorite,
-                favorite = isFavorite,
-                reduceMotion = reduceMotion,
-                onBackdropTransition = { backdropTransition = it },
-                onArtworkSettled = { settledArtworkTrackId = it },
-                compactLyrics = {
-                    if (settledArtworkTrackId == currentTrackId && currentTrackHasLyrics) {
-                        CompactLyricsPreview(
-                            state = lyricsState,
-                            onExpand = onExpandLyrics,
-                            reduceMotion = reduceMotion,
-                        )
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(heroWeight)
-                    .graphicsLayer { alpha = ((heroWeight - 0.03f) * 3f).coerceIn(0f, 1f) },
-            )
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+            ) {
+                val density = LocalDensity.current
+                val fullHeroHeightPx = with(density) { maxHeight.roundToPx() }
+                val compactHeroHeight = lyricsMorphHeroHeight(maxHeight, lyricsMorph)
 
-            if (lyricsExpanded) {
-                ExpandedLyricsPanel(
-                    state = lyricsState,
-                    onLineSeek = onLyricSeek,
-                    onImportLrc = onLyricsImport,
-                    onPaste = onLyricsPaste,
-                    onAdjustDelay = onLyricsDelay,
-                    onSelectVersion = onLyricsVersion,
+                // The artwork, title and artist each have ONE composable instance throughout
+                // expansion and collapse. Their bounds interpolate into the same 76.dp header.
+                MorphingPlayerHero(
+                    state = state,
+                    queueState = queueState,
+                    progress = lyricsMorph,
+                    collapsedHeightPx = fullHeroHeightPx,
+                    lyricsLayoutVisible = reservedLyricsLayout,
+                    onBack = onBack,
+                    onPrevious = onPrevious,
+                    onNext = onNext,
+                    onToggleFavorite = onToggleFavorite,
+                    favorite = isFavorite,
                     reduceMotion = reduceMotion,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    onBackdropTransition = { backdropTransition = it },
+                    onArtworkSettled = { settledArtworkTrackId = it },
+                    compactLyrics = {
+                        if (settledArtworkTrackId == currentTrackId && currentTrackHasLyrics) {
+                            CompactLyricsPreview(
+                                state = lyricsState,
+                                onExpand = onExpandLyrics,
+                                reduceMotion = reduceMotion,
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(compactHeroHeight),
                 )
+
+                // Keep lyrics composed until the reverse morph has finished as well.
+                if (lyricsExpanded || lyricsMorph > 0.005f) {
+                    ExpandedLyricsPanel(
+                        state = lyricsState,
+                        onLineSeek = onLyricSeek,
+                        onImportLrc = onLyricsImport,
+                        onPaste = onLyricsPaste,
+                        onAdjustDelay = onLyricsDelay,
+                        onSelectVersion = onLyricsVersion,
+                        reduceMotion = reduceMotion,
+                        showToolbar = false,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = compactHeroHeight + 8.dp)
+                            .graphicsLayer {
+                                alpha = ((lyricsMorph - 0.18f) / 0.62f).coerceIn(0f, 1f)
+                            }
+                            .semantics { if (lyricsMorph < 0.8f) invisibleToUser() },
+                    )
+                }
+
+                // One top-right action menu, occupying the slot reserved by MorphingIdentity.
+                if (lyricsExpanded) {
+                    ExpandedLyricsHeaderMenu(
+                        state = lyricsState,
+                        sleepTimer = sleepTimer,
+                        onCollapse = onToggleLyrics,
+                        onOpenSleepTimer = onOpenSleepTimer,
+                        onWhyThisSong = onWhyThisSong,
+                        onContinueVibe = onContinueVibe,
+                        onImportLrc = onLyricsImport,
+                        onPaste = onLyricsPaste,
+                        onAdjustDelay = onLyricsDelay,
+                        onSelectVersion = onLyricsVersion,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 10.dp, end = 2.dp)
+                            .graphicsLayer {
+                                alpha = ((lyricsMorph - 0.70f) / 0.30f).coerceIn(0f, 1f)
+                            },
+                    )
+                }
             }
 
             // v0.5 kept the identity immediately above the waveform with a compact 12.dp gap.
@@ -419,7 +470,28 @@ private fun NowPlayingScreen(
                 onTogglePlaybackMode = onTogglePlaybackMode,
                 onCycleRepeatMode = onCycleRepeatMode,
             )
-            Spacer(Modifier.height(12.dp))
+            AnimatedVisibility(
+                visible = lyricsExpanded,
+                enter = if (reduceMotion) EnterTransition.None else expandVertically() + fadeIn(),
+                exit = if (reduceMotion) ExitTransition.None else shrinkVertically() + fadeOut(),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onToggleLyrics) {
+                        Icon(Icons.Rounded.MusicNote, contentDescription = "Back to player", tint = PlayerPrimaryContent)
+                    }
+                    IconButton(onClick = onOpenForward) {
+                        Icon(Icons.Rounded.Send, contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
+                    }
+                    IconButton(onClick = onOpenQueue) {
+                        Icon(Icons.Rounded.QueueMusic, contentDescription = "Open queue", tint = PlayerPrimaryContent)
+                    }
+                }
+            }
+            Spacer(Modifier.height(if (lyricsExpanded) 2.dp else 12.dp))
         }
 
         state.errorMessage?.let { message ->
@@ -458,6 +530,28 @@ private fun PlayerHeader(
     onToggleLyrics: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+
+    if (lyricsExpanded) {
+        // Retain the header's footprint during the morph, but replace the full glass toolbar
+        // with the small, accessible collapse handle from the lyrics-first reference.
+        Box(Modifier.fillMaxWidth().height(50.dp), contentAlignment = Alignment.Center) {
+            Surface(
+                onClick = onBack,
+                modifier = Modifier.size(width = 72.dp, height = 42.dp)
+                    .semantics { contentDescription = "Collapse lyrics" },
+                color = Color.Transparent,
+                shape = RoundedCornerShape(21.dp),
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier.size(width = 48.dp, height = 5.dp)
+                            .background(PlayerPrimaryContent.copy(alpha = 0.48f), RoundedCornerShape(3.dp)),
+                    )
+                }
+            }
+        }
+        return
+    }
 
     GlassSurface(
         hazeState = hazeState,
@@ -525,6 +619,95 @@ private fun PlayerHeader(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ExpandedLyricsHeaderMenu(
+    state: NowPlayingLyricsState,
+    sleepTimer: SleepTimerState,
+    onCollapse: () -> Unit,
+    onOpenSleepTimer: () -> Unit,
+    onWhyThisSong: () -> Unit,
+    onContinueVibe: () -> Unit,
+    onImportLrc: (android.net.Uri) -> Unit,
+    onPaste: (String) -> Unit,
+    onAdjustDelay: (Long) -> Unit,
+    onSelectVersion: (UUID) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember(state.trackId) { mutableStateOf(false) }
+    var pasteDialog by remember(state.trackId) { mutableStateOf(false) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(onImportLrc)
+    }
+    Box(modifier) {
+        IconButton(onClick = { expanded = true }) {
+            Icon(Icons.Rounded.MoreVert, contentDescription = "Lyrics and track options", tint = PlayerPrimaryContent)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("Back to player") }, onClick = {
+                expanded = false
+                onCollapse()
+            })
+            DropdownMenuItem(
+                text = { Text("Sleep timer · " + sleepTimerStatusLabel(sleepTimer)) },
+                onClick = { expanded = false; onOpenSleepTimer() },
+            )
+            DropdownMenuItem(text = { Text("Why this song?") }, onClick = {
+                expanded = false
+                onWhyThisSong()
+            })
+            DropdownMenuItem(text = { Text("Continue the vibe") }, onClick = {
+                expanded = false
+                onContinueVibe()
+            })
+            if (state.hasDisplayableLyrics) {
+                DropdownMenuItem(text = { Text("Import .lrc") }, onClick = {
+                    expanded = false
+                    importLauncher.launch(arrayOf("*/*"))
+                })
+                DropdownMenuItem(text = { Text("Paste lyrics") }, onClick = {
+                    expanded = false
+                    pasteDialog = true
+                })
+                if (state.isTimed) {
+                    DropdownMenuItem(text = { Text("Lyrics delay −250 ms") }, onClick = {
+                        expanded = false
+                        onAdjustDelay(-250L)
+                    })
+                    DropdownMenuItem(text = { Text("Lyrics delay +250 ms") }, onClick = {
+                        expanded = false
+                        onAdjustDelay(250L)
+                    })
+                    state.selected?.let { version ->
+                        DropdownMenuItem(
+                            text = { Text("Current delay: ${version.userDelayMs} ms") },
+                            enabled = false,
+                            onClick = {},
+                        )
+                    }
+                }
+            }
+            state.trackLyrics?.versions.orEmpty().takeIf { it.size > 1 }?.forEach { version ->
+                DropdownMenuItem(
+                    text = {
+                        Text((version.sourceLabel ?: version.sourceType.name) +
+                            if (version.selected) " · selected" else "")
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelectVersion(version.id)
+                    },
+                )
+            }
+        }
+    }
+    if (pasteDialog) {
+        PasteLyricsDialog(
+            onDismiss = { pasteDialog = false },
+            onSave = { pasteDialog = false; onPaste(it) },
+        )
     }
 }
 

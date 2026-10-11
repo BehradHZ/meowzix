@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -28,6 +29,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.behradhz.meowzix.domain.playback.PlaybackState
@@ -46,7 +48,8 @@ private val HeroSecondary = Color(0xFFCFC7C0)
 internal fun MorphingPlayerHero(
     state: PlaybackState,
     queueState: QueueState,
-    expanded: Boolean,
+    progress: Float,
+    collapsedHeightPx: Int,
     lyricsLayoutVisible: Boolean,
     onBack: () -> Unit,
     onPrevious: () -> Unit,
@@ -60,11 +63,6 @@ internal fun MorphingPlayerHero(
     modifier: Modifier = Modifier,
 ) {
     val track = state.currentTrack ?: return
-    val progress by animateFloatAsState(
-        targetValue = if (expanded) 1f else 0f,
-        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.88f, stiffness = 500f),
-        label = "lyrics-hero-morph",
-    )
     val lyricSpace by animateFloatAsState(
         targetValue = if (lyricsLayoutVisible) 1f else 0f,
         animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.86f, stiffness = 195f),
@@ -99,7 +97,9 @@ internal fun MorphingPlayerHero(
         },
     ) { measurables, constraints ->
         val width = constraints.maxWidth
-        val height = constraints.maxHeight.takeIf { it != Constraints.Infinity } ?: width
+        // The expanded layout is 76.dp tall; preserve the original full area for origin geometry.
+        val currentHeight = constraints.maxHeight.takeIf { it != Constraints.Infinity } ?: width
+        val height = collapsedHeightPx.coerceAtLeast(currentHeight).coerceAtLeast(1)
         val compactArt = 64.dp.roundToPx()
         val gap = 12.dp.roundToPx()
         val previewHeight = 118.dp.roundToPx()
@@ -112,7 +112,7 @@ internal fun MorphingPlayerHero(
                 minWidth = identityWidth,
                 maxWidth = identityWidth,
                 minHeight = 0,
-                maxHeight = height,
+                maxHeight = currentHeight,
             ),
         )
         val identityReserve = maxOf(66.dp.roundToPx(), identity.height)
@@ -144,7 +144,8 @@ internal fun MorphingPlayerHero(
         val identityX = lerpInt(0, compactArt + gap, progress)
         val identityY = lerpInt(geometry.identityTop, 2.dp.roundToPx(), progress)
 
-        layout(width, height) {
+        // Report the actual animated height, never the old full-height geometry.
+        layout(width, currentHeight) {
             artwork.placeRelative(artX, artY)
             preview.placeRelative(0, previewY)
             identity.placeRelative(identityX, identityY)
@@ -183,14 +184,28 @@ private fun MorphingIdentity(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(onClick = onToggleFavorite, modifier = Modifier.size((48f - 8f * progress).dp)) {
-            Icon(
-                imageVector = if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                contentDescription = if (favorite) "Remove from favorites" else "Add to favorites",
-                tint = if (favorite) MaterialTheme.colorScheme.primary else HeroPrimary,
-                modifier = Modifier.size((28f - 5f * progress).dp),
-            )
+        // Favorite belongs to the full player; the compact header instead reserves a menu slot.
+        Box(
+            Modifier.size(width = (48f * (1f - progress)).coerceAtLeast(0f).dp, height = 48.dp)
+                .clipToBounds(),
+        ) {
+            if (progress < 0.95f) {
+                IconButton(
+                    onClick = onToggleFavorite,
+                    modifier = Modifier.size(48.dp).graphicsLayer {
+                        alpha = (1f - progress * 3f).coerceIn(0f, 1f)
+                    },
+                ) {
+                    Icon(
+                        imageVector = if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        contentDescription = if (favorite) "Remove from favorites" else "Add to favorites",
+                        tint = if (favorite) MaterialTheme.colorScheme.primary else HeroPrimary,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
         }
+        androidx.compose.foundation.layout.Spacer(Modifier.width((48f * progress).dp))
     }
 }
 
@@ -250,3 +265,10 @@ internal fun collapsedHeroGeometry(
 
 private fun lerpInt(start: Int, stop: Int, fraction: Float): Int =
     (start + (stop - start) * fraction.coerceIn(0f, 1f)).toInt()
+
+/** Interpolates one persistent hero between the full-player area and a real compact header. */
+internal fun lyricsMorphHeroHeight(fullHeight: Dp, progress: Float, compactHeight: Dp = 76.dp): Dp {
+    val available = fullHeight.coerceAtLeast(0.dp)
+    val target = compactHeight.coerceIn(0.dp, available)
+    return available + (target - available) * progress.coerceIn(0f, 1f)
+}
