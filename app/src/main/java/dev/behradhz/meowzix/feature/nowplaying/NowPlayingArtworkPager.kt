@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
@@ -79,6 +80,7 @@ internal fun NowPlayingArtworkPager(
     onNext: () -> Unit,
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit = {},
     onTransitionSettled: (java.util.UUID) -> Unit = {},
+    cornerRadius: Dp = 28.dp,
     modifier: Modifier = Modifier,
 ) {
     // NowPlayingArtworkPager is only hosted by NowPlayingRoute, so this resolves to the same scoped
@@ -147,7 +149,7 @@ internal fun NowPlayingArtworkPager(
     val axisThresholdPx = with(density) { 10.dp.toPx() }
     val closeThresholdPx = with(density) { 96.dp.toPx() }
     val separatorGapPx = with(density) { 12.dp.toPx() }
-    val artworkCornerRadiusPx = with(density) { 28.dp.toPx() }
+    val artworkCornerRadiusPx = with(density) { cornerRadius.toPx() }
     val scope = rememberCoroutineScope()
 
     var displayedIndex by remember { mutableIntStateOf(activeIndex) }
@@ -433,7 +435,7 @@ internal fun NowPlayingArtworkPager(
         contentAlignment = Alignment.Center,
     ) {
         val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
-        val artworkShape = RoundedCornerShape(28.dp)
+        val artworkShape = RoundedCornerShape(cornerRadius)
         val safeDisplayedIndex = displayedIndex.coerceIn(queueState.items.indices)
         val currentItem = queueState.items[safeDisplayedIndex]
         val currentArtworkRef = currentItem.artworkRef ?: if (currentItem.id == state.currentTrack?.id) {
