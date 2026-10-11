@@ -54,6 +54,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.behradhz.meowzix.domain.lyrics.LyricsContentType
 import dev.behradhz.meowzix.domain.lyrics.LyricsFollowAction
 import dev.behradhz.meowzix.domain.lyrics.LyricsFollowMachine
@@ -149,6 +150,7 @@ fun ExpandedLyricsPanel(
     onAdjustDelay: (Long) -> Unit,
     onSelectVersion: (java.util.UUID) -> Unit,
     reduceMotion: Boolean = false,
+    showToolbar: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     var pasteDialog by remember { mutableStateOf(false) }
@@ -160,7 +162,7 @@ fun ExpandedLyricsPanel(
 
     Column(modifier.fillMaxSize()) {
         // The empty state owns Import/Paste until a displayable lyric version exists.
-        if (state.hasDisplayableLyrics) {
+        if (state.hasDisplayableLyrics && showToolbar) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp).testTag("lyrics-toolbar"),
                 horizontalArrangement = Arrangement.End,
@@ -197,7 +199,7 @@ fun ExpandedLyricsPanel(
             }
         }
 
-        if (selected?.parsed?.contentType == LyricsContentType.TIMED) {
+        if (showToolbar && selected?.parsed?.contentType == LyricsContentType.TIMED) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { onAdjustDelay(-250L) }) { Text("−250 ms") }
                 Text(
@@ -346,9 +348,15 @@ private fun TimedLyricsList(
                 val current = index == activeIndex
                 Text(
                     text = lines[index].text,
-                    color = Color.White,
-                    fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
-                    style = if (current) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
+                    color = Color.White.copy(alpha = lyricLineOpacity(index, activeIndex)),
+                    fontWeight = if (current) FontWeight.Bold else FontWeight.SemiBold,
+                    style = if (current) MaterialTheme.typography.headlineMedium.copy(
+                        fontSize = 32.sp,
+                        lineHeight = 39.sp,
+                    ) else MaterialTheme.typography.titleLarge.copy(
+                        fontSize = 25.sp,
+                        lineHeight = 32.sp,
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onLineSeek(index) }
@@ -391,7 +399,7 @@ private fun EmptyLyricsState(onImport: () -> Unit, onPaste: () -> Unit, modifier
 }
 
 @Composable
-private fun PasteLyricsDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
+internal fun PasteLyricsDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -442,4 +450,13 @@ internal fun lyricLineBlur(index: Int, activeIndex: Int): Float = when {
     kotlin.math.abs(index - activeIndex) <= 1 -> 0f
     kotlin.math.abs(index - activeIndex) == 2 -> 1.2f
     else -> 2f
+}
+
+/** Secondary lines recede by distance, in addition to the viewport's vertical gradient mask. */
+internal fun lyricLineOpacity(index: Int, activeIndex: Int): Float = when {
+    activeIndex < 0 -> 0.70f
+    index == activeIndex -> 1f
+    kotlin.math.abs(index - activeIndex) == 1 -> 0.62f
+    kotlin.math.abs(index - activeIndex) == 2 -> 0.38f
+    else -> 0.22f
 }
