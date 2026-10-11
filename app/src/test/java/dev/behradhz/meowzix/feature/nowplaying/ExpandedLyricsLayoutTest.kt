@@ -6,6 +6,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExpandedLyricsLayoutTest {
+    @Test fun preLyricsCompactPreviewStartsAtTheTopInsteadOfTheBottom() {
+        assertEquals(listOf(0, 1, 2), compactPreviewLineIndices(-1))
+        assertEquals(listOf(0, 1, 2), compactPreviewLineIndices(-5))
+        assertEquals(listOf(-1, 0, 1), compactPreviewLineIndices(0))
+        assertEquals(listOf(2, 3, 4), compactPreviewLineIndices(3))
+    }
+
+    @Test fun synchronizedLineIsTheFourthVisibleRowWheneverThreePreviousLinesExist() {
+        assertEquals(0, firstVisibleLyricsIndexForSync(-1))
+        assertEquals(0, firstVisibleLyricsIndexForSync(0))
+        assertEquals(0, firstVisibleLyricsIndexForSync(1))
+        assertEquals(0, firstVisibleLyricsIndexForSync(2))
+        assertEquals(0, firstVisibleLyricsIndexForSync(3))
+        assertEquals(1, firstVisibleLyricsIndexForSync(4))
+        assertEquals(7, firstVisibleLyricsIndexForSync(10))
+    }
+
     @Test fun morphKeepsOneFullSizeHeroAndEndsInARealCompactHeader() {
         assertEquals(520.dp, lyricsMorphHeroHeight(520.dp, 0f))
         assertEquals(298.dp, lyricsMorphHeroHeight(520.dp, 0.5f))

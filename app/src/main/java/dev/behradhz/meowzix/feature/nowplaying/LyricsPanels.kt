@@ -14,6 +14,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,7 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -36,6 +37,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -97,9 +99,12 @@ fun CompactLyricsPreview(
                     verticalArrangement = Arrangement.SpaceEvenly,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    PreviewLine(lines.getOrNull(activeIndex - 1)?.text, false)
-                    PreviewLine(lines.getOrNull(activeIndex)?.text, true)
-                    PreviewLine(lines.getOrNull(if (activeIndex < 0) 0 else activeIndex + 1)?.text, false)
+                    // Before the first timestamp there is no previous/current line: display
+                    // the first three lines from the TOP instead of putting line one at the bottom.
+                    val previewIndices = compactPreviewLineIndices(activeIndex)
+                    previewIndices.forEachIndexed { slot, index ->
+                        PreviewLine(lines.getOrNull(index)?.text, activeIndex >= 0 && slot == 1)
+                    }
                 }
             }
             LyricsContentType.PLAIN -> {
@@ -280,10 +285,12 @@ private fun TimedLyricsList(
     reduceMotion: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val listState = rememberLazyListState()
+    // A different song/lyrics version must never inherit the previous song's scroll position.
+    val listState = remember(state.trackId, state.selected?.id) { LazyListState() }
     val followMachine = remember(state.trackId, state.selected?.id) { LyricsFollowMachine() }
     var mode by remember(state.trackId, state.selected?.id) { mutableStateOf(followMachine.mode) }
-    var programmaticScroll by remember { mutableStateOf(false) }
+    var programmaticScroll by remember(state.trackId, state.selected?.id) { mutableStateOf(false) }
+    var followAnchorPx by remember(state.trackId, state.selected?.id) { mutableFloatStateOf(-1f) }
     val lines = state.effectiveLines
     val activeIndex = state.activeLineIndex
     // The playing line is always active. Manual browsing only reveals surrounding lines.
@@ -295,14 +302,18 @@ private fun TimedLyricsList(
 
     suspend fun settle(index: Int, animated: Boolean = true) {
         if (index !in lines.indices) return
-        val viewport = (listState.layoutInfo.viewportEndOffset - listState.layoutInfo.viewportStartOffset).coerceAtLeast(1)
-        val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
-        val lineHeight = visible?.size ?: 48
-        val anchor = (viewport * 0.50f).toInt()
-        val offset = -(anchor - lineHeight / 2)
+        // With enough preceding content, the playing line occupies the fourth visible row.
+        // For the first three timestamps the list stays at the top, without artificial blanks.
+        val firstVisible = firstVisibleLyricsIndexForSync(index)
         programmaticScroll = true
         try {
-            if (animated) listState.animateScrollToItem(index, offset) else listState.scrollToItem(index, offset)
+            if (animated) listState.animateScrollToItem(firstVisible) else listState.scrollToItem(firstVisible)
+            // Keep the actual settled center as the reattach zone so restoring auto-follow
+            // still works with variable-height Persian/English lyric lines.
+            followAnchorPx = listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.index == index }
+                ?.let { it.offset + it.size / 2f }
+                ?: followAnchorPx
         } finally {
             programmaticScroll = false
         }
@@ -315,9 +326,15 @@ private fun TimedLyricsList(
         }
     }
 
-    LaunchedEffect(activeIndex, mode) {
-        if (activeIndex >= 0 && followMachine.mode == LyricsFollowMode.FOLLOWING) {
-            settle(activeIndex, animated = !reduceMotion)
+    LaunchedEffect(activeIndex, mode, lines.size) {
+        if (followMachine.mode == LyricsFollowMode.FOLLOWING && lines.isNotEmpty()) {
+            if (activeIndex < 0) {
+                // Before the first timestamp, display the first line at the list's top.
+                listState.scrollToItem(0)
+                followAnchorPx = -1f
+            } else {
+                settle(activeIndex, animated = !reduceMotion)
+            }
         }
     }
 
@@ -326,7 +343,8 @@ private fun TimedLyricsList(
         val layout = listState.layoutInfo
         val item = layout.visibleItemsInfo.firstOrNull { it.index == activeIndex } ?: return@LaunchedEffect
         val viewportHeight = (layout.viewportEndOffset - layout.viewportStartOffset).toFloat().coerceAtLeast(1f)
-        val anchor = layout.viewportStartOffset + viewportHeight * 0.50f
+        val anchor = followAnchorPx.takeIf { it >= 0f }
+            ?: (layout.viewportStartOffset + viewportHeight * 0.40f)
         val center = item.offset + item.size / 2f
         followMachine.evaluate(center, anchor, item.size.toFloat(), false, false, false, android.os.SystemClock.uptimeMillis())
         mode = followMachine.mode
@@ -337,7 +355,8 @@ private fun TimedLyricsList(
                 if (latest != null) {
                     val latestLayout = listState.layoutInfo
                     val latestViewport = (latestLayout.viewportEndOffset - latestLayout.viewportStartOffset).toFloat().coerceAtLeast(1f)
-                    val latestAnchor = latestLayout.viewportStartOffset + latestViewport * 0.50f
+                    val latestAnchor = followAnchorPx.takeIf { it >= 0f }
+                        ?: (latestLayout.viewportStartOffset + latestViewport * 0.40f)
                     val action = followMachine.evaluate(
                         latest.offset + latest.size / 2f,
                         latestAnchor,
@@ -356,11 +375,18 @@ private fun TimedLyricsList(
         }
     }
 
-    Box(modifier.fillMaxWidth()) {
+    BoxWithConstraints(modifier.fillMaxWidth()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().lyricsEdgeFade(browsingReveal).testTag("expanded-lyrics-scroll"),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 120.dp),
+            modifier = Modifier.fillMaxSize()
+                .lyricsEdgeFade(browsingReveal, revealTop = listState.firstVisibleItemIndex == 0)
+                .testTag("expanded-lyrics-scroll"),
+            // No 120.dp leading gap: the pre-lyrics first line belongs at the top.
+            // Trailing space still allows the last playing line to occupy the fourth row.
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                top = 12.dp,
+                bottom = maxHeight.coerceAtLeast(120.dp),
+            ),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             items(lines.size, key = { index -> "${lines[index].timeMs}-${lines[index].originalOrder}" }) { index ->
@@ -447,13 +473,14 @@ internal fun PasteLyricsDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) 
     )
 }
 
-private fun Modifier.lyricsEdgeFade(browsingReveal: Float = 0f): Modifier =
+private fun Modifier.lyricsEdgeFade(browsingReveal: Float = 0f, revealTop: Boolean = false): Modifier =
     graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
         .drawWithContent {
             drawContent()
             drawRect(
                 brush = Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = browsingReveal.coerceIn(0f, 1f)),
+                    0f to Color.Black.copy(alpha =
+                        if (revealTop) 1f else browsingReveal.coerceIn(0f, 1f)),
                     0.12f to Color.Black,
                     0.42f to Color.Black,
                     0.64f to Color.Black,
@@ -485,3 +512,12 @@ internal fun lyricLineBlur(index: Int, activeIndex: Int, browsingReveal: Float =
     }
     return syncBlur * (1f - browsingReveal.coerceIn(0f, 1f))
 }
+
+/** Three-line compact preview: before the first timestamp line one starts at the top. */
+internal fun compactPreviewLineIndices(activeIndex: Int): List<Int> =
+    if (activeIndex < 0) listOf(0, 1, 2)
+    else listOf(activeIndex - 1, activeIndex, activeIndex + 1)
+
+/** Keep three preceding lyric rows above the synchronized row whenever they exist. */
+internal fun firstVisibleLyricsIndexForSync(activeIndex: Int): Int =
+    (activeIndex - 3).coerceAtLeast(0)
