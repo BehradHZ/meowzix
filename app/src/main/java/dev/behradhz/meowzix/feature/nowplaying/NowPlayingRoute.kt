@@ -265,7 +265,7 @@ private fun NowPlayingScreen(
         }
     }
     val heroWeight by animateFloatAsState(
-        targetValue = if (lyricsExpanded) 0.001f else 1f,
+        targetValue = if (lyricsExpanded) 0.015f else 1f,
         animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.90f, stiffness = 520f),
         label = "lyrics-hero-space",
     )
@@ -328,38 +328,35 @@ private fun NowPlayingScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // Do not leave an 82dp miniature artwork/title/favorite row above expanded lyrics.
-            // Let the existing hero morph and fade away; then remove it from composition.
-            if (!lyricsExpanded || heroWeight > 0.03f) {
-                MorphingPlayerHero(
-                    state = state,
-                    queueState = queueState,
-                    expanded = lyricsExpanded,
-                    lyricsLayoutVisible = reservedLyricsLayout,
-                    onBack = onBack,
-                    onPrevious = onPrevious,
-                    onNext = onNext,
-                    onToggleFavorite = onToggleFavorite,
-                    favorite = isFavorite,
-                    reduceMotion = reduceMotion,
-                    onBackdropTransition = { backdropTransition = it },
-                    onArtworkSettled = { settledArtworkTrackId = it },
-                    compactLyrics = {
-                        if (settledArtworkTrackId == currentTrackId && currentTrackHasLyrics) {
-                            CompactLyricsPreview(
-                                state = lyricsState,
-                                onExpand = onExpandLyrics,
-                                reduceMotion = reduceMotion,
-                            )
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(heroWeight)
-                        .graphicsLayer { alpha = (heroWeight * 3f).coerceIn(0f, 1f) },
-                )
-
-            }
+            // Preserve the same hero during both morph directions, but visually fade its
+            // compact header entirely out instead of leaving a tiny duplicate above lyrics.
+            MorphingPlayerHero(
+                state = state,
+                queueState = queueState,
+                expanded = lyricsExpanded,
+                lyricsLayoutVisible = reservedLyricsLayout,
+                onBack = onBack,
+                onPrevious = onPrevious,
+                onNext = onNext,
+                onToggleFavorite = onToggleFavorite,
+                favorite = isFavorite,
+                reduceMotion = reduceMotion,
+                onBackdropTransition = { backdropTransition = it },
+                onArtworkSettled = { settledArtworkTrackId = it },
+                compactLyrics = {
+                    if (settledArtworkTrackId == currentTrackId && currentTrackHasLyrics) {
+                        CompactLyricsPreview(
+                            state = lyricsState,
+                            onExpand = onExpandLyrics,
+                            reduceMotion = reduceMotion,
+                        )
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(heroWeight)
+                    .graphicsLayer { alpha = ((heroWeight - 0.03f) * 3f).coerceIn(0f, 1f) },
+            )
 
             if (lyricsExpanded) {
                 ExpandedLyricsPanel(
