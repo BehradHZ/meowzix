@@ -50,7 +50,7 @@ internal fun DockSearchOverlay(
     libraryResults: List<Track>,
     queueState: QueueState,
     currentTrackId: UUID?,
-    onPlayLibraryTrack: (Track, List<Track>) -> Unit,
+    onPlayLibraryTrack: (Track) -> Unit,
     onPlayQueueIndex: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -116,7 +116,7 @@ internal fun DockSearchOverlay(
                             LibrarySearchResultRow(
                                 track = track,
                                 isCurrent = currentTrackId == track.id,
-                                onClick = { onPlayLibraryTrack(track, libraryResults) },
+                                onClick = { onPlayLibraryTrack(track) },
                             )
                         }
                     }

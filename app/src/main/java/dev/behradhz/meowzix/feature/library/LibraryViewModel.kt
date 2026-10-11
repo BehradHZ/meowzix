@@ -6,6 +6,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.repository.ArtworkRepairCoordinator
 import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
+import dev.behradhz.meowzix.data.repository.LibraryAvailabilityFilter
+import dev.behradhz.meowzix.data.repository.PagedLibraryTracks
 import dev.behradhz.meowzix.data.settings.PlaybackContextKeys
 import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
@@ -20,6 +22,8 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.domain.playback.buildLibraryPlaybackQueue
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
@@ -61,6 +65,8 @@ data class LibraryUiState(
 class LibraryViewModel @Inject constructor(
     private val repository: MusicLibraryRepository,
     private val queryRepository: LibraryQueryRepository,
+    private val pagedLibrary: PagedLibraryTracks,
+    private val settingsRepository: SettingsRepository,
     private val playbackController: PlaybackController,
     private val queueRepository: QueueRepository,
     private val downloadRepository: DownloadRepository,
@@ -217,6 +223,31 @@ class LibraryViewModel @Inject constructor(
             startTrackId = track.id,
             contextKey = contextKey,
         )
+    }
+
+    /** Global search plays the complete library, not its limited result page. */
+    fun playLibrarySearchTrack(track: Track) {
+        viewModelScope.launch {
+            runCatching {
+                val display = settingsRepository.libraryDisplaySettings.first()
+                pagedLibrary.orderedTrackIds(
+                    sortMode = display.sortMode,
+                    groupMode = display.groupMode,
+                    availability = LibraryAvailabilityFilter.ALL,
+                    searchQuery = "",
+                )
+            }.onSuccess { ids ->
+                val contextKey = PlaybackContextKeys.LIBRARY
+                val policy = playbackContextPolicyStore.policy(contextKey)
+                val queue = buildLibraryPlaybackQueue(ids, track.id, policy.playbackMode, fromSearch = true)
+                playbackContextPolicyStore.activate(contextKey)
+                prepareRepeatRestore(queue.toSet(), policy.repeatMode)
+                queueRepository.replaceAndPlay(queue, track.id, policy.playbackMode)
+            }.onFailure { error ->
+                reportLoadError(error, "Unable to load library queue")
+                playbackController.playTrack(track.id)
+            }
+        }
     }
 
     fun playCollection(tracks: List<Track>, mode: PlaybackMode) {

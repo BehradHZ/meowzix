@@ -16,6 +16,7 @@ import dev.behradhz.meowzix.data.settings.PlaybackContextKeys
 import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.library.LibraryTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.buildLibraryPlaybackQueue
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
@@ -129,28 +130,25 @@ class LibraryTracksViewModel @Inject constructor(
         aggregateSelection.value = null
     }
 
-    /** Materialize only UUIDs, and only after an explicit play action. */
+    /** Search filters the visible Paging rows, never the playback catalog. */
     fun playTrack(trackId: UUID) {
+        // Capture before Now Playing clears search while the coroutine is queued.
+        val fromSearch = searchQuery.value.isNotBlank()
+        val filter = availability.value
+        val display = displaySettings.value
         viewModelScope.launch {
-            val filter = availability.value
-            val display = displaySettings.value
             val ids = pagedLibrary.orderedTrackIds(
                 sortMode = display.sortMode,
                 groupMode = display.groupMode,
                 availability = filter,
-                searchQuery = searchQuery.value,
-            ).distinct()
+                searchQuery = "",
+            )
             if (ids.isEmpty()) return@launch
 
             val contextKey = PlaybackContextKeys.LIBRARY
             playbackContextPolicyStore.activate(contextKey)
             val policy = playbackContextPolicyStore.policy(contextKey)
-            val selectedIndex = ids.indexOf(trackId)
-            val queue = when {
-                selectedIndex < 0 -> listOf(trackId)
-                policy.playbackMode == PlaybackMode.ORDERED -> ids.drop(selectedIndex)
-                else -> ids
-            }
+            val queue = buildLibraryPlaybackQueue(ids, trackId, policy.playbackMode, fromSearch)
             queueRepository.replaceAndPlay(queue, trackId, policy.playbackMode)
             if (policy.repeatMode != dev.behradhz.meowzix.domain.playback.RepeatMode.OFF) {
                 queueRepository.setRepeatMode(policy.repeatMode)

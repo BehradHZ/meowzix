@@ -21,8 +21,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,9 +52,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -122,7 +125,6 @@ fun MeowzixApp(
     val focusManager = LocalFocusManager.current
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var searchFieldFocused by remember { mutableStateOf(false) }
     var pendingArtist by remember { mutableStateOf<String?>(null) }
     var searchContextRoute by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -150,11 +152,11 @@ fun MeowzixApp(
         QUEUE_ROUTE -> DockSearchScope.QUEUE
         else -> DockSearchScope.GLOBAL
     }
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
     fun dismissSearchKeyboard() {
         keyboardController?.hide()
         focusManager.clearFocus(force = true)
-        searchFieldFocused = false
     }
 
     fun clearSearchState() {
@@ -239,7 +241,10 @@ fun MeowzixApp(
             }
             composable(LIBRARY_ROUTE) {
                 LibraryRoute(
-                    onOpenNowPlaying = morphingPlayerState::expand,
+                    onOpenNowPlaying = {
+                        if (searchActive) clearSearchState()
+                        morphingPlayerState.expand()
+                    },
                     searchQuery = if (searchActive && searchScope == DockSearchScope.LIBRARY) searchQuery else "",
                     viewModel = libraryViewModel,
                     requestedArtist = pendingArtist,
@@ -269,47 +274,34 @@ fun MeowzixApp(
             composable(HISTORY_ROUTE) { HistoryRoute() }
         }
 
-        if (searchActive && searchScope == DockSearchScope.GLOBAL && searchQuery.isNotBlank()) {
-            DockSearchOverlay(
-                hazeState = hazeState,
-                scope = searchScope,
-                query = searchQuery,
-                libraryResults = searchResults,
-                queueState = queueState,
-                currentTrackId = playbackState.currentTrack?.id,
-                onPlayLibraryTrack = { track, results ->
-                    clearSearchState()
-                    libraryViewModel.playTrack(track, results)
-                },
-                onPlayQueueIndex = { index ->
-                    clearSearchState()
-                    playerViewModel.playQueueItemAt(index)
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .then(
-                        if (searchFieldFocused) Modifier.imePadding()
-                        else Modifier.navigationBarsPadding(),
-                    )
-                    .padding(start = 18.dp, end = 18.dp, bottom = 88.dp),
-            )
-        }
-
+        // Search results and the dock share one IME/navigation-bar anchor, independent of focus.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .then(
-                    if (searchActive && searchFieldFocused) Modifier.imePadding()
-                    else Modifier.navigationBarsPadding(),
-                )
-                .padding(
-                    start = 14.dp,
-                    end = 14.dp,
-                    bottom = if (searchActive && searchFieldFocused) 4.dp else 10.dp,
-                ),
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+                .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (searchActive && searchScope == DockSearchScope.GLOBAL && searchQuery.isNotBlank()) {
+                DockSearchOverlay(
+                    hazeState = hazeState,
+                    scope = searchScope,
+                    query = searchQuery,
+                    libraryResults = searchResults,
+                    queueState = queueState,
+                    currentTrackId = playbackState.currentTrack?.id,
+                    onPlayLibraryTrack = { track ->
+                        clearSearchState()
+                        libraryViewModel.playLibrarySearchTrack(track)
+                    },
+                    onPlayQueueIndex = { index ->
+                        clearSearchState()
+                        playerViewModel.playQueueItemAt(index)
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                )
+            }
             MorphingDock(
                 hazeState = hazeState,
                 destinations = destinations,
@@ -318,7 +310,6 @@ fun MeowzixApp(
                 searchPlaceholder = searchScope.placeholder,
                 searchQuery = searchQuery,
                 onSearchQueryChange = { searchQuery = it },
-                onSearchFocusChanged = { searchFieldFocused = it },
                 onSelect = { route ->
                     if (route == SEARCH_ROUTE) {
                         searchQuery = ""
@@ -342,7 +333,11 @@ fun MeowzixApp(
             )
         }
 
-        if (playbackState.currentTrack != null) {
+        // The collapsed player must not cover the active keyboard or global search results.
+        val searchOccludesPlayer = searchActive && (
+            imeVisible || (searchScope == DockSearchScope.GLOBAL && searchQuery.isNotBlank())
+        )
+        if (playbackState.currentTrack != null && (!searchOccludesPlayer || morphingPlayerState.targetExpanded)) {
             MorphingPlayerOverlay(
                 hazeState = hazeState,
                 state = playbackState,
@@ -364,7 +359,6 @@ private fun MorphingDock(
     searchPlaceholder: String,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    onSearchFocusChanged: (Boolean) -> Unit,
     onSelect: (String) -> Unit,
     onCloseSearch: () -> Unit,
     reduceMotion: Boolean = false,
@@ -438,8 +432,7 @@ private fun MorphingDock(
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         modifier = Modifier
                             .weight(1f)
-                            .focusRequester(focusRequester)
-                            .onFocusChanged { onSearchFocusChanged(it.isFocused) },
+                            .focusRequester(focusRequester),
                         decorationBox = { innerField ->
                             Box(contentAlignment = Alignment.CenterStart) {
                                 if (searchQuery.isEmpty()) {
