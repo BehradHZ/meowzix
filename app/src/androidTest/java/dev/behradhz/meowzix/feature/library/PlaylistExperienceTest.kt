@@ -191,7 +191,7 @@ class PlaylistExperienceTest {
         compose.onNodeWithContentDescription("Edit playlist").assertDoesNotExist()
         firstTrackMenu()
         compose.onNodeWithText("Remove from playlist").assertDoesNotExist()
-        compose.onNodeWithText("Favorite", substring = false).performClick()
+        compose.onNodeWithContentDescription("Favorite").performClick()
         compose.runOnIdle { assertEquals(1, calls.favorites) }
     }
 
@@ -203,7 +203,7 @@ class PlaylistExperienceTest {
         compose.onNodeWithTag(tag).performTouchInput { swipeLeft() }
         compose.onNode(hasContentDescription("Download") and hasAnyAncestor(hasTestTag(tag)), useUnmergedTree = true).performClick()
         firstTrackMenu()
-        compose.onNodeWithText("Move down").performClick()
+        compose.onNodeWithText("Move down in playlist").performClick()
         firstTrackMenu()
         compose.onNodeWithText("Remove from playlist").performClick()
         compose.runOnIdle {
