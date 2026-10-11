@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.behradhz.meowzix.data.db.LibraryDao
+import dev.behradhz.meowzix.data.lyrics.LocalLyricsDiscovery
 import dev.behradhz.meowzix.domain.lyrics.LrcParser
 import dev.behradhz.meowzix.domain.lyrics.LyricsContentType
 import dev.behradhz.meowzix.domain.lyrics.LyricsRepository
@@ -21,6 +23,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -52,8 +55,23 @@ class NowPlayingLyricsViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val playbackController: PlaybackController,
     private val repository: LyricsRepository,
+    private val libraryDao: LibraryDao,
+    private val lyricsDiscovery: LocalLyricsDiscovery,
 ) : ViewModel() {
     private val error = MutableStateFlow<String?>(null)
+
+    init {
+        // Observe source availability independently of playback ticks. A Telegram file may gain
+        // a readable local source only after the current track has already begun playing.
+        viewModelScope.launch {
+            playbackController.state.map { it.currentTrack?.id }.distinctUntilChanged().collectLatest { trackId ->
+                if (trackId != null) {
+                    libraryDao.observeReadableSources(trackId.toString()).distinctUntilChanged()
+                        .collectLatest { sources -> lyricsDiscovery.inspect(trackId, sources) }
+                }
+            }
+        }
+    }
 
     private val trackLyrics = playbackController.state
         .map { it.currentTrack?.id }

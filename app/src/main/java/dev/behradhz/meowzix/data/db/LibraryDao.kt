@@ -217,6 +217,16 @@ interface LibraryDao {
     @Query("SELECT * FROM track_sources WHERE trackId = :trackId ORDER BY createdAtEpochMs")
     suspend fun sourcesForTrack(trackId: String): List<TrackSourceEntity>
 
+    /** Emits when a local copy becomes available, including a completed Telegram download. */
+    @Query("""
+        SELECT * FROM track_sources
+        WHERE trackId = :trackId AND availability = 'AVAILABLE_LOCAL'
+          AND (contentUri IS NOT NULL OR localPath IS NOT NULL)
+        ORDER BY CASE type WHEN 'LOCAL_MEDIASTORE' THEN 0 WHEN 'APP_OFFLINE_COPY' THEN 1
+                  WHEN 'TDLIB_LOCAL' THEN 2 ELSE 3 END, createdAtEpochMs
+    """)
+    fun observeReadableSources(trackId: String): Flow<List<TrackSourceEntity>>
+
     @Query(
         """
         SELECT t.id FROM tracks t WHERE t.id IN (:trackIds) AND t.hidden = 0

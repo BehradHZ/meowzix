@@ -48,9 +48,6 @@ class RoomLyricsRepository @Inject constructor(
     override suspend fun saveEmbedded(trackId: UUID, rawText: String, sourceLabel: String?): UUID {
         val parsed = LrcParser.parse(rawText)
         require(parsed.contentType != LyricsContentType.INVALID) { "Embedded lyrics are invalid" }
-        val hasUserChoice = dao.observeForTrack(trackId.toString())
-        // Selection protection is enforced transactionally below using the current rows.
-        @Suppress("UNUSED_VARIABLE") val providerBoundary = hasUserChoice
         return saveNew(trackId, LyricsSourceType.EMBEDDED, rawText, sourceLabel, userSelected = false, select = false)
     }
 
@@ -95,9 +92,24 @@ class RoomLyricsRepository @Inject constructor(
         require(parsed.contentType != LyricsContentType.INVALID) { "Lyrics are invalid" }
         val id = UUID.randomUUID()
         val now = System.currentTimeMillis()
-        database.withTransaction {
-            val existing = dao.byId(id.toString())
-            check(existing == null)
+        return database.withTransaction {
+            if (sourceType == LyricsSourceType.EMBEDDED) {
+                // The same source may be observed again after download/recomposition. Update in
+                // place if its embedded tag changes rather than generating duplicate versions.
+                val previous = dao.versionsForTrack(trackId.toString()).firstOrNull {
+                    it.sourceType == LyricsSourceType.EMBEDDED.name && it.sourceLabel == sourceLabel
+                }
+                if (previous != null) {
+                    if (previous.rawText != rawText) {
+                        dao.upsert(previous.copy(
+                            rawText = rawText,
+                            contentType = parsed.contentType.name,
+                            updatedAtEpochMs = now,
+                        ))
+                    }
+                    return@withTransaction UUID.fromString(previous.id)
+                }
+            }
             if (select) dao.clearSelection(trackId.toString())
             dao.insert(
                 LyricsVersionEntity(
@@ -114,8 +126,8 @@ class RoomLyricsRepository @Inject constructor(
                     updatedAtEpochMs = now,
                 ),
             )
+            id
         }
-        return id
     }
 
     private fun toDomain(row: LyricsVersionEntity): LyricsVersion? = runCatching {

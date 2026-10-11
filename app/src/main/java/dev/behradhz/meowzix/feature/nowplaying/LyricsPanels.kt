@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -150,36 +151,42 @@ fun ExpandedLyricsPanel(
     modifier: Modifier = Modifier,
 ) {
     var pasteDialog by remember { mutableStateOf(false) }
-    var versionsExpanded by remember { mutableStateOf(false) }
+    var optionsExpanded by remember(state.trackId) { mutableStateOf(false) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(onImportLrc)
     }
     val selected = state.selected
 
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = { importLauncher.launch(arrayOf("text/plain", "application/octet-stream")) }) {
-                Text("Import .lrc")
-            }
-            TextButton(onClick = { pasteDialog = true }) { Text("Paste") }
-            Spacer(Modifier.weight(1f))
-            if (state.trackLyrics?.versions.orEmpty().size > 1) {
+        // The empty state owns Import/Paste until a displayable lyric version exists.
+        if (state.hasDisplayableLyrics) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp).testTag("lyrics-toolbar"),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Box {
-                    TextButton(onClick = { versionsExpanded = true }) { Text("Versions") }
-                    DropdownMenu(versionsExpanded, onDismissRequest = { versionsExpanded = false }) {
-                        state.trackLyrics?.versions.orEmpty().forEach { version ->
+                    TextButton(onClick = { optionsExpanded = true }) { Text("Lyrics options") }
+                    DropdownMenu(optionsExpanded, onDismissRequest = { optionsExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Import .lrc") },
+                            onClick = {
+                                optionsExpanded = false
+                                importLauncher.launch(arrayOf("*/*"))
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Paste lyrics") },
+                            onClick = { optionsExpanded = false; pasteDialog = true },
+                        )
+                        state.trackLyrics?.versions.orEmpty().takeIf { it.size > 1 }?.forEach { version ->
                             DropdownMenuItem(
                                 text = {
-                                    Text(
-                                        (version.sourceLabel ?: version.sourceType.name) +
-                                            if (version.selected) " · selected" else "",
-                                    )
+                                    Text((version.sourceLabel ?: version.sourceType.name) +
+                                        if (version.selected) " · selected" else "")
                                 },
                                 onClick = {
-                                    versionsExpanded = false
+                                    optionsExpanded = false
                                     onSelectVersion(version.id)
                                 },
                             )
@@ -202,7 +209,7 @@ fun ExpandedLyricsPanel(
 
         when (selected?.parsed?.contentType) {
             null -> EmptyLyricsState(
-                onImport = { importLauncher.launch(arrayOf("text/plain", "application/octet-stream")) },
+                onImport = { importLauncher.launch(arrayOf("*/*")) },
                 onPaste = { pasteDialog = true },
                 modifier = Modifier.weight(1f),
             )
@@ -226,11 +233,13 @@ fun ExpandedLyricsPanel(
                     )
                 }
             }
-            LyricsContentType.INSTRUMENTAL -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("Instrumental", color = Color.White, style = MaterialTheme.typography.headlineSmall)
-            }
+            LyricsContentType.INSTRUMENTAL -> EmptyLyricsState(
+                onImport = { importLauncher.launch(arrayOf("*/*")) },
+                onPaste = { pasteDialog = true },
+                modifier = Modifier.weight(1f),
+            )
             LyricsContentType.INVALID -> EmptyLyricsState(
-                onImport = { importLauncher.launch(arrayOf("text/plain", "application/octet-stream")) },
+                onImport = { importLauncher.launch(arrayOf("*/*")) },
                 onPaste = { pasteDialog = true },
                 modifier = Modifier.weight(1f),
             )
@@ -367,7 +376,7 @@ private fun TimedLyricsList(
 @Composable
 private fun EmptyLyricsState(onImport: () -> Unit, onPaste: () -> Unit, modifier: Modifier = Modifier) {
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().testTag("lyrics-empty"),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
