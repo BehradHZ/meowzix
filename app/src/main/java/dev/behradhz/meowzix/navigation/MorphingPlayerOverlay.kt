@@ -135,7 +135,7 @@ internal fun MiniPlayerStackLayer(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithContent {
-                    clipRect(right = size.width * foregroundX) { drawContent() }
+                    clipRect(right = size.width * foregroundX) { this@drawWithContent.drawContent() }
                 },
         ) {
             underlay()
