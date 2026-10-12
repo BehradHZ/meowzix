@@ -219,7 +219,11 @@ private fun TelegramAuthScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 when (val step = state.step) {
-                    TelegramAuthStep.Initializing -> InitializingState(onResetTelegram)
+                    TelegramAuthStep.Initializing -> InitializingState(
+                        message = "Starting Telegram…",
+                        enabled = !state.isSubmitting,
+                        onResetTelegram = onResetTelegram,
+                    )
                     TelegramAuthStep.ConfigurationRequired -> MessageState(
                         icon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
                         title = "Telegram setup required",
@@ -292,8 +296,8 @@ private fun TelegramAuthScreen(
                         onLogout = onLogout,
                     )
                     TelegramAuthStep.LoggingOut -> ProgressState("Logging out…")
-                    TelegramAuthStep.Closing -> ProgressState("Closing Telegram session…")
-                    TelegramAuthStep.Closed -> ProgressState("Telegram session closed")
+                    TelegramAuthStep.Closing -> InitializingState("Closing Telegram session…", !state.isSubmitting, onResetTelegram)
+                    TelegramAuthStep.Closed -> InitializingState("Telegram session closed", !state.isSubmitting, onResetTelegram)
                     is TelegramAuthStep.Unsupported -> MessageState(
                         icon = { Icon(Icons.Rounded.ErrorOutline, contentDescription = null) },
                         title = "Telegram needs attention",
@@ -301,7 +305,7 @@ private fun TelegramAuthScreen(
                     )
                 }
 
-                if (state.isSubmitting) {
+                if (state.isSubmitting && state.step !is TelegramAuthStep.Initializing) {
                     CircularProgressIndicator(
                         modifier = Modifier.padding(top = 20.dp),
                         strokeWidth = 3.dp,
@@ -313,10 +317,11 @@ private fun TelegramAuthScreen(
 }
 
 @Composable
-private fun InitializingState(onResetTelegram: () -> Unit) {
-    ProgressState("Starting Telegram…")
+private fun InitializingState(message: String, enabled: Boolean, onResetTelegram: () -> Unit) {
+    ProgressState(message)
     OutlinedButton(
         onClick = onResetTelegram,
+        enabled = enabled,
         shape = RoundedCornerShape(22.dp),
         modifier = Modifier
             .fillMaxWidth()

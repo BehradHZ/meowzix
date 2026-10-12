@@ -39,12 +39,17 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.TdApi
 
 @Singleton
@@ -62,6 +67,9 @@ class TdLibTelegramRepository @Inject constructor(
     private val _musicSourceState = MutableStateFlow(TelegramMusicSourceState())
     override val musicSourceState: StateFlow<TelegramMusicSourceState> = _musicSourceState.asStateFlow()
     private var client: TdLibClientAdapter? = null
+    private var clientStartJob: Job? = null
+    private var clientCollectors: Job? = null
+    private var resetJob: Job? = null
     private var restartAfterClose = false
     private var currentUserId: Long? = null
 
@@ -105,6 +113,29 @@ class TdLibTelegramRepository @Inject constructor(
     override fun logout() {
         restartAfterClose = true
         submitRequest { TdApi.LogOut() }
+    }
+
+    override fun resetClient() {
+        if (resetJob?.isActive == true) return
+        resetJob = scope.launch {
+            clientStartJob?.join()
+            val stale = client
+            clientCollectors?.cancelAndJoin()
+            _authState.value = TelegramAuthState(step = TelegramAuthStep.Initializing, isSubmitting = true)
+            if (stale != null) {
+                try {
+                    withTimeout(20_000) { stale.closeAndAwaitClosed() }
+                } catch (_: TimeoutCancellationException) {
+                    showError("Telegram could not close. Try Reset Telegram again.")
+                    return@launch
+                }
+            }
+            stale?.deactivate()
+            client = null
+            currentUserId = null
+            _musicSourceState.value = TelegramMusicSourceState()
+            startClient()
+        }
     }
 
     override fun clearError() {
@@ -225,12 +256,15 @@ class TdLibTelegramRepository @Inject constructor(
             return
         }
         _authState.value = TelegramAuthState(step = TelegramAuthStep.Initializing)
-        scope.launch {
+        clientStartJob = scope.launch {
             runCatching { TdLibClientAdapter() }
                 .onSuccess { adapter ->
                     client = adapter
-                    launch { adapter.updates.collect(::handleUpdate) }
-                    launch { adapter.failures.collect { showError(safeMessage(it)) } }
+                    clientCollectors = scope.launch {
+                        launch { adapter.authorizationStates.filterNotNull().collect(::handleAuthorizationState) }
+                        launch { adapter.updates.collect(::handleUpdate) }
+                        launch { adapter.failures.collect { showError(safeMessage(it)) } }
+                    }
                 }
                 .onFailure { showError("TDLib could not start: ${safeMessage(it)}") }
         }
@@ -238,7 +272,6 @@ class TdLibTelegramRepository @Inject constructor(
 
     private fun handleUpdate(update: TdApi.Object) {
         when (update) {
-            is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewMessage -> handleNewMessage(update.message)
             is TdApi.UpdateMessageContent -> handleMessageContentChanged(update.chatId, update.messageId)
             is TdApi.UpdateDeleteMessages -> handleDeletedMessages(update)
@@ -259,6 +292,8 @@ class TdLibTelegramRepository @Inject constructor(
                 _musicSourceState.value = TelegramMusicSourceState()
                 if (restartAfterClose) {
                     restartAfterClose = false
+                    clientCollectors?.cancel()
+                    client?.deactivate()
                     client = null
                     startClient()
                 }

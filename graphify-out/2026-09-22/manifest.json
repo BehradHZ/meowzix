@@ -1,0 +1,776 @@
+{
+  ".codex/hooks.json": {
+    "mtime": 1789984707.7969213,
+    "seen": 1789984734.2543268,
+    "ast_hash": "5372457cf871eae8d02bae7994e1a349",
+    "semantic_hash": "5372457cf871eae8d02bae7994e1a349"
+  },
+  "app/build.gradle.kts": {
+    "mtime": 1789982412.3424375,
+    "seen": 1789984734.2543302,
+    "ast_hash": "0fad2e06cce5011caf4afe47b649ee10",
+    "semantic_hash": "0fad2e06cce5011caf4afe47b649ee10"
+  },
+  "app/schemas/dev.behradhz.meowzix.data.db.MeowzixDatabase/1.json": {
+    "mtime": 1789666553.3647597,
+    "seen": 1789984734.2543316,
+    "ast_hash": "3362257dbdf851f3f26939184487540e",
+    "semantic_hash": "3362257dbdf851f3f26939184487540e"
+  },
+  "app/schemas/dev.behradhz.meowzix.data.db.MeowzixDatabase/2.json": {
+    "mtime": 1789666606.0556755,
+    "seen": 1789984734.2543323,
+    "ast_hash": "89d3b66c64344285b7c86a10296f5a2e",
+    "semantic_hash": "89d3b66c64344285b7c86a10296f5a2e"
+  },
+  "app/src/androidTest/java/dev/behradhz/meowzix/data/db/MigrationTest.kt": {
+    "mtime": 1789990566.5731633,
+    "seen": 1789990789.4821882,
+    "ast_hash": "b0d62140e4212c7540350203d0e3881f",
+    "semantic_hash": ""
+  },
+  "app/src/androidTest/java/dev/behradhz/meowzix/data/repository/LocalMusicLibraryRepositoryTest.kt": {
+    "mtime": 1789990320.5027273,
+    "seen": 1789990323.3237958,
+    "ast_hash": "f37d07ca63372fd030a39143d530d941",
+    "semantic_hash": ""
+  },
+  "app/src/androidTest/java/dev/behradhz/meowzix/data/telegram/TdLibClientAdapterTest.kt": {
+    "mtime": 1789673148.7605975,
+    "seen": 1789984734.254335,
+    "ast_hash": "ad4c99ce5adff34b2d9cfa8a767628ba",
+    "semantic_hash": "ad4c99ce5adff34b2d9cfa8a767628ba"
+  },
+  "app/src/androidTest/java/dev/behradhz/meowzix/playback/PlaybackServiceTest.kt": {
+    "mtime": 1789672254.4900382,
+    "seen": 1789984734.2543354,
+    "ast_hash": "93782cd5391df0f4e71ba695f980aadc",
+    "semantic_hash": "93782cd5391df0f4e71ba695f980aadc"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/MainActivity.kt": {
+    "mtime": 1789990321.0302308,
+    "seen": 1789990323.3237994,
+    "ast_hash": "8d3e073dbfa5de930b2f84d9a63eea3b",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/MeowzixApplication.kt": {
+    "mtime": 1789663327.9600284,
+    "seen": 1789984734.2543366,
+    "ast_hash": "d25b36891767157632323ee06e983fce",
+    "semantic_hash": "d25b36891767157632323ee06e983fce"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/core/common/TextNormalizer.kt": {
+    "mtime": 1789663327.9600284,
+    "seen": 1789984734.2543373,
+    "ast_hash": "936062b36c6fe0c1899ce70c3f646c00",
+    "semantic_hash": "936062b36c6fe0c1899ce70c3f646c00"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/core/model/Track.kt": {
+    "mtime": 1789663327.9600284,
+    "seen": 1789984734.2543378,
+    "ast_hash": "22cbf5e8534d452ad5da85409fd0fef6",
+    "semantic_hash": "22cbf5e8534d452ad5da85409fd0fef6"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/core/model/TrackSource.kt": {
+    "mtime": 1789663327.960756,
+    "seen": 1789984734.2543383,
+    "ast_hash": "9365dbbecaa28f38ba2cd7dae2e8db8d",
+    "semantic_hash": "9365dbbecaa28f38ba2cd7dae2e8db8d"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/core/permissions/AudioPermission.kt": {
+    "mtime": 1789990320.5047314,
+    "seen": 1789990323.3238034,
+    "ast_hash": "e403599ce087941bd7f81f9836ead9bc",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/DbConverters.kt": {
+    "mtime": 1789663327.9612813,
+    "seen": 1789984734.2543397,
+    "ast_hash": "0e5c5a5cea21bf7187b0d76a34345bac",
+    "semantic_hash": "0e5c5a5cea21bf7187b0d76a34345bac"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/LibraryDao.kt": {
+    "mtime": 1789990320.505732,
+    "seen": 1789990323.3238065,
+    "ast_hash": "008cdbc73a02cc103baba13d01adf819",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/LocalMediaSourceEntity.kt": {
+    "mtime": 1789666579.71086,
+    "seen": 1789984734.2543406,
+    "ast_hash": "3c853c0a23499e5949d0d660ec3daca3",
+    "semantic_hash": "3c853c0a23499e5949d0d660ec3daca3"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/MeowzixDatabase.kt": {
+    "mtime": 1789990486.0465176,
+    "seen": 1789990789.4822056,
+    "ast_hash": "28b658cbf050e36b4eda7203232566c3",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/Migrations.kt": {
+    "mtime": 1789990503.3601754,
+    "seen": 1789990789.482206,
+    "ast_hash": "03b0fd39f13379c6e5a494f4161521e9",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/TrackEntity.kt": {
+    "mtime": 1789663327.961798,
+    "seen": 1789984734.2543447,
+    "ast_hash": "c7579ca3a04920a12e78ce929d9aa75f",
+    "semantic_hash": "c7579ca3a04920a12e78ce929d9aa75f"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/TrackSourceEntity.kt": {
+    "mtime": 1789663327.961798,
+    "seen": 1789984734.2543452,
+    "ast_hash": "1bc6d9abe52a2622d2a2690a283ee5a7",
+    "semantic_hash": "1bc6d9abe52a2622d2a2690a283ee5a7"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/di/DataModule.kt": {
+    "mtime": 1789990946.8364017,
+    "seen": 1789991248.5680635,
+    "ast_hash": "2c66772131b246dd19ac43f077a2a12d",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/localmedia/MediaStoreScanner.kt": {
+    "mtime": 1789668383.1883972,
+    "seen": 1789984734.2543466,
+    "ast_hash": "f5b73f8ead6e02fae9b896c27e81fd82",
+    "semantic_hash": "f5b73f8ead6e02fae9b896c27e81fd82"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/localmedia/ScannedLocalTrack.kt": {
+    "mtime": 1789663327.9623327,
+    "seen": 1789984734.254347,
+    "ast_hash": "6f7d82cccb499900434dc5f02adecddf",
+    "semantic_hash": "6f7d82cccb499900434dc5f02adecddf"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/repository/LocalLibraryReconciler.kt": {
+    "mtime": 1789663327.9628482,
+    "seen": 1789984734.2543478,
+    "ast_hash": "c17f833f6dd41edfdeb51dfbf56ab9bc",
+    "semantic_hash": "c17f833f6dd41edfdeb51dfbf56ab9bc"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/repository/LocalMusicLibraryRepository.kt": {
+    "mtime": 1789990320.5130923,
+    "seen": 1789990323.3238187,
+    "ast_hash": "0cb1532ab6971cd96209d91c873e2351",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/telegram/TdLibClientAdapter.kt": {
+    "mtime": 1789990320.5170963,
+    "seen": 1789990323.3238213,
+    "ast_hash": "320372ddffef244c7c659cccf8f4f836",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/telegram/TdLibTelegramRepository.kt": {
+    "mtime": 1789990320.5180962,
+    "seen": 1789990323.3238225,
+    "ast_hash": "edc11416ec2802e9b78fd7bef89bfb05",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/downloads/DownloadRepository.kt": {
+    "mtime": 1789990320.519096,
+    "seen": 1789990323.323824,
+    "ast_hash": "2f64fb7696adc73f539e1e40a2ed52de",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/history/ListeningHistoryRepository.kt": {
+    "mtime": 1789990455.775034,
+    "seen": 1789990789.4822276,
+    "ast_hash": "d8323e60c6350a43d7fc4173d5f2cf04",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/library/MusicLibraryRepository.kt": {
+    "mtime": 1789990320.519096,
+    "seen": 1789990323.3238254,
+    "ast_hash": "94782b6f80cd0782a9f0bafa78b2e8e1",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/playback/AudioVisualizer.kt": {
+    "mtime": 1789982412.3424375,
+    "seen": 1789984734.254353,
+    "ast_hash": "ae909b2c69dbb5f8af16409b691c4696",
+    "semantic_hash": "ae909b2c69dbb5f8af16409b691c4696"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/playback/PlaybackCatalog.kt": {
+    "mtime": 1789669186.2288952,
+    "seen": 1789984734.2543538,
+    "ast_hash": "853653b99e6ac96c45fa71a631c354d8",
+    "semantic_hash": "853653b99e6ac96c45fa71a631c354d8"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/playback/PlaybackController.kt": {
+    "mtime": 1789991109.0773351,
+    "seen": 1789991248.5680838,
+    "ast_hash": "409b64dbccf64af6ac9c6e188e55bd35",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/playback/PureShuffleEngine.kt": {
+    "mtime": 1789671678.6613946,
+    "seen": 1789984734.2543547,
+    "ast_hash": "75b3e2352a0d191937351bb0e8ec53f2",
+    "semantic_hash": "75b3e2352a0d191937351bb0e8ec53f2"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/playback/QueueRepository.kt": {
+    "mtime": 1789990320.5200963,
+    "seen": 1789990323.3238294,
+    "ast_hash": "a097699d00b054f17577b59ddd1ee74c",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/recommendation/RecommendationEngine.kt": {
+    "mtime": 1789990911.743051,
+    "seen": 1789991248.568087,
+    "ast_hash": "5aa930f89a9c50328864a5ad5465191b",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/settings/SettingsRepository.kt": {
+    "mtime": 1789990612.4179897,
+    "seen": 1789990789.482236,
+    "ast_hash": "8776dfbe7aa152aa13308426b42b794e",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/telegram/TelegramRepository.kt": {
+    "mtime": 1789990320.5220964,
+    "seen": 1789990323.3238323,
+    "ast_hash": "5c0915a5b41e1d53f1b4c1c9fb583664",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/library/LibraryRoute.kt": {
+    "mtime": 1789991109.0822806,
+    "seen": 1789991248.5680923,
+    "ast_hash": "84cb342f2c9c08c4f0973123869a3731",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/library/LibraryViewModel.kt": {
+    "mtime": 1789990320.5240545,
+    "seen": 1789990323.323835,
+    "ast_hash": "df130ff44041a3ade878285210c2a232",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/nowplaying/NowPlayingRoute.kt": {
+    "mtime": 1789991109.0812616,
+    "seen": 1789991248.5680938,
+    "ast_hash": "f724a59f0982e75a0c1ccc195b810897",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/nowplaying/NowPlayingViewModel.kt": {
+    "mtime": 1789991109.0798473,
+    "seen": 1789991248.5680945,
+    "ast_hash": "3068c4d7b0d69c3ed2f6736547ae01fd",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/queue/QueueRoute.kt": {
+    "mtime": 1789982412.3424375,
+    "seen": 1789984734.2543612,
+    "ast_hash": "4a579648100efc64a07bf7aa2459e7e0",
+    "semantic_hash": "4a579648100efc64a07bf7aa2459e7e0"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/queue/QueueViewModel.kt": {
+    "mtime": 1789672185.4044676,
+    "seen": 1789984734.2543616,
+    "ast_hash": "8822b78139efbe8e9070275e244925c4",
+    "semantic_hash": "8822b78139efbe8e9070275e244925c4"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/telegramauth/TelegramAuthRoute.kt": {
+    "mtime": 1789990320.525939,
+    "seen": 1789990323.3238385,
+    "ast_hash": "a30e172da5e308c63d64087d665def7d",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/telegramauth/TelegramAuthViewModel.kt": {
+    "mtime": 1789990320.525939,
+    "seen": 1789990323.323839,
+    "ast_hash": "fec55421bab84eade9dd3cbabbd9f3cc",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/navigation/MeowzixApp.kt": {
+    "mtime": 1789990642.800445,
+    "seen": 1789990789.4822483,
+    "ast_hash": "1a63702226b9f1d4121c98006f5440d5",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/playback/AndroidAudioVisualizer.kt": {
+    "mtime": 1789982412.3424375,
+    "seen": 1789984734.2543645,
+    "ast_hash": "2805023a3013573da1a2b173b94d3234",
+    "semantic_hash": "2805023a3013573da1a2b173b94d3234"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/playback/AndroidPlaybackController.kt": {
+    "mtime": 1789991168.342579,
+    "seen": 1789991248.5681012,
+    "ast_hash": "683dd195e868774799387655f6067ce2",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/playback/MediaItemFactory.kt": {
+    "mtime": 1789671882.411926,
+    "seen": 1789984734.2543657,
+    "ast_hash": "b0dda4ce28cc17a04b32a495d2296847",
+    "semantic_hash": "b0dda4ce28cc17a04b32a495d2296847"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/playback/PlaybackService.kt": {
+    "mtime": 1789991109.0786233,
+    "seen": 1789991248.5681026,
+    "ast_hash": "22a190bdf558a519e51afaacafb2869c",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/playback/persistence/PersistedPlaybackSession.kt": {
+    "mtime": 1789669296.2474337,
+    "seen": 1789984734.254367,
+    "ast_hash": "bd17cb0a88954347e868d50704a09be2",
+    "semantic_hash": "bd17cb0a88954347e868d50704a09be2"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/playback/persistence/PlaybackSessionCodec.kt": {
+    "mtime": 1789669296.2474337,
+    "seen": 1789984734.2543678,
+    "ast_hash": "a5dbd890101ba5285e551b288742d57e",
+    "semantic_hash": "a5dbd890101ba5285e551b288742d57e"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/playback/persistence/PlaybackStateStore.kt": {
+    "mtime": 1789669296.2474337,
+    "seen": 1789984734.2543685,
+    "ast_hash": "60a1a6a1b7d4f6291ce4c518eddd5e54",
+    "semantic_hash": "60a1a6a1b7d4f6291ce4c518eddd5e54"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/ui/components/AudioSpectrum.kt": {
+    "mtime": 1789982412.3424375,
+    "seen": 1789984734.254369,
+    "ast_hash": "743da746a063bac715b23543dc8225e8",
+    "semantic_hash": "743da746a063bac715b23543dc8225e8"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/ui/components/GlassSurface.kt": {
+    "mtime": 1789982412.3424375,
+    "seen": 1789984734.2543693,
+    "ast_hash": "8e6b0634c9fd39fc97ca8feb91d64889",
+    "semantic_hash": "8e6b0634c9fd39fc97ca8feb91d64889"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/ui/components/TrackArtwork.kt": {
+    "mtime": 1789982412.3424375,
+    "seen": 1789984734.2543697,
+    "ast_hash": "bfb9907d8a662536f8da4b2f1583c51d",
+    "semantic_hash": "bfb9907d8a662536f8da4b2f1583c51d"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/ui/theme/Color.kt": {
+    "mtime": 1789990321.0312302,
+    "seen": 1789990323.323849,
+    "ast_hash": "eaa4ad40f094553a8f510a2cd1e44f7c",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/ui/theme/Shape.kt": {
+    "mtime": 1789982412.3424375,
+    "seen": 1789984734.2543714,
+    "ast_hash": "a6ceb309d68702ad3b995ebf6dd34075",
+    "semantic_hash": "a6ceb309d68702ad3b995ebf6dd34075"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/ui/theme/Theme.kt": {
+    "mtime": 1789982412.3424375,
+    "seen": 1789984734.254372,
+    "ast_hash": "e4b1ee2675e7a6e535ccc33ea8fd1922",
+    "semantic_hash": "e4b1ee2675e7a6e535ccc33ea8fd1922"
+  },
+  "app/src/main/java/dev/behradhz/meowzix/ui/theme/Type.kt": {
+    "mtime": 1789982412.3424375,
+    "seen": 1789984734.2543726,
+    "ast_hash": "b4a32de87af205c9e3bc3081abafee52",
+    "semantic_hash": "b4a32de87af205c9e3bc3081abafee52"
+  },
+  "app/src/test/java/dev/behradhz/meowzix/core/common/TextNormalizerTest.kt": {
+    "mtime": 1789663327.9643953,
+    "seen": 1789984734.254373,
+    "ast_hash": "c9d2b797cd980578346fcfc4c3dfd92f",
+    "semantic_hash": "c9d2b797cd980578346fcfc4c3dfd92f"
+  },
+  "app/src/test/java/dev/behradhz/meowzix/core/permissions/AudioPermissionTest.kt": {
+    "mtime": 1789666721.7795582,
+    "seen": 1789984734.2543738,
+    "ast_hash": "70c9bd63e0800be0f1c6fc2b0060bac7",
+    "semantic_hash": "70c9bd63e0800be0f1c6fc2b0060bac7"
+  },
+  "app/src/test/java/dev/behradhz/meowzix/data/repository/LocalLibraryReconcilerTest.kt": {
+    "mtime": 1789663327.964921,
+    "seen": 1789984734.2543745,
+    "ast_hash": "d9b15954f2d11416ee96a41a39a8b557",
+    "semantic_hash": "d9b15954f2d11416ee96a41a39a8b557"
+  },
+  "app/src/test/java/dev/behradhz/meowzix/data/telegram/TdLibAuthorizationStateMapperTest.kt": {
+    "mtime": 1789672959.549128,
+    "seen": 1789984734.254375,
+    "ast_hash": "23ba38b893b2d9dc6519cc8ce044208e",
+    "semantic_hash": "23ba38b893b2d9dc6519cc8ce044208e"
+  },
+  "app/src/test/java/dev/behradhz/meowzix/domain/playback/PureShuffleEngineTest.kt": {
+    "mtime": 1789671678.662393,
+    "seen": 1789984734.2543762,
+    "ast_hash": "4d0a4b05df40fd5a7e8e1192d37c61ef",
+    "semantic_hash": "4d0a4b05df40fd5a7e8e1192d37c61ef"
+  },
+  "app/src/test/java/dev/behradhz/meowzix/playback/persistence/PlaybackSessionCodecTest.kt": {
+    "mtime": 1789672082.1877234,
+    "seen": 1789984734.2543766,
+    "ast_hash": "71590add3d0bc80d10119f5969932808",
+    "semantic_hash": "71590add3d0bc80d10119f5969932808"
+  },
+  "build.gradle.kts": {
+    "mtime": 1789666513.6607718,
+    "seen": 1789984734.2543774,
+    "ast_hash": "7a615e8f0a0a6af04bbc1164d9023241",
+    "semantic_hash": "7a615e8f0a0a6af04bbc1164d9023241"
+  },
+  "gradlew": {
+    "mtime": 1789664734.0307426,
+    "seen": 1789984734.254378,
+    "ast_hash": "a43be8432bac3ffd05b3769aa42fe996",
+    "semantic_hash": "a43be8432bac3ffd05b3769aa42fe996"
+  },
+  "settings.gradle.kts": {
+    "mtime": 1789665290.864596,
+    "seen": 1789984734.2543786,
+    "ast_hash": "fc62cd49f2f2df74ac6cfb11c0926262",
+    "semantic_hash": "fc62cd49f2f2df74ac6cfb11c0926262"
+  },
+  ".github/workflows/android.yml": {
+    "mtime": 1789990320.4986618,
+    "seen": 1789990323.3238616,
+    "ast_hash": "0b25f19001fdc3c23911ec371662f3c2",
+    "semantic_hash": ""
+  },
+  ".serena/project.yml": {
+    "mtime": 1789984819.5034695,
+    "seen": 1789986617.1062331,
+    "ast_hash": "c358de4f84479256c533c17cbd361b8d",
+    "semantic_hash": ""
+  },
+  "AGENTS.md": {
+    "mtime": 1789985301.8957963,
+    "seen": 1789986617.1062336,
+    "ast_hash": "04f2327f771eccf98cafe1d68cf7f851",
+    "semantic_hash": ""
+  },
+  "RTK.md": {
+    "mtime": 1789985301.892394,
+    "seen": 1789986617.1062355,
+    "ast_hash": "5215800c9abc77330d271ad256c71f7f",
+    "semantic_hash": ""
+  },
+  "docs/MEOWZIX_SYSTEM_SPEC.md": {
+    "mtime": 1789663742.6555762,
+    "seen": 1789986617.106236,
+    "ast_hash": "66a5b8ecf07567569212c9e966998e1e",
+    "semantic_hash": ""
+  },
+  "docs/UI_UX_BACKLOG.md": {
+    "mtime": 1789982412.3424375,
+    "seen": 1789986617.1062365,
+    "ast_hash": "4f6ee2b76d4a9d75247e217a01c51d09",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_00_PROJECT_FOUNDATION.md": {
+    "mtime": 1789668720.0942416,
+    "seen": 1789986617.1062372,
+    "ast_hash": "2d213f55efe6b5acbd84e4a1c4b304c8",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_01_LOCAL_MUSIC_LIBRARY.md": {
+    "mtime": 1789668720.095765,
+    "seen": 1789986617.1062376,
+    "ast_hash": "ae475a23f2c2e5e8d78228c1010cc823",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_02_CORE_PLAYBACK.md": {
+    "mtime": 1789671567.867201,
+    "seen": 1789986617.1062381,
+    "ast_hash": "1aa9dd25de58da3f021df1195af6afa9",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_03_QUEUE_REPEAT_PURE_SHUFFLE.md": {
+    "mtime": 1789672562.9961054,
+    "seen": 1789986617.106239,
+    "ast_hash": "86ba756fddf820eda027fbf65fd84d99",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_04_TELEGRAM_AUTH.md": {
+    "mtime": 1789673440.254178,
+    "seen": 1789986617.1062396,
+    "ast_hash": "b8518815eccb2b2a969062bdcda88939",
+    "semantic_hash": ""
+  },
+  "docs/setup/TELEGRAM_CREDENTIALS.md": {
+    "mtime": 1789673208.578291,
+    "seen": 1789986617.1062412,
+    "ast_hash": "476d7bdc5032995ea1d144206349786b",
+    "semantic_hash": ""
+  },
+  "app/schemas/dev.behradhz.meowzix.data.db.MeowzixDatabase/3.json": {
+    "mtime": 1789990320.4996612,
+    "seen": 1789990323.3237903,
+    "ast_hash": "975cb918191f64cbf4718e9f7e506889",
+    "semantic_hash": ""
+  },
+  "app/schemas/dev.behradhz.meowzix.data.db.MeowzixDatabase/4.json": {
+    "mtime": 1789990320.4996612,
+    "seen": 1789990323.3237915,
+    "ast_hash": "98dd08660022158096d72c8de51e193c",
+    "semantic_hash": ""
+  },
+  "app/schemas/dev.behradhz.meowzix.data.db.MeowzixDatabase/5.json": {
+    "mtime": 1789990320.500661,
+    "seen": 1789990323.3237927,
+    "ast_hash": "926ac54e16de1b4fff641143c5a24bc7",
+    "semantic_hash": ""
+  },
+  "app/src/androidTest/java/dev/behradhz/meowzix/data/repository/RoomPlaylistRepositoryTest.kt": {
+    "mtime": 1789990320.5027273,
+    "seen": 1789990323.3237965,
+    "ast_hash": "85bc07b8acb6c904a7aafb0a8452fb16",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/DownloadDao.kt": {
+    "mtime": 1789990320.505732,
+    "seen": 1789990323.3238049,
+    "ast_hash": "6a1a1d5885afe2f5aa99ce303884487e",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/DownloadRecordEntity.kt": {
+    "mtime": 1789990320.505732,
+    "seen": 1789990323.3238058,
+    "ast_hash": "96eef8151deb55f09c10b3d95a10accd",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/PlaylistDao.kt": {
+    "mtime": 1789990320.5080867,
+    "seen": 1789990323.3238094,
+    "ast_hash": "3bad1959f314d29fd9749b2035cdef7d",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/PlaylistEntity.kt": {
+    "mtime": 1789990320.5090926,
+    "seen": 1789990323.3238099,
+    "ast_hash": "af80276a35fc9b87a222cfeaef4a5197",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/PlaylistTrackEntity.kt": {
+    "mtime": 1789990320.5090926,
+    "seen": 1789990323.3238106,
+    "ast_hash": "30e76f0d0c34202cb204957d41a5a651",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/TelegramDao.kt": {
+    "mtime": 1789990320.5100923,
+    "seen": 1789990323.323811,
+    "ast_hash": "1ebd4131c5df417bcb9ae1520a74ac07",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/TelegramSelectedSourceEntity.kt": {
+    "mtime": 1789990320.5100923,
+    "seen": 1789990323.3238115,
+    "ast_hash": "c931f468d9eadb153ba8cee21a86721d",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/TelegramTrackSourceEntity.kt": {
+    "mtime": 1789990320.5110924,
+    "seen": 1789990323.323812,
+    "ast_hash": "66abb967565b5a2076c8e0de3522b195",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/downloads/TdLibDownloadRepository.kt": {
+    "mtime": 1789990320.5120926,
+    "seen": 1789990323.323815,
+    "ast_hash": "ecfa8237f64b07026f6bd1df4089e921",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/network/NetworkPolicy.kt": {
+    "mtime": 1789990320.5130923,
+    "seen": 1789990323.3238173,
+    "ast_hash": "cc54ae38dd7215f26ca86d90d47ead7a",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/repository/RoomPlaylistRepository.kt": {
+    "mtime": 1789990320.5150917,
+    "seen": 1789990323.3238192,
+    "ast_hash": "6b2e8d23a0570d1de15883d9a75103d9",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/repository/UnifiedTrackMatcher.kt": {
+    "mtime": 1789990320.516099,
+    "seen": 1789990323.32382,
+    "ast_hash": "b713d0a2dceeed2e82b310ef47f81ca3",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/settings/DataStoreSettingsRepository.kt": {
+    "mtime": 1789990612.4189906,
+    "seen": 1789990789.4822218,
+    "ast_hash": "e7879a05c0021c9c9a6060f9b5a91102",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/telegram/TdLibRemoteTrackPlaybackResolver.kt": {
+    "mtime": 1789990320.5170963,
+    "seen": 1789990323.3238218,
+    "ast_hash": "518e8bd5eaf73aea9928fa5078dec23e",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/telegram/TelegramAudioMessageMapper.kt": {
+    "mtime": 1789990320.519096,
+    "seen": 1789990323.3238232,
+    "ast_hash": "855c58bd07470f64e8cc6fcd7f9c6ec6",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/library/PlaylistRepository.kt": {
+    "mtime": 1789990320.5200963,
+    "seen": 1789990323.3238258,
+    "ast_hash": "8e3e3a784bc779f1606fa7c8c065787e",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/domain/playback/RemoteTrackPlaybackResolver.kt": {
+    "mtime": 1789990320.5211022,
+    "seen": 1789990323.3238304,
+    "ast_hash": "54ed9c127e6062c7190d5f9ed018a86c",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/downloads/DownloadsRoute.kt": {
+    "mtime": 1789990320.5220964,
+    "seen": 1789990323.3238328,
+    "ast_hash": "a4080fdf96ab272ecee00ccebd6f7ad7",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/downloads/DownloadsViewModel.kt": {
+    "mtime": 1789990320.5220964,
+    "seen": 1789990323.3238337,
+    "ast_hash": "8fe206d7369a4f852317bf1042cbebbd",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/telegramauth/TelegramMusicSourcePicker.kt": {
+    "mtime": 1789990320.526944,
+    "seen": 1789990323.3238397,
+    "ast_hash": "4beb37907aed5790d20d1b615d76e3cb",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/playback/ResolvingPlaybackController.kt": {
+    "mtime": 1789991109.0798473,
+    "seen": 1789991248.5681033,
+    "ast_hash": "5b8e2cab86c03339ec9c55aaaa08e751",
+    "semantic_hash": ""
+  },
+  "app/src/test/java/dev/behradhz/meowzix/data/downloads/CacheEvictionPolicyTest.kt": {
+    "mtime": 1789990320.5289457,
+    "seen": 1789990323.3238533,
+    "ast_hash": "2e917c4d9401aa731313183ad64ad187",
+    "semantic_hash": ""
+  },
+  "app/src/test/java/dev/behradhz/meowzix/data/network/NetworkPolicyRulesTest.kt": {
+    "mtime": 1789990320.5304499,
+    "seen": 1789990323.323854,
+    "ast_hash": "955af321a738d087186cb8ca13fbe9b0",
+    "semantic_hash": ""
+  },
+  "app/src/test/java/dev/behradhz/meowzix/data/repository/UnifiedTrackMatcherTest.kt": {
+    "mtime": 1789990320.5304499,
+    "seen": 1789990323.3238556,
+    "ast_hash": "a7a61b9c0fd9731479424947da4e44b5",
+    "semantic_hash": ""
+  },
+  "app/src/test/java/dev/behradhz/meowzix/data/telegram/TelegramAudioMessageMapperTest.kt": {
+    "mtime": 1789990320.531455,
+    "seen": 1789990323.3238568,
+    "ast_hash": "47b3c3be37f8fa66d8b2d3bdad5661e6",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_05_TELEGRAM_INDEXING.md": {
+    "mtime": 1789990320.531455,
+    "seen": 1789990323.3238702,
+    "ast_hash": "29c4e407706ba79946d1d128922753ea",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_06_UNIFIED_TRACK_DEDUPLICATION.md": {
+    "mtime": 1789990320.531455,
+    "seen": 1789990323.323871,
+    "ast_hash": "a42a50dba927d355dea2ef2a20a1ae27",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_07_OFFLINE_DOWNLOADS.md": {
+    "mtime": 1789990320.5324554,
+    "seen": 1789990323.3238714,
+    "ast_hash": "2204f316f7df7a923f27bb993b70e617",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_08_ON_DEMAND_PLAYBACK.md": {
+    "mtime": 1789990320.5324554,
+    "seen": 1789990323.3238723,
+    "ast_hash": "5b829a0d43e46b27e4b4d100309e5a1d",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_09_LIBRARY_UX.md": {
+    "mtime": 1789990768.38057,
+    "seen": 1789990789.4822853,
+    "ast_hash": "57fc1ad1c513fd63ae2c54753cf0af80",
+    "semantic_hash": ""
+  },
+  "app/schemas/dev.behradhz.meowzix.data.db.MeowzixDatabase/6.json": {
+    "mtime": 1789990679.7476265,
+    "seen": 1789990789.482187,
+    "ast_hash": "69b2fa93d6ed31bd143214b6404c9cb6",
+    "semantic_hash": ""
+  },
+  "app/src/androidTest/java/dev/behradhz/meowzix/data/history/RoomListeningHistoryRepositoryTest.kt": {
+    "mtime": 1789990665.8007703,
+    "seen": 1789990789.482189,
+    "ast_hash": "feec4e052e84feb54b96fb7247437f6b",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/HistoryDao.kt": {
+    "mtime": 1789990946.8337061,
+    "seen": 1789991248.568052,
+    "ast_hash": "0128500253685fb6e971b184e6dfce4d",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/db/ListeningEntities.kt": {
+    "mtime": 1789990486.0441985,
+    "seen": 1789990789.4822037,
+    "ast_hash": "e0aa94a63644ffc2d63b641da0917c4d",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/history/RoomListeningHistoryRepository.kt": {
+    "mtime": 1789990552.9568648,
+    "seen": 1789990789.4822156,
+    "ast_hash": "d5cffe94e1e2c84c9517fa4e1d6448ab",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/history/HistoryRoute.kt": {
+    "mtime": 1789990642.7994463,
+    "seen": 1789990789.482239,
+    "ast_hash": "4ccd1552d7e21a7b7832fcfdf3f4ef6c",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/feature/history/HistoryViewModel.kt": {
+    "mtime": 1789990642.798446,
+    "seen": 1789990789.4822397,
+    "ast_hash": "20210e93eb2bd9257074b86b2444e73c",
+    "semantic_hash": ""
+  },
+  "app/src/test/java/dev/behradhz/meowzix/domain/history/ListeningEventSemanticsTest.kt": {
+    "mtime": 1789990665.7997687,
+    "seen": 1789990789.4822674,
+    "ast_hash": "640c3c2b73f3d367958e9d9e3c83f4e7",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_10_LISTENING_HISTORY.md": {
+    "mtime": 1789990768.3825748,
+    "seen": 1789990789.4822857,
+    "ast_hash": "3afdf6db0d15dde06c60d41b05a50494",
+    "semantic_hash": ""
+  },
+  "app/src/main/java/dev/behradhz/meowzix/data/recommendation/HeuristicRecommendationEngine.kt": {
+    "mtime": 1789990946.8358214,
+    "seen": 1789991248.5680692,
+    "ast_hash": "1ede2d777bad51060bf36b82052f20f0",
+    "semantic_hash": ""
+  },
+  "app/src/test/java/dev/behradhz/meowzix/domain/recommendation/AdaptiveScorerTest.kt": {
+    "mtime": 1789991220.0912578,
+    "seen": 1789991248.5681205,
+    "ast_hash": "143b9072c049ce33d004651da1b2577e",
+    "semantic_hash": ""
+  },
+  "docs/increments/INCREMENT_11_SMART_SHUFFLE.md": {
+    "mtime": 1789991220.0912578,
+    "seen": 1789991248.5681388,
+    "ast_hash": "8f85be3ffe48a3e58d41c58631bb24c9",
+    "semantic_hash": ""
+  }
+}

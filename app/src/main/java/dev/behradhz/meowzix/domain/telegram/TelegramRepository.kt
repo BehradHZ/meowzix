@@ -1,6 +1,5 @@
 package dev.behradhz.meowzix.domain.telegram
 
-import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -116,7 +115,7 @@ interface TelegramRepository {
     fun logout()
 
     /** Restart the TDLib process client without logging out or deleting imported/local music. */
-    fun resetClient() = TdLibClientAdapter.resetActive()
+    fun resetClient()
 
     fun clearError()
 

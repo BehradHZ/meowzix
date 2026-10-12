@@ -2,13 +2,13 @@ package dev.behradhz.meowzix.data.telegram
 
 import dev.behradhz.meowzix.data.downloads.ProcessTransferBudget
 import dev.behradhz.meowzix.data.downloads.TransferPriority
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
@@ -24,9 +24,12 @@ class TdLibClientAdapter {
      */
     val updates: Flow<TdApi.Object> = globalUpdateChannel.asSharedFlow()
     val failures: Flow<Throwable> = globalFailureChannel.asSharedFlow()
+    private val _authorizationStates = MutableStateFlow<TdApi.AuthorizationState?>(null)
+    val authorizationStates: StateFlow<TdApi.AuthorizationState?> = _authorizationStates.asStateFlow()
     internal val fileStates = TdFileStateRegistry()
 
     private val readyGate = AuthorizationReadyGate()
+    private val closed = CompletableDeferred<Unit>()
     private val client: Client
 
     init {
@@ -41,7 +44,13 @@ class TdLibClientAdapter {
                 } else {
                     true
                 }
-                if (shouldForward) globalUpdateChannel.tryEmit(update)
+                if (shouldForward) {
+                    if (update is TdApi.UpdateAuthorizationState) {
+                        _authorizationStates.value = update.authorizationState
+                        if (update.authorizationState is TdApi.AuthorizationStateClosed) closed.complete(Unit)
+                    }
+                    globalUpdateChannel.tryEmit(update)
+                }
             },
             { error -> globalFailureChannel.tryEmit(error) },
             { error -> globalFailureChannel.tryEmit(error) },
@@ -104,34 +113,20 @@ class TdLibClientAdapter {
         }
     }
 
+    suspend fun closeAndAwaitClosed() {
+        if (!closed.isCompleted) {
+            runCatching { sendDirect(TdApi.Close()) }
+            closed.await()
+        }
+    }
+
     companion object {
         private val globalUpdateChannel = MutableSharedFlow<TdApi.Object>(replay = 1, extraBufferCapacity = 64)
         private val globalFailureChannel = MutableSharedFlow<Throwable>(replay = 1, extraBufferCapacity = 8)
-        private val resetScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
         @Volatile
         private var activeInstance: TdLibClientAdapter? = null
 
         fun activeOrNull(): TdLibClientAdapter? = activeInstance
-
-        /**
-         * Close and recreate TDLib without LogOut. TDLib keeps the authorization database, so this
-         * recovers a stuck startup/client while preserving the signed-in account and imported music.
-         */
-        fun resetActive() {
-            resetScope.launch {
-                val stale = synchronized(Companion) {
-                    val current = activeInstance
-                    activeInstance = null
-                    current
-                }
-                if (stale != null) {
-                    runCatching { stale.sendDirect(TdApi.Close()) }
-                }
-                runCatching { TdLibClientAdapter() }
-                    .onFailure(globalFailureChannel::tryEmit)
-            }
-        }
     }
 }
 

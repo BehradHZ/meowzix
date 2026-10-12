@@ -9,6 +9,8 @@ local.properties
 .cxx/
 app/build/
 secrets.properties
+*.jks
+*.keystore
 
 # Local credentials and signing material
 .env
