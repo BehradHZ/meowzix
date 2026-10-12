@@ -1,7 +1,6 @@
 package dev.behradhz.meowzix.data.telegram
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -14,18 +13,20 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class TdLibClientAdapterTest {
     @Test
-    fun nativeClientEmitsInitialAuthorizationUpdateAsynchronously() {
+    fun nativeClientPublishesInitialAuthorizationStateAsynchronously() {
         runBlocking {
             val client = TdLibClientAdapter()
-
-            val update = withTimeout(15_000) {
-                client.updates
-                    .filterIsInstance<TdApi.UpdateAuthorizationState>()
-                    .first()
+            try {
+                // The process-wide updates flow replays the previous client's last update.
+                // Observe this client's StateFlow to avoid a stale AuthorizationStateClosed.
+                val initialState = withTimeout(15_000) {
+                    client.authorizationStates.filterNotNull().first()
+                }
+                assertTrue(initialState is TdApi.AuthorizationStateWaitTdlibParameters)
+            } finally {
+                withTimeout(15_000) { client.closeAndAwaitClosed() }
+                client.deactivate()
             }
-
-            assertTrue(update.authorizationState is TdApi.AuthorizationStateWaitTdlibParameters)
-            withTimeout(15_000) { client.closeAndAwaitClosed() }
             assertTrue(client.authorizationStates.value is TdApi.AuthorizationStateClosed)
         }
     }
