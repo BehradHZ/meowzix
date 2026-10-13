@@ -116,10 +116,10 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
         }
         searchJob?.cancel()
         _ui.value = OverlayForwardState(track = snapshot)
+        search("")
         scope.launch {
             runCatching { settings.telegramForwardSettings.first() }
                 .onSuccess { defaults -> _ui.update { if (it.track?.id == snapshot.id) it.copy(defaults = defaults) else it } }
-            search("")
         }
         return START_NOT_STICKY
     }
@@ -148,6 +148,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
         view = compose
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        overlayWindowVisible = true
         true
     }.getOrElse {
         // The OS can revoke overlay access independently; never leave an orphaned service.
@@ -240,6 +241,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
 
     private fun dismiss() { stopSelf() }
     override fun onDestroy() {
+        overlayWindowVisible = false
         searchJob?.cancel()
         scope.cancel()
         view?.let { compose ->
@@ -261,6 +263,11 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        /** Device-test evidence that the WindowManager window was attached, not just the gateway. */
+        @Volatile
+        internal var overlayWindowVisible = false
+            private set
+
         private const val EXTRA_TRACK_ID = "forward_track_id"
         private const val EXTRA_TITLE = "forward_track_title"
         private const val EXTRA_ARTIST = "forward_track_artist"

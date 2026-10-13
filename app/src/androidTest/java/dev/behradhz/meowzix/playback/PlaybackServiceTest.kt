@@ -3,8 +3,11 @@ package dev.behradhz.meowzix.playback
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
+import android.provider.Settings
 import android.os.SystemClock
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -23,6 +26,7 @@ import androidx.test.runner.lifecycle.Stage
 import com.google.common.util.concurrent.ListenableFuture
 import dev.behradhz.meowzix.MainActivity
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
+import dev.behradhz.meowzix.feature.telegram.TelegramForwardOverlayService
 import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
 import dev.behradhz.meowzix.domain.playback.CrossfadePolicy
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -41,6 +45,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -197,15 +202,62 @@ class PlaybackServiceTest {
         }
 
         try {
-            waitUntil { pickerVisible() }
-            Thread.sleep(500)
-            assertTrue("Notification picker must not finish on its initial closed state", pickerVisible())
+            if (Settings.canDrawOverlays(context)) {
+                waitUntil { TelegramForwardOverlayService.overlayWindowVisible }
+                Thread.sleep(500)
+                assertTrue("Granted Share must attach an actual overlay window",
+                    TelegramForwardOverlayService.overlayWindowVisible)
+            } else {
+                waitUntil { pickerVisible() }
+                Thread.sleep(500)
+                assertTrue("Permission gateway must not close on first frame", pickerVisible())
+            }
         } finally {
+            context.stopService(Intent(context, TelegramForwardOverlayService::class.java))
             onMain {
                 ActivityLifecycleMonitorRegistry.getInstance()
                     .getActivitiesInStage(Stage.RESUMED)
                     .filterIsInstance<TelegramForwardActivity>()
                     .forEach(TelegramForwardActivity::finish)
+            }
+        }
+    }
+
+    @Test
+    fun grantedNotificationForwardAttachesRealWindowManagerOverlay() {
+        val wasGranted = Settings.canDrawOverlays(context)
+        fun shell(command: String) {
+            val fd = InstrumentationRegistry.getInstrumentation()
+                .uiAutomation.executeShellCommand(command)
+            ParcelFileDescriptor.AutoCloseInputStream(fd).use { it.readBytes() }
+        }
+        try {
+            if (!wasGranted) {
+                shell("appops set ${context.packageName} SYSTEM_ALERT_WINDOW allow")
+            }
+            assumeTrue("This emulator does not allow SYSTEM_ALERT_WINDOW app-op testing",
+                Settings.canDrawOverlays(context))
+            val item = playableItem("Floating target", createWaveFile("floating-forward.wav", 12_000))
+            onMain {
+                controller.setMediaItem(item)
+                controller.prepare()
+                controller.play()
+            }
+            waitUntil { onMain { controller.isPlaying } }
+            val command = SessionCommand(
+                "dev.behradhz.meowzix.action.OPEN_TELEGRAM_FORWARD", Bundle.EMPTY,
+            )
+            val result = onMain { controller.sendCustomCommand(command, Bundle.EMPTY) }
+                .get(10, TimeUnit.SECONDS)
+            assertEquals(SessionResult.RESULT_SUCCESS, result.resultCode)
+            waitUntil { TelegramForwardOverlayService.overlayWindowVisible }
+            Thread.sleep(500)
+            assertTrue("Overlay must remain attached after the gateway finishes",
+                TelegramForwardOverlayService.overlayWindowVisible)
+        } finally {
+            context.stopService(Intent(context, TelegramForwardOverlayService::class.java))
+            if (!wasGranted) {
+                shell("appops set ${context.packageName} SYSTEM_ALERT_WINDOW default")
             }
         }
     }
