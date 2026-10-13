@@ -184,7 +184,7 @@ fun NowPlayingRoute(
         onLyricSeek = lyricsViewModel::seekToLine,
     )
 
-    val track = state.currentTrack
+    val track = forwardState.track ?: state.currentTrack
     if (forwardState.isOpen && track != null) {
         TelegramForwardSheet(
             track = track,

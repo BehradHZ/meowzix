@@ -350,7 +350,14 @@ class PlaybackService : MediaLibraryService() {
             args: Bundle,
         ): ListenableFuture<SessionResult> {
             when (customCommand.customAction) {
-                ACTION_OPEN_TELEGRAM_FORWARD -> openTelegramForwardPicker()
+                ACTION_OPEN_TELEGRAM_FORWARD -> {
+                    val result = when {
+                        player.currentMediaItem == null -> SessionResult.RESULT_ERROR_INVALID_STATE
+                        openTelegramForwardPicker() -> SessionResult.RESULT_SUCCESS
+                        else -> SessionResult.RESULT_ERROR_UNKNOWN
+                    }
+                    return Futures.immediateFuture(SessionResult(result))
+                }
                 ACTION_TOGGLE_SHUFFLE -> toggleSystemShuffle()
                 ACTION_CYCLE_REPEAT -> cycleSystemRepeat()
                 ACTION_TOGGLE_FAVORITE -> toggleSystemFavorite()
@@ -721,8 +728,19 @@ class PlaybackService : MediaLibraryService() {
     }
 
     @Suppress("DEPRECATION")
-    private fun openTelegramForwardPicker() {
-        if (player.currentMediaItem == null) return
+    private fun openTelegramForwardPicker(): Boolean {
+        if (player.currentMediaItem == null) return false
+        // Android 15+ requires a creator-side background-activity-start opt-in as well
+        // as the sender-side option below. The intent targets our non-exported picker.
+        val creatorOptions = if (Build.VERSION.SDK_INT >= 35) {
+            ActivityOptions.makeBasic()
+                .setPendingIntentCreatorBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED,
+                )
+                .toBundle()
+        } else {
+            null
+        }
         val forwardIntent = PendingIntent.getActivity(
             this,
             1,
@@ -734,6 +752,7 @@ class PlaybackService : MediaLibraryService() {
                 )
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            creatorOptions,
         )
         val launchOptions = if (Build.VERSION.SDK_INT >= 34) {
             ActivityOptions.makeBasic()
@@ -748,14 +767,16 @@ class PlaybackService : MediaLibraryService() {
         } else {
             null
         }
-        runCatching {
+        return runCatching {
             if (launchOptions == null) {
                 forwardIntent.send()
             } else {
                 forwardIntent.send(this, 0, null, null, null, null, launchOptions)
             }
-        }.onFailure { error ->
+            true
+        }.getOrElse { error ->
             Log.w(TAG, "Unable to open Telegram forward picker", error)
+            false
         }
     }
 

@@ -358,6 +358,7 @@ fun TelegramForwardSheet(
                                 chat = chat,
                                 job = latestJob,
                                 onClick = {
+                                    if (isSending) return@TelegramDestinationRow
                                     actionError = null
                                     onForward(
                                         chat.chatId,

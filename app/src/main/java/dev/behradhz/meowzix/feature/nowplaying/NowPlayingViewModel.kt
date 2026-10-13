@@ -8,6 +8,7 @@ import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackController
+import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueRepository
@@ -38,6 +39,8 @@ import kotlinx.coroutines.launch
 
 data class TelegramForwardUiState(
     val isOpen: Boolean = false,
+    /** Snapshot of the selected track; auto-advance must not silently change the send target. */
+    val track: NowPlayingTrack? = null,
     val query: String = "",
     val chats: List<TelegramChatSummary> = emptyList(),
     val isSearching: Boolean = false,
@@ -250,10 +253,17 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun openForwardPickerForTrack(trackId: UUID) {
-        forwardTrackId = trackId
+        val selectedTrack = state.value.currentTrack?.takeIf { it.id == trackId }
+            ?: libraryById.value[trackId]?.let { track ->
+                NowPlayingTrack(track.id, track.title, track.artist, track.artworkRef)
+            }
+            ?: return
+        forwardSearchJob?.cancel()
+        forwardTrackId = selectedTrack.id
         _forwardState.update {
             it.copy(
                 isOpen = true,
+                track = selectedTrack,
                 query = "",
                 chats = emptyList(),
                 isSearching = true,
@@ -270,6 +280,7 @@ class NowPlayingViewModel @Inject constructor(
         _forwardState.update {
             it.copy(
                 isOpen = false,
+                track = null,
                 query = "",
                 chats = emptyList(),
                 isSearching = false,
@@ -286,12 +297,12 @@ class NowPlayingViewModel @Inject constructor(
             if (query.isNotBlank()) delay(120)
             runCatching { telegramForwardRepository.searchChats(query) }
                 .onSuccess { chats ->
-                    if (_forwardState.value.query == query) {
+                    if (_forwardState.value.isOpen && _forwardState.value.query == query) {
                         _forwardState.update { it.copy(chats = chats, isSearching = false) }
                     }
                 }
                 .onFailure { error ->
-                    if (_forwardState.value.query == query) {
+                    if (_forwardState.value.isOpen && _forwardState.value.query == query) {
                         _forwardState.update {
                             it.copy(
                                 chats = emptyList(),
@@ -310,9 +321,10 @@ class NowPlayingViewModel @Inject constructor(
         rememberDefaults: Boolean,
     ) {
         val trackId = forwardTrackId ?: return
+        if (_forwardState.value.isSending) return
         val targetTitle = _forwardState.value.chats.firstOrNull { it.chatId == targetChatId }?.title
+        _forwardState.update { it.copy(errorMessage = null, isSending = true) }
         viewModelScope.launch {
-            _forwardState.update { it.copy(errorMessage = null, isSending = false) }
             runCatching {
                 if (rememberDefaults) {
                     settingsRepository.setTelegramForwardDefaults(
