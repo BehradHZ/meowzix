@@ -115,7 +115,7 @@ internal class TdLibProxyCoordinator(
                 client.send(TdApi.GetProxies()).proxies.firstOrNull { it.id == id }?.proxy
                     ?: throw IllegalStateException("Proxy has been removed")
             }
-            val seconds = withTimeout(15_000) { client.send(TdApi.PingProxy(proxy)) }.value
+            val seconds = withTimeout(15_000) { client.send(TdApi.PingProxy(proxy)) }.seconds
             val latency = (seconds * 1_000.0).roundToLong().coerceAtLeast(0)
             _state.update { current -> current.copy(
                 directTesting = if (id == 0) false else current.directTesting,
