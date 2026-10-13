@@ -11,16 +11,22 @@ import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -60,7 +66,7 @@ import kotlinx.coroutines.launch
 
 /**
  * A real TYPE_APPLICATION_OVERLAY, not an Activity pretending to float.
- * Started only by the user-initiated notification share gateway after permission is granted.
+ * Started by the short-lived NoDisplay notification gateway after permission is granted.
  * Kept for the duration of the picker; dismissal removes the entire window and stops this service.
  */
 @AndroidEntryPoint
@@ -139,7 +145,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.BOTTOM
+            gravity = Gravity.CENTER
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
             title = "Meowzix Telegram sharing"
         }
@@ -160,30 +166,46 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
         val state by ui.collectAsState()
         MeowzixTheme(darkTheme = true) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.67f))) {
-                // Explicit close surface: no implicit sending or touching the underlying app.
+                // A full-screen dim layer blocks touches to the previous app. The modal itself
+                // remains a centered floating card, even after the search keyboard opens.
                 Box(Modifier.fillMaxSize().clickable { dismiss() })
                 state.track?.let { selected ->
-                    Box(
-                        modifier = Modifier.fillMaxWidth()
-                            .align(Alignment.BottomCenter)
+                    BoxWithConstraints(
+                        modifier = Modifier.fillMaxSize()
                             .imePadding()
-                            .navigationBarsPadding(),
+                            .navigationBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        TelegramForwardSheet(
-                            trackId = selected.id,
-                            title = selected.title,
-                            artist = selected.artist,
-                            query = state.query,
-                            chats = state.chats,
-                            isSearching = state.isSearching,
-                            isSending = state.isSending,
-                            errorMessage = state.errorMessage,
-                            defaults = state.defaults,
-                            onQueryChange = ::search,
-                            onForward = ::send,
-                            onDismiss = ::dismiss,
-                            floatingOverlay = true,
-                        )
+                        val availableHeight = maxHeight
+                        Box(
+                            modifier = Modifier
+                                .widthIn(max = 460.dp)
+                                .fillMaxWidth()
+                                .testTag("telegram-forward-centered-overlay")
+                                // Prevent an empty part of the card from hitting the dismiss scrim.
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) {},
+                        ) {
+                            TelegramForwardSheet(
+                                trackId = selected.id,
+                                title = selected.title,
+                                artist = selected.artist,
+                                query = state.query,
+                                chats = state.chats,
+                                isSearching = state.isSearching,
+                                isSending = state.isSending,
+                                errorMessage = state.errorMessage,
+                                defaults = state.defaults,
+                                onQueryChange = ::search,
+                                onForward = ::send,
+                                onDismiss = ::dismiss,
+                                floatingOverlay = true,
+                                overlayMaxHeight = availableHeight,
+                            )
+                        }
                     }
                 }
             }

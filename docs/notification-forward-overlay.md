@@ -1,32 +1,38 @@
-# Notification-triggered Telegram Forward overlay
+# Notification Share: centered floating Telegram picker
 
-The Media3 custom Share command is still exposed only to phone controllers. It targets
-`TelegramForwardActivity` through a direct immutable activity PendingIntent (no notification
-broadcast/service trampoline). The activity is a user-visible permission gateway.
+The Media3 custom Share command remains phone-only. It is handled by
+`PlaybackService.onCustomCommand`, which sends an explicit immutable PendingIntent to
+`TelegramForwardLaunchActivity`, an unexported `Theme.NoDisplay`, no-history,
+no-recents Activity with no UI. **The main Meowzix Activity never opens.**
 
-- The user explicitly taps **Enable floating sharing**. This invokes Android's special-app-access
-  `ACTION_MANAGE_OVERLAY_PERMISSION` page. This is not a regular runtime permission:
-  `SYSTEM_ALERT_WINDOW` must be declared and `Settings.canDrawOverlays` is rechecked after
-  returning from Settings. No programmatic granting or repeated automatic prompts.
-- With access granted, the gateway starts an unexported `TelegramForwardOverlayService`
-  using the pinned notification track ID/title/artist and immediately finishes.
-- The service owns one focusable full-screen `WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY`
-  window, hosting a `ComposeView` with lifecycle, saved-state and ViewModel-store owners.
-  The foreground app remains underneath. The window closes on explicit Close, scrim tap,
-  or service destruction; the keyboard can be used in chat search.
-- The original Forward picker content is shared: a ModalBottomSheet inside the app and
-  the same glass body drawn directly in the WindowManager overlay, **not** a nested dialog
-  requiring an Activity window token. Sending uses the existing TelegramForwardRepository,
-  persisted send jobs, retry and cancel controls, and existing settings defaults.
-- If access is denied or restricted by the device, **Continue with in-app picker** preserves
-  the current Activity flow. A revoked permission is checked again before attaching a window.
-  No blanket screen capture, accessibility, or unrelated background overlay permission is used.
-- Overlay permission does not permit drawing above Android's privileged/system-security windows.
-  Device vendors and policy can still restrict display. Android 15+ limits foreground-service
-  launches from the background even with this permission; this implementation starts the
-  short-lived overlay service from the user-opened gateway Activity, not from an idle process.
+This invisible gateway exists solely for the user-initiated standard Android
+activity transition, which lets System UI dismiss the expanded notification shade
+without prohibited `ACTION_CLOSE_SYSTEM_DIALOGS`, private status bar APIs, or Accessibility.
+Shade collapse is controlled by the OS and may vary with manufacturer/system UI.
+The *ongoing playback notification* is retained so media controls continue to work.
 
-Validation: CI `:app:testDebugUnitTest :app:lintDebug :app:assembleDebug` and emulator
-`:app:connectedDebugAndroidTest`. Manual device QA should check first-time grant, allow,
-deny, revoke, foreground app preservation, lock screen restrictions, keyboard, scrim dismissal,
-and a full Telegram send. See Android's Settings.canDrawOverlays and SYSTEM_ALERT_WINDOW docs.
+- When `Settings.canDrawOverlays` is true, the gateway starts the unexported
+  `TelegramForwardOverlayService`, immediately finishes before rendering a frame,
+  and preserves the other app underneath.
+- When access was never granted or revoked, the gateway presents the existing
+  `TelegramForwardActivity` only for explicit special app access onboarding
+  (`ACTION_MANAGE_OVERLAY_PERMISSION`); manual in-app sharing remains available.
+  The app cannot programmatically grant overlay permission.
+- The service creates a focusable `TYPE_APPLICATION_OVERLAY` window with a dim
+  touch-blocking scrim and a **centered, max-460dp-wide rounded glass card**.
+  The card bounds itself to the available screen/keyboard height; excess content
+  scrolls and chat results have a bounded list. Tapping outside or Close dismisses
+  the window without touching the app beneath.
+- Forward actions share the same composable content and existing
+  `TelegramForwardRepository` persistence, options, progress, retry/cancel and settings
+  logic as the in-app picker. The selected notification track remains pinned when playback
+  advances. The service has a lifecycle, saved-state and ViewModelStore owner.
+- `SYSTEM_ALERT_WINDOW` cannot cover privileged/system-security windows or override
+  manufacturer policies; on the lock screen the system may restrict presentation.
+
+CI validates Unit Test, Lint, Debug Assemble and emulator instrumentation. The
+instrumentation grant path triggers the actual MediaSession Share command, confirms that
+the WindowManager overlay stays attached after the invisible gateway finishes, and asserts
+that the visible permission Activity does not appear when access is already granted.
+Real-device QA should additionally check shade dismissal and current-app preservation on
+the target vendor build.

@@ -53,7 +53,7 @@ import dev.behradhz.meowzix.domain.playback.SleepTimerMode
 import dev.behradhz.meowzix.domain.playback.SleepTimerPolicy
 import dev.behradhz.meowzix.domain.playback.SleepTimerTerminationReason
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
-import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
+import dev.behradhz.meowzix.feature.telegram.TelegramForwardLaunchActivity
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
 import dev.behradhz.meowzix.widget.PlaybackWidgetProvider
@@ -731,7 +731,7 @@ class PlaybackService : MediaLibraryService() {
     private fun openTelegramForwardPicker(): Boolean {
         if (player.currentMediaItem == null) return false
         // Android 15+ requires a creator-side background-activity-start opt-in as well
-        // as the sender-side option below. The intent targets our non-exported picker.
+        // as the sender-side option below. The NoDisplay gateway never renders Meowzix.
         val creatorOptions = if (Build.VERSION.SDK_INT >= 35) {
             ActivityOptions.makeBasic()
                 .setPendingIntentCreatorBackgroundActivityStartMode(
@@ -744,7 +744,7 @@ class PlaybackService : MediaLibraryService() {
         val forwardIntent = PendingIntent.getActivity(
             this,
             1,
-            TelegramForwardActivity.intent(
+            TelegramForwardLaunchActivity.intent(
                 this,
                 player.currentMediaItem?.mediaId,
                 player.currentMediaItem?.mediaMetadata?.title?.toString(),
@@ -752,8 +752,9 @@ class PlaybackService : MediaLibraryService() {
             ).apply {
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                        Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                        Intent.FLAG_ACTIVITY_NO_ANIMATION,
                 )
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,

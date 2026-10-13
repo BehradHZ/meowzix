@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -56,6 +58,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.platform.LocalConfiguration
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -131,6 +135,7 @@ fun TelegramForwardSheet(
     onForward: (Long, TelegramForwardOptions, Boolean) -> Unit,
     onDismiss: () -> Unit,
     floatingOverlay: Boolean = false,
+    overlayMaxHeight: Dp = Dp.Unspecified,
 ) {
     ForwardPickerBody(
         trackId = trackId,
@@ -146,6 +151,7 @@ fun TelegramForwardSheet(
         onForward = onForward,
         onDismiss = onDismiss,
         floatingOverlay = floatingOverlay,
+        overlayMaxHeight = overlayMaxHeight,
     )
 }
 
@@ -164,6 +170,7 @@ private fun ForwardPickerBody(
     onForward: (Long, TelegramForwardOptions, Boolean) -> Unit,
     onDismiss: () -> Unit,
     floatingOverlay: Boolean,
+    overlayMaxHeight: Dp,
 ) {
     var includeSourceAttribution by rememberSaveable(trackId.toString()) {
         mutableStateOf(defaults.includeSourceAttribution)
@@ -208,12 +215,20 @@ private fun ForwardPickerBody(
     }
     val scope = rememberCoroutineScope()
     val hazeState = rememberHazeState()
+    val maxPanelHeight = if (floatingOverlay) {
+        if (overlayMaxHeight != Dp.Unspecified) overlayMaxHeight
+        else (LocalConfiguration.current.screenHeightDp.dp - 48.dp).coerceAtLeast(280.dp)
+    } else Dp.Unspecified
+    val sheetShape = if (floatingOverlay) RoundedCornerShape(28.dp)
+        else RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp)
 
     val body: @Composable () -> Unit = {
         GlassSurface(
             hazeState = hazeState,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp),
+            modifier = Modifier.fillMaxWidth()
+                .then(if (floatingOverlay) Modifier.heightIn(max = maxPanelHeight)
+                    .border(1.dp, TelegramGlassStroke, sheetShape) else Modifier),
+            shape = sheetShape,
             fallbackColor = TelegramGlass.copy(alpha = 0.80f),
             tint = Color.White.copy(alpha = 0.065f),
         ) {
@@ -225,15 +240,20 @@ private fun ForwardPickerBody(
                     ),
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                        .then(if (floatingOverlay) Modifier.heightIn(max = maxPanelHeight)
+                            .verticalScroll(rememberScrollState()) else Modifier)
+                        .padding(horizontal = 18.dp, vertical = 14.dp),
                 ) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .size(width = 42.dp, height = 4.dp)
-                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(99.dp)),
-                )
-                Spacer(Modifier.height(14.dp))
+                if (!floatingOverlay) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .size(width = 42.dp, height = 4.dp)
+                            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(99.dp)),
+                    )
+                    Spacer(Modifier.height(14.dp))
+                }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
@@ -376,7 +396,10 @@ private fun ForwardPickerBody(
                         )
                     }
                     else -> LazyColumn(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 330.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(
+                            min = 100.dp,
+                            max = if (floatingOverlay) 250.dp else 330.dp,
+                        ),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         items(chats, key = { it.chatId }) { chat ->

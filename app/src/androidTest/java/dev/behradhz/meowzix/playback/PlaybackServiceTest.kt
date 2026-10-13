@@ -252,8 +252,15 @@ class PlaybackServiceTest {
             assertEquals(SessionResult.RESULT_SUCCESS, result.resultCode)
             waitUntil { TelegramForwardOverlayService.overlayWindowVisible }
             Thread.sleep(500)
-            assertTrue("Overlay must remain attached after the gateway finishes",
+            assertTrue("Overlay must remain attached after the NoDisplay gateway finishes",
                 TelegramForwardOverlayService.overlayWindowVisible)
+            val visiblePermissionGateway = onMain {
+                ActivityLifecycleMonitorRegistry.getInstance()
+                    .getActivitiesInStage(Stage.RESUMED)
+                    .any { it is TelegramForwardActivity && !it.isFinishing }
+            }
+            assertTrue("Granted Share must never open a visible Meowzix permission screen",
+                !visiblePermissionGateway)
         } finally {
             context.stopService(Intent(context, TelegramForwardOverlayService::class.java))
             if (!wasGranted) {

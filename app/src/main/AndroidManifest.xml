@@ -39,6 +39,15 @@
             </intent-filter>
         </activity>
 
+        <!-- No visible app screen: notification click uses the normal system activity transition. -->
+        <activity
+            android:name=".feature.telegram.TelegramForwardLaunchActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <activity
             android:name=".feature.telegram.TelegramForwardActivity"
             android:excludeFromRecents="true"
