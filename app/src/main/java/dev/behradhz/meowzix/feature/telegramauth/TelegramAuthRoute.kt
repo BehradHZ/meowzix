@@ -1,5 +1,7 @@
 package dev.behradhz.meowzix.feature.telegramauth
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -61,6 +64,10 @@ import dev.behradhz.meowzix.domain.telegram.TelegramProxyDraft
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyState
 import dev.behradhz.meowzix.domain.telegram.TelegramConnectionStatus
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
+import dev.behradhz.meowzix.ui.components.TelegramGlassFrame
+import dev.behradhz.meowzix.ui.components.TelegramGlassInput
+import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
@@ -74,34 +81,36 @@ fun TelegramAuthRoute(
     val musicSourceState by viewModel.musicSourceState.collectAsStateWithLifecycle()
     val proxyState by viewModel.proxyState.collectAsStateWithLifecycle()
     val hazeState = rememberHazeState()
-    TelegramAuthScreen(
-        state = state,
-        musicSourceState = musicSourceState,
-        proxyState = proxyState,
-        hazeState = hazeState,
-        onBack = onBack,
-        onPhoneNumber = viewModel::submitPhoneNumber,
-        onCode = viewModel::submitCode,
-        onPassword = viewModel::submitPassword,
-        onEmailAddress = viewModel::submitEmailAddress,
-        onEmailCode = viewModel::submitEmailCode,
-        onRegister = viewModel::register,
-        onLogout = viewModel::logout,
-        onResetTelegram = viewModel::resetTelegram,
-        onClearError = viewModel::clearError,
-        onRefreshProxies = viewModel::refreshProxies,
-        onAddProxy = viewModel::addProxy,
-        onImportProxyLink = viewModel::importProxyLink,
-        onEnableProxy = viewModel::enableProxy,
-        onDisableProxy = viewModel::disableProxy,
-        onRemoveProxy = viewModel::removeProxy,
-        onPingProxy = viewModel::pingProxy,
-        onClearProxyError = viewModel::clearProxyError,
-        onRefreshSources = viewModel::refreshMusicSources,
-        onSetSourceSelected = viewModel::setMusicSourceSelected,
-        onSyncSources = viewModel::syncSelectedSources,
-        onClearMusicSourceError = viewModel::clearMusicSourceError,
-    )
+    MeowzixTheme(darkTheme = true) {
+        TelegramAuthScreen(
+            state = state,
+            musicSourceState = musicSourceState,
+            proxyState = proxyState,
+            hazeState = hazeState,
+            onBack = onBack,
+            onPhoneNumber = viewModel::submitPhoneNumber,
+            onCode = viewModel::submitCode,
+            onPassword = viewModel::submitPassword,
+            onEmailAddress = viewModel::submitEmailAddress,
+            onEmailCode = viewModel::submitEmailCode,
+            onRegister = viewModel::register,
+            onLogout = viewModel::logout,
+            onResetTelegram = viewModel::resetTelegram,
+            onClearError = viewModel::clearError,
+            onRefreshProxies = viewModel::refreshProxies,
+            onAddProxy = viewModel::addProxy,
+            onImportProxyLink = viewModel::importProxyLink,
+            onEnableProxy = viewModel::enableProxy,
+            onDisableProxy = viewModel::disableProxy,
+            onRemoveProxy = viewModel::removeProxy,
+            onPingProxy = viewModel::pingProxy,
+            onClearProxyError = viewModel::clearProxyError,
+            onRefreshSources = viewModel::refreshMusicSources,
+            onSetSourceSelected = viewModel::setMusicSourceSelected,
+            onSyncSources = viewModel::syncSelectedSources,
+            onClearMusicSourceError = viewModel::clearMusicSourceError,
+            )
+    }
 }
 
 @Composable
@@ -136,6 +145,8 @@ private fun TelegramAuthScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(TelegramGlassChrome.base)
+            .background(TelegramGlassChrome.backdrop)
             .hazeSource(hazeState)
             .statusBarsPadding()
             .navigationBarsPadding()
@@ -143,65 +154,51 @@ private fun TelegramAuthScreen(
             .padding(horizontal = 16.dp)
             .padding(bottom = 176.dp),
     ) {
-        GlassSurface(
+        TelegramGlassFrame(
             hazeState = hazeState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(72.dp),
-            shape = RoundedCornerShape(32.dp),
-            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-            tint = Color.White.copy(alpha = 0.08f),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(30.dp),
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 13.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
                     onClick = onBack,
-                    modifier = Modifier.size(48.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    color = Color.White.copy(alpha = 0.07f),
+                    modifier = Modifier.size(46.dp),
+                    shape = CircleShape,
+                    color = Color.White.copy(alpha = 0.065f),
+                    contentColor = Color.White,
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 12.dp),
-                ) {
-                    Text(
-                        text = "Telegram",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = "Personal cloud music source",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f),
-                    )
-                }
                 Surface(
-                    modifier = Modifier.size(46.dp),
-                    shape = RoundedCornerShape(23.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    modifier = Modifier.padding(start = 10.dp).size(46.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
                     contentColor = MaterialTheme.colorScheme.primary,
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.Cloud, contentDescription = null)
                     }
                 }
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text("Telegram", style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Your personal cloud music", style = MaterialTheme.typography.bodySmall,
+                        color = TelegramGlassChrome.muted)
+                }
             }
         }
 
         Spacer(Modifier.height(10.dp))
         Surface(
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+            color = TelegramGlassChrome.fill,
             shape = RoundedCornerShape(18.dp),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth()
+                .border(1.dp, TelegramGlassChrome.stroke, RoundedCornerShape(18.dp)),
         ) {
             Text(
                 text = when (state.connectionStatus) {
@@ -213,11 +210,13 @@ private fun TelegramAuthScreen(
                     TelegramConnectionStatus.CONNECTED -> "Telegram transport connected"
                 },
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(12.dp),
+                color = if (state.connectionStatus == TelegramConnectionStatus.CONNECTED)
+                    MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.76f),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             )
         }
 
-        // Proxy management is accessible before login, during connection failures, and when ready.
+        // Compact proxy card stays above authentication, so a blocked login never hides recovery.
         TelegramProxyPanel(
             state = proxyState,
             hazeState = hazeState,
@@ -263,15 +262,13 @@ private fun TelegramAuthScreen(
 
         Spacer(Modifier.height(14.dp))
 
-        GlassSurface(
+        TelegramGlassFrame(
             hazeState = hazeState,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(34.dp),
-            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.68f),
-            tint = Color.White.copy(alpha = 0.09f),
+            shape = RoundedCornerShape(30.dp),
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 22.dp, vertical = 26.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 when (val step = state.step) {
@@ -389,6 +386,7 @@ private fun TelegramAuthScreen(
                 }
             }
         }
+
     }
 }
 
@@ -423,16 +421,10 @@ private fun SingleValueForm(
 ) {
     var value by remember(title) { mutableStateOf("") }
     MessageState(icon = icon, title = title, message = guidance)
-    OutlinedTextField(
-        value = value,
-        onValueChange = { value = it },
-        label = { Text(label) },
-        enabled = enabled,
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
-        shape = RoundedCornerShape(22.dp),
-        modifier = Modifier.fillMaxWidth(),
+    TelegramGlassInput(
+        value = value, onValueChange = { value = it },
+        label = label, enabled = enabled, keyboardType = keyboardType,
+        password = isPassword, modifier = Modifier.fillMaxWidth(),
     )
     Button(
         onClick = {
@@ -459,24 +451,9 @@ private fun RegistrationForm(enabled: Boolean, onSubmit: (String, String) -> Uni
         title = "Create Telegram profile",
         message = "Telegram needs a profile name to finish account registration.",
     )
-    OutlinedTextField(
-        value = firstName,
-        onValueChange = { firstName = it },
-        label = { Text("First name") },
-        enabled = enabled,
-        shape = RoundedCornerShape(22.dp),
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedTextField(
-        value = lastName,
-        onValueChange = { lastName = it },
-        label = { Text("Last name") },
-        enabled = enabled,
-        shape = RoundedCornerShape(22.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 10.dp),
-    )
+    TelegramGlassInput(firstName, { firstName = it }, "First name", Modifier.fillMaxWidth(), enabled)
+    Spacer(Modifier.height(10.dp))
+    TelegramGlassInput(lastName, { lastName = it }, "Last name", Modifier.fillMaxWidth(), enabled)
     Button(
         onClick = {
             val first = firstName
@@ -556,8 +533,8 @@ private fun MessageState(
     message: String,
 ) {
     Surface(
-        modifier = Modifier.size(66.dp),
-        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.size(52.dp),
+        shape = CircleShape,
         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
         contentColor = MaterialTheme.colorScheme.primary,
     ) {
@@ -565,7 +542,7 @@ private fun MessageState(
     }
     Text(
         text = title,
-        style = MaterialTheme.typography.headlineSmall,
+        style = MaterialTheme.typography.titleLarge,
         fontWeight = FontWeight.Bold,
         textAlign = TextAlign.Center,
         modifier = Modifier.padding(top = 18.dp),
@@ -573,7 +550,7 @@ private fun MessageState(
     Text(
         text = message,
         style = MaterialTheme.typography.bodyLarge,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+        color = TelegramGlassChrome.muted,
         textAlign = TextAlign.Center,
         modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
     )
@@ -586,6 +563,6 @@ private fun ProgressState(message: String) {
     Text(
         text = message,
         textAlign = TextAlign.Center,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+        color = Color.White.copy(alpha = 0.68f),
     )
 }

@@ -70,15 +70,16 @@ import dev.behradhz.meowzix.domain.telegram.TelegramSendJob
 import dev.behradhz.meowzix.domain.telegram.TelegramSendState
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.rememberHazeState
 import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val TelegramGlass = Color(0xFF151413)
-private val TelegramGlassStroke = Color.White.copy(alpha = 0.10f)
-private val TelegramGlassFill = Color.White.copy(alpha = 0.055f)
+private val TelegramGlass = TelegramGlassChrome.base
+private val TelegramGlassStroke = TelegramGlassChrome.stroke
+private val TelegramGlassFill = TelegramGlassChrome.fill
 private const val SentStatusVisibilityMillis = 3_000L
 
 @EntryPoint
@@ -193,11 +194,7 @@ fun TelegramForwardSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        Brush.verticalGradient(
-                            0f to TelegramGlass.copy(alpha = 0.68f),
-                            0.42f to TelegramGlass.copy(alpha = 0.91f),
-                            1f to TelegramGlass.copy(alpha = 0.99f),
-                        ),
+                        TelegramGlassChrome.backdrop,
                     ),
             ) {
                 Column(

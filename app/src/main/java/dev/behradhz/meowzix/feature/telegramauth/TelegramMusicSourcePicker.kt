@@ -1,6 +1,9 @@
 package dev.behradhz.meowzix.feature.telegramauth
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,26 +11,37 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
 import dev.behradhz.meowzix.ui.components.ChatAvatar
+import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
+import dev.behradhz.meowzix.ui.components.TelegramGlassInput
 
+/** Forward-style chat rows, but checkbox selection rather than forwarding on tap. */
 @Composable
 internal fun TelegramMusicSourcePicker(
     state: TelegramMusicSourceState,
@@ -37,7 +51,11 @@ internal fun TelegramMusicSourcePicker(
     onSync: () -> Unit,
     onClearError: () -> Unit,
 ) {
-    Spacer(Modifier.height(8.dp))
+    var query by rememberSaveable { mutableStateOf("") }
+    val filtered = state.chats.filter { chat ->
+        query.isBlank() || chat.title.contains(query.trim(), ignoreCase = true) ||
+            chat.kind.displayName().contains(query.trim(), ignoreCase = true)
+    }
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -47,117 +65,92 @@ internal fun TelegramMusicSourcePicker(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Music sources",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = "${state.selectedChatIds.size} selected",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                )
+                Text("Music sources", style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold, color = Color.White)
+                Text("${state.selectedChatIds.size} selected", style = MaterialTheme.typography.bodySmall,
+                    color = TelegramGlassChrome.muted)
             }
-            OutlinedButton(
-                onClick = onRefresh,
-                enabled = enabled && !state.isLoadingChats,
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                androidx.compose.material3.Icon(
-                    Icons.Rounded.Refresh,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.size(6.dp))
+            TextButton(onClick = onRefresh, enabled = enabled && !state.isLoadingChats) {
+                Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(5.dp))
                 Text("Refresh")
             }
         }
-
-        Text(
-            text = "Select a channel, chat, group, or Saved Messages. Deselecting hides that chat's songs from the library but keeps downloads.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+        Text("Choose Telegram chats, channels and Saved Messages. Offline downloads are retained if a source is deselected.",
+            style = MaterialTheme.typography.bodySmall, color = TelegramGlassChrome.muted)
+        TelegramGlassInput(
+            value = query, onValueChange = { query = it },
+            label = "Search chats and channels", modifier = Modifier.fillMaxWidth(),
         )
 
         state.errorMessage?.let { message ->
             Surface(
-                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                color = MaterialTheme.colorScheme.error.copy(alpha = 0.13f),
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(
-                    modifier = Modifier.padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+                    modifier = Modifier.padding(start = 12.dp, end = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = message,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    Text(message, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error)
                     TextButton(onClick = onClearError) { Text("Dismiss") }
                 }
             }
         }
-
         if (state.isLoadingChats) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.size(10.dp))
-                Text("Loading Telegram chats…")
+                Text("Loading Telegram chats…", modifier = Modifier.padding(start = 10.dp),
+                    color = TelegramGlassChrome.muted)
             }
-        } else if (state.chats.isEmpty()) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        } else if (filtered.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(96.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = "No selectable chats loaded yet. Tap Refresh.",
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                Text(if (query.isBlank()) "No chats yet. Tap Refresh." else "No chats match your search.",
+                    style = MaterialTheme.typography.bodyMedium, color = TelegramGlassChrome.muted)
             }
         } else {
-            state.chats.forEach { chat ->
-                Surface(
-                    onClick = { if (enabled) onSetSelected(chat.chatId, !chat.selected) },
-                    enabled = enabled,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    color = if (chat.selected) {
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
-                    },
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            checked = chat.selected,
-                            onCheckedChange = { checked -> onSetSelected(chat.chatId, checked) },
-                            enabled = enabled,
+            filtered.forEach { chat ->
+                val shape = RoundedCornerShape(20.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(TelegramGlassChrome.base.copy(alpha = 0.28f), shape)
+                        .border(
+                            1.dp,
+                            if (chat.selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.56f)
+                            else Color.White.copy(alpha = 0.055f),
+                            shape,
                         )
-                        ChatAvatar(chat.profilePhotoRef, chat.title, size = 44.dp)
-                        Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
-                            Text(
-                                text = chat.title,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = if (chat.selected) FontWeight.SemiBold else FontWeight.Normal,
-                            )
-                            Text(
-                                text = chat.kind.displayName(),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
-                            )
-                        }
+                        .toggleable(
+                            value = chat.selected,
+                            enabled = enabled,
+                            role = Role.Checkbox,
+                            onValueChange = { selected -> onSetSelected(chat.chatId, selected) },
+                        )
+                        .padding(horizontal = 10.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ChatAvatar(chat.profilePhotoRef, chat.title, size = 46.dp)
+                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text(chat.title, style = MaterialTheme.typography.titleMedium,
+                            fontWeight = if (chat.selected) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
+                        Text(chat.kind.displayName(), style = MaterialTheme.typography.bodySmall,
+                            color = TelegramGlassChrome.muted)
                     }
+                    Checkbox(
+                        checked = chat.selected,
+                        onCheckedChange = null,
+                        enabled = enabled,
+                    )
                 }
             }
         }
@@ -169,24 +162,17 @@ internal fun TelegramMusicSourcePicker(
             shape = RoundedCornerShape(20.dp),
         ) {
             if (state.isSyncing) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary)
                 Spacer(Modifier.size(8.dp))
                 Text("Syncing…")
-            } else {
-                Text("Sync selected sources")
-            }
+            } else Text("Sync selected sources")
         }
-
         state.lastSyncResult?.let { result ->
             Text(
-                text = "Last sync: ${result.chatsSynced} chats · ${result.messagesScanned} messages · " +
+                "Last sync: ${result.chatsSynced} chats · ${result.messagesScanned} messages · " +
                     "${result.tracksImported} imported · ${result.tracksUpdated} updated",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                style = MaterialTheme.typography.bodySmall, color = TelegramGlassChrome.muted,
             )
         }
     }
