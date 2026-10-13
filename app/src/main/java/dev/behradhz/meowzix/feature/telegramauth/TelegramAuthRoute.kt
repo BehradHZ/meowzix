@@ -370,7 +370,8 @@ private fun TelegramAuthScreen(
                 ) {
                     OutlinedButton(
                         onClick = onResetTelegram,
-                        enabled = !state.isSubmitting,
+                        // A stuck authentication request is precisely when Reset must remain usable.
+                        enabled = true,
                         shape = RoundedCornerShape(22.dp),
                         modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                     ) {

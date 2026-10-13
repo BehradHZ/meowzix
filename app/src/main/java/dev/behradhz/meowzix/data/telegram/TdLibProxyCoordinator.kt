@@ -45,9 +45,9 @@ internal class TdLibProxyCoordinator(
                         val old = prior[proxy.id]
                         TelegramProxyItem(
                             id = proxy.id,
-                            server = proxy.server,
-                            port = proxy.port,
-                            kind = when (proxy.type) {
+                            server = proxy.proxy.server,
+                            port = proxy.proxy.port,
+                            kind = when (proxy.proxy.type) {
                                 is TdApi.ProxyTypeMtproto -> TelegramProxyKind.MTPROTO
                                 is TdApi.ProxyTypeSocks5 -> TelegramProxyKind.SOCKS5
                                 else -> TelegramProxyKind.HTTP
@@ -85,7 +85,7 @@ internal class TdLibProxyCoordinator(
             TelegramProxyKind.HTTP -> TdApi.ProxyTypeHttp(valid.username, valid.password, false)
         }
         // Explicit selection, never switch the live route merely by pasting a link.
-        send(TdApi.AddProxy(valid.server, valid.port, false, type))
+        send(TdApi.AddProxy(TdApi.Proxy(valid.server, valid.port, type), false, ""))
     }
 
     fun enable(id: Int) = change { send(TdApi.EnableProxy(id)) }
@@ -99,29 +99,46 @@ internal class TdLibProxyCoordinator(
             return@launch
         }
         if (id != 0 && _state.value.proxies.none { it.id == id }) return@launch
+        if (id == 0 && _state.value.directTesting) return@launch
         if (id != 0 && _state.value.proxies.first { it.id == id }.testing) return@launch
-        _state.update { current -> current.copy(proxies = current.proxies.map {
-            if (it.id == id) it.copy(testing = true, latencyMs = null, pingError = null) else it
-        }) }
+        _state.update { current -> current.copy(
+            directTesting = if (id == 0) true else current.directTesting,
+            directLatencyMs = if (id == 0) null else current.directLatencyMs,
+            directPingError = if (id == 0) null else current.directPingError,
+            proxies = current.proxies.map {
+                if (it.id == id) it.copy(testing = true, latencyMs = null, pingError = null) else it
+            },
+        ) }
         try {
             // TDLib sends a request to Telegram *through* this proxy; this is not ICMP.
-            val seconds = withTimeout(15_000) { client.send(TdApi.PingProxy(id)) }.value
+            val proxy = if (id == 0) null else withTimeout(12_000) {
+                client.send(TdApi.GetProxies()).proxies.firstOrNull { it.id == id }?.proxy
+                    ?: throw IllegalStateException("Proxy has been removed")
+            }
+            val seconds = withTimeout(15_000) { client.send(TdApi.PingProxy(proxy)) }.value
             val latency = (seconds * 1_000.0).roundToLong().coerceAtLeast(0)
             _state.update { current -> current.copy(
-                errorMessage = if (id == 0) "Direct connection: ${latency} ms" else current.errorMessage,
+                directTesting = if (id == 0) false else current.directTesting,
+                directLatencyMs = if (id == 0) latency else current.directLatencyMs,
+                directPingError = if (id == 0) null else current.directPingError,
                 proxies = current.proxies.map { if (it.id == id) it.copy(testing = false, latencyMs = latency, pingError = null) else it },
             ) }
         } catch (_: TimeoutCancellationException) {
             _state.update { current -> current.copy(
-                errorMessage = if (id == 0) "Direct connection test timed out." else current.errorMessage,
+                directTesting = if (id == 0) false else current.directTesting,
+                directPingError = if (id == 0) "Timed out" else current.directPingError,
                 proxies = current.proxies.map { if (it.id == id) it.copy(testing = false, latencyMs = null, pingError = "Timed out") else it },
             ) }
         } catch (cancelled: CancellationException) {
-            _state.update { current -> current.copy(proxies = current.proxies.map { if (it.id == id) it.copy(testing = false) else it }) }
+            _state.update { current -> current.copy(
+                directTesting = if (id == 0) false else current.directTesting,
+                proxies = current.proxies.map { if (it.id == id) it.copy(testing = false) else it },
+            ) }
             throw cancelled
         } catch (_: Throwable) {
             _state.update { current -> current.copy(
-                errorMessage = if (id == 0) "Direct connection test failed." else current.errorMessage,
+                directTesting = if (id == 0) false else current.directTesting,
+                directPingError = if (id == 0) "Unreachable or unavailable" else current.directPingError,
                 proxies = current.proxies.map { if (it.id == id) it.copy(testing = false, latencyMs = null, pingError = "Unreachable or timed out") else it },
             ) }
         }
@@ -142,8 +159,8 @@ internal class TdLibProxyCoordinator(
                         isChanging = false,
                         proxies = result.map { p ->
                             TelegramProxyItem(
-                                id = p.id, server = p.server, port = p.port,
-                                kind = when (p.type) {
+                                id = p.id, server = p.proxy.server, port = p.proxy.port,
+                                kind = when (p.proxy.type) {
                                     is TdApi.ProxyTypeMtproto -> TelegramProxyKind.MTPROTO
                                     is TdApi.ProxyTypeSocks5 -> TelegramProxyKind.SOCKS5
                                     else -> TelegramProxyKind.HTTP

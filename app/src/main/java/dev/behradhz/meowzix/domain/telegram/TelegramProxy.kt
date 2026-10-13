@@ -49,6 +49,9 @@ data class TelegramProxyState(
     val isLoading: Boolean = false,
     val isChanging: Boolean = false,
     val errorMessage: String? = null,
+    val directLatencyMs: Long? = null,
+    val directTesting: Boolean = false,
+    val directPingError: String? = null,
 )
 
 enum class TelegramConnectionStatus {

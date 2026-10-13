@@ -85,11 +85,8 @@ internal fun TelegramProxyPanel(
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }
             ?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-        return TelegramProxyLinkParser.findIn(text)?.let {
-            // Preserve the original link for TDLib import; never show or log its secret.
-            TelegramProxyLinkParser.findIn(text)
-            text
-        }
+        // Retain the copied text only in the foreground composable; never log its secret.
+        return text.takeIf { TelegramProxyLinkParser.findIn(it) != null }
     }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -227,11 +224,23 @@ internal fun TelegramProxyPanel(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Direct connection", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 Row {
-                    TextButton(onClick = { onPing(0) }) { Text("Test") }
+                    TextButton(onClick = { onPing(0) }, enabled = !state.directTesting) {
+                        Text(if (state.directTesting) "Testing…" else "Ping")
+                    }
                     TextButton(onClick = onDisable, enabled = !state.isChanging) {
                         Text(if (state.proxies.none { it.enabled }) "Active" else "Use direct")
                     }
                 }
+            }
+            val directStatus = when {
+                state.directTesting -> "Testing Telegram directly…"
+                state.directLatencyMs != null -> "Direct: ${state.directLatencyMs} ms"
+                state.directPingError != null -> "Direct: ${state.directPingError}"
+                else -> null
+            }
+            directStatus?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (state.proxies.isEmpty() && !state.isLoading) {
                 Text("No proxies saved. Add a link or enter one manually.",
