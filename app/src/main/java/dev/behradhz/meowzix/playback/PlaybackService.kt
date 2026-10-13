@@ -744,7 +744,12 @@ class PlaybackService : MediaLibraryService() {
         val forwardIntent = PendingIntent.getActivity(
             this,
             1,
-            Intent(this, TelegramForwardActivity::class.java).apply {
+            TelegramForwardActivity.intent(
+                this,
+                player.currentMediaItem?.mediaId,
+                player.currentMediaItem?.mediaMetadata?.title?.toString(),
+                player.currentMediaItem?.mediaMetadata?.artist?.toString(),
+            ).apply {
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or

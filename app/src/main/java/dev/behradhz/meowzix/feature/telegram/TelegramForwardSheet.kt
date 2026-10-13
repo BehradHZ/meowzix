@@ -130,6 +130,40 @@ fun TelegramForwardSheet(
     onQueryChange: (String) -> Unit,
     onForward: (Long, TelegramForwardOptions, Boolean) -> Unit,
     onDismiss: () -> Unit,
+    floatingOverlay: Boolean = false,
+) {
+    ForwardPickerBody(
+        trackId = trackId,
+        title = title,
+        artist = artist,
+        query = query,
+        chats = chats,
+        isSearching = isSearching,
+        isSending = isSending,
+        errorMessage = errorMessage,
+        defaults = defaults,
+        onQueryChange = onQueryChange,
+        onForward = onForward,
+        onDismiss = onDismiss,
+        floatingOverlay = floatingOverlay,
+    )
+}
+
+@Composable
+private fun ForwardPickerBody(
+    trackId: UUID,
+    title: String,
+    artist: String?,
+    query: String,
+    chats: List<TelegramChatSummary>,
+    isSearching: Boolean,
+    isSending: Boolean,
+    errorMessage: String?,
+    defaults: TelegramForwardSettings,
+    onQueryChange: (String) -> Unit,
+    onForward: (Long, TelegramForwardOptions, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+    floatingOverlay: Boolean,
 ) {
     var includeSourceAttribution by rememberSaveable(trackId.toString()) {
         mutableStateOf(defaults.includeSourceAttribution)
@@ -175,14 +209,7 @@ fun TelegramForwardSheet(
     val scope = rememberCoroutineScope()
     val hazeState = rememberHazeState()
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = Color.Transparent,
-        scrimColor = Color.Black.copy(alpha = 0.66f),
-        contentColor = Color.White,
-        dragHandle = null,
-        shape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp),
-    ) {
+    val body: @Composable () -> Unit = {
         GlassSurface(
             hazeState = hazeState,
             modifier = Modifier.fillMaxWidth(),
@@ -230,6 +257,11 @@ fun TelegramForwardSheet(
                         )
                     }
                     if (isSending) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                    if (floatingOverlay) {
+                        TextButton(onClick = onDismiss) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Close sharing")
+                        }
+                    }
                 }
 
                 if (trackJobs.isNotEmpty()) {
@@ -374,6 +406,18 @@ fun TelegramForwardSheet(
                 }
             }
         }
+    }
+    if (floatingOverlay) {
+        body()
+    } else {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            containerColor = Color.Transparent,
+            scrimColor = Color.Black.copy(alpha = 0.66f),
+            contentColor = Color.White,
+            dragHandle = null,
+            shape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp),
+        ) { body() }
     }
 }
 
