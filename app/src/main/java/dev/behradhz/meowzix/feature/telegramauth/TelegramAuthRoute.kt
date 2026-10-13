@@ -57,6 +57,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthState
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
+import dev.behradhz.meowzix.domain.telegram.TelegramProxyDraft
+import dev.behradhz.meowzix.domain.telegram.TelegramProxyState
+import dev.behradhz.meowzix.domain.telegram.TelegramConnectionStatus
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -69,10 +72,12 @@ fun TelegramAuthRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val musicSourceState by viewModel.musicSourceState.collectAsStateWithLifecycle()
+    val proxyState by viewModel.proxyState.collectAsStateWithLifecycle()
     val hazeState = rememberHazeState()
     TelegramAuthScreen(
         state = state,
         musicSourceState = musicSourceState,
+        proxyState = proxyState,
         hazeState = hazeState,
         onBack = onBack,
         onPhoneNumber = viewModel::submitPhoneNumber,
@@ -84,6 +89,14 @@ fun TelegramAuthRoute(
         onLogout = viewModel::logout,
         onResetTelegram = viewModel::resetTelegram,
         onClearError = viewModel::clearError,
+        onRefreshProxies = viewModel::refreshProxies,
+        onAddProxy = viewModel::addProxy,
+        onImportProxyLink = viewModel::importProxyLink,
+        onEnableProxy = viewModel::enableProxy,
+        onDisableProxy = viewModel::disableProxy,
+        onRemoveProxy = viewModel::removeProxy,
+        onPingProxy = viewModel::pingProxy,
+        onClearProxyError = viewModel::clearProxyError,
         onRefreshSources = viewModel::refreshMusicSources,
         onSetSourceSelected = viewModel::setMusicSourceSelected,
         onSyncSources = viewModel::syncSelectedSources,
@@ -95,6 +108,7 @@ fun TelegramAuthRoute(
 private fun TelegramAuthScreen(
     state: TelegramAuthState,
     musicSourceState: TelegramMusicSourceState,
+    proxyState: TelegramProxyState,
     hazeState: HazeState,
     onBack: () -> Unit,
     onPhoneNumber: (String) -> Unit,
@@ -106,6 +120,14 @@ private fun TelegramAuthScreen(
     onLogout: () -> Unit,
     onResetTelegram: () -> Unit,
     onClearError: () -> Unit,
+    onRefreshProxies: () -> Unit,
+    onAddProxy: (TelegramProxyDraft) -> Unit,
+    onImportProxyLink: (String) -> Unit,
+    onEnableProxy: (Int) -> Unit,
+    onDisableProxy: () -> Unit,
+    onRemoveProxy: (Int) -> Unit,
+    onPingProxy: (Int) -> Unit,
+    onClearProxyError: () -> Unit,
     onRefreshSources: () -> Unit,
     onSetSourceSelected: (Long, Boolean) -> Unit,
     onSyncSources: () -> Unit,
@@ -174,6 +196,40 @@ private fun TelegramAuthScreen(
                 }
             }
         }
+
+        Spacer(Modifier.height(10.dp))
+        Surface(
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = when (state.connectionStatus) {
+                    TelegramConnectionStatus.STARTING -> "Starting Telegram transport…"
+                    TelegramConnectionStatus.WAITING_FOR_NETWORK -> "Waiting for network. Offline music remains available."
+                    TelegramConnectionStatus.CONNECTING_TO_PROXY -> "Connecting to proxy…"
+                    TelegramConnectionStatus.CONNECTING -> "Connecting to Telegram…"
+                    TelegramConnectionStatus.UPDATING -> "Connected · Synchronizing Telegram updates…"
+                    TelegramConnectionStatus.CONNECTED -> "Telegram transport connected"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(12.dp),
+            )
+        }
+
+        // Proxy management is accessible before login, during connection failures, and when ready.
+        TelegramProxyPanel(
+            state = proxyState,
+            hazeState = hazeState,
+            onAdd = onAddProxy,
+            onImport = onImportProxyLink,
+            onRefresh = onRefreshProxies,
+            onEnable = onEnableProxy,
+            onDisable = onDisableProxy,
+            onRemove = onRemoveProxy,
+            onPing = onPingProxy,
+            onClearError = onClearProxyError,
+        )
 
         state.errorMessage?.let { message ->
             Spacer(Modifier.height(10.dp))
@@ -303,6 +359,25 @@ private fun TelegramAuthScreen(
                         title = "Telegram needs attention",
                         message = step.reason,
                     )
+                }
+
+                // A non-destructive reset must be reachable from every sign-in/connected state.
+                // Initializing and Closed already render their own reset control.
+                if (state.step !is TelegramAuthStep.Initializing &&
+                    state.step !is TelegramAuthStep.Closing &&
+                    state.step !is TelegramAuthStep.Closed &&
+                    state.step !is TelegramAuthStep.ConfigurationRequired
+                ) {
+                    OutlinedButton(
+                        onClick = onResetTelegram,
+                        enabled = !state.isSubmitting,
+                        shape = RoundedCornerShape(22.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    ) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(8.dp))
+                        Text("Reset connection (keep login & music)")
+                    }
                 }
 
                 if (state.isSubmitting && state.step !is TelegramAuthStep.Initializing) {

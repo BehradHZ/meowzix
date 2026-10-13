@@ -29,6 +29,7 @@ data class TelegramAuthState(
     val step: TelegramAuthStep = TelegramAuthStep.Initializing,
     val isSubmitting: Boolean = false,
     val errorMessage: String? = null,
+    val connectionStatus: TelegramConnectionStatus = TelegramConnectionStatus.STARTING,
 )
 
 enum class TelegramChatKind { SAVED_MESSAGES, PRIVATE, BASIC_GROUP, SUPERGROUP_OR_CHANNEL, SECRET }
@@ -105,6 +106,7 @@ sealed interface TelegramSendEnqueueResult {
 interface TelegramRepository {
     val authState: StateFlow<TelegramAuthState>
     val musicSourceState: StateFlow<TelegramMusicSourceState>
+    val proxyState: StateFlow<TelegramProxyState>
 
     fun submitPhoneNumber(phoneNumber: String)
     fun submitCode(code: String)
@@ -118,6 +120,16 @@ interface TelegramRepository {
     fun resetClient()
 
     fun clearError()
+
+    /** TDLib owns/persists the proxy list; these commands work even before Telegram login. */
+    fun refreshProxies()
+    fun addProxy(draft: TelegramProxyDraft)
+    fun importProxyLink(link: String)
+    fun enableProxy(id: Int)
+    fun disableProxy()
+    fun removeProxy(id: Int)
+    fun pingProxy(id: Int)
+    fun clearProxyError()
 
     fun refreshSelectableChats()
     fun setMusicSourceSelected(chatId: Long, selected: Boolean)

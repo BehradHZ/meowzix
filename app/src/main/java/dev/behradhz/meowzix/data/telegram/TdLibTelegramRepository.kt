@@ -26,6 +26,9 @@ import dev.behradhz.meowzix.data.repository.UnifiedTrackMatcher
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthState
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
+import dev.behradhz.meowzix.domain.telegram.TelegramConnectionStatus
+import dev.behradhz.meowzix.domain.telegram.TelegramProxyDraft
+import dev.behradhz.meowzix.domain.telegram.TelegramProxyState
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
@@ -42,6 +45,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -66,11 +70,15 @@ class TdLibTelegramRepository @Inject constructor(
     override val authState: StateFlow<TelegramAuthState> = _authState.asStateFlow()
     private val _musicSourceState = MutableStateFlow(TelegramMusicSourceState())
     override val musicSourceState: StateFlow<TelegramMusicSourceState> = _musicSourceState.asStateFlow()
+    private val proxyCoordinator = TdLibProxyCoordinator(scope) { client }
+    override val proxyState: StateFlow<TelegramProxyState> = proxyCoordinator.state
     private var client: TdLibClientAdapter? = null
     private var clientStartJob: Job? = null
     private var clientCollectors: Job? = null
     private var resetJob: Job? = null
     private var restartAfterClose = false
+    @Volatile private var resettingClient = false
+    private var restartAttempts = 0
     private var currentUserId: Long? = null
 
     init {
@@ -118,25 +126,60 @@ class TdLibTelegramRepository @Inject constructor(
     override fun resetClient() {
         if (resetJob?.isActive == true) return
         resetJob = scope.launch {
-            clientStartJob?.join()
-            val stale = client
-            clientCollectors?.cancelAndJoin()
-            _authState.value = TelegramAuthState(step = TelegramAuthStep.Initializing, isSubmitting = true)
-            if (stale != null) {
-                try {
-                    withTimeout(20_000) { stale.closeAndAwaitClosed() }
-                } catch (_: TimeoutCancellationException) {
-                    showError("Telegram could not close. Try Reset Telegram again.")
-                    return@launch
+            resettingClient = true
+            try {
+                clientStartJob?.join()
+                val stale = client
+                _authState.value = TelegramAuthState(
+                    step = TelegramAuthStep.Initializing,
+                    isSubmitting = true,
+                    connectionStatus = TelegramConnectionStatus.STARTING,
+                )
+                // Keep the collectors until the native client has really closed. Canceling them
+                // first leaves a dead UI on a slow/failed Close and loses the eventual Closed event.
+                if (stale != null) {
+                    try {
+                        withTimeout(20_000) { stale.closeAndAwaitClosed() }
+                    } catch (_: TimeoutCancellationException) {
+                        restartAfterClose = true
+                        showError("Telegram is still closing. It will reopen once TDLib finishes. Your login and library are preserved.")
+                        return@launch
+                    }
+                }
+                clientCollectors?.cancelAndJoin()
+                stale?.deactivate()
+                if (client === stale) client = null
+                currentUserId = null
+                restartAfterClose = false
+                restartAttempts = 0
+                _musicSourceState.value = TelegramMusicSourceState()
+                startClient()
+            } catch (error: Throwable) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                showError("Telegram reset failed. Retry without deleting your music or session.")
+            } finally {
+                resettingClient = false
+                // Closed may have arrived while the reset coroutine held ownership. If a timeout
+                // also ended the coroutine, recover even if the Closed update was already observed.
+                if (restartAfterClose && client?.authorizationStates?.value is TdApi.AuthorizationStateClosed) {
+                    restartAfterClose = false
+                    clientCollectors?.cancel()
+                    client?.deactivate()
+                    client = null
+                    startClient()
                 }
             }
-            stale?.deactivate()
-            client = null
-            currentUserId = null
-            _musicSourceState.value = TelegramMusicSourceState()
-            startClient()
         }
     }
+
+    override fun refreshProxies() { proxyCoordinator.refresh() }
+    override fun addProxy(draft: TelegramProxyDraft) { proxyCoordinator.add(draft) }
+    override fun importProxyLink(link: String) { proxyCoordinator.importLink(link) }
+    override fun enableProxy(id: Int) { proxyCoordinator.enable(id) }
+    override fun disableProxy() { proxyCoordinator.disable() }
+    override fun removeProxy(id: Int) { proxyCoordinator.remove(id) }
+    override fun pingProxy(id: Int) { proxyCoordinator.ping(id) }
+    override fun clearProxyError() { proxyCoordinator.clearError() }
 
     override fun clearError() {
         _authState.update { it.copy(errorMessage = null) }
@@ -255,23 +298,48 @@ class TdLibTelegramRepository @Inject constructor(
             _authState.value = TelegramAuthState(step = TelegramAuthStep.ConfigurationRequired)
             return
         }
-        _authState.value = TelegramAuthState(step = TelegramAuthStep.Initializing)
+        _authState.value = TelegramAuthState(
+            step = TelegramAuthStep.Initializing,
+            connectionStatus = TelegramConnectionStatus.STARTING,
+        )
         clientStartJob = scope.launch {
             runCatching { TdLibClientAdapter() }
                 .onSuccess { adapter ->
                     client = adapter
                     clientCollectors = scope.launch {
-                        launch { adapter.authorizationStates.filterNotNull().collect(::handleAuthorizationState) }
-                        launch { adapter.updates.collect(::handleUpdate) }
-                        launch { adapter.failures.collect { showError(safeMessage(it)) } }
+                        launch { adapter.authorizationStates.filterNotNull().collect {
+                            if (client === adapter) handleAuthorizationState(it)
+                        } }
+                        launch { adapter.updates.collect { if (client === adapter) handleUpdate(it) } }
+                        launch { adapter.failures.collect {
+                            if (client === adapter) showError("Telegram transport error. Check your network or proxy, then retry.")
+                        } }
+                    }
+                    proxyCoordinator.refresh()
+                }
+                .onFailure {
+                    showError("TDLib could not start. Check the app configuration, then Reset Telegram.")
+                    if (restartAttempts < MAX_START_RETRIES && !resettingClient) {
+                        val attempt = ++restartAttempts
+                        delay(1_000L * (1 shl (attempt - 1)))
+                        if (client == null && !resettingClient) startClient()
                     }
                 }
-                .onFailure { showError("TDLib could not start: ${safeMessage(it)}") }
         }
     }
 
     private fun handleUpdate(update: TdApi.Object) {
         when (update) {
+            is TdApi.UpdateConnectionState -> {
+                val status = when (update.state) {
+                    is TdApi.ConnectionStateReady -> TelegramConnectionStatus.CONNECTED
+                    is TdApi.ConnectionStateWaitingForNetwork -> TelegramConnectionStatus.WAITING_FOR_NETWORK
+                    is TdApi.ConnectionStateConnectingToProxy -> TelegramConnectionStatus.CONNECTING_TO_PROXY
+                    is TdApi.ConnectionStateUpdating -> TelegramConnectionStatus.UPDATING
+                    else -> TelegramConnectionStatus.CONNECTING
+                }
+                _authState.update { it.copy(connectionStatus = status) }
+            }
             is TdApi.UpdateNewMessage -> handleNewMessage(update.message)
             is TdApi.UpdateMessageContent -> handleMessageContentChanged(update.chatId, update.messageId)
             is TdApi.UpdateDeleteMessages -> handleDeletedMessages(update)
@@ -284,18 +352,30 @@ class TdLibTelegramRepository @Inject constructor(
             return
         }
         val step = authorizationState.toDomainStep()
-        _authState.value = TelegramAuthState(step = step)
+        _authState.update { it.copy(step = step, isSubmitting = false, errorMessage = null) }
         when (step) {
-            TelegramAuthStep.Ready -> scope.launch { initializeReadyAccount() }
+            TelegramAuthStep.Ready -> {
+                restartAttempts = 0
+                scope.launch { initializeReadyAccount() }
+            }
             TelegramAuthStep.Closed -> {
                 currentUserId = null
                 _musicSourceState.value = TelegramMusicSourceState()
-                if (restartAfterClose) {
+                if (!resettingClient) {
+                    val shouldRestart = restartAfterClose || restartAttempts < MAX_START_RETRIES
                     restartAfterClose = false
                     clientCollectors?.cancel()
                     client?.deactivate()
                     client = null
-                    startClient()
+                    if (shouldRestart) {
+                        val attempt = ++restartAttempts
+                        scope.launch {
+                            delay(1_000L * (1 shl (attempt - 1).coerceAtMost(4)))
+                            if (client == null && !resettingClient) startClient()
+                        }
+                    } else {
+                        showError("Telegram closed repeatedly. Check your proxy, then use Reset Telegram.")
+                    }
                 }
             }
             else -> Unit
@@ -657,6 +737,7 @@ class TdLibTelegramRepository @Inject constructor(
 
     private companion object {
         const val CHAT_PHOTO_PRIORITY = 2
+        const val MAX_START_RETRIES = 3
     }
 }
 
