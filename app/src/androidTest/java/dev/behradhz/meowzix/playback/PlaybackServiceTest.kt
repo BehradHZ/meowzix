@@ -4,19 +4,25 @@ import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import android.os.SystemClock
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaBrowser
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import com.google.common.util.concurrent.ListenableFuture
 import dev.behradhz.meowzix.MainActivity
+import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
 import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
 import dev.behradhz.meowzix.domain.playback.CrossfadePolicy
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -160,6 +166,47 @@ class PlaybackServiceTest {
             assertTrue(matches.value.isNullOrEmpty())
         } finally {
             onMain { MediaController.releaseFuture(browserFuture) }
+        }
+    }
+
+    @Test
+    fun notificationForwardCommandOpensPickerAndKeepsItVisibleAfterInitialStateEmission() {
+        val item = playableItem("Forward target", createWaveFile("notification-forward.wav", 12_000))
+        onMain {
+            controller.setMediaItem(item)
+            controller.prepare()
+            controller.play()
+        }
+        waitUntil { onMain { controller.isPlaying } }
+
+        // The system notification sends this session command. A successful SessionResult alone
+        // misses the regression where the sheet's initial isOpen=false finishes the Activity.
+        val forwardCommand = SessionCommand(
+            "dev.behradhz.meowzix.action.OPEN_TELEGRAM_FORWARD",
+            Bundle.EMPTY,
+        )
+        assertTrue(onMain { controller.availableSessionCommands.contains(forwardCommand) })
+        val result = onMain { controller.sendCustomCommand(forwardCommand, Bundle.EMPTY) }
+            .get(10, TimeUnit.SECONDS)
+        assertEquals(SessionResult.RESULT_SUCCESS, result.resultCode)
+
+        fun pickerVisible(): Boolean = onMain {
+            ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(Stage.RESUMED)
+                .any { it is TelegramForwardActivity && !it.isFinishing }
+        }
+
+        try {
+            waitUntil { pickerVisible() }
+            Thread.sleep(500)
+            assertTrue("Notification picker must not finish on its initial closed state", pickerVisible())
+        } finally {
+            onMain {
+                ActivityLifecycleMonitorRegistry.getInstance()
+                    .getActivitiesInStage(Stage.RESUMED)
+                    .filterIsInstance<TelegramForwardActivity>()
+                    .forEach(TelegramForwardActivity::finish)
+            }
         }
     }
 
