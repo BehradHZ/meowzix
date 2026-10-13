@@ -27,12 +27,12 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
-import androidx.lifecycle.ViewTreeLifecycleOwner
-import androidx.lifecycle.ViewTreeViewModelStoreOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
-import androidx.savedstate.ViewTreeSavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackController
@@ -127,9 +127,9 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
     private fun showWindow(): Boolean = runCatching {
         val manager = getSystemService(WindowManager::class.java)
         val compose = ComposeView(this)
-        ViewTreeLifecycleOwner.set(compose, this)
-        ViewTreeViewModelStoreOwner.set(compose, this)
-        ViewTreeSavedStateRegistryOwner.set(compose, this)
+        compose.setViewTreeLifecycleOwner(this)
+        compose.setViewTreeViewModelStoreOwner(this)
+        compose.setViewTreeSavedStateRegistryOwner(this)
         compose.setContent { OverlayContent() }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
