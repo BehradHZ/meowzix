@@ -3,10 +3,8 @@ package dev.behradhz.meowzix.playback
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.os.ParcelFileDescriptor
 import android.provider.Settings
 import android.os.SystemClock
 import androidx.media3.common.MediaItem
@@ -45,7 +43,6 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -175,7 +172,7 @@ class PlaybackServiceTest {
     }
 
     @Test
-    fun notificationForwardCommandOpensPickerAndKeepsItVisibleAfterInitialStateEmission() {
+    fun notificationForwardCommandOpensTranslucentPickerWithoutOverlayPermission() {
         val item = playableItem("Forward target", createWaveFile("notification-forward.wav", 12_000))
         onMain {
             controller.setMediaItem(item)
@@ -184,8 +181,6 @@ class PlaybackServiceTest {
         }
         waitUntil { onMain { controller.isPlaying } }
 
-        // The system notification sends this session command. A successful SessionResult alone
-        // misses the regression where the sheet's initial isOpen=false finishes the Activity.
         val forwardCommand = SessionCommand(
             "dev.behradhz.meowzix.action.OPEN_TELEGRAM_FORWARD",
             Bundle.EMPTY,
@@ -202,18 +197,14 @@ class PlaybackServiceTest {
         }
 
         try {
-            if (Settings.canDrawOverlays(context)) {
-                waitUntil { TelegramForwardOverlayService.overlayWindowVisible }
-                Thread.sleep(500)
-                assertTrue("Granted Share must attach an actual overlay window",
-                    TelegramForwardOverlayService.overlayWindowVisible)
-            } else {
-                waitUntil { pickerVisible() }
-                Thread.sleep(500)
-                assertTrue("Permission gateway must not close on first frame", pickerVisible())
-            }
+            waitUntil { pickerVisible() }
+            Thread.sleep(500)
+            assertTrue("Notification picker must stay visible after first state emission", pickerVisible())
+            assertTrue(
+                "Notification Forward must use a real Activity, not the system-alert overlay",
+                !TelegramForwardOverlayService.overlayWindowVisible,
+            )
         } finally {
-            context.stopService(Intent(context, TelegramForwardOverlayService::class.java))
             onMain {
                 ActivityLifecycleMonitorRegistry.getInstance()
                     .getActivitiesInStage(Stage.RESUMED)
@@ -224,47 +215,40 @@ class PlaybackServiceTest {
     }
 
     @Test
-    fun grantedNotificationForwardAttachesRealWindowManagerOverlay() {
-        val wasGranted = Settings.canDrawOverlays(context)
-        fun shell(command: String) {
-            val fd = InstrumentationRegistry.getInstrumentation()
-                .uiAutomation.executeShellCommand(command)
-            ParcelFileDescriptor.AutoCloseInputStream(fd).use { it.readBytes() }
+    fun dismissingNotificationForwardReturnsToExistingApp() {
+        val item = playableItem("Dismiss target", createWaveFile("dismiss-forward.wav", 12_000))
+        onMain {
+            controller.setMediaItem(item)
+            controller.prepare()
+            controller.play()
         }
-        try {
-            if (!wasGranted) {
-                shell("appops set ${context.packageName} SYSTEM_ALERT_WINDOW allow")
-            }
-            assumeTrue("This emulator does not allow SYSTEM_ALERT_WINDOW app-op testing",
-                Settings.canDrawOverlays(context))
-            val item = playableItem("Floating target", createWaveFile("floating-forward.wav", 12_000))
+        waitUntil { onMain { controller.isPlaying } }
+        val command = SessionCommand(
+            "dev.behradhz.meowzix.action.OPEN_TELEGRAM_FORWARD", Bundle.EMPTY,
+        )
+        assertEquals(
+            SessionResult.RESULT_SUCCESS,
+            onMain { controller.sendCustomCommand(command, Bundle.EMPTY) }
+                .get(10, TimeUnit.SECONDS).resultCode,
+        )
+        waitUntil {
             onMain {
-                controller.setMediaItem(item)
-                controller.prepare()
-                controller.play()
-            }
-            waitUntil { onMain { controller.isPlaying } }
-            val command = SessionCommand(
-                "dev.behradhz.meowzix.action.OPEN_TELEGRAM_FORWARD", Bundle.EMPTY,
-            )
-            val result = onMain { controller.sendCustomCommand(command, Bundle.EMPTY) }
-                .get(10, TimeUnit.SECONDS)
-            assertEquals(SessionResult.RESULT_SUCCESS, result.resultCode)
-            waitUntil { TelegramForwardOverlayService.overlayWindowVisible }
-            Thread.sleep(500)
-            assertTrue("Overlay must remain attached after the NoDisplay gateway finishes",
-                TelegramForwardOverlayService.overlayWindowVisible)
-            val visiblePermissionGateway = onMain {
                 ActivityLifecycleMonitorRegistry.getInstance()
                     .getActivitiesInStage(Stage.RESUMED)
                     .any { it is TelegramForwardActivity && !it.isFinishing }
             }
-            assertTrue("Granted Share must never open a visible Meowzix permission screen",
-                !visiblePermissionGateway)
-        } finally {
-            context.stopService(Intent(context, TelegramForwardOverlayService::class.java))
-            if (!wasGranted) {
-                shell("appops set ${context.packageName} SYSTEM_ALERT_WINDOW default")
+        }
+        onMain {
+            ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(Stage.RESUMED)
+                .filterIsInstance<TelegramForwardActivity>()
+                .forEach(TelegramForwardActivity::finish)
+        }
+        waitUntil {
+            onMain {
+                ActivityLifecycleMonitorRegistry.getInstance()
+                    .getActivitiesInStage(Stage.RESUMED)
+                    .any { it is MainActivity && !it.isFinishing }
             }
         }
     }
