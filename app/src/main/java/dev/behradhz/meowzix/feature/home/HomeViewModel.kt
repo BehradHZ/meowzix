@@ -201,12 +201,11 @@ class HomeViewModel @Inject constructor(
         // Do not enumerate the entire music library merely to show 12 recent rows.
         val recent = library.tracks(recentTrackIds).take(12)
 
-        val sectionRows = recommendationEngine.sections(playback.state.value.currentTrack?.id)
-        val recommendedIds = runCatching {
-            sectionRows.firstOrNull {
-                it.kind == dev.behradhz.meowzix.domain.recommendation.RecommendationSectionKind.FOR_YOU_NOW
-            }?.items?.map { it.trackId }.orEmpty()
-        }.getOrDefault(emptyList())
+        // Select only the content Home actually displays; the other recommendation
+        // sections are computed on demand by their respective screens.
+        val recommendedIds = recommendationEngine
+            .forYouNow(playback.state.value.currentTrack?.id)
+            .map { it.trackId }
 
         val recommended = library.tracks(recommendedIds.take(14))
             .ifEmpty { library.homeFallback(14) }
