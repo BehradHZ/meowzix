@@ -38,11 +38,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
@@ -59,6 +62,11 @@ fun HomeRoute(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+
+    LifecycleStartEffect(viewModel) {
+        viewModel.onHomeVisible()
+        onStopOrDispose { viewModel.onHomeHidden() }
+    }
 
     Box(Modifier.fillMaxSize()) {
         HomeAmbientBackdrop()
@@ -126,7 +134,9 @@ fun HomeRoute(
                     ArtistOrbit(
                         hazeState = hazeState,
                         artists = state.artists,
-                        onPlayCollection = onPlayCollection,
+                        onPlayArtist = { artist ->
+                            viewModel.playArtist(artist.normalizedName, onPlayCollection)
+                        },
                     )
                 }
             }
@@ -165,7 +175,14 @@ fun HomeRoute(
  */
 @Composable
 private fun HomeAmbientBackdrop() {
-    Box(Modifier.fillMaxSize()) {
+    // Rasterize the existing four blurred shapes into one isolated hardware layer.
+    // The original colors, radii, shapes, and positions are intentionally unchanged.
+    // Compose can reuse the layer while the Home feed scrolls; theme/size changes invalidate it.
+    Box(
+        Modifier.fillMaxSize().graphicsLayer {
+            compositingStrategy = CompositingStrategy.Offscreen
+        },
+    ) {
         Box(
             Modifier
                 .offset(x = (-92).dp, y = 84.dp)
@@ -386,7 +403,7 @@ private fun RecentGlassList(
 private fun ArtistOrbit(
     hazeState: HazeState,
     artists: List<SuggestedArtist>,
-    onPlayCollection: (List<Track>) -> Unit,
+    onPlayArtist: (SuggestedArtist) -> Unit,
 ) {
     Column {
         HomeSectionHeading(
@@ -402,7 +419,7 @@ private fun ArtistOrbit(
                     hazeState = hazeState,
                     modifier = Modifier
                         .width(136.dp)
-                        .clickable { onPlayCollection(artist.tracks) },
+                        .clickable { onPlayArtist(artist) },
                     shape = RoundedCornerShape(68.dp),
                     fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f),
                     tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.07f),
@@ -411,8 +428,7 @@ private fun ArtistOrbit(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        val artwork = artist.tracks.firstOrNull()?.artworkRef
-                        TrackArtwork(artwork, artist.name, 78.dp)
+                        TrackArtwork(artist.artworkRef, artist.name, 78.dp)
                         Text(
                             artist.name,
                             style = MaterialTheme.typography.titleSmall,
@@ -422,7 +438,7 @@ private fun ArtistOrbit(
                             modifier = Modifier.padding(top = 9.dp),
                         )
                         Text(
-                            "${artist.tracks.size} tracks",
+                            "${artist.trackCount} tracks",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
                         )
