@@ -1,38 +1,40 @@
-# Notification Share: centered floating Telegram picker
+# Notification Forward: transparent, bottom-anchored Telegram picker
 
-The Media3 custom Share command remains phone-only. It is handled by
-`PlaybackService.onCustomCommand`, which sends an explicit immutable PendingIntent to
-`TelegramForwardLaunchActivity`, an unexported `Theme.NoDisplay`, no-history,
-no-recents Activity with no UI. **The main Meowzix Activity never opens.**
+The Media3 custom Forward command remains phone-only. Its handler in
+`PlaybackService.onCustomCommand` launches an explicit immutable PendingIntent to
+`TelegramForwardActivity`, a **visible translucent Activity** with no background dim.
+Unlike the old `Theme.NoDisplay` trampoline followed by a WindowManager overlay,
+this is a real Activity transition. Android can therefore collapse the expanded
+notification shade as part of its normal system UI navigation.
 
-This invisible gateway exists solely for the user-initiated standard Android
-activity transition, which lets System UI dismiss the expanded notification shade
-without prohibited `ACTION_CLOSE_SYSTEM_DIALOGS`, private status bar APIs, or Accessibility.
-Shade collapse is controlled by the OS and may vary with manufacturer/system UI.
-The *ongoing playback notification* is retained so media controls continue to work.
+- The previous app stays visible behind the transparent Activity, and reappears when
+  the picker closes. Only the rounded picker card casts a shadow: **no dark fullscreen
+  scrim** is rendered.
+- The card sits above the navigation/keyboard insets at the bottom of the screen.
+  Its height adapts to content and is capped at 82% of the available viewport; long
+  contents and the chat list remain scrollable.
+- Destination chat titles and the Forward heading explicitly use high-contrast white.
+  A mostly opaque dark-glass card makes the text readable over arbitrary apps.
+- The notification route does **not** depend on special `SYSTEM_ALERT_WINDOW`
+  permission. Existing in-app Forward UI and send jobs still share
+  `TelegramForwardSheet`, `TelegramForwardRepository`, and persisted options.
+  The selected track is pinned from notification metadata, even before the local
+  library has finished loading.
+- Tapping outside the picker or using Back dismisses the Activity without cancelling
+  playback or deleting the media notification.
 
-- When `Settings.canDrawOverlays` is true, the gateway starts the unexported
-  `TelegramForwardOverlayService`, immediately finishes before rendering a frame,
-  and preserves the other app underneath.
-- When access was never granted or revoked, the gateway presents the existing
-  `TelegramForwardActivity` only for explicit special app access onboarding
-  (`ACTION_MANAGE_OVERLAY_PERMISSION`); manual in-app sharing remains available.
-  The app cannot programmatically grant overlay permission.
-- The service creates a focusable `TYPE_APPLICATION_OVERLAY` window with a dim
-  touch-blocking scrim and a **centered, max-460dp-wide rounded glass card**.
-  The card bounds itself to the available screen/keyboard height; excess content
-  scrolls and chat results have a bounded list. Tapping outside or Close dismisses
-  the window without touching the app beneath.
-- Forward actions share the same composable content and existing
-  `TelegramForwardRepository` persistence, options, progress, retry/cancel and settings
-  logic as the in-app picker. The selected notification track remains pinned when playback
-  advances. The service has a lifecycle, saved-state and ViewModelStore owner.
-- `SYSTEM_ALERT_WINDOW` cannot cover privileged/system-security windows or override
-  manufacturer policies; on the lock screen the system may restrict presentation.
+**Platform boundary:** Android owns the notification shade, and vendor System UI
+implementations differ. Third-party apps targeting Android 12+ cannot legally force
+dismissal via `ACTION_CLOSE_SYSTEM_DIALOGS` or hidden status-bar APIs. The visible
+Activity navigation is the supported approach, but shade auto-collapse must still
+be confirmed on real devices (including Xiaomi/HyperOS variants).
 
-CI validates Unit Test, Lint, Debug Assemble and emulator instrumentation. The
-instrumentation grant path triggers the actual MediaSession Share command, confirms that
-the WindowManager overlay stays attached after the invisible gateway finishes, and asserts
-that the visible permission Activity does not appear when access is already granted.
-Real-device QA should additionally check shade dismissal and current-app preservation on
-the target vendor build.
+CI runs unit tests, Lint, debug assembly and instrumentation where configured.
+The Android test verifies that the Forward command leaves the Activity visible and
+that dismissal returns to the previous Activity. A real-device QA pass must additionally
+expand the shade, tap the media Forward action, verify that the shade fully retracts,
+and confirm that the previous app remains visible behind the new bottom picker.
+
+The former `TelegramForwardOverlayService` and `TelegramForwardLaunchActivity`
+remain in the source for compatibility with older entry points, but the system-media
+Forward action does not route through them.
