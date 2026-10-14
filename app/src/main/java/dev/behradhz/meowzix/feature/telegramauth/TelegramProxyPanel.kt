@@ -176,33 +176,6 @@ internal fun TelegramProxyPanel(
                             },
                         )
                     }
-                    clipboardSuggestion?.let { link ->
-                        val duplicate = TelegramProxyLinkParser.findIn(link)?.let { draft ->
-                            state.proxies.any { it.matchesEndpoint(draft) }
-                        } ?: true
-                        if (!duplicate) {
-                            Surface(shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
-                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Rounded.ContentPaste, contentDescription = null,
-                                            modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                                        Text("Copied proxy detected", modifier = Modifier.padding(start = 8.dp),
-                                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                    }
-                                    Text("Add the copied Telegram proxy? It won't connect automatically.",
-                                        style = MaterialTheme.typography.bodySmall, color = TelegramGlassChrome.muted)
-                                    Row {
-                                        TextButton(
-                                            onClick = { onImport(link); clipboardSuggestion = null },
-                                            enabled = !state.isChanging,
-                                        ) { Text("Add") }
-                                        TextButton(onClick = { clipboardSuggestion = null }) { Text("Ignore") }
-                                    }
-                                }
-                            }
-                        }
-                    }
                     state.errorMessage?.let { message ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(message, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
@@ -269,6 +242,33 @@ internal fun TelegramProxyPanel(
                                 Icon(Icons.Rounded.DeleteOutline,
                                     contentDescription = "Delete ${proxy.server} proxy",
                                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f))
+                            }
+                        }
+                    }
+                    clipboardSuggestion?.let { link ->
+                        val duplicate = TelegramProxyLinkParser.findIn(link)?.let { draft ->
+                            state.proxies.any { it.matchesEndpoint(draft) }
+                        } ?: true
+                        if (!duplicate) {
+                            Surface(shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
+                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Rounded.ContentPaste, contentDescription = null,
+                                            modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                        Text("Copied proxy detected", modifier = Modifier.padding(start = 8.dp),
+                                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    Text("Add the copied Telegram proxy? It won't connect automatically.",
+                                        style = MaterialTheme.typography.bodySmall, color = TelegramGlassChrome.muted)
+                                    Row {
+                                        TextButton(
+                                            onClick = { onImport(link); clipboardSuggestion = null },
+                                            enabled = !state.isChanging,
+                                        ) { Text("Add") }
+                                        TextButton(onClick = { clipboardSuggestion = null }) { Text("Ignore") }
+                                    }
+                                }
                             }
                         }
                     }
