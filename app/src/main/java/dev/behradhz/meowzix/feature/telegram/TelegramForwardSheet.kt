@@ -229,7 +229,7 @@ private fun ForwardPickerBody(
                 .then(if (floatingOverlay) Modifier.heightIn(max = maxPanelHeight)
                     .border(1.dp, TelegramGlassStroke, sheetShape) else Modifier),
             shape = sheetShape,
-            fallbackColor = TelegramGlass.copy(alpha = 0.80f),
+            fallbackColor = TelegramGlass.copy(alpha = 0.96f),
             tint = Color.White.copy(alpha = 0.065f),
         ) {
             Box(
@@ -554,7 +554,14 @@ private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJ
             }
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                chat.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             Text(
                 if (chat.kind == TelegramChatKind.SAVED_MESSAGES) "Saved Messages"
                 else chat.kind.name.replace('_', ' ').lowercase().replaceFirstChar { it.titlecase() },
