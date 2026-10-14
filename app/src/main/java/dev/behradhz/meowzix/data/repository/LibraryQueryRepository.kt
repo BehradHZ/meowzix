@@ -243,6 +243,23 @@ class LibraryQueryRepository @Inject constructor(
         rows.map(AlbumSummaryRow::toSummary)
     }
 
+    /**
+     * Home keeps only the eight displayed artist summaries. The full artist catalog is
+     * fetched only if the listener taps the artist tile.
+     *
+     * Keep the artwork identical to the old UI: the first (title-sorted) available track.
+     */
+    suspend fun homeArtistSummaries(normalizedNames: List<String>): List<ArtistSummary> {
+        val names = normalizedNames.distinct().take(8)
+        if (names.isEmpty()) return emptyList()
+        val summaries = dao.homeArtistSummaries(names).associateBy(ArtistSummaryRow::normalizedName)
+        return names.mapNotNull { normalized ->
+            val summary = summaries[normalized] ?: return@mapNotNull null
+            val firstArtwork = dao.browseTracksByArtist(normalized, 1, 0).firstOrNull()?.artworkRef
+            summary.toSummary().copy(artworkRef = firstArtwork)
+        }
+    }
+
     fun artistTracks(normalizedArtist: String): Flow<List<Track>> =
         dao.observeTracksByArtist(normalizedArtist).map { rows -> rows.map(TrackEntity::toDomainTrack) }
 
