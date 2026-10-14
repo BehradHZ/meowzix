@@ -267,7 +267,7 @@ private fun ForwardPickerBody(
                         }
                     }
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text("Send to Telegram", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("Send to Telegram", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
                         Text(
                             "$title · ${artist ?: "Unknown artist"}",
                             style = MaterialTheme.typography.bodyMedium,
