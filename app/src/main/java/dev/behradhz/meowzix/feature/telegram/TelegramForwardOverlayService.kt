@@ -8,7 +8,6 @@ import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,13 +17,14 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -166,9 +166,9 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
     private fun OverlayContent() {
         val state by ui.collectAsState()
         MeowzixTheme(darkTheme = true) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.67f))) {
-                // A full-screen dim layer blocks touches to the previous app. The modal itself
-                // remains a centered floating card, even after the search keyboard opens.
+            Box(Modifier.fillMaxSize()) {
+                // Transparent touch shield: dismiss outside the sheet without tinting the
+                // user's previous app. Only the floating card casts a shadow.
                 Box(Modifier.fillMaxSize().clickable { dismiss() })
                 state.track?.let { selected ->
                     BoxWithConstraints(
@@ -176,13 +176,14 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                             .imePadding()
                             .navigationBarsPadding()
                             .padding(horizontal = 16.dp, vertical = 16.dp),
-                        contentAlignment = Alignment.Center,
+                        contentAlignment = Alignment.BottomCenter,
                     ) {
                         val availableHeight = maxHeight
                         Box(
                             modifier = Modifier
                                 .widthIn(max = 460.dp)
                                 .fillMaxWidth()
+                                .shadow(24.dp, RoundedCornerShape(28.dp), clip = false)
                                 .testTag("telegram-forward-centered-overlay")
                                 // Prevent an empty part of the card from hitting the dismiss scrim.
                                 .clickable(
@@ -204,7 +205,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                                 onForward = ::send,
                                 onDismiss = ::dismiss,
                                 floatingOverlay = true,
-                                overlayMaxHeight = availableHeight,
+                                overlayMaxHeight = availableHeight * 0.82f,
                             )
                         }
                     }
