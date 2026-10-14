@@ -21,7 +21,7 @@ private val Context.telegramSourceHistoryDataStore by preferencesDataStore("tele
  * No messages, phone numbers, proxy credentials or session secrets are stored here.
  */
 @Singleton
-internal class TelegramSourceHistoryStore @Inject constructor(
+class TelegramSourceHistoryStore @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) {
     suspend fun previouslySelected(accountId: String): Set<Long> =
