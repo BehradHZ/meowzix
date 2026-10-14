@@ -218,7 +218,7 @@ class HomeViewModel @Inject constructor(
             library.homeArtistSummaries(artistKeys.map { it.first }),
         )
 
-        return HomeUiState(
+        HomeUiState(
             recommended = recommended,
             recent = recent,
             recentlyAdded = recentlyAdded,
