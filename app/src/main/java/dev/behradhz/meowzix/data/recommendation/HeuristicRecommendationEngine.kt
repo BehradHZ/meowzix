@@ -49,6 +49,14 @@ class HeuristicRecommendationEngine @Inject constructor(
             }, ranked.eligibleTrackIds)
         }
 
+    /** The Home UI renders only Made for you, so skip all other section construction. */
+    override suspend fun forYouNow(currentTrackId: UUID?, seed: Long): List<RecommendationItem> =
+        withContext(Dispatchers.Default) {
+            val ranked = rank(null, currentTrackId, null, seed)
+            sectionGenerator.diverseOrder(ranked.pool, seed, RecommendationConfig.SECTION_SIZE)
+                .also(::remember)
+        }
+
     override suspend fun sections(currentTrackId: UUID?, seed: Long): List<RecommendationSection> = withContext(Dispatchers.Default) {
         val ranked = rank(null, currentTrackId, null, seed)
         val anchors = ranked.anchors.sortedByDescending { it.recent.strength + if (it.candidate.trackId == currentTrackId) 1.0 else 0.0 }.take(2)
