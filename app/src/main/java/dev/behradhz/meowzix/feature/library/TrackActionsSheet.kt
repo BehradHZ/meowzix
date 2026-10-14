@@ -147,7 +147,11 @@ internal fun TrackActionsMenu(
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         LazyColumn(
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 250.dp).testTag("track-playlist-picker"),
+                            // DropdownMenu queries intrinsic height; LazyColumn cannot answer intrinsic
+                            // measurements unless a concrete height is provided.
+                            modifier = Modifier.fillMaxWidth()
+                                .height((playlists.size * 68).coerceAtMost(250).dp)
+                                .testTag("track-playlist-picker"),
                             verticalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
                             items(playlists, key = { it.id }) { playlist ->
