@@ -122,7 +122,7 @@ internal fun TrackActionsMenu(
                         ),
                     ),
                 )
-                .border(1.dp, Color.White.copy(alpha = 0.12f), glassShape)
+                .border(1.dp, Color.White.copy(alpha = 0.12f), menuShape)
                 .testTag("glass-track-actions-menu"),
         ) {
         AnimatedContent(
