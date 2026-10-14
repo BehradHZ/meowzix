@@ -148,6 +148,17 @@ class RecommendationPolicyTest {
         assertFalse(RecommendationReason.SIMILAR_AUDIO_PROFILE in result.single().score.reasons)
     }
 
+    @Test fun homeOnlyRankingIsEquivalentToTheFirstFullSection() {
+        val pool = (1L..25L).map { candidate(it) }
+        val generator = RecommendationSectionGenerator()
+        val seed = 42L
+        val full = generator.sections(pool, context, seed, emptyList())
+            .first { it.kind == RecommendationSectionKind.FOR_YOU_NOW }
+            .items
+        val homeOnly = generator.diverseOrder(pool, seed, RecommendationConfig.SECTION_SIZE)
+        assertEquals(full, homeOnly)
+    }
+
     @Test fun diversitySamplingIsSeededUniqueAndVariesAcrossSeeds() {
         val pool = (1L..30L).map { candidate(it) }
         val generator = RecommendationSectionGenerator()
