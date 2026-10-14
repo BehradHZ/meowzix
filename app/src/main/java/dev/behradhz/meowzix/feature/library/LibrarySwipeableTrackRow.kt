@@ -298,33 +298,36 @@ private fun LibraryTrackRowContent(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
             )
-            IconButton(onClick = { menuExpanded = true }) {
-                Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
+                }
+                if (menuExpanded) {
+                    TrackActionsMenu(
+                        expanded = menuExpanded,
+                        title = track.title,
+                        artist = track.artist,
+                        favorite = track.favorite,
+                        isQueue = false,
+                        playlists = playlists,
+                        onDismiss = { menuExpanded = false },
+                        onPrimary = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onFavorite = onFavorite,
+                        onForward = { forwardAction(TrackForwardSelection(track.id, track.title, track.artist)) },
+                        onGoToArtist = onGoToArtist,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onContinueVibe = { recommendationActions?.continueVibe?.invoke(track.id) },
+                        onEditMetadata = { trackToolsActions?.editMetadata?.invoke(track.id) },
+                        onManageDuplicates = { trackToolsActions?.manageDuplicates?.invoke(track.id) },
+                        onWhy = { recommendationActions?.why?.invoke(track.id) },
+                        onMoveUp = onMoveUp,
+                        onMoveDown = onMoveDown,
+                        onRemoveFromPlaylist = onRemoveFromPlaylist,
+                    )
+                }
             }
         }
-    }
-    if (menuExpanded) {
-        TrackActionsSheet(
-            title = track.title,
-            artist = track.artist,
-            favorite = track.favorite,
-            isQueue = false,
-            playlists = playlists,
-            onDismiss = { menuExpanded = false },
-            onPrimary = onPlayNext,
-            onAddToQueue = onAddToQueue,
-            onFavorite = onFavorite,
-            onForward = { forwardAction(TrackForwardSelection(track.id, track.title, track.artist)) },
-            onGoToArtist = onGoToArtist,
-            onAddToPlaylist = onAddToPlaylist,
-            onContinueVibe = { recommendationActions?.continueVibe?.invoke(track.id) },
-            onEditMetadata = { trackToolsActions?.editMetadata?.invoke(track.id) },
-            onManageDuplicates = { trackToolsActions?.manageDuplicates?.invoke(track.id) },
-            onWhy = { recommendationActions?.why?.invoke(track.id) },
-            onMoveUp = onMoveUp,
-            onMoveDown = onMoveDown,
-            onRemoveFromPlaylist = onRemoveFromPlaylist,
-        )
     }
 }
 

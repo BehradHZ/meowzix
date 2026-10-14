@@ -15,13 +15,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,7 +43,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,6 +60,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -76,10 +75,11 @@ internal val LocalTrackForwardAction =
 
 internal enum class TrackActionsPage { ACTIONS, PLAYLISTS }
 
-/** Shared action sheet for Library, playlist tracks and Queue. Only the first action changes. */
+/** Compact popup anchored to the calling track's overflow button in Library and Queue. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun TrackActionsSheet(
+internal fun TrackActionsMenu(
+    expanded: Boolean,
     title: String,
     artist: String?,
     favorite: Boolean,
@@ -100,24 +100,19 @@ internal fun TrackActionsSheet(
     onMoveDown: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
 ) {
-    var page by remember { mutableStateOf(TrackActionsPage.ACTIONS) }
+    var page by remember(title, artist, isQueue) { mutableStateOf(TrackActionsPage.ACTIONS) }
     val accent = MaterialTheme.colorScheme.primary
     val glass = MaterialTheme.colorScheme.surface
-    val glassShape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)
-    ModalBottomSheet(
+    val menuShape = RoundedCornerShape(18.dp)
+    DropdownMenu(
+        expanded = expanded,
         onDismissRequest = onDismiss,
-        containerColor = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        scrimColor = Color.Black.copy(alpha = 0.70f),
-        shape = glassShape,
-        dragHandle = {
-            Box(Modifier.padding(top = 12.dp, bottom = 4.dp).size(38.dp, 4.dp)
-                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.24f), CircleShape))
-        },
+        modifier = Modifier.width(280.dp),
+        offset = DpOffset(x = (-8).dp, y = 0.dp),
     ) {
         Box(
             Modifier.fillMaxWidth()
-                .clip(glassShape)
+                .clip(menuShape)
                 .background(
                     Brush.verticalGradient(
                         listOf(
@@ -128,7 +123,7 @@ internal fun TrackActionsSheet(
                     ),
                 )
                 .border(1.dp, Color.White.copy(alpha = 0.12f), glassShape)
-                .testTag("glass-track-actions-sheet"),
+                .testTag("glass-track-actions-menu"),
         ) {
         AnimatedContent(
             targetState = page,
@@ -136,35 +131,35 @@ internal fun TrackActionsSheet(
             label = "track-action-page",
         ) { activePage ->
             if (activePage == TrackActionsPage.PLAYLISTS) {
-                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { page = TrackActionsPage.ACTIONS }) {
                             Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to track actions")
                         }
-                        Text("Add to playlist", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("Add to playlist", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     }
                     Text(title, style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(start = 48.dp, bottom = 12.dp))
+                        modifier = Modifier.padding(start = 44.dp, bottom = 8.dp))
                     if (playlists.isEmpty()) {
-                        Text("No playlists yet", modifier = Modifier.padding(22.dp),
+                        Text("No playlists yet", modifier = Modifier.padding(12.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         LazyColumn(
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 410.dp).testTag("track-playlist-picker"),
-                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 250.dp).testTag("track-playlist-picker"),
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
                             items(playlists, key = { it.id }) { playlist ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth()
                                         .background(accent.copy(alpha = 0.075f), RoundedCornerShape(16.dp))
                                         .clickable { onDismiss(); onAddToPlaylist(playlist.id) }
-                                        .padding(horizontal = 14.dp, vertical = 13.dp),
+                                        .padding(horizontal = 10.dp, vertical = 9.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Icon(Icons.Rounded.PlaylistPlay, contentDescription = null, tint = accent)
-                                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
                                         Text(playlist.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text("${playlist.trackCount} tracks",
                                             style = MaterialTheme.typography.bodySmall,
@@ -179,16 +174,15 @@ internal fun TrackActionsSheet(
                 }
             } else {
                 Column(
-                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                        .navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
                         .testTag(if (isQueue) "queue-track-actions" else "library-track-actions"),
                 ) {
-                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(artist ?: "Unknown artist", style = MaterialTheme.typography.bodyMedium,
+                    Text(artist ?: "Unknown artist", style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.height(18.dp))
+                    Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         ActionIcon(
                             if (isQueue) Icons.Rounded.DeleteOutline else Icons.Rounded.PlaylistPlay,
@@ -203,16 +197,16 @@ internal fun TrackActionsSheet(
                         ) { onDismiss(); onFavorite() }
                         ActionIcon(Icons.Rounded.Send, "Forward") { onDismiss(); onForward() }
                     }
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(8.dp))
                     Column(
                         Modifier.fillMaxWidth()
                             .background(
                                 Brush.verticalGradient(
                                     listOf(Color.White.copy(alpha = 0.085f), Color.White.copy(alpha = 0.035f)),
                                 ),
-                                RoundedCornerShape(21.dp),
+                                RoundedCornerShape(13.dp),
                             )
-                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(21.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(13.dp))
                             .padding(horizontal = 8.dp),
                     ) {
                     ActionLine(Icons.Rounded.Person, "Go to artist", enabled = !artist.isNullOrBlank()) {
@@ -244,8 +238,8 @@ internal fun TrackActionsSheet(
                     Spacer(Modifier.height(8.dp))
                     Row(
                         Modifier.fillMaxWidth()
-                            .background(Color.White.copy(alpha = 0.055f), RoundedCornerShape(21.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(21.dp))
+                            .background(Color.White.copy(alpha = 0.055f), RoundedCornerShape(13.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(13.dp))
                             .padding(horizontal = 8.dp),
                     ) {
                         ActionLine(Icons.Rounded.HelpOutline, "Why this song") {
@@ -272,7 +266,7 @@ private fun ActionIcon(
         else -> MaterialTheme.colorScheme.primary
     }
     Surface(
-        modifier = Modifier.size(60.dp).testTag("track-action-${label.lowercase().replace(' ', '-')}"),
+        modifier = Modifier.size(44.dp).testTag("track-action-${label.lowercase().replace(' ', '-')}"),
         shape = CircleShape,
         color = color.copy(alpha = if (highlighted) 0.22f else 0.11f),
         border = androidx.compose.foundation.BorderStroke(
@@ -282,7 +276,7 @@ private fun ActionIcon(
         onClick = onClick,
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(26.dp))
+            Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -298,15 +292,15 @@ private fun ActionLine(
     Row(
         Modifier.fillMaxWidth()
             .clickable(enabled = enabled, onClick = onClick)
-            .height(54.dp)
+            .height(44.dp)
             .padding(horizontal = 8.dp)
             .testTag("track-action-row-${title.lowercase().replace(' ', '-')}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, contentDescription = null,
             tint = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f),
-            modifier = Modifier.size(22.dp))
-        Text(title, modifier = Modifier.weight(1f).padding(start = 16.dp),
+            modifier = Modifier.size(18.dp))
+        Text(title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(start = 10.dp),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
             fontWeight = FontWeight.Medium)
         if (trailing) Icon(Icons.Rounded.ChevronRight, contentDescription = null)

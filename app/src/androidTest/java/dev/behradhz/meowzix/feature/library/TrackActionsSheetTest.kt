@@ -4,6 +4,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -18,7 +23,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class TrackActionsSheetTest {
+class TrackActionsMenuTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun libraryShowsFourQuickActionsAndOpensSecondPlaylistPanel() {
@@ -27,7 +32,8 @@ class TrackActionsSheetTest {
         var playNext by mutableIntStateOf(0)
         compose.setContent {
             MeowzixTheme(darkTheme = true) {
-                TrackActionsSheet(
+                TrackActionsMenu(
+                    expanded = true,
                     title = "Song", artist = "Artist", favorite = false, isQueue = false,
                     playlists = listOf(PlaylistSummary(id = playlistId, title = "Focus", trackCount = 3)),
                     onDismiss = {}, onPrimary = { playNext++ }, onAddToQueue = {},
@@ -37,7 +43,7 @@ class TrackActionsSheetTest {
                 )
             }
         }
-        compose.onNodeWithTag("glass-track-actions-sheet").assertExists()
+        compose.onNodeWithTag("glass-track-actions-menu").assertExists()
         compose.onNodeWithTag("track-action-play-next").assertExists()
         compose.onNodeWithTag("track-action-add-to-queue").assertExists()
         compose.onNodeWithTag("track-action-favorite").assertExists()
@@ -60,7 +66,8 @@ class TrackActionsSheetTest {
         var removed by mutableIntStateOf(0)
         compose.setContent {
             MeowzixTheme(darkTheme = true) {
-                TrackActionsSheet(
+                TrackActionsMenu(
+                    expanded = true,
                     title = "Queued song", artist = "Artist", favorite = true, isQueue = true,
                     playlists = emptyList(), onDismiss = {},
                     onPrimary = { removed++ }, onAddToQueue = {},
@@ -74,5 +81,36 @@ class TrackActionsSheetTest {
         compose.onNodeWithTag("track-action-play-next").assertDoesNotExist()
         compose.onNodeWithTag("track-action-remove-from-queue").performClick()
         compose.runOnIdle { assertEquals(1, removed) }
+    }
+
+    @Test fun opensAtOverflowAnchorAndClosesAfterAction() {
+        var expanded by mutableStateOf(false)
+        var selected by mutableIntStateOf(0)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                Box {
+                    Button(
+                        onClick = { expanded = true },
+                        modifier = Modifier.testTag("track-actions-anchor"),
+                    ) { Text("More") }
+                    TrackActionsMenu(
+                        expanded = expanded,
+                        title = "Anchor song", artist = "Artist", favorite = false, isQueue = false,
+                        playlists = emptyList(),
+                        onDismiss = { expanded = false },
+                        onPrimary = { selected++ }, onAddToQueue = {},
+                        onFavorite = {}, onForward = {}, onGoToArtist = {},
+                        onAddToPlaylist = {}, onContinueVibe = {},
+                        onEditMetadata = {}, onManageDuplicates = {}, onWhy = {},
+                    )
+                }
+            }
+        }
+        compose.onNodeWithTag("glass-track-actions-menu").assertDoesNotExist()
+        compose.onNodeWithTag("track-actions-anchor").performClick()
+        compose.onNodeWithTag("glass-track-actions-menu").assertExists()
+        compose.onNodeWithTag("track-action-play-next").performClick()
+        compose.onNodeWithTag("glass-track-actions-menu").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(1, selected) }
     }
 }

@@ -75,7 +75,7 @@ import dev.behradhz.meowzix.feature.library.LibraryToolsViewModel
 import dev.behradhz.meowzix.feature.library.LocalLibraryRecommendationActions
 import dev.behradhz.meowzix.feature.library.LocalLibraryTrackToolsActions
 import dev.behradhz.meowzix.feature.library.LocalTrackForwardAction
-import dev.behradhz.meowzix.feature.library.TrackActionsSheet
+import dev.behradhz.meowzix.feature.library.TrackActionsMenu
 import dev.behradhz.meowzix.feature.library.TrackForwardOverlay
 import dev.behradhz.meowzix.feature.library.TrackForwardSelection
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
@@ -642,30 +642,33 @@ private fun SwipeableQueueItem(
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (reorderEnabled) 1f else 0.28f),
                     )
                 }
-                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
-                    Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
+                Box {
+                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
+                    }
+                    if (menuExpanded) {
+                        TrackActionsMenu(
+                            expanded = menuExpanded,
+                            title = item.title,
+                            artist = item.artist,
+                            favorite = favorite,
+                            isQueue = true,
+                            playlists = playlists,
+                            onDismiss = { menuExpanded = false },
+                            onPrimary = onRemove,
+                            onAddToQueue = onAddToQueue,
+                            onFavorite = onFavorite,
+                            onForward = { forwardAction(TrackForwardSelection(item.id, item.title, item.artist)) },
+                            onGoToArtist = { item.artist?.let(onGoToArtist) },
+                            onAddToPlaylist = onAddToPlaylist,
+                            onContinueVibe = { recommendationActions?.continueVibe?.invoke(item.id) },
+                            onEditMetadata = { trackToolsActions?.editMetadata?.invoke(item.id) },
+                            onManageDuplicates = { trackToolsActions?.manageDuplicates?.invoke(item.id) },
+                            onWhy = { recommendationActions?.why?.invoke(item.id) },
+                        )
+                    }
                 }
             }
-        }
-        if (menuExpanded) {
-            TrackActionsSheet(
-                title = item.title,
-                artist = item.artist,
-                favorite = favorite,
-                isQueue = true,
-                playlists = playlists,
-                onDismiss = { menuExpanded = false },
-                onPrimary = onRemove,
-                onAddToQueue = onAddToQueue,
-                onFavorite = onFavorite,
-                onForward = { forwardAction(TrackForwardSelection(item.id, item.title, item.artist)) },
-                onGoToArtist = { item.artist?.let(onGoToArtist) },
-                onAddToPlaylist = onAddToPlaylist,
-                onContinueVibe = { recommendationActions?.continueVibe?.invoke(item.id) },
-                onEditMetadata = { trackToolsActions?.editMetadata?.invoke(item.id) },
-                onManageDuplicates = { trackToolsActions?.manageDuplicates?.invoke(item.id) },
-                onWhy = { recommendationActions?.why?.invoke(item.id) },
-            )
         }
     }
 }
