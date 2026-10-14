@@ -54,6 +54,15 @@ data class SmartQueue(val trackIds: List<UUID>, val explanations: Map<UUID, Scor
 
 interface RecommendationEngine {
     suspend fun sections(currentTrackId: UUID? = null, seed: Long = System.nanoTime()): List<RecommendationSection>
+
+    /**
+     * Home needs only the first recommendation section. Existing implementations retain
+     * compatibility; optimized engines can override to skip every other section policy.
+     */
+    suspend fun forYouNow(currentTrackId: UUID? = null, seed: Long = System.nanoTime()): List<RecommendationItem> =
+        sections(currentTrackId, seed)
+            .firstOrNull { it.kind == RecommendationSectionKind.FOR_YOU_NOW }
+            ?.items.orEmpty()
     suspend fun continueTheVibe(anchorTrackId: UUID, limit: Int = 15): List<RecommendationItem>
     suspend fun whyThisSong(trackId: UUID): List<RecommendationReason>
     suspend fun generate(
