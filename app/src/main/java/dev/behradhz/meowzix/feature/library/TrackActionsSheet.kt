@@ -147,9 +147,10 @@ internal fun TrackActionsMenu(
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         LazyColumn(
-                            // DropdownMenu queries intrinsic height; LazyColumn cannot answer intrinsic
-                            // measurements unless a concrete height is provided.
-                            modifier = Modifier.fillMaxWidth()
+                            // DropdownMenu queries intrinsic width and height. LazyColumn uses
+                            // SubcomposeLayout, so both dimensions must be explicit here.
+                            // Menu width is 280.dp, with 10.dp padding on each side.
+                            modifier = Modifier.width(260.dp)
                                 .height((playlists.size * 68).coerceAtMost(250).dp)
                                 .testTag("track-playlist-picker"),
                             verticalArrangement = Arrangement.spacedBy(3.dp),
