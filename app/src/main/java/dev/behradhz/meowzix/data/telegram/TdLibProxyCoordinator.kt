@@ -84,6 +84,21 @@ internal class TdLibProxyCoordinator(
             TelegramProxyKind.SOCKS5 -> TdApi.ProxyTypeSocks5(valid.username, valid.password)
             TelegramProxyKind.HTTP -> TdApi.ProxyTypeHttp(valid.username, valid.password, false)
         }
+        // TDLib owns the authoritative proxy list, including credentials.
+        // Do not add the same route repeatedly when a copied link is imported again.
+        val duplicate = send(TdApi.GetProxies()).proxies.any { saved ->
+            saved.proxy.server.equals(valid.server, ignoreCase = true) &&
+                saved.proxy.port == valid.port && when (val existing = saved.proxy.type) {
+                    is TdApi.ProxyTypeMtproto -> valid.kind == TelegramProxyKind.MTPROTO &&
+                        existing.secret.equals(valid.secret, ignoreCase = true)
+                    is TdApi.ProxyTypeSocks5 -> valid.kind == TelegramProxyKind.SOCKS5 &&
+                        existing.username == valid.username && existing.password == valid.password
+                    is TdApi.ProxyTypeHttp -> valid.kind == TelegramProxyKind.HTTP &&
+                        existing.username == valid.username && existing.password == valid.password
+                    else -> false
+                }
+        }
+        require(!duplicate) { "This proxy is already saved." }
         // Explicit selection, never switch the live route merely by pasting a link.
         send(TdApi.AddProxy(TdApi.Proxy(valid.server, valid.port, type), false, ""))
     }

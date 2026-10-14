@@ -44,6 +44,15 @@ data class TelegramProxyItem(
     val pingError: String? = null,
 )
 
+/** Ready measurements rank first, then ascending latency. Unmeasured/unreachable entries follow. */
+fun rankTelegramProxiesByLatency(proxies: List<TelegramProxyItem>): List<TelegramProxyItem> =
+    proxies.sortedWith(compareBy<TelegramProxyItem> { it.latencyMs == null }
+        .thenBy { it.latencyMs ?: Long.MAX_VALUE })
+
+/** Endpoint-only comparison for suppressing already-saved clipboard suggestions. */
+fun TelegramProxyItem.matchesEndpoint(draft: TelegramProxyDraft): Boolean =
+    kind == draft.kind && port == draft.port && server.equals(draft.server, ignoreCase = true)
+
 data class TelegramProxyState(
     val proxies: List<TelegramProxyItem> = emptyList(),
     val isLoading: Boolean = false,

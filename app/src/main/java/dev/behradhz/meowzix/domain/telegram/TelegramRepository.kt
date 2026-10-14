@@ -54,6 +54,7 @@ data class TelegramMusicSourceState(
     val accountId: String? = null,
     val chats: List<TelegramChatSummary> = emptyList(),
     val selectedChatIds: Set<Long> = emptySet(),
+    val previouslySelectedChatIds: Set<Long> = emptySet(),
     val isLoadingChats: Boolean = false,
     val isSyncing: Boolean = false,
     val lastSyncResult: TelegramSyncResult? = null,

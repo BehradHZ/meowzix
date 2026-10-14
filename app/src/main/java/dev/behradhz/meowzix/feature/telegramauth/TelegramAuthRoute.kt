@@ -49,12 +49,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthState
@@ -174,61 +179,36 @@ private fun TelegramAuthScreen(
                         Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 }
-                Surface(
-                    modifier = Modifier.padding(start = 10.dp).size(46.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                    contentColor = MaterialTheme.colorScheme.primary,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Cloud, contentDescription = null)
-                    }
-                }
-                Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text("Telegram", style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("Your personal cloud music", style = MaterialTheme.typography.bodySmall,
-                        color = TelegramGlassChrome.muted)
-                }
+                val statusColor = if (state.connectionStatus == TelegramConnectionStatus.CONNECTED)
+                    MaterialTheme.colorScheme.primary else TelegramGlassChrome.muted
+                Text(
+                    text = buildAnnotatedString {
+                        append("Telegram")
+                        withStyle(SpanStyle(color = statusColor, fontSize = 16.sp)) {
+                            append(" · " + telegramConnectionLabel(state.connectionStatus))
+                        }
+                    },
+                    modifier = Modifier.weight(1f).padding(start = 12.dp),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                TelegramProxyPanel(
+                    state = proxyState,
+                    onAdd = onAddProxy,
+                    onImport = onImportProxyLink,
+                    onRefresh = onRefreshProxies,
+                    onEnable = onEnableProxy,
+                    onDisable = onDisableProxy,
+                    onRemove = onRemoveProxy,
+                    onPing = onPingProxy,
+                    onClearError = onClearProxyError,
+                )
             }
         }
 
-        Spacer(Modifier.height(10.dp))
-        Surface(
-            color = TelegramGlassChrome.fill,
-            shape = RoundedCornerShape(18.dp),
-            modifier = Modifier.fillMaxWidth()
-                .border(1.dp, TelegramGlassChrome.stroke, RoundedCornerShape(18.dp)),
-        ) {
-            Text(
-                text = when (state.connectionStatus) {
-                    TelegramConnectionStatus.STARTING -> "Starting Telegram transport…"
-                    TelegramConnectionStatus.WAITING_FOR_NETWORK -> "Waiting for network. Offline music remains available."
-                    TelegramConnectionStatus.CONNECTING_TO_PROXY -> "Connecting to proxy…"
-                    TelegramConnectionStatus.CONNECTING -> "Connecting to Telegram…"
-                    TelegramConnectionStatus.UPDATING -> "Connected · Synchronizing Telegram updates…"
-                    TelegramConnectionStatus.CONNECTED -> "Telegram transport connected"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = if (state.connectionStatus == TelegramConnectionStatus.CONNECTED)
-                    MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.76f),
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            )
-        }
-
-        // Compact proxy card stays above authentication, so a blocked login never hides recovery.
-        TelegramProxyPanel(
-            state = proxyState,
-            hazeState = hazeState,
-            onAdd = onAddProxy,
-            onImport = onImportProxyLink,
-            onRefresh = onRefreshProxies,
-            onEnable = onEnableProxy,
-            onDisable = onDisableProxy,
-            onRemove = onRemoveProxy,
-            onPing = onPingProxy,
-            onClearError = onClearProxyError,
-        )
 
         state.errorMessage?.let { message ->
             Spacer(Modifier.height(10.dp))
@@ -565,4 +545,13 @@ private fun ProgressState(message: String) {
         textAlign = TextAlign.Center,
         color = Color.White.copy(alpha = 0.68f),
     )
+}
+
+private fun telegramConnectionLabel(status: TelegramConnectionStatus): String = when (status) {
+    TelegramConnectionStatus.STARTING -> "Starting"
+    TelegramConnectionStatus.WAITING_FOR_NETWORK -> "Offline"
+    TelegramConnectionStatus.CONNECTING_TO_PROXY -> "Proxy…"
+    TelegramConnectionStatus.CONNECTING -> "Connecting"
+    TelegramConnectionStatus.UPDATING -> "Syncing"
+    TelegramConnectionStatus.CONNECTED -> "Connected"
 }

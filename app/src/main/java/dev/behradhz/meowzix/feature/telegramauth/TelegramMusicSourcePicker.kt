@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
+import dev.behradhz.meowzix.domain.telegram.prioritizeTelegramSourceChats
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
 import dev.behradhz.meowzix.ui.components.TelegramGlassInput
@@ -52,7 +53,7 @@ internal fun TelegramMusicSourcePicker(
     onClearError: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    val filtered = state.chats.filter { chat ->
+    val filtered = prioritizeTelegramSourceChats(state.chats, state.previouslySelectedChatIds).filter { chat ->
         query.isBlank() || chat.title.contains(query.trim(), ignoreCase = true) ||
             chat.kind.displayName().contains(query.trim(), ignoreCase = true)
     }

@@ -64,6 +64,7 @@ class TdLibTelegramRepository @Inject constructor(
     private val telegramDao: TelegramDao,
     private val playlistDao: PlaylistDao,
     private val searchIndexer: EffectiveTrackSearchIndexer,
+    private val sourceHistory: TelegramSourceHistoryStore,
 ) : TelegramRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _authState = MutableStateFlow(TelegramAuthState())
@@ -196,9 +197,14 @@ class TdLibTelegramRepository @Inject constructor(
         _musicSourceState.update { it.copy(isLoadingChats = true, errorMessage = null) }
         scope.launch {
             runCatching {
-                val selectedIds = telegramDao.selectedSources(userId.toString()).mapTo(mutableSetOf()) { it.chatId }
+                val accountId = userId.toString()
+                val selectedIds = telegramDao.selectedSources(accountId).mapTo(mutableSetOf()) { it.chatId }
+                val previouslySelected = sourceHistory.previouslySelected(accountId) +
+                    telegramDao.knownChatIds(accountId) + selectedIds
+                // GetChats returns recent chats in order. Keep that order within each group.
                 val chatIds = activeClient.send(TdApi.GetChats(null, 100)).chatIds.toMutableSet()
                 chatIds += selectedIds
+                chatIds += previouslySelected
                 runCatching { activeClient.send(TdApi.CreatePrivateChat(userId, false)) }
                     .getOrNull()?.let { chatIds += it.id }
                 val loadedChats = chatIds.mapNotNull { chatId ->
@@ -210,10 +216,12 @@ class TdLibTelegramRepository @Inject constructor(
                         selected = chat.id in selectedIds,
                         profilePhotoRef = localChatPhotoRef(chat),
                     )
-                }.sortedWith(compareByDescending<TelegramChatSummary> { it.kind == TelegramChatKind.SAVED_MESSAGES }.thenBy { it.title.lowercase(Locale.ROOT) })
-                LoadedSelectableChats(loadedChats, summaries)
+                }
+                LoadedSelectableChats(loadedChats, summaries, previouslySelected)
             }.onSuccess { loaded ->
-                _musicSourceState.update { it.copy(chats = loaded.summaries, isLoadingChats = false) }
+                _musicSourceState.update {
+                    it.copy(chats = loaded.summaries, previouslySelectedChatIds = loaded.previouslySelected, isLoadingChats = false)
+                }
                 // Avatars are cosmetic. They must never block Telegram chat discovery.
                 scope.launch {
                     loaded.rawChats.forEach { chat ->
@@ -255,6 +263,7 @@ class TdLibTelegramRepository @Inject constructor(
                             ),
                         )
                     }
+                    sourceHistory.recordSelection(accountId, chatId)
                     // Restore the retained membership immediately, even when sync is already in progress.
                     syncChatPlaylist(accountId, chatId, chat.title)
                 } else {
@@ -403,10 +412,13 @@ class TdLibTelegramRepository @Inject constructor(
 
     private suspend fun reloadPersistedSelection(accountId: String) {
         val selected = telegramDao.selectedSources(accountId).mapTo(mutableSetOf()) { it.chatId }
+        val previouslySelected = sourceHistory.previouslySelected(accountId) +
+            telegramDao.knownChatIds(accountId) + selected
         _musicSourceState.update { state ->
             state.copy(
                 accountId = accountId,
                 selectedChatIds = selected,
+                previouslySelectedChatIds = previouslySelected,
                 chats = state.chats.map { it.copy(selected = it.chatId in selected) },
             )
         }
@@ -744,6 +756,7 @@ class TdLibTelegramRepository @Inject constructor(
 private data class LoadedSelectableChats(
     val rawChats: List<TdApi.Chat>,
     val summaries: List<TelegramChatSummary>,
+    val previouslySelected: Set<Long>,
 )
 
 private data class MutableSyncResult(

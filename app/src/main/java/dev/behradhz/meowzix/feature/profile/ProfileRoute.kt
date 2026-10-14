@@ -77,6 +77,9 @@ fun ProfileRoute(
                 onClick = { showSettings = true },
             )
         }
+        item("telegram") {
+            ProfileDestinationRow("Telegram", "Accounts, sources and Telegram music settings", Icons.Rounded.Cloud, onOpenTelegram)
+        }
         item("equalizer") {
             ProfileDestinationRow("Equalizer", "Device-aware frequency controls and presets", Icons.Rounded.Tune) { showEqualizer = true }
         }
@@ -85,9 +88,6 @@ fun ProfileRoute(
         }
         item("history") {
             ProfileDestinationRow("Listening history", "Recent plays and personalization controls", Icons.Rounded.History, onOpenHistory)
-        }
-        item("telegram") {
-            ProfileDestinationRow("Telegram", "Accounts, sources and Telegram music settings", Icons.Rounded.Cloud, onOpenTelegram)
         }
     }
 
