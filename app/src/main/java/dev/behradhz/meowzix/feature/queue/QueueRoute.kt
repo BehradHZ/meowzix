@@ -179,10 +179,10 @@ private fun QueueScreen(
             .orEmpty()
     }
     val filteredItems = remember(state.items, searchTokens) {
-        if (searchTokens.isEmpty()) {
-            state.items
-        } else {
-            state.items.filter { item ->
+        indexedQueueItems(state.items) { item ->
+            if (searchTokens.isEmpty()) {
+                true
+            } else {
                 val haystack = buildString {
                     append(TextNormalizer.normalize(item.title).orEmpty())
                     append(' ')
@@ -195,12 +195,16 @@ private fun QueueScreen(
     val searchActive = searchTokens.isNotEmpty()
 
     var displayItems by remember { mutableStateOf(filteredItems) }
-    var draggedItemId by remember { mutableStateOf<UUID?>(null) }
+    var draggedQueueIndex by remember { mutableStateOf<Int?>(null) }
     var draggedDistance by remember { mutableStateOf(0f) }
     var hasFocusedCurrent by remember { mutableStateOf(false) }
+    // Use the authoritative queue immediately outside a drag. A cached display list can
+    // otherwise show removed items until a deferred LaunchedEffect catches up.
+    val visibleItems = if (draggedQueueIndex == null) filteredItems else displayItems
 
-    LaunchedEffect(filteredItems, draggedItemId) {
-        if (draggedItemId == null) displayItems = filteredItems
+    LaunchedEffect(filteredItems) {
+        draggedQueueIndex = null
+        displayItems = filteredItems
     }
     LaunchedEffect(state.currentIndex, state.items.size, searchActive) {
         if (!searchActive && !hasFocusedCurrent && state.currentIndex in state.items.indices) {
@@ -210,15 +214,14 @@ private fun QueueScreen(
     }
 
     fun finishDrag(commit: Boolean) {
-        val id = draggedItemId
-        if (!searchActive && commit && id != null) {
-            val fromIndex = state.items.indexOfFirst { it.id == id }
-            val toIndex = displayItems.indexOfFirst { it.id == id }
-            if (fromIndex >= 0 && toIndex >= 0 && fromIndex != toIndex) {
+        val fromIndex = draggedQueueIndex
+        if (!searchActive && commit && fromIndex != null) {
+            val toIndex = displayItems.indexOfFirst { it.index == fromIndex }
+            if (toIndex >= 0 && fromIndex != toIndex) {
                 onMove(fromIndex, toIndex)
             }
         }
-        draggedItemId = null
+        draggedQueueIndex = null
         draggedDistance = 0f
     }
 
@@ -281,8 +284,10 @@ private fun QueueScreen(
                     }
                 }
             } else {
-                itemsIndexed(displayItems, key = { index, item -> "${item.id}-$index" }) { _, item ->
-                    val isDragging = draggedItemId == item.id
+                itemsIndexed(visibleItems, key = { _, entry -> "${entry.value.id}-${entry.index}" }) { _, entry ->
+                    val item = entry.value
+                    val queueIndex = entry.index
+                    val isDragging = draggedQueueIndex == queueIndex
                     Box(
                         modifier = Modifier.animateItem(
                             fadeInSpec = tween(durationMillis = 180),
@@ -292,24 +297,22 @@ private fun QueueScreen(
                     ) {
                         SwipeableQueueItem(
                             item = item,
-                            isCurrent = item.id == state.items.getOrNull(state.currentIndex)?.id,
+                            isCurrent = queueIndex == state.currentIndex,
                             isDragging = isDragging,
                             dragOffsetY = if (isDragging) draggedDistance else 0f,
                             reorderEnabled = !searchActive,
-                            onPlay = {
-                                val actualIndex = state.items.indexOfFirst { it.id == item.id }
-                                if (actualIndex >= 0) onPlay(actualIndex)
-                            },
+                            onPlay = { if (state.items.getOrNull(queueIndex) == item) onPlay(queueIndex) },
                             onDragStart = {
                                 if (!searchActive) {
-                                    draggedItemId = item.id
+                                    displayItems = filteredItems
+                                    draggedQueueIndex = queueIndex
                                     draggedDistance = 0f
                                 }
                             },
                             onDrag = { deltaY ->
                                 if (searchActive) return@SwipeableQueueItem
-                                val draggedId = draggedItemId ?: return@SwipeableQueueItem
-                                val currentIndex = displayItems.indexOfFirst { it.id == draggedId }
+                                val draggedIndex = draggedQueueIndex ?: return@SwipeableQueueItem
+                                val currentIndex = displayItems.indexOfFirst { it.index == draggedIndex }
                                 if (currentIndex < 0) return@SwipeableQueueItem
                                 draggedDistance += deltaY
 
@@ -363,9 +366,8 @@ private fun QueueScreen(
                                 finishDrag(commit = false)
                             },
                             onRemove = {
-                                val actualIndex = state.items.indexOfFirst { it.id == item.id }
-                                if (actualIndex >= 0) {
-                                    onRemove(actualIndex)
+                                if (state.items.getOrNull(queueIndex) == item) {
+                                    onRemove(queueIndex)
                                     scope.launch {
                                         snackbarHostState.currentSnackbarData?.dismiss()
                                         snackbarHostState.showSnackbar("Removed from queue · ${item.title}")

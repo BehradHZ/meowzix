@@ -218,6 +218,81 @@ class ProgressiveQueueTest {
     }
 
     @Test
+    fun `removing a track before the materialized window keeps the current player offset`() {
+        val queue = ProgressiveQueue()
+        val source = tracks(100)
+        queue.start(source, 40, PlaybackMode.ORDERED, RepeatMode.OFF)
+        val before = requireNotNull(queue.snapshot())
+
+        assertTrue(queue.removeAt(3))
+
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(before.currentIndex - 1, after.currentIndex)
+        assertEquals(before.materializedStartIndex - 1, after.materializedStartIndex)
+        assertEquals(before.materializedEndExclusive - 1, after.materializedEndExclusive)
+        assertEquals(source[40].id, after.tracks[after.currentIndex].id)
+        assertEquals(
+            before.currentIndex - before.materializedStartIndex,
+            after.currentIndex - after.materializedStartIndex,
+        )
+    }
+
+    @Test
+    fun `removing a materialized future item shrinks the window without changing current audio`() {
+        val queue = ProgressiveQueue()
+        val source = tracks(100)
+        queue.start(source, 40, PlaybackMode.ORDERED, RepeatMode.OFF)
+        val before = requireNotNull(queue.snapshot())
+
+        assertTrue(queue.removeAt(43))
+
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(40, after.currentIndex)
+        assertEquals(before.materializedStartIndex, after.materializedStartIndex)
+        assertEquals(before.materializedEndExclusive - 1, after.materializedEndExclusive)
+        assertEquals(source[40].id, after.tracks[40].id)
+        assertEquals(source[44].id, after.tracks[43].id)
+        assertEquals(
+            before.materializedEndExclusive - before.materializedStartIndex - 1,
+            after.materializedEndExclusive - after.materializedStartIndex,
+        )
+    }
+
+    @Test
+    fun `removing a materialized previous item shifts current index but not current track`() {
+        val queue = ProgressiveQueue()
+        val source = tracks(100)
+        queue.start(source, 40, PlaybackMode.ORDERED, RepeatMode.OFF)
+        val before = requireNotNull(queue.snapshot())
+
+        assertTrue(queue.removeAt(38))
+
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(39, after.currentIndex)
+        assertEquals(before.materializedStartIndex, after.materializedStartIndex)
+        assertEquals(before.materializedEndExclusive - 1, after.materializedEndExclusive)
+        assertEquals(source[40].id, after.tracks[after.currentIndex].id)
+        assertEquals(2, after.currentIndex - after.materializedStartIndex)
+    }
+
+    @Test
+    fun `removing an unmaterialized future item changes only the logical queue`() {
+        val queue = ProgressiveQueue()
+        val source = tracks(100)
+        queue.start(source, 40, PlaybackMode.ORDERED, RepeatMode.OFF)
+        val before = requireNotNull(queue.snapshot())
+
+        assertTrue(queue.removeAt(80))
+
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(before.currentIndex, after.currentIndex)
+        assertEquals(before.materializedStartIndex, after.materializedStartIndex)
+        assertEquals(before.materializedEndExclusive, after.materializedEndExclusive)
+        assertEquals(source[40].id, after.tracks[after.currentIndex].id)
+        assertFalse(after.tracks.any { it.id == source[80].id })
+    }
+
+    @Test
     fun `clear semantics retain only current track and disable repeat`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(20)

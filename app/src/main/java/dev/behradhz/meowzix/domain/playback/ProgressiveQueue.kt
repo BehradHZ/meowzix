@@ -272,6 +272,15 @@ class ProgressiveQueue @Inject constructor() {
             clearLocked()
             return true
         }
+        // Keep the logical-to-Media3 window mapping aligned after an in-place removal.
+        // A removed off-window item must not require rebuilding the playing MediaItem.
+        when {
+            index < materializedStartIndex -> {
+                materializedStartIndex--
+                materializedEndExclusive--
+            }
+            index < materializedEndExclusive -> materializedEndExclusive--
+        }
         currentIndex = when {
             removingCurrent -> index.coerceAtMost(tracks.lastIndex)
             index < currentIndex -> currentIndex - 1

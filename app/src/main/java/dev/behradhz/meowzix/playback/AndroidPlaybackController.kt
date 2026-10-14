@@ -23,6 +23,8 @@ import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueActionKind
 import dev.behradhz.meowzix.domain.playback.QueueItem
+import dev.behradhz.meowzix.domain.playback.QueueRemovalPlan
+import dev.behradhz.meowzix.domain.playback.planQueueRemoval
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
@@ -367,22 +369,55 @@ class AndroidPlaybackController @Inject constructor(
 
     override fun removeAt(index: Int) {
         withController { connected ->
-            val before = progressiveQueue.snapshot()
-            if (before != null) {
+            if (progressiveQueue.snapshot() != null) {
                 syncLogicalCurrentFromPlayer(connected)
                 val current = progressiveQueue.snapshot() ?: return@withController
-                val removingCurrent = index == current.currentIndex
-                if (progressiveQueue.removeAt(index)) {
-                    if (progressiveQueue.snapshot() == null) {
-                        connected.clearMediaItems()
-                    } else {
-                        rebuildProgressiveWindow(connected, preservePosition = !removingCurrent)
+                val removal = planQueueRemoval(current, index) ?: return@withController
+                if (!progressiveQueue.removeAt(index)) return@withController
+
+                when (removal) {
+                    QueueRemovalPlan.Current -> {
+                        if (progressiveQueue.snapshot() == null) {
+                            connected.clearMediaItems()
+                            updateState(connected)
+                        } else {
+                            // Switching away from the playing occurrence is the only removal
+                            // that needs a new selected MediaItem.
+                            rebuildProgressiveWindow(connected, preservePosition = false)
+                        }
                     }
+                    is QueueRemovalPlan.Materialized -> {
+                        // Remove only the affected entry from Media3. Replacing the timeline
+                        // with setMediaItems()/prepare() interrupts the audio currently playing.
+                        val playerIndex = removal.mediaItemIndex
+                        if (playerIndex in 0 until connected.mediaItemCount &&
+                            playerIndex != connected.currentMediaItemIndex) {
+                            connected.removeMediaItem(playerIndex)
+                        } else {
+                            syncProgressiveWindowInPlace(connected)
+                        }
+                        refillAfterQueueRemoval(connected)
+                    }
+                    QueueRemovalPlan.LogicalOnly -> refillAfterQueueRemoval(connected)
                 }
             } else if (index in 0 until connected.mediaItemCount) {
                 connected.removeMediaItem(index)
+                updateState(connected)
             }
         }
+    }
+
+    private fun refillAfterQueueRemoval(connected: MediaController) {
+        // An off-window removal requires no Media3 command unless the future window is
+        // genuinely running low. Publish the logical queue immediately even in that case.
+        val forward = progressiveQueue.takeForwardBatchIfNeeded()
+        if (forward.isNotEmpty()) {
+            val snapshot = progressiveQueue.snapshot() ?: return
+            connected.addMediaItems(
+                forward.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) },
+            )
+        }
+        updateState(connected)
     }
 
     override fun move(fromIndex: Int, toIndex: Int) {
@@ -597,8 +632,8 @@ class AndroidPlaybackController @Inject constructor(
         connected: MediaController,
         preservePosition: Boolean = true,
     ) {
-        val currentMediaId = connected.currentMediaItem?.mediaId
-        progressiveQueue.updateCurrent(currentMediaId)
+        // The logical queue has already selected the successor of the removed occurrence.
+        // Resolving by mediaId here is unsafe when the same track appears more than once.
         val snapshot = progressiveQueue.snapshot() ?: return
         val positionMs = if (preservePosition) connected.currentPosition.coerceAtLeast(0) else 0L
         val shouldPlay = connected.playWhenReady
