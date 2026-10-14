@@ -252,11 +252,12 @@ class NowPlayingViewModel @Inject constructor(
         openForwardPickerForTrack(id)
     }
 
-    fun openForwardPickerForTrack(trackId: UUID) {
+    fun openForwardPickerForTrack(trackId: UUID, fallbackTrack: NowPlayingTrack? = null) {
         val selectedTrack = state.value.currentTrack?.takeIf { it.id == trackId }
             ?: libraryById.value[trackId]?.let { track ->
                 NowPlayingTrack(track.id, track.title, track.artist, track.artworkRef)
             }
+            ?: fallbackTrack?.takeIf { it.id == trackId }
             ?: return
         forwardSearchJob?.cancel()
         forwardTrackId = selectedTrack.id
