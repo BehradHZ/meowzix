@@ -94,6 +94,37 @@ interface LibraryBrowseDao {
     )
     fun observeArtistSummaries(): Flow<List<ArtistSummaryRow>>
 
+    /**
+     * Only aggregate artists actually displayed on Home. Track lists are loaded on tap.
+     */
+    @Query(
+        """
+        SELECT
+            MIN(COALESCE(NULLIF(TRIM(t.artist), ''), 'Unknown artist')) AS name,
+            COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist') AS normalizedName,
+            COUNT(*) AS trackCount,
+            MAX(t.artworkRef) AS artworkRef
+        FROM tracks t
+        WHERE t.hidden = 0
+          AND COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist') IN (:normalizedNames)
+          AND (
+              EXISTS (
+                  SELECT 1 FROM track_sources local
+                  WHERE local.trackId = t.id AND local.type = 'LOCAL_MEDIASTORE' AND local.availability = 'AVAILABLE_LOCAL'
+              )
+              OR EXISTS (
+                  SELECT 1
+                  FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+              )
+          )
+        GROUP BY COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist')
+        """,
+    )
+    suspend fun homeArtistSummaries(normalizedNames: List<String>): List<ArtistSummaryRow>
+
     @Query(
         """
         SELECT
