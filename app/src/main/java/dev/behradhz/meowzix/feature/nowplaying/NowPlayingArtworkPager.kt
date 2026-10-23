@@ -2,7 +2,6 @@ package dev.behradhz.meowzix.feature.nowplaying
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -11,7 +10,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.GenericShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,10 +27,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -41,7 +38,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueState
-import dev.behradhz.meowzix.ui.components.NowPlayingArtwork
 import dev.behradhz.meowzix.ui.components.PreloadNowPlayingArtwork
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
@@ -81,12 +77,15 @@ internal fun NowPlayingArtworkPager(
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit = {},
     onTransitionSettled: (java.util.UUID) -> Unit = {},
     cornerRadius: Dp = 28.dp,
+    reduceMotion: Boolean = false,
+    tonearmVisibility: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     // NowPlayingArtworkPager is only hosted by NowPlayingRoute, so this resolves to the same scoped
     // view model as the route. Keeping the tap action here avoids duplicating gesture ownership.
     val viewModel: NowPlayingViewModel = hiltViewModel()
     val haptics = rememberMeowzixHaptics()
+    val vinylAngle = rememberVinylAngle(state.status == PlaybackStatus.PLAYING, reduceMotion)
 
     val activeIndex = remember(
         state.currentTrack?.id,
@@ -97,18 +96,6 @@ internal fun NowPlayingArtworkPager(
         resolveActiveQueueIndex(state, queueState)
     }
 
-    val isPaused = state.status == PlaybackStatus.PAUSED
-    val artworkScale by animateFloatAsState(
-        targetValue = if (isPaused) 0.90f else 1f,
-        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-        label = "now-playing-artwork-scale",
-    )
-    val artworkAlpha by animateFloatAsState(
-        targetValue = if (isPaused) 0.72f else 1f,
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-        label = "now-playing-artwork-alpha",
-    )
-
     val queueAvailable = activeIndex in queueState.items.indices && queueState.items.isNotEmpty()
 
     if (!queueAvailable) {
@@ -117,24 +104,19 @@ internal fun NowPlayingArtworkPager(
         }
         BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
             val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
-            NowPlayingArtwork(
-
-                cornerRadius = cornerRadius,
+            VinylRecord(
                 artworkRef = fallbackArtworkRef,
                 description = fallbackArtworkDescription,
-                modifier = Modifier
-                    .size(artworkSize)
-                    .graphicsLayer {
-                        scaleX = artworkScale
-                        scaleY = artworkScale
-                        alpha = artworkAlpha
-                        // Avoid alpha's default offscreen buffer clipping the elevated artwork shadow
-                        // to a hard rectangular layer while the paused cover is scaled down.
-                        compositingStrategy = CompositingStrategy.ModulateAlpha
-                    }
-                    .pointerInput(viewModel) {
-                        detectTapGestures(onTap = { viewModel.togglePlayPause() })
-                    },
+                angle = vinylAngle,
+                modifier = Modifier.size(artworkSize).pointerInput(viewModel) {
+                    detectTapGestures(onTap = { viewModel.togglePlayPause() })
+                },
+            )
+            VinylTonearm(
+                status = state.status,
+                reduceMotion = reduceMotion,
+                visibility = tonearmVisibility,
+                modifier = Modifier.size(artworkSize),
             )
         }
         return
@@ -438,7 +420,6 @@ internal fun NowPlayingArtworkPager(
         contentAlignment = Alignment.Center,
     ) {
         val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
-        val artworkShape = RoundedCornerShape(cornerRadius)
         val safeDisplayedIndex = displayedIndex.coerceIn(queueState.items.indices)
         val currentItem = queueState.items[safeDisplayedIndex]
         val currentArtworkRef = currentItem.artworkRef ?: if (currentItem.id == state.currentTrack?.id) {
@@ -456,21 +437,12 @@ internal fun NowPlayingArtworkPager(
                 cornerRadiusPx = artworkCornerRadiusPx,
             )
         } else {
-            artworkShape
+            CircleShape
         }
 
         Box(
             modifier = Modifier
                 .size(artworkSize)
-                .graphicsLayer {
-                    scaleX = artworkScale
-                    scaleY = artworkScale
-                    alpha = artworkAlpha
-                    // The shadow intentionally lives inside this transform so it scales with the
-                    // cover. ModulateAlpha avoids creating a rectangular offscreen buffer that would
-                    // clip that shadow when paused.
-                    compositingStrategy = CompositingStrategy.ModulateAlpha
-                }
                 .shadow(
                     elevation = 18.dp,
                     shape = artworkShadowShape,
@@ -482,13 +454,11 @@ internal fun NowPlayingArtworkPager(
             contentAlignment = Alignment.Center,
         ) {
             if (!hasTarget) {
-                NowPlayingArtwork(
-
-                    cornerRadius = cornerRadius,
+                VinylRecord(
                     artworkRef = currentArtworkRef,
-                    description = "${currentItem.title} cover art",
+                    description = currentItem.title + " cover art",
+                    angle = vinylAngle,
                     modifier = Modifier.fillMaxSize(),
-                    showShadow = false,
                 )
             } else {
                 val targetItem = queueState.items[targetIndex]
@@ -511,13 +481,11 @@ internal fun NowPlayingArtworkPager(
                             cornerRadiusPx = artworkCornerRadiusPx,
                         ),
                 ) {
-                    NowPlayingArtwork(
-
-                        cornerRadius = cornerRadius,
+                    VinylRecord(
                         artworkRef = currentArtworkRef,
-                        description = "${currentItem.title} cover art",
+                        description = currentItem.title + " cover art",
+                        angle = vinylAngle,
                         modifier = Modifier.fillMaxSize(),
-                        showShadow = false,
                     )
                 }
 
@@ -532,17 +500,21 @@ internal fun NowPlayingArtworkPager(
                             cornerRadiusPx = artworkCornerRadiusPx,
                         ),
                 ) {
-                    NowPlayingArtwork(
-
-                        cornerRadius = cornerRadius,
+                    VinylRecord(
                         artworkRef = targetArtworkRef,
-                        description = "${targetItem.title} cover art",
+                        description = targetItem.title + " cover art",
+                        angle = vinylAngle,
                         modifier = Modifier.fillMaxSize(),
-                        showShadow = false,
                     )
                 }
             }
         }
+        VinylTonearm(
+            status = state.status,
+            reduceMotion = reduceMotion,
+            visibility = tonearmVisibility,
+            modifier = Modifier.size(artworkSize),
+        )
     }
 }
 
