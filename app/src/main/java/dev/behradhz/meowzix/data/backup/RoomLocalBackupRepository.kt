@@ -31,6 +31,7 @@ import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
 import dev.behradhz.meowzix.domain.settings.LibrarySortMode
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.ThemePreference
+import dev.behradhz.meowzix.domain.settings.ColorThemePreference
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -371,7 +372,10 @@ class RoomLocalBackupRepository @Inject constructor(
             setting("prefetch", network.prefetchEnabled), setting("prefetch_metered", network.prefetchOnMetered),
             setting("history", network.listeningHistoryEnabled), setting("cache_budget", storage.temporaryCacheBudgetBytes),
             setting("library_sort", display.sortMode.name), setting("library_group", display.groupMode.name),
-            setting("theme", appearance.theme.name), setting("lyrics_scale", appearance.lyricsTextScalePercent),
+            setting("theme", appearance.theme.name),
+            setting("custom_color_seed", appearance.customColorSeed),
+            setting("color_theme", appearance.colorTheme.name),
+            setting("lyrics_scale", appearance.lyricsTextScalePercent),
             setting("reduce_motion", appearance.reduceMotion), setting("default_mode", playback.defaultMode.name),
             setting("default_repeat", playback.defaultRepeat.name), setting("resume", playback.resumeOnLaunch),
             setting("smart", recommendations.smartRecommendationsEnabled), setting("exploration", recommendations.explorationPercent),
@@ -394,6 +398,8 @@ class RoomLocalBackupRepository @Inject constructor(
                     "library_sort" -> settingsRepository.setLibrarySortMode(LibrarySortMode.valueOf(value))
                     "library_group" -> settingsRepository.setLibraryGroupMode(LibraryGroupMode.valueOf(value))
                     "theme" -> settingsRepository.setThemePreference(ThemePreference.valueOf(value))
+                    "custom_color_seed" -> settingsRepository.setCustomColorSeed(value.toInt())
+                    "color_theme" -> settingsRepository.setColorThemePreference(ColorThemePreference.valueOf(value))
                     "lyrics_scale" -> settingsRepository.setLyricsTextScalePercent(value.toInt())
                     "reduce_motion" -> settingsRepository.setReduceMotion(value.toBoolean())
                     "default_mode" -> settingsRepository.setDefaultPlaybackMode(PlaybackMode.valueOf(value))

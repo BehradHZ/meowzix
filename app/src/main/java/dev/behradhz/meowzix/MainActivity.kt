@@ -9,6 +9,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,11 +20,16 @@ import androidx.compose.ui.Modifier
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.core.performance.PerformanceMetrics
 import dev.behradhz.meowzix.navigation.MeowzixApp
+import dev.behradhz.meowzix.domain.settings.AppearanceSettings
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.settings.ThemePreference
+import javax.inject.Inject
 import dev.behradhz.meowzix.ui.haptics.meowzixInteractionHaptics
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var settingsRepository: SettingsRepository
     private var openNowPlaying by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,7 +37,14 @@ class MainActivity : ComponentActivity() {
         openNowPlaying = intent?.action == ACTION_OPEN_NOW_PLAYING
         enableEdgeToEdge()
         setContent {
-            MeowzixTheme {
+            val appearance by settingsRepository.appearanceSettings.collectAsStateWithLifecycle(initialValue = AppearanceSettings())
+            val systemDark = isSystemInDarkTheme()
+            val darkTheme = when (appearance.theme) {
+                ThemePreference.SYSTEM -> systemDark
+                ThemePreference.LIGHT -> false
+                ThemePreference.DARK -> true
+            }
+            MeowzixTheme(darkTheme = darkTheme, colorTheme = appearance.colorTheme, customColorSeed = appearance.customColorSeed) {
                 LaunchedEffect(Unit) {
                     // Wait until Compose reaches a rendered frame instead of treating onCreate as
                     // startup completion. Macrobenchmark can then correlate this with fully-drawn.

@@ -12,6 +12,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.settings.AppearanceSettings
+import dev.behradhz.meowzix.domain.settings.ColorThemePreference
+import dev.behradhz.meowzix.domain.settings.DEFAULT_CUSTOM_COLOR_SEED
 import dev.behradhz.meowzix.domain.settings.DEFAULT_TEMPORARY_CACHE_BUDGET_BYTES
 import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
@@ -74,6 +76,8 @@ class DataStoreSettingsRepository @Inject constructor(
     override val appearanceSettings: Flow<AppearanceSettings> = safeData.map { values ->
         AppearanceSettings(
             theme = values[THEME].enumOrDefault(ThemePreference.SYSTEM),
+            colorTheme = values[COLOR_THEME].enumOrDefault(ColorThemePreference.MEOWZIX),
+            customColorSeed = (values[CUSTOM_COLOR_SEED] ?: DEFAULT_CUSTOM_COLOR_SEED) or (0xFF shl 24),
             lyricsTextScalePercent = (values[LYRICS_TEXT_SCALE] ?: 100).coerceIn(80, 160),
             reduceMotion = values[REDUCE_MOTION] ?: false,
         )
@@ -127,6 +131,13 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setLibrarySortMode(mode: LibrarySortMode) = setEnum(LIBRARY_SORT_MODE, mode)
     override suspend fun setLibraryGroupMode(mode: LibraryGroupMode) = setEnum(LIBRARY_GROUP_MODE, mode)
     override suspend fun setThemePreference(theme: ThemePreference) = setEnum(THEME, theme)
+    override suspend fun setColorThemePreference(colorTheme: ColorThemePreference) = setEnum(COLOR_THEME, colorTheme)
+    override suspend fun setCustomColorSeed(argb: Int) {
+        context.settingsDataStore.edit {
+            it[CUSTOM_COLOR_SEED] = argb or (0xFF shl 24)
+            it[COLOR_THEME] = ColorThemePreference.CUSTOM.name
+        }
+    }
     override suspend fun setDefaultPlaybackMode(mode: PlaybackMode) = setEnum(DEFAULT_PLAYBACK_MODE, mode)
     override suspend fun setDefaultRepeatMode(mode: RepeatMode) = setEnum(DEFAULT_REPEAT_MODE, mode)
 
@@ -158,6 +169,8 @@ class DataStoreSettingsRepository @Inject constructor(
         val LIBRARY_SORT_MODE = stringPreferencesKey("library_sort_mode")
         val LIBRARY_GROUP_MODE = stringPreferencesKey("library_group_mode")
         val THEME = stringPreferencesKey("theme_preference")
+        val COLOR_THEME = stringPreferencesKey("color_theme_preference")
+        val CUSTOM_COLOR_SEED = intPreferencesKey("custom_color_seed")
         val LYRICS_TEXT_SCALE = intPreferencesKey("lyrics_text_scale_percent")
         val REDUCE_MOTION = booleanPreferencesKey("reduce_motion")
         val DEFAULT_PLAYBACK_MODE = stringPreferencesKey("default_playback_mode")

@@ -20,6 +20,7 @@ import dev.behradhz.meowzix.playback.SleepTimerManager
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackRepository
 import dev.behradhz.meowzix.domain.settings.AppearanceSettings
+import dev.behradhz.meowzix.domain.settings.ColorThemePreference
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.RecommendationPreferenceSettings
@@ -116,6 +117,8 @@ class UnifiedSettingsViewModel @Inject constructor(
     }
 
     fun setTheme(value: ThemePreference) = launch { settings.setThemePreference(value) }
+    fun setColorTheme(value: ColorThemePreference) = launch { settings.setColorThemePreference(value) }
+    fun setCustomColorSeed(argb: Int) = launch { settings.setCustomColorSeed(argb) }
     fun setLyricsScale(value: Int) = launch { settings.setLyricsTextScalePercent(value) }
     fun setReduceMotion(value: Boolean) = launch { settings.setReduceMotion(value) }
     fun setDefaultMode(value: PlaybackMode) = launch { settings.setDefaultPlaybackMode(value) }

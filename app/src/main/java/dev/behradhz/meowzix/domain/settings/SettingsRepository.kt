@@ -33,8 +33,17 @@ data class LibraryDisplaySettings(
 
 enum class ThemePreference { SYSTEM, LIGHT, DARK }
 
+/** Accent is independent from light/dark. WALLPAPER reads the device's Material You palette. */
+enum class ColorThemePreference {
+    MEOWZIX, WALLPAPER, CORAL, AMBER, OCEAN, MINT, VIOLET, ROSE, CUSTOM
+}
+
+const val DEFAULT_CUSTOM_COLOR_SEED: Int = 0xFF6750A4.toInt()
+
 data class AppearanceSettings(
     val theme: ThemePreference = ThemePreference.SYSTEM,
+    val colorTheme: ColorThemePreference = ColorThemePreference.MEOWZIX,
+    val customColorSeed: Int = DEFAULT_CUSTOM_COLOR_SEED,
     val lyricsTextScalePercent: Int = 100,
     val reduceMotion: Boolean = false,
 )
@@ -73,6 +82,9 @@ interface SettingsRepository {
     suspend fun setLibrarySortMode(mode: LibrarySortMode)
     suspend fun setLibraryGroupMode(mode: LibraryGroupMode)
     suspend fun setThemePreference(theme: ThemePreference)
+    suspend fun setColorThemePreference(colorTheme: ColorThemePreference)
+    /** Saves the opaque RGB seed and selects CUSTOM atomically. */
+    suspend fun setCustomColorSeed(argb: Int)
     suspend fun setLyricsTextScalePercent(percent: Int)
     suspend fun setReduceMotion(enabled: Boolean)
     suspend fun setDefaultPlaybackMode(mode: PlaybackMode)

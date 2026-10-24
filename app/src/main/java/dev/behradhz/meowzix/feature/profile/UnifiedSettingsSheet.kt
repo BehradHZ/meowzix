@@ -162,6 +162,8 @@ fun UnifiedSettingsSheet(
                                 state.appearance.theme.name.lowercase().replaceFirstChar(Char::uppercase),
                                 ThemePreference.entries.map { it.name }) { viewModel.setTheme(ThemePreference.valueOf(it)) }
                             SettingsRowDivider()
+                            SettingsColorPicker(state.appearance, viewModel::setColorTheme, viewModel::setCustomColorSeed)
+                            SettingsRowDivider()
                             SettingsSliderRow("Lyrics text size", null, Icons.Rounded.TextFields,
                                 "${state.appearance.lyricsTextScalePercent}%", state.appearance.lyricsTextScalePercent.toFloat(),
                                 80f..160f, 7, { viewModel.setLyricsScale(it.toInt()) })
