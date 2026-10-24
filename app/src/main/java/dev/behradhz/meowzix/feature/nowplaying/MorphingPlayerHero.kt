@@ -88,8 +88,6 @@ internal fun MorphingPlayerHero(
                     onNext = onNext,
                     onBackdropTransition = onBackdropTransition,
                     onTransitionSettled = onArtworkSettled,
-                    reduceMotion = reduceMotion,
-                    tonearmVisibility = (1f - progress * 1.6f).coerceIn(0f, 1f),
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -239,8 +237,6 @@ private fun ArtworkGestureZoneForMorph(
     onNext: () -> Unit,
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit,
     onTransitionSettled: (java.util.UUID) -> Unit,
-    reduceMotion: Boolean,
-    tonearmVisibility: Float,
     modifier: Modifier = Modifier,
 ) {
     NowPlayingArtworkPager(
@@ -253,8 +249,6 @@ private fun ArtworkGestureZoneForMorph(
         onNext = onNext,
         onBackdropTransition = onBackdropTransition,
         onTransitionSettled = onTransitionSettled,
-        reduceMotion = reduceMotion,
-        tonearmVisibility = tonearmVisibility,
         modifier = modifier,
     )
 }
