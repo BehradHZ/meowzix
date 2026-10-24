@@ -171,7 +171,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 runCatching { activeClient.send(TdApi.GetChat(id)) }.getOrNull()
                     ?.toForwardSummary(userId, id in selectedIds)
             }
-            TelegramForwardFolder(info.id, info.title.ifBlank { "Folder" }, chats)
+            TelegramForwardFolder(info.id, info.name?.text?.text?.ifBlank { "Folder" } ?: "Folder", chats)
         }
     }
 

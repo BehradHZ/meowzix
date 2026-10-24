@@ -183,7 +183,6 @@ private fun MorphingIdentity(
                 fontWeight = FontWeight.Bold,
                 fontFamily = Vazirmatn,
                 color = HeroPrimary,
-                maxLines = 1,
                 reduceMotion = reduceMotion,
             )
             Text(
