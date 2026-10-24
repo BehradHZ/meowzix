@@ -31,10 +31,7 @@ import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.InfoOutline
 import androidx.compose.material.icons.rounded.Logout
-import androidx.compose.material.icons.rounded.MultitrackAudio
-import androidx.compose.material.icons.rounded.NetworkCellular
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.PrivacyTip
@@ -199,7 +196,7 @@ fun UnifiedSettingsSheet(
                             SettingsRowDivider()
                             SettingsInfoRow("Gapless & crossfade limits",
                                 "Gapless is automatic where supported. Progressive Telegram is not guaranteed gapless. EQ, sleep timer, repeat-one, short tracks, queue changes or preload failure may prevent crossfade.",
-                                Icons.Rounded.InfoOutline)
+                                Icons.Rounded.Tune)
                         }
                     }
                     item(key = "recommendations") {
@@ -214,7 +211,7 @@ fun UnifiedSettingsSheet(
                                 { viewModel.setExploration(it.toInt()) }, enabled = state.recommendations.smartRecommendationsEnabled)
                             SettingsRowDivider()
                             SettingsToggleRow("Local audio analysis", "Analyze readable local audio only",
-                                Icons.Rounded.MultitrackAudio, state.recommendations.audioAnalysisEnabled, viewModel::setAudioAnalysis)
+                                Icons.Rounded.AutoAwesome, state.recommendations.audioAnalysisEnabled, viewModel::setAudioAnalysis)
                             SettingsRowDivider()
                             if (feedbackRows.isEmpty()) {
                                 SettingsInfoRow("Active feedback", "No active recommendation feedback", Icons.Rounded.ThumbUp)
@@ -266,7 +263,7 @@ fun UnifiedSettingsSheet(
                             SettingsRowDivider()
                             SettingsToggleRow("Prefetch on metered networks",
                                 "Available when prefetch is on and Wi-Fi-only downloads are off",
-                                Icons.Rounded.NetworkCellular, state.network.prefetchOnMetered, viewModel::setPrefetchOnMetered,
+                                Icons.Rounded.Wifi, state.network.prefetchOnMetered, viewModel::setPrefetchOnMetered,
                                 enabled = state.network.prefetchEnabled && !state.network.wifiOnlyDownloads)
                             SettingsRowDivider()
                             SettingsSliderRow("Temporary cache budget", "Maximum app-managed temporary playback storage", Icons.Rounded.Storage,
