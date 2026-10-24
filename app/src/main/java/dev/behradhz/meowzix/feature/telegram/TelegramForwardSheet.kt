@@ -83,9 +83,12 @@ import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val TelegramGlass = TelegramGlassChrome.base
-private val TelegramGlassStroke = TelegramGlassChrome.stroke
-private val TelegramGlassFill = TelegramGlassChrome.fill
+private val TelegramGlass: Color
+    @Composable get() = TelegramGlassChrome.base
+private val TelegramGlassStroke: Color
+    @Composable get() = TelegramGlassChrome.stroke
+private val TelegramGlassFill: Color
+    @Composable get() = TelegramGlassChrome.fill
 private const val SentStatusVisibilityMillis = 3_000L
 
 @EntryPoint
@@ -240,7 +243,7 @@ private fun ForwardPickerBody(
                     .border(1.dp, TelegramGlassStroke, sheetShape) else Modifier),
             shape = sheetShape,
             fallbackColor = TelegramGlass.copy(alpha = 0.96f),
-            tint = Color.White.copy(alpha = 0.065f),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.065f),
         ) {
             Box(
                 modifier = Modifier
@@ -260,7 +263,7 @@ private fun ForwardPickerBody(
                         modifier = Modifier
                             .align(Alignment.CenterHorizontally)
                             .size(width = 42.dp, height = 4.dp)
-                            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(99.dp)),
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(99.dp)),
                     )
                     Spacer(Modifier.height(14.dp))
                 }
@@ -277,11 +280,11 @@ private fun ForwardPickerBody(
                         }
                     }
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text("Send to Telegram", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Send to Telegram", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                         Text(
                             "$title · ${artist ?: "Unknown artist"}",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.62f),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -360,7 +363,7 @@ private fun ForwardPickerBody(
                     "Send to",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color.White.copy(alpha = 0.72f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
                     modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
                 )
 
@@ -370,7 +373,7 @@ private fun ForwardPickerBody(
                     onValueChange = onQueryChange,
                     singleLine = true,
                     leadingIcon = {
-                        Icon(Icons.Rounded.Search, contentDescription = null, tint = Color.White.copy(alpha = 0.62f))
+                        Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f))
                     },
                     placeholder = { Text("Search accounts and chats") },
                     shape = RoundedCornerShape(22.dp),
@@ -378,10 +381,10 @@ private fun ForwardPickerBody(
                         focusedContainerColor = TelegramGlassFill,
                         unfocusedContainerColor = TelegramGlassFill,
                         disabledContainerColor = TelegramGlassFill,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedPlaceholderColor = Color.White.copy(alpha = 0.42f),
-                        unfocusedPlaceholderColor = Color.White.copy(alpha = 0.42f),
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
+                        unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
                     ),
@@ -415,7 +418,7 @@ private fun ForwardPickerBody(
                     ) {
                         Text(
                             if (activeFolder != null) "No matching chats in ${activeFolder.title}." else if (query.isBlank()) "No Telegram chats available." else "No chats match your search.",
-                            color = Color.White.copy(alpha = 0.58f),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
                         )
                     }
                     else -> LazyColumn(
@@ -460,7 +463,7 @@ private fun ForwardPickerBody(
             onDismissRequest = onDismiss,
             containerColor = Color.Transparent,
             scrimColor = Color.Black.copy(alpha = 0.66f),
-            contentColor = Color.White,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             dragHandle = null,
             shape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp),
         ) { body() }
@@ -525,14 +528,14 @@ internal fun ForwardOptionPill(
                     )
                 } else {
                     Brush.horizontalGradient(
-                        listOf(Color.White.copy(alpha = 0.065f), Color.White.copy(alpha = 0.025f)),
+                        listOf(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.065f), MaterialTheme.colorScheme.onSurface.copy(alpha = 0.025f)),
                     )
                 },
                 shape = CircleShape,
             )
             .border(
                 1.dp,
-                if (selected) accent.copy(alpha = 0.72f) else Color.White.copy(alpha = 0.10f),
+                if (selected) accent.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
                 CircleShape,
             )
             .toggleable(
@@ -549,7 +552,7 @@ internal fun ForwardOptionPill(
             overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) Color.White else Color.White.copy(alpha = 0.72f),
+            color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
         )
     }
 }
@@ -562,7 +565,7 @@ private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJ
         modifier = Modifier
             .fillMaxWidth()
             .background(TelegramGlass.copy(alpha = 0.28f), rowShape)
-            .border(1.dp, Color.White.copy(alpha = 0.055f), rowShape)
+            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.055f), rowShape)
             .clickable(enabled = !blocksNewSend) { onClick() }
             .padding(horizontal = 10.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -572,7 +575,7 @@ private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJ
         } else {
             Surface(modifier = Modifier.size(46.dp), shape = CircleShape, color = TelegramGlassFill) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Person, contentDescription = null, tint = Color.White.copy(alpha = 0.70f))
+                    Icon(Icons.Rounded.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f))
                 }
             }
         }
@@ -580,7 +583,7 @@ private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJ
             Text(
                 chat.title,
                 style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -589,7 +592,7 @@ private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJ
                 if (chat.kind == TelegramChatKind.SAVED_MESSAGES) "Saved Messages"
                 else chat.kind.name.replace('_', ' ').lowercase().replaceFirstChar { it.titlecase() },
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.50f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
             )
         }
 
@@ -633,7 +636,7 @@ private fun TelegramSendStatusCard(
         modifier = Modifier.fillMaxWidth().border(1.dp, TelegramGlassStroke, cardShape),
         shape = cardShape,
         fallbackColor = TelegramGlass.copy(alpha = 0.86f),
-        tint = Color.White.copy(alpha = 0.085f),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.085f),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -651,7 +654,7 @@ private fun TelegramSendStatusCard(
                         color = when (job.state) {
                             TelegramSendState.FAILED, TelegramSendState.VERIFYING -> MaterialTheme.colorScheme.error
                             TelegramSendState.SENT -> MaterialTheme.colorScheme.primary
-                            else -> Color.White.copy(alpha = 0.58f)
+                            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
                         },
                     )
                 }
@@ -662,7 +665,7 @@ private fun TelegramSendStatusCard(
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.error,
                     )
-                    TelegramSendState.CANCELED -> Icon(Icons.Rounded.Close, contentDescription = null, tint = Color.White.copy(alpha = 0.50f))
+                    TelegramSendState.CANCELED -> Icon(Icons.Rounded.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f))
                     else -> CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 }
             }
@@ -679,7 +682,7 @@ private fun TelegramSendStatusCard(
                 Text(
                     job.errorMessage,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.50f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -739,6 +742,6 @@ private fun ForwardFolderChip(label: String, selected: Boolean, onClick: () -> U
         ).clickable(role = Role.Tab, onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = Color.White, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        Text(label, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
 }

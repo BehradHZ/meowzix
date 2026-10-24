@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +43,10 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
+import dev.behradhz.meowzix.domain.settings.AppearanceSettings
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.settings.ThemePreference
+import javax.inject.Inject
 import java.util.UUID
 
 /**
@@ -53,6 +59,7 @@ import java.util.UUID
  */
 @AndroidEntryPoint
 class TelegramForwardActivity : ComponentActivity() {
+    @Inject lateinit var settingsRepository: SettingsRepository
     private var requestVersion by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,7 +67,14 @@ class TelegramForwardActivity : ComponentActivity() {
         window.setBackgroundDrawableResource(android.R.color.transparent)
         window.setDimAmount(0f)
         setContent {
-            MeowzixTheme(darkTheme = true) {
+            val appearance by settingsRepository.appearanceSettings.collectAsStateWithLifecycle(initialValue = AppearanceSettings())
+            val systemDark = isSystemInDarkTheme()
+            val dark = when (appearance.theme) {
+                ThemePreference.SYSTEM -> systemDark
+                ThemePreference.DARK -> true
+                ThemePreference.LIGHT -> false
+            }
+            MeowzixTheme(darkTheme = dark, colorTheme = appearance.colorTheme, customColorSeed = appearance.customColorSeed) {
                 NotificationForwardPicker()
             }
         }
@@ -152,8 +166,8 @@ class TelegramForwardActivity : ComponentActivity() {
                 } else if (!visibilityGate.hasShownPicker) {
                     Surface(
                         shape = RoundedCornerShape(28.dp),
-                        color = Color(0xF21A191A),
-                        contentColor = Color.White,
+                        color = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(

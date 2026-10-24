@@ -58,6 +58,7 @@ import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
 import dev.behradhz.meowzix.widget.PlaybackWidgetProvider
 import dev.behradhz.meowzix.widget.PlaybackWidgetState
+import dev.behradhz.meowzix.widget.VinylWidgetProvider
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -616,6 +617,13 @@ class PlaybackService : MediaLibraryService() {
         widgetRefreshJob = serviceScope.launch(Dispatchers.IO) {
             runCatching {
                 PlaybackWidgetProvider.updateAll(this@PlaybackService.applicationContext, state)
+                // A second optional widget. Frames run only while a vinyl widget exists
+                // and Media3 reports active playback; no periodic alarm or wake lock.
+                VinylWidgetProvider.updateAll(
+                    this@PlaybackService.applicationContext,
+                    state,
+                    reduceMotion = settingsRepository.appearanceSettings.first().reduceMotion,
+                )
             }
         }
     }

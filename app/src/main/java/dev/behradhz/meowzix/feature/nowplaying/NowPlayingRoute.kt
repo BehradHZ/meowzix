@@ -98,10 +98,14 @@ import java.util.UUID
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 
-private val PlayerPrimaryContent = Color(0xFFF7F3EF)
-private val PlayerSecondaryContent = Color(0xFFCFC7C0)
-private val PlayerGlass = Color(0xFF171615)
-private val PlayerLoadingShimmer = Color(0xFFFF4D4D)
+private val PlayerPrimaryContent: Color
+    @Composable get() = MaterialTheme.colorScheme.onSurface
+private val PlayerSecondaryContent: Color
+    @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
+private val PlayerGlass: Color
+    @Composable get() = MaterialTheme.colorScheme.surface
+private val PlayerLoadingShimmer: Color
+    @Composable get() = MaterialTheme.colorScheme.tertiary
 
 @Composable
 fun NowPlayingRoute(
@@ -673,7 +677,7 @@ private fun PlaybackControls(
             modifier = Modifier.size(72.dp),
             shape = RoundedCornerShape(36.dp),
             color = PlayerPrimaryContent,
-            contentColor = Color(0xFF171411),
+            contentColor = MaterialTheme.colorScheme.surface,
             shadowElevation = 10.dp,
         ) {
             Box(contentAlignment = Alignment.Center) {

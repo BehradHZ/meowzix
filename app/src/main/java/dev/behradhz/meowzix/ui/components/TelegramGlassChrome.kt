@@ -31,12 +31,16 @@ import dev.chrisbanes.haze.HazeState
 
 /** Shared visual tokens taken from the Telegram Forward sheet. */
 object TelegramGlassChrome {
-    val base = Color(0xFF151413)
-    val stroke = Color.White.copy(alpha = 0.10f)
-    val fill = Color.White.copy(alpha = 0.055f)
-    val muted = Color.White.copy(alpha = 0.58f)
+    val base: Color
+        @Composable get() = MaterialTheme.colorScheme.surface
+    val stroke: Color
+        @Composable get() = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f)
+    val fill: Color
+        @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.055f)
+    val muted: Color
+        @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
     val backdrop: Brush
-        get() = Brush.verticalGradient(
+        @Composable get() = Brush.verticalGradient(
             0f to base.copy(alpha = 0.68f),
             0.42f to base.copy(alpha = 0.91f),
             1f to base.copy(alpha = 0.99f),
@@ -55,7 +59,7 @@ fun TelegramGlassFrame(
         shape = shape,
         modifier = modifier.border(1.dp, TelegramGlassChrome.stroke, shape),
         fallbackColor = TelegramGlassChrome.base.copy(alpha = 0.86f),
-        tint = Color.White.copy(alpha = 0.075f),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.045f),
     ) {
         Box(
             modifier = Modifier.background(
@@ -92,10 +96,10 @@ fun TelegramGlassInput(
             focusedContainerColor = TelegramGlassChrome.fill,
             unfocusedContainerColor = TelegramGlassChrome.fill,
             disabledContainerColor = TelegramGlassChrome.fill,
-            focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White,
+            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
             disabledTextColor = TelegramGlassChrome.muted,
-            focusedLabelColor = Color.White.copy(alpha = 0.78f),
+            focusedLabelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
             unfocusedLabelColor = TelegramGlassChrome.muted,
             disabledLabelColor = TelegramGlassChrome.muted,
             focusedIndicatorColor = Color.Transparent,
@@ -123,7 +127,7 @@ fun TelegramGlassPill(
                 if (selected) Brush.horizontalGradient(
                     listOf(accent.copy(alpha = 0.38f), accent.copy(alpha = 0.17f)),
                 ) else Brush.horizontalGradient(
-                    listOf(Color.White.copy(alpha = 0.065f), Color.White.copy(alpha = 0.025f)),
+                    listOf(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.065f), MaterialTheme.colorScheme.onSurface.copy(alpha = 0.025f)),
                 ),
                 CircleShape,
             )
@@ -141,7 +145,7 @@ fun TelegramGlassPill(
             overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) Color.White else Color.White.copy(alpha = 0.72f),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (selected) 1f else 0.72f),
         )
     }
 }

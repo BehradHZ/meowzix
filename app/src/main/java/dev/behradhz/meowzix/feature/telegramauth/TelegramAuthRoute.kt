@@ -172,8 +172,8 @@ private fun TelegramAuthScreen(
                     onClick = onBack,
                     modifier = Modifier.size(46.dp),
                     shape = CircleShape,
-                    color = Color.White.copy(alpha = 0.065f),
-                    contentColor = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.065f),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
@@ -191,7 +191,7 @@ private fun TelegramAuthScreen(
                     modifier = Modifier.weight(1f).padding(start = 12.dp),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -543,7 +543,7 @@ private fun ProgressState(message: String) {
     Text(
         text = message,
         textAlign = TextAlign.Center,
-        color = Color.White.copy(alpha = 0.68f),
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
     )
 }
 

@@ -38,8 +38,10 @@ import dev.behradhz.meowzix.domain.playback.QueueState
 import kotlin.math.min
 import dev.behradhz.meowzix.ui.theme.Vazirmatn
 
-private val HeroPrimary = Color(0xFFF7F3EF)
-private val HeroSecondary = Color(0xFFCFC7C0)
+private val HeroPrimary: Color
+    @Composable get() = MaterialTheme.colorScheme.onSurface
+private val HeroSecondary: Color
+    @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
 
 /**
  * One artwork node and one identity node are retained for the whole transition. Their bounds,

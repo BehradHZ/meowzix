@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,8 +27,8 @@ fun GlassSurface(
     hazeState: HazeState,
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = RoundedCornerShape(30.dp),
-    fallbackColor: Color = Color.Black.copy(alpha = 0.38f),
-    tint: Color = Color.White.copy(alpha = 0.10f),
+    fallbackColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+    tint: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
     interactive: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {

@@ -97,8 +97,8 @@ internal fun TelegramProxyPanel(
         modifier = Modifier.size(44.dp),
         shape = CircleShape,
         color = if (currentProxy != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
-            else Color.White.copy(alpha = 0.075f),
-        contentColor = if (currentProxy != null) MaterialTheme.colorScheme.primary else Color.White,
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.075f),
+        contentColor = if (currentProxy != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.Shield, contentDescription = "Proxy settings", modifier = Modifier.size(22.dp))
@@ -203,7 +203,7 @@ internal fun TelegramProxyPanel(
                             modifier = Modifier.fillMaxWidth()
                                 .background(
                                     if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                                    else Color.White.copy(alpha = 0.05f), shape,
+                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), shape,
                                 )
                                 .border(
                                     1.dp, if (selected) MaterialTheme.colorScheme.primary

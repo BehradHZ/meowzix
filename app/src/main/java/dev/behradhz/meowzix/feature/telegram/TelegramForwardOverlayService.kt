@@ -9,6 +9,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +21,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import dev.behradhz.meowzix.domain.settings.AppearanceSettings
+import dev.behradhz.meowzix.domain.settings.ThemePreference
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -170,7 +173,14 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
     @Composable
     private fun OverlayContent() {
         val state by ui.collectAsState()
-        MeowzixTheme(darkTheme = true) {
+        val appearance by settings.appearanceSettings.collectAsState(initial = AppearanceSettings())
+        val systemDark = isSystemInDarkTheme()
+        val dark = when (appearance.theme) {
+            ThemePreference.SYSTEM -> systemDark
+            ThemePreference.DARK -> true
+            ThemePreference.LIGHT -> false
+        }
+        MeowzixTheme(darkTheme = dark, colorTheme = appearance.colorTheme, customColorSeed = appearance.customColorSeed) {
             Box(Modifier.fillMaxSize()) {
                 // Transparent touch shield: dismiss outside the sheet without tinting the
                 // user's previous app. Only the floating card casts a shadow.
