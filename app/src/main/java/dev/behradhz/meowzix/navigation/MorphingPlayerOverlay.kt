@@ -183,6 +183,7 @@ internal fun MorphingPlayerOverlay(
     viewModel: NowPlayingViewModel,
     morphState: MorphingPlayerState,
     onOpenQueue: () -> Unit,
+    onGoToArtist: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val track = state.currentTrack ?: return
@@ -356,6 +357,10 @@ internal fun MorphingPlayerOverlay(
                             morphState.collapse()
                             onOpenQueue()
                         },
+                        onGoToArtist = { artist ->
+                            morphState.collapse()
+                            onGoToArtist(artist)
+                        },
                         viewModel = viewModel,
                         onLyricsExpandedChange = { lyricsExpanded = it },
                     )
@@ -481,6 +486,7 @@ private fun MiniPlayerContent(
                         track = playingTrack.toMiniCard(),
                         showWaveform = !reduceMotion && hasWaveform && state.status == PlaybackStatus.PLAYING,
                         compactBands = compactBands,
+                        reduceMotion = reduceMotion,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -742,6 +748,7 @@ private fun InteractiveMiniTrackPager(
                 showWaveform = !reduceMotion && currentCard.id == state.currentTrack?.id &&
                     hasWaveform && state.status == PlaybackStatus.PLAYING,
                 compactBands = compactBands,
+                reduceMotion = reduceMotion,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -760,6 +767,7 @@ private fun InteractiveMiniTrackPager(
                         showWaveform = !reduceMotion && underlayCard.id == state.currentTrack?.id &&
                             hasWaveform && state.status == PlaybackStatus.PLAYING,
                         compactBands = compactBands,
+                        reduceMotion = reduceMotion,
                         modifier = Modifier.fillMaxSize(),
                     )
                 },
@@ -769,6 +777,7 @@ private fun InteractiveMiniTrackPager(
                         showWaveform = !reduceMotion && movingCard.id == state.currentTrack?.id &&
                             hasWaveform && state.status == PlaybackStatus.PLAYING,
                         compactBands = compactBands,
+                        reduceMotion = reduceMotion,
                         modifier = Modifier.fillMaxSize(),
                     )
                 },
@@ -782,6 +791,7 @@ private fun MiniPlayerTrackSummary(
     track: MiniTrackCard,
     showWaveform: Boolean,
     compactBands: FloatArray,
+    reduceMotion: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -795,12 +805,11 @@ private fun MiniPlayerTrackSummary(
         )
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(
+            dev.behradhz.meowzix.ui.components.DirectionalMarqueeTitle(
                 text = track.title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                reduceMotion = reduceMotion,
             )
             Text(
                 text = track.artist ?: "Unknown artist",

@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.feature.nowplaying
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.snap
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -56,6 +57,7 @@ internal fun MorphingPlayerHero(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onGoToArtist: (String) -> Unit,
     favorite: Boolean,
     reduceMotion: Boolean,
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit,
@@ -95,6 +97,8 @@ internal fun MorphingPlayerHero(
                 artist = track.artist ?: "Unknown artist",
                 favorite = favorite,
                 progress = progress,
+                onGoToArtist = onGoToArtist,
+                reduceMotion = reduceMotion,
                 onToggleFavorite = onToggleFavorite,
             )
         },
@@ -163,13 +167,16 @@ private fun MorphingIdentity(
     favorite: Boolean,
     progress: Float,
     onToggleFavorite: () -> Unit,
+    onGoToArtist: (String) -> Unit,
+    reduceMotion: Boolean,
 ) {
+    val navigableArtist = artist.trim().takeUnless { it.isBlank() || it == "Unknown artist" }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f).padding(vertical = 2.dp)) {
-            Text(
+            dev.behradhz.meowzix.ui.components.DirectionalMarqueeTitle(
                 text = title,
                 fontSize = (24f - 8f * progress).sp,
                 lineHeight = (29f - 8f * progress).sp,
@@ -177,7 +184,7 @@ private fun MorphingIdentity(
                 fontFamily = Vazirmatn,
                 color = HeroPrimary,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                reduceMotion = reduceMotion,
             )
             Text(
                 text = artist,
@@ -187,6 +194,12 @@ private fun MorphingIdentity(
                 fontFamily = Vazirmatn,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.then(
+                    if (navigableArtist != null) Modifier.clickable(
+                        role = androidx.compose.ui.semantics.Role.Button,
+                        onClickLabel = "Open artist $navigableArtist",
+                    ) { onGoToArtist(navigableArtist) } else Modifier,
+                ),
             )
         }
         // Favorite belongs to the full player; the compact header instead reserves a menu slot.

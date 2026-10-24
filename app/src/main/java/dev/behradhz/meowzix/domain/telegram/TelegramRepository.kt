@@ -42,6 +42,13 @@ data class TelegramChatSummary(
     val profilePhotoRef: String? = null,
 )
 
+/** Telegram's own chat folders (not Meowzix music playlists). A chat may appear in several folders. */
+data class TelegramForwardFolder(
+    val id: Int,
+    val title: String,
+    val chats: List<TelegramChatSummary>,
+)
+
 data class TelegramSyncResult(
     val chatsSynced: Int,
     val messagesScanned: Int,
@@ -145,6 +152,7 @@ interface TelegramForwardRepository {
     fun initialize()
 
     suspend fun searchChats(query: String, limit: Int = 50): List<TelegramChatSummary>
+    suspend fun loadForwardFolders(): List<TelegramForwardFolder>
 
     suspend fun enqueueTrack(
         trackId: UUID,

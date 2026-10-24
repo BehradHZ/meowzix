@@ -107,6 +107,7 @@ private val PlayerLoadingShimmer = Color(0xFFFF4D4D)
 fun NowPlayingRoute(
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
+    onGoToArtist: (String) -> Unit = {},
     onLyricsExpandedChange: (Boolean) -> Unit = {},
     viewModel: NowPlayingViewModel = hiltViewModel(),
     lyricsViewModel: NowPlayingLyricsViewModel = hiltViewModel(),
@@ -170,6 +171,7 @@ fun NowPlayingRoute(
         onCycleRepeatMode = viewModel::cycleRepeatMode,
         onOpenForward = viewModel::openForwardPicker,
         onOpenQueue = onOpenQueue,
+        onGoToArtist = onGoToArtist,
         onOpenSleepTimer = { sleepTimerOpen = true },
         onWhyThisSong = {
             state.currentTrack?.id?.let { trackId -> recommendationActions.why(trackId) }
@@ -250,6 +252,7 @@ private fun NowPlayingScreen(
     onCycleRepeatMode: () -> Unit,
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
+    onGoToArtist: (String) -> Unit,
     onOpenSleepTimer: () -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
@@ -356,6 +359,7 @@ private fun NowPlayingScreen(
                     onPrevious = onPrevious,
                     onNext = onNext,
                     onToggleFavorite = onToggleFavorite,
+                    onGoToArtist = onGoToArtist,
                     favorite = isFavorite,
                     reduceMotion = reduceMotion,
                     onBackdropTransition = { backdropTransition.value = it },

@@ -46,6 +46,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
+import dev.behradhz.meowzix.domain.telegram.TelegramForwardFolder
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardOptions
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramSendEnqueueResult
@@ -125,6 +126,10 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
         _ui.value = OverlayForwardState(track = snapshot)
         search("")
         scope.launch {
+            val folders = runCatching { forward.loadForwardFolders() }.getOrDefault(emptyList())
+            _ui.update { if (it.track?.id == snapshot.id) it.copy(folders = folders) else it }
+        }
+        scope.launch {
             runCatching { settings.telegramForwardSettings.first() }
                 .onSuccess { defaults -> _ui.update { if (it.track?.id == snapshot.id) it.copy(defaults = defaults) else it } }
         }
@@ -197,6 +202,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                                 artist = selected.artist,
                                 query = state.query,
                                 chats = state.chats,
+                                folders = state.folders,
                                 isSearching = state.isSearching,
                                 isSending = state.isSending,
                                 errorMessage = state.errorMessage,
@@ -309,6 +315,7 @@ private data class OverlayForwardState(
     val track: NowPlayingTrack? = null,
     val query: String = "",
     val chats: List<TelegramChatSummary> = emptyList(),
+    val folders: List<TelegramForwardFolder> = emptyList(),
     val isSearching: Boolean = false,
     val isSending: Boolean = false,
     val errorMessage: String? = null,

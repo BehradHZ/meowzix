@@ -345,6 +345,10 @@ fun MeowzixApp(
                 viewModel = playerViewModel,
                 morphState = morphingPlayerState,
                 onOpenQueue = { navigateTopLevel(QUEUE_ROUTE) },
+                onGoToArtist = { artist ->
+                    pendingArtist = artist
+                    navigateTopLevel(LIBRARY_ROUTE)
+                },
             )
         }
     }

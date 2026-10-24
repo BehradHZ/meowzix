@@ -24,6 +24,7 @@ class TdLibClientAdapter {
      */
     val updates: Flow<TdApi.Object> = globalUpdateChannel.asSharedFlow()
     val failures: Flow<Throwable> = globalFailureChannel.asSharedFlow()
+    val chatFolders: StateFlow<List<TdApi.ChatFolderInfo>> = globalChatFolders.asStateFlow()
     private val _authorizationStates = MutableStateFlow<TdApi.AuthorizationState?>(null)
     val authorizationStates: StateFlow<TdApi.AuthorizationState?> = _authorizationStates.asStateFlow()
     internal val fileStates = TdFileStateRegistry()
@@ -38,6 +39,14 @@ class TdLibClientAdapter {
             { update ->
                 if (update is TdApi.UpdateFile) {
                     fileStates.publish(update.file)
+                }
+                if (update is TdApi.UpdateChatFolders) {
+                    globalChatFolders.value = update.chatFolders.toList()
+                }
+                if (update is TdApi.UpdateAuthorizationState &&
+                    update.authorizationState !is TdApi.AuthorizationStateReady
+                ) {
+                    globalChatFolders.value = emptyList()
                 }
                 val shouldForward = if (update is TdApi.UpdateAuthorizationState) {
                     readyGate.shouldForward(update.authorizationState is TdApi.AuthorizationStateReady)
@@ -123,6 +132,7 @@ class TdLibClientAdapter {
     companion object {
         private val globalUpdateChannel = MutableSharedFlow<TdApi.Object>(replay = 1, extraBufferCapacity = 64)
         private val globalFailureChannel = MutableSharedFlow<Throwable>(replay = 1, extraBufferCapacity = 8)
+        private val globalChatFolders = MutableStateFlow<List<TdApi.ChatFolderInfo>>(emptyList())
         @Volatile
         private var activeInstance: TdLibClientAdapter? = null
 

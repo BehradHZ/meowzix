@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.feature.telegram
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +69,7 @@ import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
+import dev.behradhz.meowzix.domain.telegram.TelegramForwardFolder
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardOptions
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramSendJob
@@ -97,6 +99,7 @@ fun TelegramForwardSheet(
     track: NowPlayingTrack,
     query: String,
     chats: List<TelegramChatSummary>,
+    folders: List<TelegramForwardFolder> = emptyList(),
     isSearching: Boolean,
     isSending: Boolean,
     errorMessage: String?,
@@ -110,6 +113,7 @@ fun TelegramForwardSheet(
     artist = track.artist,
     query = query,
     chats = chats,
+    folders = folders,
     isSearching = isSearching,
     isSending = isSending,
     errorMessage = errorMessage,
@@ -127,6 +131,7 @@ fun TelegramForwardSheet(
     artist: String?,
     query: String,
     chats: List<TelegramChatSummary>,
+    folders: List<TelegramForwardFolder> = emptyList(),
     isSearching: Boolean,
     isSending: Boolean,
     errorMessage: String?,
@@ -143,6 +148,7 @@ fun TelegramForwardSheet(
         artist = artist,
         query = query,
         chats = chats,
+        folders = folders,
         isSearching = isSearching,
         isSending = isSending,
         errorMessage = errorMessage,
@@ -162,6 +168,7 @@ private fun ForwardPickerBody(
     artist: String?,
     query: String,
     chats: List<TelegramChatSummary>,
+    folders: List<TelegramForwardFolder> = emptyList(),
     isSearching: Boolean,
     isSending: Boolean,
     errorMessage: String?,
@@ -181,6 +188,9 @@ private fun ForwardPickerBody(
     var rememberDefaults by rememberSaveable(trackId.toString()) { mutableStateOf(false) }
     var actionError by remember(trackId) { mutableStateOf<String?>(null) }
 
+    var selectedFolderId by rememberSaveable(trackId.toString()) { mutableStateOf<Int?>(null) }
+    val activeFolder = folders.firstOrNull { it.id == selectedFolderId }
+    val visibleChats = visibleForwardChats(chats, activeFolder, query)
     val appContext = LocalContext.current.applicationContext
     val repository: TelegramForwardRepository = remember(appContext) {
         EntryPointAccessors.fromApplication(
@@ -378,20 +388,33 @@ private fun ForwardPickerBody(
                     modifier = Modifier.fillMaxWidth().border(1.dp, TelegramGlassStroke, RoundedCornerShape(22.dp)),
                 )
                 Spacer(Modifier.height(8.dp))
+                if (folders.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                            .testTag("telegram-forward-folders"),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ForwardFolderChip("All chats", activeFolder == null) { selectedFolderId = null }
+                        folders.forEach { folder ->
+                            ForwardFolderChip(folder.title, activeFolder?.id == folder.id) { selectedFolderId = folder.id }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
 
                 when {
-                    isSearching && chats.isEmpty() -> Box(
+                    isSearching && activeFolder == null && visibleChats.isEmpty() -> Box(
                         modifier = Modifier.fillMaxWidth().height(150.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
                     }
-                    chats.isEmpty() -> Box(
+                    visibleChats.isEmpty() -> Box(
                         modifier = Modifier.fillMaxWidth().height(130.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            if (query.isBlank()) "No Telegram chats available." else "No chats match your search.",
+                            if (activeFolder != null) "No matching chats in ${activeFolder.title}." else if (query.isBlank()) "No Telegram chats available." else "No chats match your search.",
                             color = Color.White.copy(alpha = 0.58f),
                         )
                     }
@@ -402,7 +425,7 @@ private fun ForwardPickerBody(
                         ),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        items(chats, key = { it.chatId }) { chat ->
+                        items(visibleChats, key = { it.chatId }) { chat ->
                             val latestJob = trackJobs.firstOrNull {
                                 it.targetChatId == chat.chatId && it.state != TelegramSendState.CANCELED
                             }
@@ -689,4 +712,33 @@ private fun TelegramSendJob.statusLabel(): String = when (state) {
     TelegramSendState.SENT -> "Sent"
     TelegramSendState.FAILED -> "Couldn't send"
     TelegramSendState.CANCELED -> "Canceled"
+}
+
+/** A folder is a navigation filter; only its real chat IDs can be forwarded to. */
+internal fun visibleForwardChats(
+    searchResults: List<TelegramChatSummary>,
+    folder: TelegramForwardFolder?,
+    query: String,
+): List<TelegramChatSummary> {
+    if (folder == null) return searchResults
+    val needle = query.trim()
+    return folder.chats.filter { needle.isBlank() || it.title.contains(needle, ignoreCase = true) }
+}
+
+@Composable
+private fun ForwardFolderChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        modifier = Modifier.background(
+            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.24f) else TelegramGlassFill,
+            shape,
+        ).border(
+            1.dp,
+            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.70f) else TelegramGlassStroke,
+            shape,
+        ).clickable(role = Role.Tab, onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = Color.White, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+    }
 }

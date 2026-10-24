@@ -18,6 +18,7 @@ import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.playback.SleepTimerManager
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
+import dev.behradhz.meowzix.domain.telegram.TelegramForwardFolder
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardOptions
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramSendEnqueueResult
@@ -43,6 +44,7 @@ data class TelegramForwardUiState(
     val track: NowPlayingTrack? = null,
     val query: String = "",
     val chats: List<TelegramChatSummary> = emptyList(),
+    val folders: List<TelegramForwardFolder> = emptyList(),
     val isSearching: Boolean = false,
     val isSending: Boolean = false,
     val errorMessage: String? = null,
@@ -267,12 +269,19 @@ class NowPlayingViewModel @Inject constructor(
                 track = selectedTrack,
                 query = "",
                 chats = emptyList(),
+                folders = emptyList(),
                 isSearching = true,
                 isSending = false,
                 errorMessage = null,
             )
         }
         searchForwardChats("")
+        viewModelScope.launch {
+            val folders = runCatching { telegramForwardRepository.loadForwardFolders() }.getOrDefault(emptyList())
+            if (_forwardState.value.isOpen && _forwardState.value.track?.id == trackId) {
+                _forwardState.update { it.copy(folders = folders) }
+            }
+        }
     }
 
     fun dismissForwardPicker() {
@@ -284,6 +293,7 @@ class NowPlayingViewModel @Inject constructor(
                 track = null,
                 query = "",
                 chats = emptyList(),
+                folders = emptyList(),
                 isSearching = false,
                 isSending = false,
                 errorMessage = null,

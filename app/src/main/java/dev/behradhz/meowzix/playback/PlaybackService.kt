@@ -443,7 +443,13 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            if (!playWhenReady && activeCrossfade != null) {
+            // The incoming crossfade player does not own audio focus until handoff.
+            // Pausing it during transient focus loss is NOT a user pause; the outgoing
+            // Media3-managed player will restore the intended playback after focus gain.
+            val crossfade = activeCrossfade
+            if (!playWhenReady && crossfade != null &&
+                !(crossfade.identitySwitched && crossfade.focusPausedIncoming)
+            ) {
                 cancelCrossfade("active player paused")
             }
             if (!playWhenReady &&
@@ -990,6 +996,7 @@ class PlaybackService : MediaLibraryService() {
             return
         }
 
+        if (runtime.focusPausedIncoming) return
         val startedAt = runtime.startedAtElapsedRealtimeMs
         if (startedAt == null) {
             if (!runtime.outgoing.isPlaying) {
@@ -1156,9 +1163,24 @@ class PlaybackService : MediaLibraryService() {
         runtime.identitySwitched = true
         runtime.focusBridge = object : Player.Listener {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                if (!playWhenReady && activeCrossfade === runtime) {
+                if (activeCrossfade !== runtime) return
+                if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS) {
+                    suspendCrossfadeForAudioFocus(runtime)
+                } else if (playWhenReady) {
+                    resumeCrossfadeAfterAudioFocus(runtime)
+                } else if (!playWhenReady) {
+                    runtime.focusPausedIncoming = false
                     incoming.pause()
                     cancelCrossfade("outgoing audio-focus owner paused")
+                }
+            }
+
+            override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
+                if (activeCrossfade !== runtime) return
+                if (playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS) {
+                    suspendCrossfadeForAudioFocus(runtime)
+                } else if (playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE) {
+                    resumeCrossfadeAfterAudioFocus(runtime)
                 }
             }
 
@@ -1179,6 +1201,29 @@ class PlaybackService : MediaLibraryService() {
         refreshMediaButtons()
         schedulePersist()
         return true
+    }
+
+    private fun suspendCrossfadeForAudioFocus(runtime: CrossfadeRuntime) {
+        if (!runtime.focusPausedIncoming) {
+            runtime.focusPausedIncoming = true
+            runtime.focusPausedAtMs = SystemClock.elapsedRealtime()
+            runtime.incoming.pause()
+        }
+    }
+
+    private fun resumeCrossfadeAfterAudioFocus(runtime: CrossfadeRuntime) {
+        if (!runtime.focusPausedIncoming ||
+            !runtime.outgoing.playWhenReady ||
+            runtime.outgoing.playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE
+        ) return
+        runtime.focusPausedIncoming = false
+        runtime.focusPausedAtMs?.let { pausedAt ->
+            runtime.startedAtElapsedRealtimeMs = runtime.startedAtElapsedRealtimeMs?.plus(
+                SystemClock.elapsedRealtime() - pausedAt,
+            )
+        }
+        runtime.focusPausedAtMs = null
+        runtime.incoming.play()
     }
 
     private fun finishCrossfade(runtime: CrossfadeRuntime) {
@@ -1640,6 +1685,8 @@ class PlaybackService : MediaLibraryService() {
         var startedAtElapsedRealtimeMs: Long? = null,
         var identitySwitched: Boolean = false,
         var focusBridge: Player.Listener? = null,
+        var focusPausedIncoming: Boolean = false,
+        var focusPausedAtMs: Long? = null,
     )
 
     private companion object {

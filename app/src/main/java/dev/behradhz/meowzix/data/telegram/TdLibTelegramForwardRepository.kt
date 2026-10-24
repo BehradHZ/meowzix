@@ -22,6 +22,7 @@ import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
+import dev.behradhz.meowzix.domain.telegram.TelegramForwardFolder
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardOptions
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
@@ -152,6 +153,26 @@ class TdLibTelegramForwardRepository @Inject constructor(
             result += chat.toForwardSummary(currentUserId, chatId in selectedIds)
         }
         return result
+    }
+
+    override suspend fun loadForwardFolders(): List<TelegramForwardFolder> {
+        val activeClient = TdLibClientAdapter.activeOrNull() ?: return emptyList()
+        if (telegramRepository.authState.value.step !is TelegramAuthStep.Ready) return emptyList()
+        val accountId = telegramRepository.musicSourceState.value.accountId ?: return emptyList()
+        val userId = accountId.toLongOrNull() ?: return emptyList()
+        val selectedIds = telegramRepository.musicSourceState.value.selectedChatIds
+        return activeClient.chatFolders.value.map { info ->
+            val chatList = TdApi.ChatListFolder(info.id)
+            // TDLib may initially have only the first page of the folder loaded.
+            runCatching { activeClient.send(TdApi.LoadChats(chatList, 100)) }
+            val ids = runCatching { activeClient.send(TdApi.GetChats(chatList, 100)).chatIds.toList() }
+                .getOrDefault(emptyList())
+            val chats = ids.distinct().mapNotNull { id ->
+                runCatching { activeClient.send(TdApi.GetChat(id)) }.getOrNull()
+                    ?.toForwardSummary(userId, id in selectedIds)
+            }
+            TelegramForwardFolder(info.id, info.title.ifBlank { "Folder" }, chats)
+        }
     }
 
     override suspend fun enqueueTrack(

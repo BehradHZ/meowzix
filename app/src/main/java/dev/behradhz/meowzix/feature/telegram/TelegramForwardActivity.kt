@@ -138,6 +138,7 @@ class TelegramForwardActivity : ComponentActivity() {
                         artist = selectedTrack.artist,
                         query = forwardState.query,
                         chats = forwardState.chats,
+                        folders = forwardState.folders,
                         isSearching = forwardState.isSearching,
                         isSending = forwardState.isSending,
                         errorMessage = forwardState.errorMessage,
