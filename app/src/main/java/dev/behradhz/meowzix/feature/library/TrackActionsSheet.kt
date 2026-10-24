@@ -109,6 +109,11 @@ internal fun TrackActionsMenu(
         onDismissRequest = onDismiss,
         modifier = Modifier.width(280.dp),
         offset = DpOffset(x = (-8).dp, y = 0.dp),
+        // The gradient Box below is the only visible menu surface. Remove the
+        // default DropdownMenu container/shadow that frames it as a second rectangle.
+        containerColor = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
     ) {
         Box(
             Modifier.fillMaxWidth()
