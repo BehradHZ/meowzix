@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -369,10 +370,10 @@ fun NowPlayingArtwork(
     Box(
         modifier = artworkModifier
             .clip(shape)
-            .background(Color(0xFF191817).copy(alpha = 0.72f))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
             .border(
                 width = 1.dp,
-                color = Color.White.copy(alpha = 0.12f),
+                color = MaterialTheme.colorScheme.outlineVariant,
                 shape = shape,
             ),
         contentAlignment = Alignment.Center,
@@ -405,8 +406,8 @@ fun NowPlayingArtwork(
                         Brush.radialGradient(
                             colors = listOf(
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.34f),
-                                Color(0xFF2A2826),
-                                Color(0xFF171615),
+                                MaterialTheme.colorScheme.surfaceVariant,
+                                MaterialTheme.colorScheme.surface,
                             ),
                         ),
                     ),
@@ -414,7 +415,7 @@ fun NowPlayingArtwork(
             Icon(
                 imageVector = Icons.Rounded.MusicNote,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.88f),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
                 modifier = Modifier.size(72.dp),
             )
         }
@@ -437,7 +438,10 @@ fun TrackArtworkBackdrop(
         retainPreviousWhileLoading = true,
     )
 
-    Box(modifier = modifier.background(Color(0xFF101010))) {
+    val palette = MaterialTheme.colorScheme
+    val lightTheme = palette.background.luminance() > 0.5f
+    val wash = if (lightTheme) palette.surface else Color.Black
+    Box(modifier = modifier.background(palette.background)) {
         if (bitmap != null) {
             Image(
                 bitmap = bitmap,
@@ -460,11 +464,11 @@ fun TrackArtworkBackdrop(
                     .background(
                         Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0.00f to Color.Black.copy(alpha = 0.26f),
-                                0.34f to Color.Black.copy(alpha = 0.18f),
-                                0.58f to Color.Black.copy(alpha = 0.34f),
-                                0.78f to Color.Black.copy(alpha = 0.58f),
-                                1.00f to Color.Black.copy(alpha = 0.82f),
+                                0.00f to wash.copy(alpha = if (lightTheme) 0.86f else 0.26f),
+                                0.34f to wash.copy(alpha = if (lightTheme) 0.82f else 0.18f),
+                                0.58f to wash.copy(alpha = if (lightTheme) 0.86f else 0.34f),
+                                0.78f to wash.copy(alpha = if (lightTheme) 0.91f else 0.58f),
+                                1.00f to wash.copy(alpha = if (lightTheme) 0.94f else 0.82f),
                             ),
                         ),
                     ),
@@ -477,8 +481,8 @@ fun TrackArtworkBackdrop(
                         Brush.radialGradient(
                             colors = listOf(
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.34f),
-                                Color(0xFF262626),
-                                Color(0xFF101010),
+                                palette.surfaceVariant,
+                                palette.background,
                             ),
                         ),
                     ),
@@ -489,9 +493,9 @@ fun TrackArtworkBackdrop(
                     .background(
                         Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0.00f to Color.Black.copy(alpha = 0.18f),
-                                0.50f to Color.Black.copy(alpha = 0.30f),
-                                1.00f to Color.Black.copy(alpha = 0.82f),
+                                0.00f to wash.copy(alpha = if (lightTheme) 0.64f else 0.18f),
+                                0.50f to wash.copy(alpha = if (lightTheme) 0.72f else 0.30f),
+                                1.00f to wash.copy(alpha = if (lightTheme) 0.94f else 0.82f),
                             ),
                         ),
                     ),

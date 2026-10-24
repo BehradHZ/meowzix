@@ -78,7 +78,7 @@ class VinylWidgetProvider : AppWidgetProvider() {
         private const val SIZE = 280
         private const val FRAME_MS = 250L
         private const val DEGREES_PER_MS = 360f / 5_600f
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        // Each frame uses its own Paint to avoid races between canceled and new renders.
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         private var animationJob: Job? = null
         private var lastPlaying = false
@@ -197,6 +197,7 @@ class VinylWidgetProvider : AppWidgetProvider() {
         }
 
         private fun drawVinyl(cover: Bitmap?, angle: Float, lift: Float): Bitmap {
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
             val bitmap = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
             val c = Canvas(bitmap)
             val cx = 136f
