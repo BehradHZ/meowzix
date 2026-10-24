@@ -1,16 +1,10 @@
 package dev.behradhz.meowzix.data.repository
 
 import androidx.room.withTransaction
-import androidx.sqlite.db.SimpleSQLiteQuery
-import dev.behradhz.meowzix.core.common.TextNormalizer
 import dev.behradhz.meowzix.core.model.Track
-import dev.behradhz.meowzix.data.db.LibraryBrowseDao
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.LibraryToolsDao
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
-import dev.behradhz.meowzix.data.db.RulePlaylistEntity
-import dev.behradhz.meowzix.data.db.RulePlaylistRecordRow
-import dev.behradhz.meowzix.data.db.SearchTrackRow
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackMergeJournalEntity
 import dev.behradhz.meowzix.data.db.TrackMetadataOverrideEntity
@@ -18,44 +12,30 @@ import dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
 import dev.behradhz.meowzix.domain.library.DuplicateCandidate
 import dev.behradhz.meowzix.domain.library.DuplicateEvidence
 import dev.behradhz.meowzix.domain.library.LibraryToolsRepository
-import dev.behradhz.meowzix.domain.library.PlaylistRule
-import dev.behradhz.meowzix.domain.library.RuleKind
-import dev.behradhz.meowzix.domain.library.RuleMatchMode
-import dev.behradhz.meowzix.domain.library.RulePlaylistDefinition
-import dev.behradhz.meowzix.domain.library.RulePlaylistRecord
-import dev.behradhz.meowzix.domain.library.RulePlaylistSort
 import dev.behradhz.meowzix.domain.library.TrackMergeJournal
 import dev.behradhz.meowzix.domain.library.TrackMergeResult
 import dev.behradhz.meowzix.domain.library.TrackMetadataOverride
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedback
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackRepository
-import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 @Singleton
 class RoomLibraryToolsRepository @Inject constructor(
     private val toolsDao: LibraryToolsDao,
     private val libraryDao: LibraryDao,
-    private val browseDao: LibraryBrowseDao,
     private val database: MeowzixDatabase,
     private val feedbackRepository: RecommendationFeedbackRepository,
     private val personalizationTrainer: PersonalizationTrainer,
     private val searchIndexer: EffectiveTrackSearchIndexer,
-    private val clock: RulePlaylistClock,
+    private val clock: LibraryToolsClock,
 ) : LibraryToolsRepository {
 
     override fun observeMetadataOverrides(): Flow<Map<UUID, TrackMetadataOverride>> =
@@ -342,157 +322,6 @@ class RoomLibraryToolsRepository @Inject constructor(
         )
     }
 
-    override fun observeRulePlaylists(): Flow<List<RulePlaylistDefinition>> =
-        toolsDao.observeRulePlaylists().map { rows -> rows.mapNotNull(RulePlaylistEntity::toDomain) }
-
-    override fun observeRulePlaylistRecords(): Flow<List<RulePlaylistRecord>> =
-        toolsDao.observeRulePlaylistRecords().map { rows -> rows.mapNotNull(RulePlaylistRecordRow::toDomain) }
-
-    override fun observeRulePlaylistTracks(playlistId: UUID): Flow<List<Track>> =
-        flow {
-            searchIndexer.ensureReady()
-            emit(Unit)
-        }.flatMapLatest {
-            toolsDao.observeRulePlaylists()
-        }
-            .map { rows -> rows.firstOrNull { it.playlistId == playlistId.toString() }?.toDomain() }
-            .distinctUntilChanged()
-            .flatMapLatest { definition ->
-                if (definition == null) {
-                    flowOf(emptyList())
-                } else {
-                    ruleBoundaryRefreshes(definition).flatMapLatest { now ->
-                        val query = buildRuleQuery(definition, now, RULE_LIVE_LIMIT)
-                            ?: return@flatMapLatest flowOf(emptyList())
-                        database.rulePlaylistQueryDao().observeTracks(query).map { rows ->
-                            rows.distinctBy { it.id }.map(SearchTrackRow::toDomain)
-                        }
-                    }
-                }
-            }
-
-    override suspend fun rulePlaylist(playlistId: UUID): RulePlaylistDefinition? =
-        toolsDao.rulePlaylist(playlistId.toString())?.toDomain()
-
-    override suspend fun saveRulePlaylist(definition: RulePlaylistDefinition) {
-        require(definition.rules.isNotEmpty()) { "Rule playlist needs at least one rule" }
-        require(definition.rules.size <= MAX_RULES) { "Too many rules" }
-        toolsDao.upsertRulePlaylist(
-            RulePlaylistEntity(
-                playlistId = definition.playlistId.toString(),
-                matchMode = definition.matchMode.name,
-                rulesJson = RulePlaylistCodec.encode(definition.rules),
-                sortMode = definition.sort.name,
-                updatedAtEpochMs = definition.updatedAtEpochMs,
-            ),
-        )
-    }
-
-    override suspend fun deleteRulePlaylist(playlistId: UUID) {
-        toolsDao.deleteRulePlaylist(playlistId.toString())
-    }
-
-    override suspend fun evaluateRulePlaylist(playlistId: UUID, limit: Int): List<Track> {
-        searchIndexer.ensureReady()
-        val definition = rulePlaylist(playlistId) ?: return emptyList()
-        val query = buildRuleQuery(definition, clock.millis(), limit) ?: return emptyList()
-        return browseDao.searchTracks(query).distinctBy { it.id }.map(SearchTrackRow::toDomain)
-    }
-
-    private fun ruleBoundaryRefreshes(definition: RulePlaylistDefinition): Flow<Long> = flow {
-        while (true) {
-            val now = clock.millis()
-            emit(now)
-            val nextBoundary = nextRuleBoundary(definition, now) ?: awaitCancellation()
-            delay(ruleBoundaryDelayMillis(clock, nextBoundary, MIN_BOUNDARY_DELAY_MS))
-        }
-    }
-
-    private suspend fun nextRuleBoundary(definition: RulePlaylistDefinition, now: Long): Long? {
-        val queryDao = database.rulePlaylistQueryDao()
-        return definition.rules.mapNotNull { rule ->
-            val days = rule.value.safeDays() ?: return@mapNotNull null
-            val windowMs = days * DAY_MS
-            when (rule.kind) {
-                RuleKind.ADDED_WITHIN_DAYS -> queryDao.nextAddedExpiry(windowMs, now)
-                RuleKind.NOT_LISTENED_WITHIN_DAYS -> queryDao.nextMeaningfulListenExpiry(windowMs, now)
-                else -> null
-            }
-        }.minOrNull()
-    }
-
-    private fun buildRuleQuery(definition: RulePlaylistDefinition, now: Long, limit: Int): SimpleSQLiteQuery? {
-        val clauses = mutableListOf<String>()
-        val args = mutableListOf<Any>()
-        definition.rules.forEach { rule ->
-            rule.toSqlClause(now)?.let { (sql, values) ->
-                clauses += sql
-                args.addAll(values)
-            }
-        }
-        if (clauses.isEmpty()) return null
-        val operator = if (definition.matchMode == RuleMatchMode.ALL) " AND " else " OR "
-        val orderBy = when (definition.sort) {
-            RulePlaylistSort.RECENTLY_ADDED -> "t.createdAtEpochMs DESC, t.id ASC"
-            RulePlaylistSort.TITLE -> "search_index.normalizedTitle ASC, t.id ASC"
-            RulePlaylistSort.ARTIST -> "search_index.normalizedArtist, search_index.normalizedTitle, t.id"
-            RulePlaylistSort.LAST_PLAYED -> "COALESCE((SELECT MAX(le.occurredAtEpochMs) FROM listening_events le WHERE le.trackId = t.id), 0) DESC, t.id"
-        }
-        args.add(limit.coerceIn(1, 1_000))
-        val sql = """
-            SELECT
-                t.id,
-                COALESCE(o.title, t.title) AS title,
-                search_index.normalizedTitle AS normalizedTitle,
-                COALESCE(o.artist, t.artist) AS artist,
-                NULLIF(search_index.normalizedArtist, '') AS normalizedArtist,
-                COALESCE(o.album, t.album) AS album,
-                t.durationMs, t.trackNumber, t.year,
-                COALESCE(o.artworkRef, t.artworkRef) AS artworkRef,
-                t.favorite, t.hidden, t.createdAtEpochMs, t.updatedAtEpochMs
-            FROM tracks t
-            INNER JOIN track_search_fts search_index ON search_index.rowid = t.rowid
-            LEFT JOIN track_metadata_overrides o ON o.trackId = t.id
-            WHERE t.hidden = 0
-              AND (
-                  EXISTS (SELECT 1 FROM track_sources independent
-                          WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE'
-                            AND independent.availability = 'AVAILABLE_LOCAL')
-                  OR EXISTS (SELECT 1 FROM telegram_track_sources tg
-                             INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
-                             INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                             WHERE origin.trackId = t.id AND origin.availability != 'MISSING')
-              )
-              AND (${clauses.joinToString(operator)})
-            ORDER BY $orderBy
-            LIMIT ?
-        """.trimIndent()
-        return SimpleSQLiteQuery(sql, args.toTypedArray())
-    }
-
-    private fun PlaylistRule.toSqlClause(nowMs: Long): Pair<String, List<Any>>? = when (kind) {
-        RuleKind.FAVORITE -> "t.favorite = 1" to emptyList()
-        RuleKind.OFFLINE -> "EXISTS (SELECT 1 FROM track_sources local WHERE local.trackId = t.id AND local.availability = 'AVAILABLE_LOCAL')" to emptyList()
-        RuleKind.ADDED_WITHIN_DAYS -> value.safeDays()?.let { days ->
-            "t.createdAtEpochMs >= ?" to listOf(nowMs - days * DAY_MS)
-        }
-        RuleKind.NOT_LISTENED_WITHIN_DAYS -> value.safeDays()?.let { days ->
-            "NOT EXISTS (SELECT 1 FROM listening_events recent WHERE recent.trackId = t.id AND recent.occurredAtEpochMs >= ? AND recent.type IN ('PLAY_COMPLETED', 'PLAY_STOPPED', 'SKIPPED_LATE'))" to listOf(nowMs - days * DAY_MS)
-        }
-        RuleKind.ARTIST_IS -> TextNormalizer.normalize(value)?.let { normalized ->
-            "search_index.normalizedArtist = ?" to listOf(normalized)
-        }
-        RuleKind.ALBUM_IS -> TextNormalizer.normalize(value)?.let { normalized ->
-            "search_index.album = ?" to listOf(normalized)
-        }
-    }
-
-    private companion object {
-        const val MAX_RULES = 32
-        const val DAY_MS = 86_400_000L
-        const val RULE_LIVE_LIMIT = 500
-        const val MIN_BOUNDARY_DELAY_MS = 50L
-    }
 }
 
 private fun nextFreePosition(occupied: Set<Int>, preferred: Int): Int {
@@ -502,7 +331,6 @@ private fun nextFreePosition(occupied: Set<Int>, preferred: Int): Int {
 }
 
 private fun String?.cleaned(maxLength: Int = 512): String? = this?.trim()?.take(maxLength)?.takeIf(String::isNotBlank)
-private fun String?.safeDays(): Long? = this?.toLongOrNull()?.coerceIn(1L, 3_650L)
 
 private fun TrackMetadataOverrideEntity.toDomain() = TrackMetadataOverride(
     trackId = UUID.fromString(trackId),
@@ -513,44 +341,7 @@ private fun TrackMetadataOverrideEntity.toDomain() = TrackMetadataOverride(
     updatedAtEpochMs = updatedAtEpochMs,
 )
 
-private fun RulePlaylistEntity.toDomain(): RulePlaylistDefinition? {
-    val id = runCatching { UUID.fromString(playlistId) }.getOrNull() ?: return null
-    val mode = runCatching { RuleMatchMode.valueOf(matchMode) }.getOrNull() ?: return null
-    val sort = runCatching { RulePlaylistSort.valueOf(sortMode) }.getOrNull() ?: return null
-    val rules = RulePlaylistCodec.decode(rulesJson)
-    if (rules.isEmpty()) return null
-    return RulePlaylistDefinition(id, mode, rules, sort, updatedAtEpochMs)
-}
-
-private fun RulePlaylistRecordRow.toDomain(): RulePlaylistRecord? {
-    val definition = RulePlaylistEntity(
-        playlistId = playlistId,
-        matchMode = matchMode,
-        rulesJson = rulesJson,
-        sortMode = sortMode,
-        updatedAtEpochMs = updatedAtEpochMs,
-    ).toDomain() ?: return null
-    return RulePlaylistRecord(title = title, definition = definition)
-}
-
 private fun TrackEntity.toDomain() = Track(
-    id = UUID.fromString(id),
-    title = title,
-    normalizedTitle = normalizedTitle,
-    artist = artist,
-    normalizedArtist = normalizedArtist,
-    album = album,
-    durationMs = durationMs,
-    trackNumber = trackNumber,
-    year = year,
-    artworkRef = artworkRef,
-    favorite = favorite,
-    hidden = hidden,
-    createdAt = Instant.ofEpochMilli(createdAtEpochMs),
-    updatedAt = Instant.ofEpochMilli(updatedAtEpochMs),
-)
-
-private fun SearchTrackRow.toDomain() = Track(
     id = UUID.fromString(id),
     title = title,
     normalizedTitle = normalizedTitle,

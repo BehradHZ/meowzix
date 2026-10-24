@@ -26,7 +26,6 @@ fun LibraryRoute(
     tracksViewModel: LibraryTracksViewModel = hiltViewModel(),
     recommendationActions: RecommendationActionsViewModel = hiltViewModel(),
     libraryTools: LibraryToolsViewModel = hiltViewModel(),
-    rulePlaylists: RulePlaylistsViewModel = hiltViewModel(),
     forwardViewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
     var forwardSelection by remember { mutableStateOf<TrackForwardSelection?>(null) }
@@ -55,11 +54,6 @@ fun LibraryRoute(
                 tracksViewModel = tracksViewModel,
                 requestedArtist = requestedArtist,
                 onArtistRequestConsumed = onArtistRequestConsumed,
-            )
-            SmartPlaylistsOverlay(
-                ruleViewModel = rulePlaylists,
-                libraryViewModel = viewModel,
-                onOpenNowPlaying = onOpenNowPlaying,
             )
         }
         dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs(recommendationActions)

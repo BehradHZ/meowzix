@@ -37,24 +37,12 @@ data class TrackMergeJournal(
     val createdAtEpochMs: Long,
 )
 
+/** Legacy backup decoding only; Smart Playlists are no longer an active feature. */
 enum class RuleMatchMode { ALL, ANY }
 enum class RuleKind { FAVORITE, OFFLINE, ADDED_WITHIN_DAYS, NOT_LISTENED_WITHIN_DAYS, ARTIST_IS, ALBUM_IS }
 enum class RulePlaylistSort { RECENTLY_ADDED, TITLE, ARTIST, LAST_PLAYED }
 
 data class PlaylistRule(val kind: RuleKind, val value: String? = null)
-
-data class RulePlaylistDefinition(
-    val playlistId: UUID,
-    val matchMode: RuleMatchMode,
-    val rules: List<PlaylistRule>,
-    val sort: RulePlaylistSort,
-    val updatedAtEpochMs: Long,
-)
-
-data class RulePlaylistRecord(
-    val title: String,
-    val definition: RulePlaylistDefinition,
-)
 
 interface LibraryToolsRepository {
     fun observeMetadataOverrides(): Flow<Map<UUID, TrackMetadataOverride>>
@@ -76,14 +64,6 @@ interface LibraryToolsRepository {
     suspend fun unmerge(journalId: UUID): Boolean
     suspend fun activeMerges(): List<TrackMergeJournal>
 
-    fun observeRulePlaylists(): Flow<List<RulePlaylistDefinition>>
-    fun observeRulePlaylistRecords(): Flow<List<RulePlaylistRecord>>
-    fun observeRulePlaylistTracks(playlistId: UUID): Flow<List<Track>>
-    suspend fun rulePlaylist(playlistId: UUID): RulePlaylistDefinition?
-    suspend fun saveRulePlaylist(definition: RulePlaylistDefinition)
-    suspend fun deleteRulePlaylist(playlistId: UUID)
-    /** Evaluates a bounded membership snapshot. Playback must use this snapshot for the current queue. */
-    suspend fun evaluateRulePlaylist(playlistId: UUID, limit: Int = 500): List<Track>
 }
 
 fun Track.withMetadataOverride(override: TrackMetadataOverride?): Track {

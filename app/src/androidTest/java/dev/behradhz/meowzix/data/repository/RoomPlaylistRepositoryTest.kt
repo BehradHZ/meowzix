@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
+import dev.behradhz.meowzix.data.db.RulePlaylistEntity
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.TrackEntity
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -81,6 +83,20 @@ class RoomPlaylistRepositoryTest {
         assertEquals(listOf(retainedId), repository.observePlaylists().first().map { it.id })
         assertEquals(listOf(trackIds.first()), repository.observeTracks(retainedId).first().map { it.id })
         assertEquals(trackIds.toSet(), database.libraryDao().allTracks().map { UUID.fromString(it.id) }.toSet())
+    }
+
+    @Test
+    fun archivedSmartPlaylistsRemainHiddenWithoutDeletingUserData() = runTest {
+        val manualId = repository.create("Manual")
+        val legacyId = repository.create("Old smart playlist")
+        database.libraryToolsDao().upsertRulePlaylist(
+            RulePlaylistEntity(legacyId.toString(), "ALL", "v1", "TITLE", 1L),
+        )
+
+        assertEquals(listOf(manualId), repository.observePlaylists().first().map { it.id })
+        assertEquals(listOf(manualId.toString()), database.playlistDao().browsePlaylists(100, 0).map { it.id })
+        assertNull(database.playlistDao().browsePlaylist(legacyId.toString()))
+        assertEquals(2, database.playlistDao().allPlaylists().size)
     }
 
     private fun track(id: UUID, index: Int) = TrackEntity(

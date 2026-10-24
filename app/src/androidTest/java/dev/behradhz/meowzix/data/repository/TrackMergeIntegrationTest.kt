@@ -10,11 +10,6 @@ import dev.behradhz.meowzix.data.db.*
 import dev.behradhz.meowzix.data.recommendation.DataStoreRecommendationFeedbackRepository
 import dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
 import dev.behradhz.meowzix.data.recommendation.TrainingDatasetBuilder
-import dev.behradhz.meowzix.domain.library.PlaylistRule
-import dev.behradhz.meowzix.domain.library.RuleKind
-import dev.behradhz.meowzix.domain.library.RuleMatchMode
-import dev.behradhz.meowzix.domain.library.RulePlaylistDefinition
-import dev.behradhz.meowzix.domain.library.RulePlaylistSort
 import dev.behradhz.meowzix.domain.playback.SmartQueueAdaptationBus
 import dev.behradhz.meowzix.domain.recommendation.*
 import java.time.Instant
@@ -63,7 +58,6 @@ class TrackMergeIntegrationTest {
         repository = RoomLibraryToolsRepository(
             toolsDao = db.libraryToolsDao(),
             libraryDao = db.libraryDao(),
-            browseDao = db.libraryBrowseDao(),
             database = db,
             feedbackRepository = feedback,
             personalizationTrainer = trainer,
@@ -110,7 +104,6 @@ class TrackMergeIntegrationTest {
         val mergedDataset = datasetBuilder.buildAll()
         assertEquals(1, mergedDataset.size)
         assertEquals(survivorId, mergedDataset.single().trackId)
-        assertEquals(listOf(survivorId), repository.evaluateRulePlaylist(UUID.fromString(SMART_ID)).map { it.id })
         assertEquals(listOf(survivorId), search.search("merged album").map { it.id })
 
         assertTrue(repository.unmerge(merged.journalId))
@@ -135,7 +128,6 @@ class TrackMergeIntegrationTest {
         val restoredDataset = datasetBuilder.buildAll()
         assertEquals(1, restoredDataset.size)
         assertEquals(mergedId, restoredDataset.single().trackId)
-        assertEquals(listOf(mergedId), repository.evaluateRulePlaylist(UUID.fromString(SMART_ID)).map { it.id })
         assertEquals(listOf(mergedId), search.search("merged album").map { it.id })
         assertEquals(1, feedback.snapshot(Instant.now()).count { it.trackId == mergedId })
     }
@@ -147,17 +139,6 @@ class TrackMergeIntegrationTest {
         db.playlistDao().upsertPlaylist(PlaylistEntity("manual", "Manual", null, null, 1L, 1L))
         db.playlistDao().insertTrack(PlaylistTrackEntity("manual", survivorId.toString(), 0, 1L))
         db.playlistDao().insertTrack(PlaylistTrackEntity("manual", mergedId.toString(), 1, 2L))
-
-        db.playlistDao().upsertPlaylist(PlaylistEntity(SMART_ID, "Favorites", null, null, 1L, 1L))
-        db.libraryToolsDao().upsertRulePlaylist(
-            RulePlaylistEntity(
-                SMART_ID,
-                RuleMatchMode.ALL.name,
-                RulePlaylistCodec.encode(listOf(PlaylistRule(RuleKind.FAVORITE))),
-                RulePlaylistSort.TITLE.name,
-                1L,
-            ),
-        )
 
         db.lyricsDao().insert(
             LyricsVersionEntity("lyric-merged", mergedId.toString(), "USER", null, "lyrics", "PLAIN", true, true, 0L, 1L, 1L),
@@ -250,12 +231,11 @@ class TrackMergeIntegrationTest {
     }
 
     private companion object {
-        const val SMART_ID = "33333333-3333-3333-3333-333333333333"
         const val DUPLICATE_HASH = "same-content"
     }
 }
 
-private class FixedMergeClock(private val value: Long) : RulePlaylistClock() {
+private class FixedMergeClock(private val value: Long) : LibraryToolsClock() {
     override fun millis(): Long = value
 }
 
