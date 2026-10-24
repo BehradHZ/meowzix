@@ -53,7 +53,7 @@ import dev.behradhz.meowzix.domain.playback.SleepTimerMode
 import dev.behradhz.meowzix.domain.playback.SleepTimerPolicy
 import dev.behradhz.meowzix.domain.playback.SleepTimerTerminationReason
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
-import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
+import dev.behradhz.meowzix.feature.telegram.NotificationForwardGatewayActivity
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
 import dev.behradhz.meowzix.widget.PlaybackWidgetProvider
@@ -730,9 +730,10 @@ class PlaybackService : MediaLibraryService() {
     @Suppress("DEPRECATION")
     private fun openTelegramForwardPicker(): Boolean {
         if (player.currentMediaItem == null) return false
-        // A real, translucent Activity is necessary for Android to collapse the notification
-        // shade before the Forward picker is shown. A NoDisplay overlay gateway cannot
-        // reliably trigger that system-managed transition.
+        // SystemUI sends the Android 13+ media custom command to this service, not an
+        // activity PendingIntent. Launch an opaque foreground gateway first; opening a
+        // translucent picker straight from the service leaves the shade expanded on
+        // some devices. The gateway waits for focus, then opens the existing picker.
         val creatorOptions = if (Build.VERSION.SDK_INT >= 35) {
             ActivityOptions.makeBasic()
                 .setPendingIntentCreatorBackgroundActivityStartMode(
@@ -745,18 +746,13 @@ class PlaybackService : MediaLibraryService() {
         val forwardIntent = PendingIntent.getActivity(
             this,
             1,
-            TelegramForwardActivity.intent(
+            NotificationForwardGatewayActivity.intent(
                 this,
                 player.currentMediaItem?.mediaId,
                 player.currentMediaItem?.mediaMetadata?.title?.toString(),
                 player.currentMediaItem?.mediaMetadata?.artist?.toString(),
             ).apply {
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
-                        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
-                        Intent.FLAG_ACTIVITY_NO_ANIMATION,
-                )
+                // Intent flags are defined by the gateway: one reusable transient task.
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             creatorOptions,

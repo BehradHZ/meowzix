@@ -48,11 +48,22 @@
             android:taskAffinity=""
             android:theme="@android:style/Theme.NoDisplay" />
 
+        <!-- Opaque transition first: a translucent picker launched directly from a
+             MediaSession service can remain underneath Quick Settings. -->
+        <activity
+            android:name=".feature.telegram.NotificationForwardGatewayActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:taskAffinity="dev.behradhz.meowzix.forward"
+            android:theme="@style/Theme.Meowzix.ForwardGateway" />
+
         <activity
             android:name=".feature.telegram.TelegramForwardActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTop"
+            android:taskAffinity="dev.behradhz.meowzix.forward"
             android:theme="@style/Theme.Meowzix.ForwardOverlay" />
 
         <service
