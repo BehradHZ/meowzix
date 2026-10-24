@@ -313,7 +313,7 @@ private fun FeaturedRecommendations(
                         .clickable { onPlay(track) },
                     shape = RoundedCornerShape(28.dp),
                     fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.66f),
-                    tint = Color.White.copy(alpha = 0.08f),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
                 ) {
                     Column(Modifier.padding(11.dp)) {
                         TrackArtwork(track.artworkRef, track.title, 150.dp)
@@ -358,7 +358,7 @@ private fun RecentGlassList(
                 .padding(top = 12.dp),
             shape = RoundedCornerShape(30.dp),
             fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.64f),
-            tint = Color.White.copy(alpha = 0.07f),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f),
         ) {
             Column(Modifier.padding(vertical = 5.dp)) {
                 tracks.take(5).forEach { track ->
@@ -523,7 +523,7 @@ private fun RecentlyAddedGlassPanel(
                 .padding(top = 12.dp),
             shape = RoundedCornerShape(30.dp),
             fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.64f),
-            tint = Color.White.copy(alpha = 0.07f),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f),
         ) {
             Column(Modifier.padding(vertical = 6.dp)) {
                 tracks.take(4).forEach { track ->

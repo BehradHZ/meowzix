@@ -856,7 +856,7 @@ private fun PlaylistArtworkV3(
             .shadow(14.dp, shape, ambientColor = colors.primary.copy(alpha = 0.12f), spotColor = Color.Black.copy(alpha = 0.16f))
             .clip(shape)
             .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.secondaryContainer)))
-            .border(1.dp, Color.White.copy(alpha = 0.22f), shape),
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), shape),
         contentAlignment = Alignment.Center,
     ) {
         if (artworkRef != null) {

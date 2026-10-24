@@ -393,7 +393,7 @@ private fun MorphingDock(
             ),
         shape = RoundedCornerShape(36.dp),
         fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = if (searchActive) 0.90f else 0.78f),
-        tint = Color.White.copy(alpha = if (searchActive) 0.15f else 0.09f),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (searchActive) 0.15f else 0.09f),
     ) {
         AnimatedContent(
             targetState = searchActive,

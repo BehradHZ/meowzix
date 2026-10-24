@@ -318,7 +318,7 @@ internal fun MorphingPlayerOverlay(
                 ),
             shape = RoundedCornerShape(cornerRadius),
             fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
-            tint = Color.White.copy(alpha = 0.10f),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
         ) {
             val miniAlpha = (1f - expansionFraction / 0.24f).coerceIn(0f, 1f)
             val fullAlpha = ((expansionFraction - 0.10f) / 0.34f).coerceIn(0f, 1f)

@@ -118,10 +118,10 @@ fun CompactLyricsPreview(
                 }
             }
             LyricsContentType.INSTRUMENTAL -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Instrumental", color = Color.White.copy(alpha = 0.78f))
+                Text("Instrumental", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f))
             }
             LyricsContentType.INVALID -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Lyrics unavailable", color = Color.White.copy(alpha = 0.78f))
+                Text("Lyrics unavailable", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f))
             }
         }
     }
@@ -133,7 +133,7 @@ private fun PreviewLine(text: String?, current: Boolean) {
         if (!text.isNullOrBlank()) {
             Text(
                 text = text,
-                color = Color.White.copy(alpha = if (current) 1f else 0.52f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (current) 1f else 0.52f),
                 fontWeight = if (current) FontWeight.Bold else FontWeight.SemiBold,
                 style = (if (current) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium).copy(
                     fontFamily = Vazirmatn,
@@ -243,7 +243,7 @@ fun ExpandedLyricsPanel(
                 items(selected.parsed.plainLines.size) { index ->
                     Text(
                         selected.parsed.plainLines[index],
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontFamily = Vazirmatn,
                             fontSize = 29.sp,
@@ -395,7 +395,7 @@ private fun TimedLyricsList(
                     text = lines[index].text,
                     // Playback timing owns emphasis in BOTH modes; only neighboring text changes
                     // opacity and blur when the user begins or ends browsing.
-                    color = Color.White.copy(alpha = lyricLineOpacity(index, activeIndex, browsingReveal)),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = lyricLineOpacity(index, activeIndex, browsingReveal)),
                     fontWeight = if (playing) FontWeight.Bold else FontWeight.SemiBold,
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontFamily = Vazirmatn,
@@ -436,7 +436,7 @@ private fun EmptyLyricsState(onImport: () -> Unit, onPaste: () -> Unit, modifier
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("No lyrics yet", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+        Text("No lyrics yet", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.headlineSmall)
         Row {
             TextButton(onClick = onImport) { Text("Import .lrc") }
             TextButton(onClick = onPaste) { Text("Paste lyrics") }
