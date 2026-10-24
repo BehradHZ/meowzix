@@ -3,7 +3,10 @@
     android:description="@string/vinyl_widget_description"
     android:initialLayout="@layout/widget_vinyl"
     android:previewLayout="@layout/widget_vinyl"
-    android:minWidth="180dp" android:minHeight="230dp"
-    android:targetCellWidth="3" android:targetCellHeight="4"
-    android:resizeMode="horizontal|vertical" android:updatePeriodMillis="0"
+    android:minWidth="180dp"
+    android:minHeight="180dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="3"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="0"
     android:widgetCategory="home_screen" />

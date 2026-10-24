@@ -24,7 +24,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaButtonReceiver
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import dev.behradhz.meowzix.MainActivity
 import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.playback.PlaybackService
 import java.io.File
@@ -144,28 +143,20 @@ class VinylWidgetProvider : AppWidgetProvider() {
             }
             val record = withContext(Dispatchers.Default) { drawVinyl(cover, rotation, lift) }
             val title = state.title ?: "Nothing playing"
-            val artist = state.artist ?: if (state.hasTrack) "Unknown artist" else "Choose a song in Meowzix"
             val manager = AppWidgetManager.getInstance(context)
             ids.forEach { id ->
                 val views = RemoteViews(context.packageName, R.layout.widget_vinyl).apply {
                     setImageViewBitmap(R.id.vinyl_record, record)
-                    setTextViewText(R.id.vinyl_title, title)
-                    setTextViewText(R.id.vinyl_artist, artist)
-                    setImageViewResource(R.id.vinyl_play_pause, if (state.isPlaying) R.drawable.widget_pause else R.drawable.widget_play)
-                    setContentDescription(R.id.vinyl_record, if (state.isPlaying) "Spinning vinyl: $title" else "Vinyl stopped: $title; tonearm parked")
-                    setContentDescription(R.id.vinyl_play_pause, if (state.isPlaying) "Pause" else "Play")
-                    val open = PendingIntent.getActivity(
-                        context, 4300, Intent(context, MainActivity::class.java).apply {
-                            action = MainActivity.ACTION_OPEN_NOW_PLAYING
-                            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    // Keep the entire visible vinyl a single action; no hidden previous/next
+                    // click zones that could unexpectedly override play/pause.
+                    setContentDescription(
+                        R.id.vinyl_record,
+                        if (state.isPlaying) "Pause $title" else "Play $title",
                     )
-                    setOnClickPendingIntent(R.id.vinyl_record, open)
-                    setOnClickPendingIntent(R.id.vinyl_title, open)
-                    setOnClickPendingIntent(R.id.vinyl_artist, open)
-                    setOnClickPendingIntent(R.id.vinyl_previous, transport(context, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 4301))
-                    setOnClickPendingIntent(R.id.vinyl_play_pause, transport(context, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, 4302))
-                    setOnClickPendingIntent(R.id.vinyl_next, transport(context, KeyEvent.KEYCODE_MEDIA_NEXT, 4303))
+                    setOnClickPendingIntent(
+                        R.id.vinyl_record,
+                        transport(context, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, 4302),
+                    )
                 }
                 manager.updateAppWidget(id, views)
             }

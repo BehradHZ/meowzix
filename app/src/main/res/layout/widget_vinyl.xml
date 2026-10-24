@@ -1,24 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:background="@drawable/widget_glass_background"
-    android:orientation="vertical" android:gravity="center" android:padding="12dp">
-    <ImageView android:id="@+id/vinyl_record" android:layout_width="match_parent" android:layout_height="0dp"
-        android:layout_weight="1" android:adjustViewBounds="true" android:scaleType="fitCenter"
-        android:contentDescription="Vinyl record" android:src="@drawable/widget_vinyl_preview" />
-    <TextView android:id="@+id/vinyl_title" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:textColor="#FFFFFFFF" android:textSize="15sp" android:textStyle="bold" android:maxLines="1"
-        android:ellipsize="end" android:gravity="center" android:text="Nothing playing" />
-    <TextView android:id="@+id/vinyl_artist" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:textColor="#C4FFFFFF" android:textSize="12sp" android:maxLines="1" android:ellipsize="end"
-        android:gravity="center" android:text="Meowzix" />
-    <LinearLayout android:layout_width="match_parent" android:layout_height="48dp"
-        android:orientation="horizontal" android:gravity="center">
-        <ImageView android:id="@+id/vinyl_previous" android:layout_width="52dp" android:layout_height="48dp"
-            android:src="@drawable/widget_previous" android:padding="12dp" android:contentDescription="Previous" />
-        <ImageView android:id="@+id/vinyl_play_pause" android:layout_width="52dp" android:layout_height="48dp"
-            android:src="@drawable/widget_play" android:padding="12dp" android:contentDescription="Play" />
-        <ImageView android:id="@+id/vinyl_next" android:layout_width="52dp" android:layout_height="48dp"
-            android:src="@drawable/widget_next" android:padding="12dp" android:contentDescription="Next" />
-    </LinearLayout>
-</LinearLayout>
+<!-- The widget has only the record. No app-drawn background, labels, controls,
+     invisible gesture zones or extra click targets. Transparent corners reveal
+     the user's wallpaper; the record itself is supplied as an ARGB bitmap. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/transparent">
+    <ImageView
+        android:id="@+id/vinyl_record"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:adjustViewBounds="true"
+        android:scaleType="fitCenter"
+        android:contentDescription="Vinyl record"
+        android:src="@drawable/widget_vinyl_preview" />
+</FrameLayout>
