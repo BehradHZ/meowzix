@@ -7,16 +7,59 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Animation
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DownloadForOffline
+import androidx.compose.material.icons.rounded.Downloading
+import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.InfoOutline
+import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.rounded.MultitrackAudio
+import androidx.compose.material.icons.rounded.NetworkCellular
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.PrivacyTip
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.TextFields
+import androidx.compose.material.icons.rounded.ThumbDown
+import androidx.compose.material.icons.rounded.ThumbUp
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Undo
+import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.Wifi
+import dev.behradhz.meowzix.feature.library.PlaylistGlassBackdrop
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -25,13 +68,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.backup.BackupPreview
@@ -108,120 +146,214 @@ fun UnifiedSettingsSheet(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            item { Text("Settings", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
+    var pendingDanger by remember { mutableStateOf<SettingsDangerAction?>(null) }
 
-            item { SectionTitle("Appearance & accessibility") }
-            item { ChoiceRow("Theme", state.appearance.theme.name.lowercase().replaceFirstChar(Char::uppercase), ThemePreference.entries.map { it.name }) { viewModel.setTheme(ThemePreference.valueOf(it)) } }
-            item { SliderRow("Lyrics text size", "${state.appearance.lyricsTextScalePercent}%", state.appearance.lyricsTextScalePercent.toFloat(), 80f..160f, 7) { viewModel.setLyricsScale(it.toInt()) } }
-            item { ToggleRow("Reduced motion", "Use shorter/minimal lyric and UI motion", state.appearance.reduceMotion, viewModel::setReduceMotion) }
-
-            item { SectionTitle("Playback") }
-            item { ChoiceRow("Default playback mode", state.playback.defaultMode.name, PlaybackMode.entries.map { it.name }) { viewModel.setDefaultMode(PlaybackMode.valueOf(it)) } }
-            item { ChoiceRow("Default repeat", state.playback.defaultRepeat.name, RepeatMode.entries.map { it.name }) { viewModel.setDefaultRepeat(RepeatMode.valueOf(it)) } }
-            item { ToggleRow("Resume playback state", "Restore the previous queue and position", state.playback.resumeOnLaunch, viewModel::setResume) }
-            item { ActionRow("Equalizer", "Open the existing device-aware EQ", "Open", onOpenEqualizer) }
-            item { ActionRow("Sleep timer", sleepTimerStatusLabel(sleepTimer), "Configure", { showSleepTimer = true }) }
-            item {
-                ToggleRow(
-                    "Loudness normalization",
-                    "ReplayGain metadata first; readable local audio may use a conservative RMS dBFS fallback. This is not LUFS.",
-                    state.playback.loudnessNormalizationEnabled,
-                    viewModel::setLoudnessNormalization,
-                )
-            }
-            item {
-                CapabilityRow(
-                    "Gapless playback",
-                    "Automatic for supported local/downloaded audio. Media3 honors encoder delay/padding when available; progressive Telegram playback is not guaranteed gapless.",
-                )
-            }
-            item {
-                SliderRow(
-                    "Crossfade",
-                    if (state.playback.crossfadeDurationSeconds == 0) "Off" else state.playback.crossfadeDurationSeconds.toString() + " s",
-                    state.playback.crossfadeDurationSeconds.toFloat(),
-                    0f..12f,
-                    11,
-                ) { viewModel.setCrossfadeSeconds(it.toInt().coerceIn(0, 12)) }
-            }
-            item {
-                CapabilityRow(
-                    "Crossfade behavior",
-                    "Real overlap is used only when both adjacent tracks are local/readable. EQ, an active sleep timer, repeat-one, short tracks, queue changes, or preload failure fall back to the ordinary Media3 transition.",
-                )
-            }
-
-            item { SectionTitle("Recommendations") }
-            item { ToggleRow("Smart recommendations", "Enable learned recommendation surfaces", state.recommendations.smartRecommendationsEnabled, viewModel::setSmart) }
-            item { SliderRow("Exploration", "${state.recommendations.explorationPercent}%", state.recommendations.explorationPercent.toFloat(), 0f..50f, 9) { viewModel.setExploration(it.toInt()) } }
-            item { ToggleRow("Local audio analysis", "Analyze readable local audio only", state.recommendations.audioAnalysisEnabled, viewModel::setAudioAnalysis) }
-            item { ToggleRow("Diagnostics", "Show local model and evaluation details", state.recommendations.diagnosticsVisible, viewModel::setDiagnostics) }
-            if (feedbackRows.isEmpty()) {
-                item { CapabilityRow("Active feedback", "No active recommendation feedback.") }
-            } else {
-                item { Text("Active feedback", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
-                feedbackRows.forEach { row ->
-                    item(key = "feedback-${row.trackId}-${row.action}") {
-                        FeedbackRow(row = row, onUndo = { viewModel.undoRecommendationFeedback(row.trackId, row.action) })
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.background) {
+        Box(Modifier.fillMaxWidth().fillMaxHeight(0.92f)) {
+            PlaylistGlassBackdrop { hazeState ->
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 40.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                ) {
+                    item(key = "hero") {
+                        SettingsGlassHero(hazeState, telegramConnected, state.recommendations.smartRecommendationsEnabled, downloadSummary)
                     }
-                }
-                item { TextButton(onClick = viewModel::clearRecommendationFeedback, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Clear all recommendation feedback") } }
-            }
-
-            item { SectionTitle("History & privacy") }
-            item { ToggleRow("Listening history", "Disabling this stops new learning-event capture", state.network.listeningHistoryEnabled, viewModel::setHistory) }
-            item { CapabilityRow("Clear listening history", "Deletes raw listening events and rebuild-derived state from that history.") }
-            item { DestructiveRow("Clear listening history", viewModel::clearHistory) }
-            item { CapabilityRow("Reset personalization", "Resets learned/derived recommendation state while preserving the music library; raw history is handled separately.") }
-            item { DestructiveRow("Reset personalization", viewModel::resetPersonalization) }
-
-            item { SectionTitle("Telegram") }
-            item { CapabilityRow("Connection", if (telegramConnected) "Connected · ${telegramSources.selectedChatIds.size} selected music source(s)" else "Disconnected. Local and offline music remain available.") }
-            item { ActionRow("Selected sources", "Manage Telegram chats used as music sources", "Manage", onOpenTelegram) }
-            if (telegramConnected) {
-                item {
-                    ActionRow(
-                        "Sync",
-                        if (telegramSources.isSyncing) "Sync in progress" else "Refresh selected sources",
-                        if (telegramSources.isSyncing) "Syncing" else "Sync",
-                        viewModel::syncTelegram,
-                        enabled = !telegramSources.isSyncing,
-                    )
-                }
-                item { DestructiveRow("Disconnect Telegram", viewModel::disconnectTelegram) }
-            }
-            item { ToggleRow("Wi-Fi only cloud downloads", "Applies to Telegram-backed downloads", state.network.wifiOnlyDownloads, viewModel::setWifiOnly) }
-
-            item { SectionTitle("Downloads & storage") }
-            item {
-                storageUsage?.let { usage ->
-                    CapabilityRow(
-                        "Managed storage",
-                        "Temporary ${formatBytes(usage.temporaryPlaybackBytes)} · Pinned ${formatBytes(usage.pinnedOfflineBytes)} · Other ${formatBytes(usage.otherManagedBytes)}",
-                    )
-                } ?: CapabilityRow("Managed storage", "Calculating storage usage…")
-            }
-            item { CapabilityRow("Download status", "${downloadSummary.activeCount} active · ${downloadSummary.pinnedCount} pinned/offline") }
-            item { ActionRow("Offline files & downloads", "Manage active, pinned and failed downloads", "Manage", onOpenDownloads) }
-            item { ToggleRow("Prefetch", "Prepare likely next tracks when policy allows", state.network.prefetchEnabled, viewModel::setPrefetch) }
-            item { ToggleRow("Prefetch on metered networks", "Disabled when Wi-Fi-only downloads are required", state.network.prefetchOnMetered, viewModel::setPrefetchOnMetered, enabled = state.network.prefetchEnabled && !state.network.wifiOnlyDownloads) }
-            item { SliderRow("Temporary cache budget", formatBytes(state.storage.temporaryCacheBudgetBytes), state.storage.temporaryCacheBudgetBytes / MIB.toFloat(), 64f..2048f, 30) { viewModel.setCacheBudget(it.toLong() * MIB) } }
-            item { ActionRow("Temporary cache", "Clears only evictable app-managed cache; pinned and MediaStore files are preserved", "Clear", viewModel::clearTemporaryCache) }
-
-            item { SectionTitle("Backup") }
-            item { ToggleRow("Include listening history", "Off by default; trained model weights are never exported", includeHistoryInBackup, onChecked = { includeHistoryInBackup = it }) }
-            item {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = { exportLauncher.launch("meowzix-backup.mzx") }, modifier = Modifier.weight(1f)) { Text("Export") }
-                    OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/octet-stream", "application/*", "text/*")) }, modifier = Modifier.weight(1f)) { Text("Import") }
+                    item(key = "appearance") {
+                        SettingsGlassSection(hazeState, "Appearance & accessibility", "Look, lyrics and motion", Icons.Rounded.Palette) {
+                            SettingsChoiceRow("Theme", null, Icons.Rounded.DarkMode,
+                                state.appearance.theme.name.lowercase().replaceFirstChar(Char::uppercase),
+                                ThemePreference.entries.map { it.name }) { viewModel.setTheme(ThemePreference.valueOf(it)) }
+                            SettingsRowDivider()
+                            SettingsSliderRow("Lyrics text size", null, Icons.Rounded.TextFields,
+                                "${state.appearance.lyricsTextScalePercent}%", state.appearance.lyricsTextScalePercent.toFloat(),
+                                80f..160f, 7, { viewModel.setLyricsScale(it.toInt()) })
+                            SettingsRowDivider()
+                            SettingsToggleRow("Reduced motion", "Shorter, more restrained lyric and UI animations",
+                                Icons.Rounded.Animation, state.appearance.reduceMotion, viewModel::setReduceMotion)
+                        }
+                    }
+                    item(key = "playback") {
+                        SettingsGlassSection(hazeState, "Playback", "How your music sounds and continues", Icons.Rounded.PlayCircle) {
+                            SettingsChoiceRow("Default playback mode", null, Icons.Rounded.QueueMusic,
+                                state.playback.defaultMode.name, PlaybackMode.entries.map { it.name }) { viewModel.setDefaultMode(PlaybackMode.valueOf(it)) }
+                            SettingsRowDivider()
+                            SettingsChoiceRow("Default repeat", null, Icons.Rounded.Repeat,
+                                state.playback.defaultRepeat.name, RepeatMode.entries.map { it.name }) { viewModel.setDefaultRepeat(RepeatMode.valueOf(it)) }
+                            SettingsRowDivider()
+                            SettingsToggleRow("Resume playback state", "Restore the previous queue and position",
+                                Icons.Rounded.Restore, state.playback.resumeOnLaunch, viewModel::setResume)
+                            SettingsRowDivider()
+                            SettingsActionRow("Equalizer", "Device-aware audio controls", Icons.Rounded.Equalizer, "Open", onOpenEqualizer)
+                            SettingsRowDivider()
+                            SettingsActionRow("Sleep timer", sleepTimerStatusLabel(sleepTimer), Icons.Rounded.Bedtime, "Configure", { showSleepTimer = true })
+                            SettingsRowDivider()
+                            SettingsToggleRow("Loudness normalization",
+                                "ReplayGain first; readable local audio may use conservative RMS dBFS, not LUFS.",
+                                Icons.Rounded.VolumeUp, state.playback.loudnessNormalizationEnabled, viewModel::setLoudnessNormalization)
+                            SettingsRowDivider()
+                            SettingsSliderRow("Crossfade", "Overlap between supported local/readable tracks", Icons.Rounded.GraphicEq,
+                                if (state.playback.crossfadeDurationSeconds == 0) "Off" else "${state.playback.crossfadeDurationSeconds} s",
+                                state.playback.crossfadeDurationSeconds.toFloat(), 0f..12f, 11,
+                                { viewModel.setCrossfadeSeconds(it.toInt().coerceIn(0, 12)) })
+                            SettingsRowDivider()
+                            SettingsInfoRow("Gapless & crossfade limits",
+                                "Gapless is automatic where supported. Progressive Telegram is not guaranteed gapless. EQ, sleep timer, repeat-one, short tracks, queue changes or preload failure may prevent crossfade.",
+                                Icons.Rounded.InfoOutline)
+                        }
+                    }
+                    item(key = "recommendations") {
+                        SettingsGlassSection(hazeState, "Smart recommendations", "Personalization stays on this device", Icons.Rounded.AutoAwesome) {
+                            SettingsToggleRow("Smart recommendations", "Enable learned recommendation surfaces",
+                                Icons.Rounded.AutoAwesome, state.recommendations.smartRecommendationsEnabled, viewModel::setSmart)
+                            SettingsRowDivider()
+                            SettingsSliderRow("Exploration",
+                                if (state.recommendations.smartRecommendationsEnabled) "Balance familiar tracks and discoveries" else "Enable Smart recommendations to adjust",
+                                Icons.Rounded.Explore, "${state.recommendations.explorationPercent}%",
+                                state.recommendations.explorationPercent.toFloat(), 0f..50f, 9,
+                                { viewModel.setExploration(it.toInt()) }, enabled = state.recommendations.smartRecommendationsEnabled)
+                            SettingsRowDivider()
+                            SettingsToggleRow("Local audio analysis", "Analyze readable local audio only",
+                                Icons.Rounded.MultitrackAudio, state.recommendations.audioAnalysisEnabled, viewModel::setAudioAnalysis)
+                            SettingsRowDivider()
+                            if (feedbackRows.isEmpty()) {
+                                SettingsInfoRow("Active feedback", "No active recommendation feedback", Icons.Rounded.ThumbUp)
+                            } else {
+                                SettingsInfoRow("Active feedback", "${feedbackRows.size} current preferences", Icons.Rounded.ThumbUp)
+                                feedbackRows.forEach { row ->
+                                    SettingsRowDivider()
+                                    SettingsActionRow(
+                                        row.title, feedbackActionLabel(row.action), Icons.Rounded.Undo, "Undo",
+                                        { viewModel.undoRecommendationFeedback(row.trackId, row.action) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item(key = "telegram") {
+                        SettingsGlassSection(hazeState, "Telegram", "Connection and selected music sources", Icons.Rounded.Cloud) {
+                            SettingsInfoRow("Connection",
+                                if (telegramConnected) "Connected · ${telegramSources.selectedChatIds.size} selected music source(s)" else "Disconnected · local and offline music remain available",
+                                Icons.Rounded.CloudDone)
+                            SettingsRowDivider()
+                            SettingsActionRow("Music sources",
+                                if (telegramConnected) "Manage selected chats" else "Connect Telegram to choose music chats",
+                                Icons.Rounded.FolderOpen, "Manage", onOpenTelegram)
+                            SettingsRowDivider()
+                            SettingsActionRow("Sync selected sources",
+                                if (!telegramConnected) "Connect Telegram to sync" else if (telegramSources.isSyncing) "Sync in progress" else "Refresh selected sources",
+                                Icons.Rounded.Sync, if (telegramSources.isSyncing) "Syncing" else "Sync",
+                                viewModel::syncTelegram, enabled = telegramConnected && !telegramSources.isSyncing)
+                            SettingsRowDivider()
+                            SettingsToggleRow("Wi-Fi only cloud downloads", "Applies to Telegram-backed downloads",
+                                Icons.Rounded.Wifi, state.network.wifiOnlyDownloads, viewModel::setWifiOnly)
+                        }
+                    }
+                    item(key = "storage") {
+                        SettingsGlassSection(hazeState, "Downloads & storage", "Offline access and network policy", Icons.Rounded.Download) {
+                            SettingsInfoRow("Managed storage",
+                                storageUsage?.let { usage ->
+                                    "Temporary ${formatBytes(usage.temporaryPlaybackBytes)} · Pinned ${formatBytes(usage.pinnedOfflineBytes)} · Other ${formatBytes(usage.otherManagedBytes)}"
+                                } ?: "Calculating storage usage…",
+                                Icons.Rounded.Storage)
+                            SettingsRowDivider()
+                            SettingsActionRow("Offline files & downloads",
+                                "${downloadSummary.activeCount} active · ${downloadSummary.pinnedCount} pinned/offline",
+                                Icons.Rounded.DownloadForOffline, "Manage", onOpenDownloads)
+                            SettingsRowDivider()
+                            SettingsToggleRow("Prefetch", "Prepare likely next tracks when policy allows",
+                                Icons.Rounded.Downloading, state.network.prefetchEnabled, viewModel::setPrefetch)
+                            SettingsRowDivider()
+                            SettingsToggleRow("Prefetch on metered networks",
+                                "Available when prefetch is on and Wi-Fi-only downloads are off",
+                                Icons.Rounded.NetworkCellular, state.network.prefetchOnMetered, viewModel::setPrefetchOnMetered,
+                                enabled = state.network.prefetchEnabled && !state.network.wifiOnlyDownloads)
+                            SettingsRowDivider()
+                            SettingsSliderRow("Temporary cache budget", "Maximum app-managed temporary playback storage", Icons.Rounded.Storage,
+                                formatBytes(state.storage.temporaryCacheBudgetBytes),
+                                state.storage.temporaryCacheBudgetBytes / MIB.toFloat(), 64f..2048f, 30,
+                                { viewModel.setCacheBudget(it.toLong() * MIB) })
+                        }
+                    }
+                    item(key = "privacy") {
+                        SettingsGlassSection(hazeState, "Privacy & history", "Your listening data stays local", Icons.Rounded.Shield) {
+                            SettingsToggleRow("Listening history", "Turning this off stops new learning-event capture",
+                                Icons.Rounded.History, state.network.listeningHistoryEnabled, viewModel::setHistory)
+                            SettingsRowDivider()
+                            SettingsInfoRow("Personalization controls",
+                                "Use Manage data below to clear raw history or reset learned state separately.",
+                                Icons.Rounded.PrivacyTip)
+                        }
+                    }
+                    item(key = "backup") {
+                        SettingsGlassSection(hazeState, "Backup & restore", "Portable local data", Icons.Rounded.Backup) {
+                            SettingsToggleRow("Include listening history", "Off by default; trained model weights are never exported",
+                                Icons.Rounded.History, includeHistoryInBackup, { includeHistoryInBackup = it })
+                            SettingsRowDivider()
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Button(onClick = { exportLauncher.launch("meowzix-backup.mzx") }, modifier = Modifier.weight(1f)) { Text("Export") }
+                                OutlinedButton(
+                                    onClick = { importLauncher.launch(arrayOf("application/octet-stream", "application/*", "text/*")) },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("Import") }
+                            }
+                        }
+                    }
+                    item(key = "advanced") {
+                        SettingsGlassSection(hazeState, "Advanced", "Local model details", Icons.Rounded.Tune) {
+                            SettingsToggleRow("Diagnostics", "Show local model and evaluation details",
+                                Icons.Rounded.BugReport, state.recommendations.diagnosticsVisible, viewModel::setDiagnostics)
+                        }
+                    }
+                    item(key = "manage-data") {
+                        SettingsGlassSection(hazeState, "Manage data", "Review before changing stored data or connections", Icons.Rounded.DeleteOutline) {
+                            SettingsDangerRow("Clear temporary cache", "Pinned offline and MediaStore files are preserved",
+                                Icons.Rounded.DeleteSweep) { pendingDanger = SettingsDangerAction.CLEAR_CACHE }
+                            SettingsRowDivider()
+                            SettingsDangerRow("Clear listening history", "Delete raw listening events",
+                                Icons.Rounded.History) { pendingDanger = SettingsDangerAction.CLEAR_HISTORY }
+                            SettingsRowDivider()
+                            SettingsDangerRow("Reset personalization", "Reset learned state without deleting music",
+                                Icons.Rounded.RestartAlt) { pendingDanger = SettingsDangerAction.RESET_PERSONALIZATION }
+                            if (feedbackRows.isNotEmpty()) {
+                                SettingsRowDivider()
+                                SettingsDangerRow("Clear recommendation feedback", "Remove all active feedback",
+                                    Icons.Rounded.ThumbDown) { pendingDanger = SettingsDangerAction.CLEAR_FEEDBACK }
+                            }
+                            if (telegramConnected) {
+                                SettingsRowDivider()
+                                SettingsDangerRow("Disconnect Telegram", "Sign out of the connected account",
+                                    Icons.Rounded.Logout) { pendingDanger = SettingsDangerAction.DISCONNECT_TELEGRAM }
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    pendingDanger?.let { action ->
+        AlertDialog(
+            onDismissRequest = { pendingDanger = null },
+            title = { Text(action.title) },
+            text = { Text(action.message) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDanger = null
+                    when (action) {
+                        SettingsDangerAction.CLEAR_CACHE -> viewModel.clearTemporaryCache()
+                        SettingsDangerAction.CLEAR_HISTORY -> viewModel.clearHistory()
+                        SettingsDangerAction.RESET_PERSONALIZATION -> viewModel.resetPersonalization()
+                        SettingsDangerAction.DISCONNECT_TELEGRAM -> viewModel.disconnectTelegram()
+                        SettingsDangerAction.CLEAR_FEEDBACK -> viewModel.clearRecommendationFeedback()
+                    }
+                }) { Text(action.confirm, color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { pendingDanger = null }) { Text("Cancel") } },
+        )
     }
 
     if (showSleepTimer) {
@@ -270,85 +402,13 @@ fun UnifiedSettingsSheet(
     }
 }
 
-@Composable private fun SectionTitle(text: String) {
-    HorizontalDivider(Modifier.padding(top = 12.dp))
-    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+private fun feedbackActionLabel(action: RecommendationFeedbackAction): String = when (action) {
+    RecommendationFeedbackAction.MORE_LIKE_THIS -> "More like this"
+    RecommendationFeedbackAction.SUGGEST_LESS -> "Suggest less"
+    RecommendationFeedbackAction.SNOOZE -> "Snoozed"
 }
 
-@Composable private fun ToggleRow(title: String, subtitle: String?, checked: Boolean, onChecked: (Boolean) -> Unit, enabled: Boolean = true) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = onChecked,
-            enabled = enabled,
-            modifier = Modifier.semantics {
-                contentDescription = title
-                stateDescription = if (checked) "On" else "Off"
-            },
-        )
-    }
-}
+private fun formatBytes(bytes: Long): String =
+    if (bytes >= 1024L * MIB) "%.1f GiB".format(bytes / (1024f * MIB)) else "${bytes / MIB} MiB"
 
-@Composable private fun SliderRow(title: String, valueLabel: String, value: Float, range: ClosedFloatingPointRange<Float>, steps: Int, onValue: (Float) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(title); Text(valueLabel, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        Slider(
-            value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = onValue,
-            valueRange = range,
-            steps = steps,
-            modifier = Modifier.semantics {
-                contentDescription = title
-                stateDescription = "$valueLabel; range ${range.start} to ${range.endInclusive}"
-            },
-        )
-    }
-}
-
-@Composable private fun ChoiceRow(title: String, current: String, options: List<String>, onChoice: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
-        Text(title, style = MaterialTheme.typography.bodyMedium)
-        OutlinedButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) { Text(current) }
-        if (expanded) options.forEach { option ->
-            TextButton(onClick = { expanded = false; onChoice(option) }, modifier = Modifier.fillMaxWidth()) { Text(option) }
-        }
-    }
-}
-
-@Composable private fun ActionRow(title: String, subtitle: String, actionLabel: String, onClick: () -> Unit, enabled: Boolean = true) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        TextButton(onClick = onClick, enabled = enabled) { Text(actionLabel) }
-    }
-}
-
-@Composable private fun CapabilityRow(title: String, subtitle: String) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
-        Text(title, style = MaterialTheme.typography.bodyLarge)
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable private fun FeedbackRow(row: FeedbackSettingRow, onUndo: () -> Unit) {
-    val label = when (row.action) {
-        RecommendationFeedbackAction.MORE_LIKE_THIS -> "More like this"
-        RecommendationFeedbackAction.SUGGEST_LESS -> "Suggest less"
-        RecommendationFeedbackAction.SNOOZE -> "Snoozed"
-    }
-    ActionRow(row.title, label, "Undo", onUndo)
-}
-
-@Composable private fun DestructiveRow(title: String, onClick: () -> Unit) {
-    TextButton(onClick = onClick, modifier = Modifier.padding(horizontal = 12.dp)) { Text(title, color = MaterialTheme.colorScheme.error) }
-}
-
-private fun formatBytes(bytes: Long): String = if (bytes >= 1024L * MIB) "%.1f GiB".format(bytes / (1024f * MIB)) else "${bytes / MIB} MiB"
 private const val MIB = 1024L * 1024L
