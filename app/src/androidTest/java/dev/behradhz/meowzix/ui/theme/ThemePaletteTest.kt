@@ -12,6 +12,13 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ThemePaletteTest {
     @Test
+    fun grayscaleSeedProducesNeutralRatherThanArbitraryRed() {
+        val color = seededColorScheme(0xFFFFFFFF.toInt(), darkTheme = false).primary.toArgb()
+        assertTrue(kotlin.math.abs(android.graphics.Color.red(color) - android.graphics.Color.green(color)) < 12)
+        assertTrue(kotlin.math.abs(android.graphics.Color.green(color) - android.graphics.Color.blue(color)) < 12)
+    }
+
+    @Test
     fun lightAndDarkSchemesPreserveContrastForPresetsAndExtremeHexColors() {
         val seeds = listOf(
             0xFFFFFF00.toInt(), // high-luminance yellow

@@ -33,7 +33,7 @@ internal fun seededColorScheme(seedArgb: Int, darkTheme: Boolean): ColorScheme {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(seedArgb or 0xFF000000.toInt(), hsl)
     val hue = hsl[0]
-    val saturation = hsl[1].coerceIn(0.38f, 0.78f)
+    val saturation = if (hsl[1] < 0.08f) 0.035f else hsl[1].coerceIn(0.38f, 0.78f)
     fun toned(h: Float, s: Float, l: Float): Color =
         Color(ColorUtils.HSLToColor(floatArrayOf((h + 360f) % 360f, s.coerceIn(0f, 1f), l.coerceIn(0f, 1f))))
     fun accessibleAccent(h: Float, l: Float, dark: Boolean): Color {
