@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/BehradHZ/meowzix/actions/workflows/android.yml"><img alt="Android CI" src="https://github.com/BehradHZ/meowzix/actions/workflows/android.yml/badge.svg"></a>
-  <a href="https://github.com/BehradHZ/meowzix/releases/latest"><img alt="Latest release: v0.6.5" src="https://img.shields.io/badge/release-v0.6.5-FFB38A"></a>
+  <a href="https://github.com/BehradHZ/meowzix/releases/latest"><img alt="Latest release: v0.7" src="https://img.shields.io/badge/release-v0.7-FFB38A"></a>
   <img alt="Android 8+" src="https://img.shields.io/badge/platform-Android%208%2B-3DDC84">
   <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
 </p>
