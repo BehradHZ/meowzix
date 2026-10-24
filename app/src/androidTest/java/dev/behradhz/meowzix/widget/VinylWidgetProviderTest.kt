@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.widget
 
 import android.content.ComponentName
 import android.content.pm.PackageManager
+import androidx.media3.common.util.UnstableApi
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.R
@@ -12,6 +13,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
+@OptIn(UnstableApi::class)
 class VinylWidgetProviderTest {
     @Test
     fun vinylIsASeparateHomeScreenWidgetAndDoesNotReplaceCompactPlayback() {
