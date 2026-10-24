@@ -110,6 +110,7 @@ class TelegramForwardActivity : ComponentActivity() {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             contentAlignment = Alignment.BottomCenter,
         ) {
+            val availableHeight = maxHeight
             Box(
                 Modifier.fillMaxSize().clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -145,7 +146,7 @@ class TelegramForwardActivity : ComponentActivity() {
                         onForward = viewModel::forwardCurrentTrack,
                         onDismiss = viewModel::dismissForwardPicker,
                         floatingOverlay = true,
-                        overlayMaxHeight = maxHeight * 0.82f,
+                        overlayMaxHeight = availableHeight * 0.82f,
                     )
                 } else if (!visibilityGate.hasShownPicker) {
                     Surface(
