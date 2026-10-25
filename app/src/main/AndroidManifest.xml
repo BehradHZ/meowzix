@@ -33,11 +33,22 @@
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Nothing-style gesture mode: a real app window launched from an Android
+             home-screen shortcut, NOT a proprietary Essential Apps home widget. -->
+        <activity
+            android:name=".widget.VinylGestureActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Meowzix" />
 
         <!-- No visible app screen: notification click uses the normal system activity transition. -->
         <activity

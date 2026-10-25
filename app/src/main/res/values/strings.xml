@@ -2,4 +2,6 @@
 <resources>
     <string name="vinyl_widget_description">Vinyl record player with retracting tonearm</string>
     <string name="app_name">Meowzix</string>
+    <string name="vinyl_gestures_short_label">Vinyl gestures</string>
+    <string name="vinyl_gestures_long_label">Swipe and scratch the vinyl in Meowzix</string>
 </resources>

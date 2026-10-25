@@ -18,6 +18,7 @@ import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.graphics.SweepGradient
 import android.net.Uri
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.widget.RemoteViews
 import androidx.media3.common.util.UnstableApi
@@ -74,8 +75,9 @@ class VinylWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
-        private const val SIZE = 280
-        private const val FRAME_MS = 250L
+        // Fewer pixels cross Binder per frame; the drawing is scaled to this size.
+        private const val SIZE = 240
+        private const val FRAME_MS = 100L
         private const val DEGREES_PER_MS = 360f / 5_600f
         // Each frame uses its own Paint to avoid races between canceled and new renders.
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -83,6 +85,7 @@ class VinylWidgetProvider : AppWidgetProvider() {
         private var lastPlaying = false
         private var lastTitle: String? = null
         private var angle = 0f
+        private var spinningSinceMs = 0L
         private val coverLock = Any()
         private var cachedRef: String? = null
         private var cachedCover: Bitmap? = null
@@ -91,47 +94,69 @@ class VinylWidgetProvider : AppWidgetProvider() {
             .getAppWidgetIds(ComponentName(context, VinylWidgetProvider::class.java)).isNotEmpty()
 
         suspend fun updateAll(context: Context, state: PlaybackWidgetState, reduceMotion: Boolean = false) {
+            animationJob?.cancel()
+            animationJob = null
             if (!hasWidgets(context)) {
-                animationJob?.cancel()
-                animationJob = null
+                lastPlaying = false
                 return
             }
-            animationJob?.cancel()
+            val now = SystemClock.elapsedRealtime()
+            if (lastPlaying && spinningSinceMs > 0L) {
+                angle = ((now - spinningSinceMs) * DEGREES_PER_MS) % 360f
+            }
             val wasPlaying = lastPlaying
             lastPlaying = state.isPlaying
             if (lastTitle != state.title) {
                 angle = 0f
                 lastTitle = state.title
             }
-            if (reduceMotion) {
-                render(context, state, angle, if (state.isPlaying) 0f else 1f)
-                return
+            if (state.isPlaying) {
+                spinningSinceMs = now - (angle / DEGREES_PER_MS).toLong()
+            } else {
+                spinningSinceMs = 0L
             }
+
+            // Full RemoteViews applied once per change in media/session state. In particular the
+            // click PendingIntent must be set once before partial frame updates are delivered.
+            render(context, state, angle, if (state.isPlaying) 0f else 1f, full = true)
+            if (reduceMotion) return
             animationJob = scope.launch {
                 if (wasPlaying != state.isPlaying) {
-                    // Sweep the stylus out on pause, back onto the grooves on resume.
-                    for (frame in 0..5) {
-                        if (!isActive) return@launch
-                        val fraction = frame / 5f
-                        render(context, state, angle, if (state.isPlaying) 1f - fraction else fraction)
-                        delay(80L)
+                    for (frame in 1..5) {
+                        if (!isActive || !hasWidgets(context)) return@launch
+                        delay(70L)
+                        val lift = if (state.isPlaying) 1f - frame / 5f else frame / 5f
+                        render(context, state, angle, lift, full = false)
                     }
-                } else {
-                    render(context, state, angle, if (state.isPlaying) 0f else 1f)
                 }
-                while (isActive && state.isPlaying && hasWidgets(context)) {
-                    delay(FRAME_MS)
-                    angle = (angle + FRAME_MS * DEGREES_PER_MS) % 360f
-                    render(context, state, angle, 0f)
+                if (!state.isPlaying) return@launch
+                var nextFrameMs = SystemClock.elapsedRealtime()
+                while (isActive && hasWidgets(context)) {
+                    val elapsed = SystemClock.elapsedRealtime()
+                    // Derive the phase from monotonic clock: a slow launcher drops frames rather
+                    // than slowing and then jumping the rotation on each update.
+                    angle = ((elapsed - spinningSinceMs) * DEGREES_PER_MS) % 360f
+                    render(context, state, angle, 0f, full = false)
+                    nextFrameMs += FRAME_MS
+                    delay((nextFrameMs - SystemClock.elapsedRealtime()).coerceAtLeast(12L))
+                    // Never attempt to catch up by publishing a burst of stale frames.
+                    if (nextFrameMs < SystemClock.elapsedRealtime() - FRAME_MS) {
+                        nextFrameMs = SystemClock.elapsedRealtime()
+                    }
                 }
             }
         }
 
-        private suspend fun render(context: Context, state: PlaybackWidgetState, rotation: Float, lift: Float) {
+        private suspend fun render(
+            context: Context,
+            state: PlaybackWidgetState,
+            rotation: Float,
+            lift: Float,
+            full: Boolean = true,
+        ) {
             val ids = AppWidgetManager.getInstance(context)
                 .getAppWidgetIds(ComponentName(context, VinylWidgetProvider::class.java))
             if (ids.isEmpty()) return
-            // Bound the bitmap and cache decoded art: a frame must never re-read a track from disk.
             val cover = withContext(Dispatchers.IO) {
                 synchronized(coverLock) {
                     if (cachedRef != state.artworkRef) {
@@ -142,13 +167,11 @@ class VinylWidgetProvider : AppWidgetProvider() {
                 }
             }
             val record = withContext(Dispatchers.Default) { drawVinyl(cover, rotation, lift) }
-            val title = state.title ?: "Nothing playing"
             val manager = AppWidgetManager.getInstance(context)
-            ids.forEach { id ->
-                val views = RemoteViews(context.packageName, R.layout.widget_vinyl).apply {
-                    setImageViewBitmap(R.id.vinyl_record, record)
-                    // Keep the entire visible vinyl a single action; no hidden previous/next
-                    // click zones that could unexpectedly override play/pause.
+            val views = RemoteViews(context.packageName, R.layout.widget_vinyl).apply {
+                setImageViewBitmap(R.id.vinyl_record, record)
+                if (full) {
+                    val title = state.title ?: "Nothing playing"
                     setContentDescription(
                         R.id.vinyl_record,
                         if (state.isPlaying) "Pause $title" else "Play $title",
@@ -158,8 +181,11 @@ class VinylWidgetProvider : AppWidgetProvider() {
                         transport(context, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, 4302),
                     )
                 }
-                manager.updateAppWidget(id, views)
             }
+            // Unlike updateAppWidget, partial updates retain the view tree, metadata and click
+            // action in the launcher. Sending only one bitmap diff avoids repeated reinflation.
+            if (full) manager.updateAppWidget(ids, views)
+            else manager.partiallyUpdateAppWidget(ids, views)
         }
 
         private fun transport(context: Context, code: Int, request: Int): PendingIntent =
@@ -170,7 +196,7 @@ class VinylWidgetProvider : AppWidgetProvider() {
                 }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
 
-        private fun decodeCover(context: Context, ref: String): Bitmap? {
+        internal fun decodeCover(context: Context, ref: String): Bitmap? {
             val uri = runCatching { Uri.parse(ref) }.getOrNull() ?: return null
             fun open() = when (uri.scheme?.lowercase()) {
                 "file" -> uri.path?.let(::File)?.takeIf(File::isFile)?.let(::FileInputStream)
@@ -188,9 +214,16 @@ class VinylWidgetProvider : AppWidgetProvider() {
         }
 
         private fun drawVinyl(cover: Bitmap?, angle: Float, lift: Float): Bitmap {
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
             val bitmap = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
             val c = Canvas(bitmap)
+            c.scale(SIZE / 280f, SIZE / 280f)
+            drawVinylOnCanvas(c, cover, angle, lift)
+            return bitmap
+        }
+
+        /** Shared native Canvas renderer for the widget and the full-fidelity gesture surface. */
+        internal fun drawVinylOnCanvas(c: Canvas, cover: Bitmap?, angle: Float, lift: Float) {
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
             val cx = 136f
             val cy = 143f
             val radius = 124f
@@ -263,7 +296,6 @@ class VinylWidgetProvider : AppWidgetProvider() {
             c.drawCircle(pivotX, pivotY, 11f, paint)
             paint.color = Color.rgb(198, 202, 208)
             c.drawCircle(pivotX, pivotY, 5.5f, paint)
-            return bitmap
         }
     }
 }

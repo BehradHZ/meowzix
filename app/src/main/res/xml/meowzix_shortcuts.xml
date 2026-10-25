@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="vinyl_gestures"
+        android:enabled="true"
+        android:icon="@drawable/widget_vinyl_preview"
+        android:shortcutShortLabel="@string/vinyl_gestures_short_label"
+        android:shortcutLongLabel="@string/vinyl_gestures_long_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="dev.behradhz.meowzix"
+            android:targetClass="dev.behradhz.meowzix.widget.VinylGestureActivity" />
+    </shortcut>
+</shortcuts>

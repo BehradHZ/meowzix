@@ -24,3 +24,36 @@ by tapping the widget because its tap has the requested Play/Pause semantics.
 
 Widget updates are best effort at the host's permitted rate; Home Screen host
 rendering/refresh cadence is not guaranteed.
+
+## Smoothness and host limitations
+
+The prior widget redrew a 280-pixel Bitmap and reinflated its entire RemoteViews
+every 250 ms (four distinct phases a second). The updated code renders a
+240-pixel Bitmap, updates the full view tree only on state changes, sends only
+image deltas via `partiallyUpdateAppWidget`, and derives rotation from
+`SystemClock.elapsedRealtime()` so delayed frames are dropped, not queued.
+It targets ten image phases per second while playing and stops when paused
+or reduced motion is enabled. Third-party launcher update throttling and the
+energy cost of continuous widget updates still limit actual smoothness; a
+60 fps Android Home Screen RemoteViews widget is not promised.
+
+## Nothing-style gesture shortcut (not a proprietary launcher widget)
+
+Nothing's official October 2026 roadmap says Essential Apps is still closed
+beta and widget publishing is paused until 2027. No public external gesture
+hosting or media-session integration SDK was identified for Meowzix. Instead,
+a separate **Vinyl gestures** home-screen *app shortcut* opens a genuine
+Meowzix Activity. It renders the identical vinyl with Compose/native Canvas
+at display frame rate and supplies the requested raw-pointer interactions:
+
+- Tap: play/pause the existing playback session.
+- Straight swipe left/right: next/previous available queue entry.
+- Circular drag clockwise/counterclockwise: seek forward/back, five seconds
+  for each quarter turn, clamped to track duration.
+
+The gesture resolver checks actual path curvature so a straight swipe
+across the disc is not mistaken for a record scratch. No accessibility
+overlay or privileged Nothing/launcher APIs are used. The shortcut is
+available on standard Android as well as Nothing phones, but a genuine
+gesture-sensitive Nothing Home *widget* cannot ship via the standard
+AppWidgetProvider/RemoteViews interface alone.
