@@ -2,7 +2,6 @@ package dev.behradhz.meowzix.widget
 
 import android.graphics.Bitmap
 import android.os.Bundle
-import androidx.media3.common.util.UnstableApi
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
@@ -49,7 +48,6 @@ import kotlinx.coroutines.withContext
  * Nothing's closed Essential Apps beta exposes third-party pointer events.
  * It exists so the gestures are functional without misrepresenting that limit.
  */
-@OptIn(markerClass = [UnstableApi::class])
 @AndroidEntryPoint
 class VinylGestureActivity : ComponentActivity() {
     @Inject lateinit var playback: PlaybackController
@@ -76,7 +74,6 @@ class VinylGestureActivity : ComponentActivity() {
     }
 }
 
-@OptIn(markerClass = [UnstableApi::class])
 @Composable
 private fun VinylGestureSurface(playback: PlaybackController, reduceMotion: Boolean) {
     val state by playback.state.collectAsStateWithLifecycle()
@@ -90,7 +87,7 @@ private fun VinylGestureSurface(playback: PlaybackController, reduceMotion: Bool
 
     LaunchedEffect(artworkRef) {
         cover = withContext(Dispatchers.IO) {
-            artworkRef?.let { VinylWidgetProvider.decodeCover(context.applicationContext, it) }
+            artworkRef?.let { VinylRecordRenderer.decodeCover(context.applicationContext, it) }
         }
     }
     LaunchedEffect(playing, reduceMotion) {
@@ -161,7 +158,7 @@ private fun VinylGestureSurface(playback: PlaybackController, reduceMotion: Bool
             val native = drawContext.canvas.nativeCanvas
             val token = native.save()
             native.scale(size.width / 280f, size.height / 280f)
-            VinylWidgetProvider.drawVinylOnCanvas(
+            VinylRecordRenderer.drawVinylOnCanvas(
                 native, cover, rotation + draggedRotation, if (playing) 0f else 1f,
             )
             native.restoreToCount(token)
