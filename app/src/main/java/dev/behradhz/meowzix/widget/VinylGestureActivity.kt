@@ -1,9 +1,8 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
-
 package dev.behradhz.meowzix.widget
 
 import android.graphics.Bitmap
 import android.os.Bundle
+import androidx.media3.common.util.UnstableApi
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
@@ -50,6 +49,7 @@ import kotlinx.coroutines.withContext
  * Nothing's closed Essential Apps beta exposes third-party pointer events.
  * It exists so the gestures are functional without misrepresenting that limit.
  */
+@OptIn(markerClass = [UnstableApi::class])
 @AndroidEntryPoint
 class VinylGestureActivity : ComponentActivity() {
     @Inject lateinit var playback: PlaybackController
@@ -76,6 +76,7 @@ class VinylGestureActivity : ComponentActivity() {
     }
 }
 
+@OptIn(markerClass = [UnstableApi::class])
 @Composable
 private fun VinylGestureSurface(playback: PlaybackController, reduceMotion: Boolean) {
     val state by playback.state.collectAsStateWithLifecycle()
