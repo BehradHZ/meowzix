@@ -50,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -72,6 +73,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -114,7 +117,7 @@ private const val HISTORY_ROUTE = "history"
 private const val TOP_LEVEL_ENTER_DURATION_MS = 120
 private const val TOP_LEVEL_EXIT_DURATION_MS = 90
 
-private data class DockDestination(
+internal data class DockDestination(
     val route: String,
     val label: String,
     val icon: @Composable () -> Unit,
@@ -171,6 +174,9 @@ fun MeowzixApp(
     }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     var dockCompact by rememberSaveable { mutableStateOf(false) }
+    // Incremented even when Home is already selected: reselecting the tab
+    // should scroll its retained LazyColumn back to the header.
+    var homeScrollToTopRequest by remember { mutableIntStateOf(0) }
     var scrollDelta by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 28.dp.toPx() }
     val dockScrollConnection = remember(currentRoute, searchActive, threshold) {
@@ -215,6 +221,9 @@ fun MeowzixApp(
             libraryViewModel.resetNavigationState()
         }
         if (route == HOME_ROUTE) {
+            dockCompact = false
+            scrollDelta = 0f
+            homeScrollToTopRequest++
             navController.popBackStack(HOME_ROUTE, inclusive = false)
             return
         }
@@ -272,6 +281,7 @@ fun MeowzixApp(
             composable(HOME_ROUTE) {
                 HomeRoute(
                     hazeState = hazeState,
+                    scrollToTopRequest = homeScrollToTopRequest,
                     currentTrack = libraryState.tracks.firstOrNull { it.id == playbackState.currentTrack?.id },
                     onPlayCollection = { tracks ->
                         libraryViewModel.playCollection(
@@ -389,6 +399,12 @@ fun MeowzixApp(
                 searchPlaceholder = searchScope.placeholder,
                 searchQuery = searchQuery,
                 onSearchQueryChange = { searchQuery = it },
+                onExpandCompact = {
+                    // This is a geometry action, not navigation; the mini player
+                    // observes dockCompact and rises with the same eased timeline.
+                    dockCompact = false
+                    scrollDelta = 0f
+                },
                 onSelect = { route ->
                     if (route == SEARCH_ROUTE) {
                         searchQuery = ""
@@ -435,7 +451,7 @@ fun MeowzixApp(
 }
 
 @Composable
-private fun MorphingDock(
+internal fun MorphingDock(
     hazeState: HazeState,
     destinations: List<DockDestination>,
     selectedRoute: String,
@@ -445,6 +461,7 @@ private fun MorphingDock(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onSelect: (String) -> Unit,
+    onExpandCompact: () -> Unit,
     onCloseSearch: () -> Unit,
     reduceMotion: Boolean = false,
 ) {
@@ -566,8 +583,9 @@ private fun MorphingDock(
                                 scaleX = scale
                                 scaleY = scale
                             }
-                            .clickable(enabled = morph > 0.55f) {
-                                onSelect(activeDestination.route)
+                            .semantics { contentDescription = "Expand navigation dock" }
+                            .clickable(enabled = dockCompact && morph > 0.55f) {
+                                onExpandCompact()
                             },
                         contentAlignment = Alignment.Center,
                     ) {

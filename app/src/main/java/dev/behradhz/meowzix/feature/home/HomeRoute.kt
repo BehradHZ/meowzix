@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,9 +65,12 @@ fun HomeRoute(
     onOpenLibrary: () -> Unit,
     onOpenPlaylist: (java.util.UUID) -> Unit,
     onOpenSettings: () -> Unit,
+    scrollToTopRequest: Int = 0,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+    HomeScrollToTopEffect(listState, scrollToTopRequest)
 
     LifecycleStartEffect(viewModel) {
         viewModel.onHomeVisible()
@@ -75,6 +81,7 @@ fun HomeRoute(
         HomeAmbientBackdrop()
 
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding(),
@@ -188,6 +195,14 @@ fun HomeRoute(
                 }
             }
         }
+    }
+}
+
+/** Tab re-selection is a distinct event from route navigation. */
+@Composable
+internal fun HomeScrollToTopEffect(listState: LazyListState, request: Int) {
+    LaunchedEffect(listState, request) {
+        if (request > 0) listState.animateScrollToItem(0)
     }
 }
 
