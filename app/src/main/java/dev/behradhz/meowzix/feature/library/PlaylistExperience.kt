@@ -160,8 +160,8 @@ internal fun PlaylistsSectionV3(
     PlaylistGlassBackdrop { hazeState ->
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 156.dp),
-            modifier = Modifier.fillMaxSize().testTag("playlist-grid"),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 188.dp),
+            modifier = Modifier.fillMaxSize().statusBarsPadding().testTag("playlist-grid"),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 26.dp, bottom = 188.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -411,7 +411,7 @@ internal fun PlaylistDetailScreenV3(
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().testTag("playlist-detail-list"),
             state = listState,
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 188.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 188.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "playlist-navigation") {
@@ -772,7 +772,7 @@ private fun PlaylistEditScreenV3(
     PlaylistGlassBackdrop { hazeState ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding().testTag("playlist-edit-list"),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 188.dp),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 188.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             item(key = "edit-navigation") {

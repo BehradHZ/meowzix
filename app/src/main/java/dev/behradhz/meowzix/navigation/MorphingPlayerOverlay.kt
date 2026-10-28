@@ -8,9 +8,10 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -237,21 +239,21 @@ internal fun MorphingPlayerOverlay(
         val navigationBottom = WindowInsets.navigationBars
             .asPaddingValues()
             .calculateBottomPadding()
-        val compactHeight by animateDpAsState(
-            if (dockCompact) 56.dp else CollapsedPlayerHeight,
-            animationSpec = tween(if (reduceMotion) 0 else 240),
-            label = "mini-height",
+        // Track the dock on the same reversible keyframe timeline. Artwork and
+        // text crossfade while the card changes size, rather than swapping at
+        // the first frame of a scroll event.
+        val dockMorph by animateFloatAsState(
+            targetValue = if (dockCompact) 1f else 0f,
+            animationSpec = dockMorphSpec(dockCompact, reduceMotion),
+            label = "mini-dock-morph",
         )
-        val miniInset by animateDpAsState(
-            if (dockCompact) 84.dp else CollapsedPlayerHorizontalInset,
-            animationSpec = tween(if (reduceMotion) 0 else 240),
-            label = "mini-horizontal-inset",
+        val compactHeight = lerp(CollapsedPlayerHeight, CompactDockButtonDp.dp, dockMorph)
+        val miniInset = lerp(
+            CollapsedPlayerHorizontalInset,
+            CompactMiniPlayerInsetDp.dp,
+            dockMorph,
         )
-        val dockClearance by animateDpAsState(
-            if (dockCompact) 18.dp else CollapsedPlayerDockClearance,
-            animationSpec = tween(if (reduceMotion) 0 else 240),
-            label = "mini-dock-clearance",
-        )
+        val dockClearance = lerp(CollapsedPlayerDockClearance, 18.dp, dockMorph)
         val collapsedBottom = navigationBottom + dockClearance
         val horizontalInset = lerp(miniInset, 0.dp, expansionFraction)
         val bottomInset = lerp(collapsedBottom, 0.dp, expansionFraction)
@@ -339,15 +341,9 @@ internal fun MorphingPlayerOverlay(
             val miniAlpha = (1f - expansionFraction / 0.24f).coerceIn(0f, 1f)
             val fullAlpha = ((expansionFraction - 0.10f) / 0.34f).coerceIn(0f, 1f)
 
-            if (dockCompact) {
-                CompactMiniPlayerContent(
-                    state = state,
-                    onTogglePlayPause = viewModel::togglePlayPause,
-                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .height(compactHeight)
-                        .graphicsLayer { alpha = miniAlpha },
-                )
-            } else {
+            val normalAlpha = ((0.67f - dockMorph) / 0.57f).coerceIn(0f, 1f)
+            val compactAlpha = ((dockMorph - 0.27f) / 0.59f).coerceIn(0f, 1f)
+            if (normalAlpha > 0.01f) {
                 MiniPlayerContent(
                     state = state,
                     queueState = queueState,
@@ -357,7 +353,22 @@ internal fun MorphingPlayerOverlay(
                     reduceMotion = reduceMotion,
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .height(compactHeight)
-                        .graphicsLayer { alpha = miniAlpha },
+                        .graphicsLayer {
+                            alpha = miniAlpha * normalAlpha
+                            translationX = -dockMorph * with(density) { 9.dp.toPx() }
+                        },
+                )
+            }
+            if (compactAlpha > 0.01f) {
+                CompactMiniPlayerContent(
+                    state = state,
+                    onTogglePlayPause = viewModel::togglePlayPause,
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .height(compactHeight)
+                        .graphicsLayer {
+                            alpha = miniAlpha * compactAlpha
+                            translationX = (1f - dockMorph) * with(density) { 9.dp.toPx() }
+                        },
                 )
             }
 
@@ -465,7 +476,22 @@ private fun CompactMiniPlayerContent(
             modifier = Modifier.fillMaxSize().padding(start = 6.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TrackArtwork(track.artworkRef, track.title, 38.dp)
+            // A single clipped square removes the dark circular matte that can
+            // show around small source thumbnails; artwork slightly overscans
+            // the frame, so black edge pixels do not become a visible ring.
+            Box(
+                modifier = Modifier.size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                TrackArtwork(
+                    artworkRef = track.artworkRef,
+                    description = track.title,
+                    size = 42.dp,
+                    modifier = Modifier.requiredSize(42.dp),
+                )
+            }
             Text(
                 text = track.title,
                 modifier = Modifier.weight(1f).padding(start = 6.dp),

@@ -3,7 +3,7 @@ package dev.behradhz.meowzix.navigation
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -56,6 +56,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -65,6 +67,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -72,6 +75,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
@@ -495,12 +499,24 @@ private fun MorphingDock(
         return
     }
 
+    // One eased, reversible timeline controls width, height, icon crossfade and
+    // the motion-blur pulse. Avoid switching layouts on the boolean itself.
+    val morph by animateFloatAsState(
+        targetValue = if (dockCompact) 1f else 0f,
+        animationSpec = dockMorphSpec(dockCompact, reduceMotion),
+        label = "dock-morph",
+    )
+    val motionBlur = dockMotionBlurDp(morph, reduceMotion).dp
+    val expandedAlpha = ((0.48f - morph) / 0.38f).coerceIn(0f, 1f)
+    val compactAlpha = ((morph - 0.18f) / 0.55f).coerceIn(0f, 1f)
+    val activeDestination = destinations.firstOrNull { it.route == selectedRoute }
+        ?: destinations.first()
+
     BoxWithConstraints(modifier = Modifier.fillMaxWidth().height(72.dp)) {
-        val leftWidth by animateDpAsState(
-            targetValue = if (dockCompact) 62.dp else maxWidth - 72.dp,
-            animationSpec = tween(if (reduceMotion) 0 else 240, easing = FastOutSlowInEasing),
-            label = "dock-width",
-        )
+        val compactSize = CompactDockButtonDp.dp
+        val leftWidth = lerp(maxWidth - 72.dp, compactSize, morph)
+        val leftHeight = lerp(72.dp, compactSize, morph)
+        val searchSize = lerp(62.dp, compactSize, morph)
         Row(
             modifier = Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -508,45 +524,76 @@ private fun MorphingDock(
         ) {
             GlassSurface(
                 hazeState = hazeState,
-                modifier = Modifier.width(leftWidth).height(72.dp),
-                shape = RoundedCornerShape(36.dp),
+                modifier = Modifier
+                    .width(leftWidth)
+                    .height(leftHeight)
+                    .blur(motionBlur, edgeTreatment = BlurredEdgeTreatment.Unbounded),
+                shape = RoundedCornerShape(lerp(36.dp, 26.dp, morph)),
                 fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 5.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    if (dockCompact) {
-                        DockItem(
-                            destination = destinations.first(),
-                            selected = selectedRoute == HOME_ROUTE,
-                            onClick = { onSelect(HOME_ROUTE) },
-                            showLabel = false,
-                            modifier = Modifier.weight(1f),
-                        )
-                    } else {
+                // Keep the four destinations composed long enough to fade out,
+                // then let the selected destination take over the circular dock.
+                if (expandedAlpha > 0.01f) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 5.dp, vertical = 7.dp)
+                            .graphicsLayer {
+                                alpha = expandedAlpha
+                                translationX = -morph * 10.dp.toPx()
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
                         destinations.forEach { destination ->
                             DockItem(
                                 destination = destination,
                                 selected = selectedRoute == destination.route,
                                 onClick = { onSelect(destination.route) },
                                 modifier = Modifier.weight(1f),
+                                enabled = morph < 0.40f,
                             )
+                        }
+                    }
+                }
+                if (compactAlpha > 0.01f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = compactAlpha
+                                val scale = 0.88f + 0.12f * morph
+                                scaleX = scale
+                                scaleY = scale
+                            }
+                            .clickable(enabled = morph > 0.55f) {
+                                onSelect(activeDestination.route)
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(Modifier.size(23.dp), contentAlignment = Alignment.Center) {
+                            activeDestination.icon()
                         }
                     }
                 }
             }
             GlassSurface(
                 hazeState = hazeState,
-                modifier = Modifier.size(62.dp).clickable { onSelect(SEARCH_ROUTE) },
-                shape = RoundedCornerShape(31.dp),
+                modifier = Modifier
+                    .size(searchSize)
+                    .blur(motionBlur, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                    .clickable { onSelect(SEARCH_ROUTE) },
+                shape = RoundedCornerShape(searchSize / 2),
                 fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.80f),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Search, contentDescription = "Search all music")
+                    Icon(
+                        Icons.Rounded.Search,
+                        contentDescription = "Search all music",
+                        modifier = Modifier.size(lerp(25.dp, 22.dp, morph)),
+                    )
                 }
             }
         }
@@ -560,11 +607,12 @@ private fun DockItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     showLabel: Boolean = true,
+    enabled: Boolean = true,
 ) {
     Surface(
         modifier = modifier
             .height(58.dp)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent,
         contentColor = if (selected) {
             MaterialTheme.colorScheme.primary
