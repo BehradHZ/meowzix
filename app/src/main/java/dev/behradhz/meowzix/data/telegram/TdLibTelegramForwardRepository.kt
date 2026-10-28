@@ -247,7 +247,6 @@ class TdLibTelegramForwardRepository @Inject constructor(
             }
             folders
         }
-    }
 
     override suspend fun enqueueTrack(
         trackId: UUID,
