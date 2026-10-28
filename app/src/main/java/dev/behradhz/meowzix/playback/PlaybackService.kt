@@ -766,7 +766,7 @@ class PlaybackService : MediaLibraryService() {
                 player.currentMediaItem?.mediaId,
                 player.currentMediaItem?.mediaMetadata?.title?.toString(),
                 player.currentMediaItem?.mediaMetadata?.artist?.toString(),
-            },
+            ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             creatorOptions,
         )
