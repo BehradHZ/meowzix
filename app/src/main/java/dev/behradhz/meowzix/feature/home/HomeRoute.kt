@@ -28,8 +28,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
-import androidx.compose.material.icons.rounded.AccountCircle
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -62,7 +61,7 @@ fun HomeRoute(
     onPlayCollection: (List<Track>) -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenPlaylist: (java.util.UUID) -> Unit,
-    onOpenProfile: () -> Unit,
+    onOpenSettings: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -96,8 +95,21 @@ fun HomeRoute(
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1f),
                         )
-                        IconButton(onClick = onOpenProfile) {
-                            Icon(Icons.Rounded.AccountCircle, contentDescription = "Profile and settings")
+                        GlassSurface(
+                            hazeState = hazeState,
+                            modifier = Modifier.size(48.dp).clickable(onClick = onOpenSettings),
+                            shape = RoundedCornerShape(18.dp),
+                            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Rounded.Settings,
+                                    contentDescription = "Open settings",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
                         }
                     }
                     Text(

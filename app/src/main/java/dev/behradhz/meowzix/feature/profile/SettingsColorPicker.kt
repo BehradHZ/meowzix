@@ -64,6 +64,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.domain.settings.AppearanceSettings
 import dev.behradhz.meowzix.domain.settings.ColorThemePreference
@@ -101,10 +102,14 @@ internal fun SettingsColorPicker(
         Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Color palette", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Text(
-            "Choose an accent, or match Android's wallpaper colors. Light and dark appearance can be set independently.",
-            style = MaterialTheme.typography.bodySmall,
+            "Accent color",
+            style = MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp, lineHeight = 21.sp),
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            "Choose an accent or follow your device wallpaper. Light and dark appearance can be set separately.",
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         availablePalettes.chunked(3).forEach { group ->

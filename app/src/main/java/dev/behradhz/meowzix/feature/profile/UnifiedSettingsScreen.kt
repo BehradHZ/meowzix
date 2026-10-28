@@ -3,17 +3,20 @@ package dev.behradhz.meowzix.feature.profile
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Animation
+import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Bedtime
@@ -54,8 +57,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import dev.behradhz.meowzix.feature.library.PlaylistGlassPanel
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -66,6 +70,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -82,8 +90,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun UnifiedSettingsSheet(
-    onDismiss: () -> Unit,
+fun UnifiedSettingsScreen(
+    onBack: () -> Unit,
+    onOpenBrand: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
     onOpenEqualizer: () -> Unit = {},
     onOpenTelegram: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
@@ -145,19 +155,60 @@ fun UnifiedSettingsSheet(
 
     var pendingDanger by remember { mutableStateOf<SettingsDangerAction?>(null) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.background) {
-        Box(Modifier.fillMaxWidth().fillMaxHeight(0.92f)) {
-            PlaylistGlassBackdrop { hazeState ->
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 40.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
+    PlaylistGlassBackdrop { hazeState ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 196.dp),
+            verticalArrangement = Arrangement.spacedBy(25.dp),
+        ) {
+            item(key = "navigation") {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(15.dp),
                 ) {
-                    item(key = "hero") {
-                        SettingsGlassHero(hazeState, telegramConnected, state.recommendations.smartRecommendationsEnabled, downloadSummary)
+                    PlaylistGlassPanel(
+                        hazeState,
+                        modifier = Modifier.size(52.dp).clickable(role = Role.Button, onClick = onBack),
+                        radius = 19.dp,
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Rounded.ArrowBack,
+                                contentDescription = "Back to Home",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
                     }
-                    item(key = "appearance") {
-                        SettingsGlassSection(hazeState, "Appearance & accessibility", "Look, lyrics and motion", Icons.Rounded.Palette) {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            "MEOWZIX",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.sp, letterSpacing = 1.5.sp,
+                            ),
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            "Settings",
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                fontSize = 30.sp, lineHeight = 36.sp,
+                            ),
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+            item(key = "hero") {
+                SettingsGlassHero(
+                    hazeState,
+                    telegramConnected,
+                    state.recommendations.smartRecommendationsEnabled,
+                    downloadSummary,
+                    onOpenBrand = onOpenBrand,
+                )
+            }
+            item(key = "appearance") {
+                        SettingsGlassSection(hazeState, "Appearance", "Color, typography and motion", Icons.Rounded.Palette) {
                             SettingsChoiceRow("Theme", null, Icons.Rounded.DarkMode,
                                 state.appearance.theme.name.lowercase().replaceFirstChar(Char::uppercase),
                                 ThemePreference.entries.map { it.name }) { viewModel.setTheme(ThemePreference.valueOf(it)) }
@@ -173,7 +224,7 @@ fun UnifiedSettingsSheet(
                         }
                     }
                     item(key = "playback") {
-                        SettingsGlassSection(hazeState, "Playback", "How your music sounds and continues", Icons.Rounded.PlayCircle) {
+                        SettingsGlassSection(hazeState, "Playback & sound", "Fine-tune every listening session", Icons.Rounded.PlayCircle) {
                             SettingsChoiceRow("Default playback mode", null, Icons.Rounded.QueueMusic,
                                 state.playback.defaultMode.name, PlaybackMode.entries.map { it.name }) { viewModel.setDefaultMode(PlaybackMode.valueOf(it)) }
                             SettingsRowDivider()
@@ -202,7 +253,7 @@ fun UnifiedSettingsSheet(
                         }
                     }
                     item(key = "recommendations") {
-                        SettingsGlassSection(hazeState, "Smart recommendations", "Personalization stays on this device", Icons.Rounded.AutoAwesome) {
+                        SettingsGlassSection(hazeState, "Discovery", "Private recommendations, made for you", Icons.Rounded.AutoAwesome) {
                             SettingsToggleRow("Smart recommendations", "Enable learned recommendation surfaces",
                                 Icons.Rounded.AutoAwesome, state.recommendations.smartRecommendationsEnabled, viewModel::setSmart)
                             SettingsRowDivider()
@@ -249,7 +300,7 @@ fun UnifiedSettingsSheet(
                         }
                     }
                     item(key = "storage") {
-                        SettingsGlassSection(hazeState, "Downloads & storage", "Offline access and network policy", Icons.Rounded.Download) {
+                        SettingsGlassSection(hazeState, "Downloads & storage", "Keep listening, even offline", Icons.Rounded.Download) {
                             SettingsInfoRow("Managed storage",
                                 storageUsage?.let { usage ->
                                     "Temporary ${formatBytes(usage.temporaryPlaybackBytes)} · Pinned ${formatBytes(usage.pinnedOfflineBytes)} · Other ${formatBytes(usage.otherManagedBytes)}"
@@ -275,7 +326,12 @@ fun UnifiedSettingsSheet(
                         }
                     }
                     item(key = "privacy") {
-                        SettingsGlassSection(hazeState, "Privacy & history", "Your listening data stays local", Icons.Rounded.Shield) {
+                        SettingsGlassSection(hazeState, "Privacy & history", "Your listening, under your control", Icons.Rounded.Shield) {
+                            SettingsActionRow(
+                                "Listening history", "Browse recently played music",
+                                Icons.Rounded.History, "Open", onOpenHistory,
+                            )
+                            SettingsRowDivider()
                             SettingsToggleRow("Listening history", "Turning this off stops new learning-event capture",
                                 Icons.Rounded.History, state.network.listeningHistoryEnabled, viewModel::setHistory)
                             SettingsRowDivider()
@@ -285,7 +341,7 @@ fun UnifiedSettingsSheet(
                         }
                     }
                     item(key = "backup") {
-                        SettingsGlassSection(hazeState, "Backup & restore", "Portable local data", Icons.Rounded.Backup) {
+                        SettingsGlassSection(hazeState, "Backup & restore", "Take your preferences with you", Icons.Rounded.Backup) {
                             SettingsToggleRow("Include listening history", "Off by default; trained model weights are never exported",
                                 Icons.Rounded.History, includeHistoryInBackup, { includeHistoryInBackup = it })
                             SettingsRowDivider()
@@ -302,13 +358,13 @@ fun UnifiedSettingsSheet(
                         }
                     }
                     item(key = "advanced") {
-                        SettingsGlassSection(hazeState, "Advanced", "Local model details", Icons.Rounded.Tune) {
+                        SettingsGlassSection(hazeState, "Advanced", "Diagnostics and local models", Icons.Rounded.Tune) {
                             SettingsToggleRow("Diagnostics", "Show local model and evaluation details",
                                 Icons.Rounded.BugReport, state.recommendations.diagnosticsVisible, viewModel::setDiagnostics)
                         }
                     }
                     item(key = "manage-data") {
-                        SettingsGlassSection(hazeState, "Manage data", "Review before changing stored data or connections", Icons.Rounded.DeleteOutline) {
+                        SettingsGlassSection(hazeState, "Data controls", "Changes that deserve a second look", Icons.Rounded.DeleteOutline) {
                             SettingsDangerRow("Clear temporary cache", "Pinned offline and MediaStore files are preserved",
                                 Icons.Rounded.DeleteSweep) { pendingDanger = SettingsDangerAction.CLEAR_CACHE }
                             SettingsRowDivider()
@@ -329,8 +385,6 @@ fun UnifiedSettingsSheet(
                             }
                         }
                     }
-                }
-            }
         }
     }
 

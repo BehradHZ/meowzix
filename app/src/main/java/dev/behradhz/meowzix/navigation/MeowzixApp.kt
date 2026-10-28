@@ -87,7 +87,7 @@ import dev.behradhz.meowzix.feature.library.PlaylistsRoute
 import dev.behradhz.meowzix.data.repository.AlbumSummary
 import dev.behradhz.meowzix.feature.library.LibraryViewModel
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
-import dev.behradhz.meowzix.feature.profile.ProfileRoute
+import dev.behradhz.meowzix.feature.profile.SettingsRoute
 import dev.behradhz.meowzix.feature.queue.QueueRoute
 import dev.behradhz.meowzix.feature.search.SearchViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
@@ -103,7 +103,7 @@ private const val LIBRARY_ROUTE = "library"
 private const val PLAYLISTS_ROUTE = "playlists"
 private const val SEARCH_ROUTE = "search"
 private const val QUEUE_ROUTE = "queue"
-private const val PROFILE_ROUTE = "profile"
+private const val SETTINGS_ROUTE = "settings"
 private const val TELEGRAM_AUTH_ROUTE = "telegram-auth"
 private const val DOWNLOADS_ROUTE = "downloads"
 private const val HISTORY_ROUTE = "history"
@@ -157,8 +157,8 @@ fun MeowzixApp(
         )
     }
 
-    val secondaryProfileRoutes = remember { setOf(DOWNLOADS_ROUTE, HISTORY_ROUTE, TELEGRAM_AUTH_ROUTE) }
-    val selectedDockRoute = if (currentRoute in secondaryProfileRoutes) PROFILE_ROUTE else currentRoute
+    val secondarySettingsRoutes = remember { setOf(DOWNLOADS_ROUTE, HISTORY_ROUTE, TELEGRAM_AUTH_ROUTE) }
+    val selectedDockRoute = if (currentRoute in secondarySettingsRoutes || currentRoute == SETTINGS_ROUTE) HOME_ROUTE else currentRoute
     val searchActive = searchContextRoute != null
     val searchScope = when (searchContextRoute) {
         LIBRARY_ROUTE -> DockSearchScope.LIBRARY
@@ -247,7 +247,7 @@ fun MeowzixApp(
         when {
             morphingPlayerState.targetExpanded -> morphingPlayerState.collapse()
             searchActive -> clearSearchState()
-            currentRoute in secondaryProfileRoutes -> navigateTopLevel(PROFILE_ROUTE)
+            currentRoute in secondarySettingsRoutes -> navController.popBackStack()
             currentRoute != HOME_ROUTE -> goHome()
         }
     }
@@ -280,7 +280,7 @@ fun MeowzixApp(
                         pendingPlaylistId = id
                         navigateTopLevel(PLAYLISTS_ROUTE)
                     },
-                    onOpenProfile = { navigateTopLevel(PROFILE_ROUTE) },
+                    onOpenSettings = { navigateTopLevel(SETTINGS_ROUTE) },
                 )
             }
             composable(LIBRARY_ROUTE) {
@@ -318,15 +318,16 @@ fun MeowzixApp(
                     },
                 )
             }
-            composable(PROFILE_ROUTE) {
-                ProfileRoute(
+            composable(SETTINGS_ROUTE) {
+                SettingsRoute(
+                    onBack = { navController.popBackStack() },
                     onOpenOffline = { navController.navigate(DOWNLOADS_ROUTE) },
                     onOpenHistory = { navController.navigate(HISTORY_ROUTE) },
                     onOpenTelegram = { navController.navigate(TELEGRAM_AUTH_ROUTE) },
                 )
             }
             composable(TELEGRAM_AUTH_ROUTE) {
-                TelegramAuthRoute(onBack = { navigateTopLevel(PROFILE_ROUTE) })
+                TelegramAuthRoute(onBack = { navController.popBackStack() })
             }
             composable(DOWNLOADS_ROUTE) { DownloadsRoute() }
             composable(HISTORY_ROUTE) { HistoryRoute() }

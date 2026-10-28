@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.createComposeRule
+import dev.behradhz.meowzix.feature.library.PlaylistGlassBackdrop
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -42,13 +43,24 @@ class SettingsGlassComponentsTest {
     }
 
     @Test
-    fun tappingProfileCatOpensAndClosesFullscreenViewer() {
+    fun settingsBrandOpensAndClosesFullscreenViewer() {
         compose.setContent {
+            var showBrand by remember { mutableStateOf(false) }
             MeowzixTheme {
-                ProfileRoute(onOpenOffline = {}, onOpenHistory = {}, onOpenTelegram = {})
+                PlaylistGlassBackdrop { hazeState ->
+                    SettingsGlassHero(
+                        hazeState,
+                        connected = false,
+                        smartEnabled = true,
+                        downloads = DownloadSettingsSummary(),
+                        onOpenBrand = { showBrand = true },
+                    )
+                }
+                if (showBrand) SettingsBrandDialog(onDismiss = { showBrand = false })
             }
         }
 
+        compose.onNodeWithText("Meowzix").assertIsDisplayed()
         compose.onNodeWithContentDescription("Open Meowzix cat fullscreen").performClick()
         compose.onNodeWithContentDescription("Fullscreen Meowzix cat").assertIsDisplayed()
         compose.onNodeWithContentDescription("Close fullscreen cat").performClick()

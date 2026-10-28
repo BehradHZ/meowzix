@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.feature.profile
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -14,6 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.sp
+import dev.behradhz.meowzix.R
+import dev.behradhz.meowzix.ui.theme.LocalMeowzixLogoBackground
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -46,7 +53,10 @@ import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.feature.library.PlaylistGlassPanel
 import dev.chrisbanes.haze.HazeState
 
-/** A section has one glass layer; rows never blur other rows or add nested cards. */
+/**
+ * Consistent hierarchy: section title 18sp; setting label 15sp; supporting text 12sp.
+ * Keep a single frosted surface per section rather than stacking glass cards.
+ */
 @Composable
 internal fun SettingsGlassSection(
     hazeState: HazeState,
@@ -55,43 +65,113 @@ internal fun SettingsGlassSection(
     icon: ImageVector,
     content: @Composable () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                Modifier.size(34.dp).background(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    RoundedCornerShape(12.dp),
+                ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, lineHeight = 23.sp),
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
-        PlaylistGlassPanel(hazeState, modifier = Modifier.fillMaxWidth(), radius = 24.dp) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) { content() }
+        PlaylistGlassPanel(hazeState, modifier = Modifier.fillMaxWidth(), radius = 26.dp) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 5.dp)) {
+                content()
+            }
         }
     }
 }
 
+/** Meowzix identity is integrated with settings, not presented as a second Profile screen. */
 @Composable
-internal fun SettingsGlassHero(hazeState: HazeState, connected: Boolean, smartEnabled: Boolean, downloads: DownloadSettingsSummary) {
-    PlaylistGlassPanel(hazeState, modifier = Modifier.fillMaxWidth(), accented = true, radius = 30.dp) {
-        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text("Make Meowzix yours.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+internal fun SettingsGlassHero(
+    hazeState: HazeState,
+    connected: Boolean,
+    smartEnabled: Boolean,
+    downloads: DownloadSettingsSummary,
+    onOpenBrand: () -> Unit = {},
+) {
+    PlaylistGlassPanel(hazeState, modifier = Modifier.fillMaxWidth(), accented = true, radius = 32.dp) {
+        Column(
+            Modifier.fillMaxWidth().padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(17.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Box(
+                    modifier = Modifier.size(78.dp)
+                        .background(LocalMeowzixLogoBackground.current, RoundedCornerShape(25.dp))
+                        .clickable(role = Role.Button, onClick = onOpenBrand)
+                        .padding(7.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.meowzix_logo_transparent),
+                        contentDescription = "Open Meowzix cat fullscreen",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(
+                        "YOUR SPACE",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp, letterSpacing = 1.4.sp,
+                        ),
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Meowzix",
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontSize = 24.sp, lineHeight = 29.sp,
+                        ),
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Music that feels like yours.",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsStatusChip(if (connected) "Telegram connected" else "Telegram offline", Modifier.weight(1f))
-                SettingsStatusChip(if (smartEnabled) "Smart on" else "Smart off", Modifier.weight(1f))
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                SettingsStatusChip(
+                    if (connected) "Telegram connected" else "Telegram offline",
+                    Modifier.weight(1f),
+                )
+                SettingsStatusChip(
+                    if (smartEnabled) "Discovery on" else "Discovery off",
+                    Modifier.weight(1f),
+                )
             }
             Text(
-                "${downloads.activeCount} active downloads · ${downloads.pinnedCount} offline files",
-                style = MaterialTheme.typography.labelMedium,
+                "${downloads.activeCount} active downloads  ·  ${downloads.pinnedCount} available offline",
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -101,20 +181,29 @@ internal fun SettingsGlassHero(hazeState: HazeState, connected: Boolean, smartEn
 @Composable
 private fun SettingsStatusChip(label: String, modifier: Modifier = Modifier) {
     Row(
-        modifier = modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 10.dp, vertical = 9.dp),
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.09f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 2, color = MaterialTheme.colorScheme.onSurface)
+        Icon(
+            Icons.Rounded.AutoAwesome, contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp),
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 15.sp),
+            maxLines = 2,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
 @Composable
 internal fun SettingsRowDivider() {
     HorizontalDivider(
-        modifier = Modifier.fillMaxWidth().padding(start = 52.dp, end = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 59.dp, end = 8.dp),
         thickness = 0.5.dp,
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
     )
@@ -124,7 +213,7 @@ internal fun SettingsRowDivider() {
 private fun SettingsLeadingIcon(icon: ImageVector, danger: Boolean = false) {
     val color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     Box(
-        modifier = Modifier.size(36.dp).background(color.copy(alpha = 0.10f), RoundedCornerShape(12.dp)),
+        modifier = Modifier.size(38.dp).background(color.copy(alpha = 0.10f), RoundedCornerShape(13.dp)),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(19.dp))
@@ -133,17 +222,21 @@ private fun SettingsLeadingIcon(icon: ImageVector, danger: Boolean = false) {
 
 @Composable
 private fun SettingsRowLabel(title: String, subtitle: String?, modifier: Modifier = Modifier, danger: Boolean = false) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             title,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 21.sp),
             fontWeight = FontWeight.Medium,
             color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         if (subtitle != null) {
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -158,9 +251,9 @@ internal fun SettingsToggleRow(
     enabled: Boolean = true,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+        modifier = Modifier.fillMaxWidth().heightIn(min = 62.dp)
             .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChecked)
-            .padding(horizontal = 10.dp, vertical = 11.dp),
+            .padding(horizontal = 11.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -175,14 +268,14 @@ internal fun SettingsChoiceRow(title: String, subtitle: String?, icon: ImageVect
     var expanded by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button) { expanded = true }
-                .padding(horizontal = 10.dp, vertical = 11.dp),
+            Modifier.fillMaxWidth().heightIn(min = 62.dp).clickable(role = Role.Button) { expanded = true }
+                .padding(horizontal = 11.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SettingsLeadingIcon(icon)
             SettingsRowLabel(title, subtitle, Modifier.weight(1f))
-            Text(current, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+            Text(current, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.primary, maxLines = 1)
             Icon(Icons.Rounded.ArrowDropDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -208,11 +301,11 @@ internal fun SettingsSliderRow(
     onValue: (Float) -> Unit,
     enabled: Boolean = true,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SettingsLeadingIcon(icon)
             SettingsRowLabel(title, subtitle, Modifier.weight(1f))
-            Text(valueLabel, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+            Text(valueLabel, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp))
         }
         Slider(
             value = value.coerceIn(range.start, range.endInclusive),
@@ -220,7 +313,7 @@ internal fun SettingsSliderRow(
             enabled = enabled,
             valueRange = range,
             steps = steps,
-            modifier = Modifier.fillMaxWidth().padding(start = 48.dp, end = 5.dp).semantics {
+            modifier = Modifier.fillMaxWidth().padding(start = 50.dp, end = 6.dp).semantics {
                 contentDescription = title
                 stateDescription = valueLabel
             },
@@ -238,15 +331,15 @@ internal fun SettingsActionRow(
     enabled: Boolean = true,
 ) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp)
+        Modifier.fillMaxWidth().heightIn(min = 62.dp)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 12.dp),
+            .padding(horizontal = 11.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         SettingsLeadingIcon(icon)
         SettingsRowLabel(title, subtitle, Modifier.weight(1f))
-        Text(actionLabel, style = MaterialTheme.typography.labelMedium, color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(actionLabel, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp), color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
         Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
     }
 }
@@ -254,7 +347,7 @@ internal fun SettingsActionRow(
 @Composable
 internal fun SettingsInfoRow(title: String, subtitle: String, icon: ImageVector) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 10.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().heightIn(min = 62.dp).padding(horizontal = 11.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -266,8 +359,8 @@ internal fun SettingsInfoRow(title: String, subtitle: String, icon: ImageVector)
 @Composable
 internal fun SettingsDangerRow(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().heightIn(min = 62.dp).clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 11.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
