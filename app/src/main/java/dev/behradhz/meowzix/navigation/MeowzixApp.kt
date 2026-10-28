@@ -517,14 +517,13 @@ private fun MorphingDock(
         val leftWidth = lerp(maxWidth - 72.dp, compactSize, morph)
         val leftHeight = lerp(72.dp, compactSize, morph)
         val searchSize = lerp(62.dp, compactSize, morph)
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        // Both edges have fixed anchors. Shrinking the left dock must never
+        // pull Search toward the center or underneath the compact player.
+        Box(modifier = Modifier.fillMaxSize()) {
             GlassSurface(
                 hazeState = hazeState,
                 modifier = Modifier
+                    .align(Alignment.CenterStart)
                     .width(leftWidth)
                     .height(leftHeight)
                     .blur(motionBlur, edgeTreatment = BlurredEdgeTreatment.Unbounded),
@@ -581,6 +580,7 @@ private fun MorphingDock(
             GlassSurface(
                 hazeState = hazeState,
                 modifier = Modifier
+                    .align(Alignment.CenterEnd)
                     .size(searchSize)
                     .blur(motionBlur, edgeTreatment = BlurredEdgeTreatment.Unbounded)
                     .clickable { onSelect(SEARCH_ROUTE) },

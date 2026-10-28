@@ -6,6 +6,12 @@ import org.junit.Test
 
 class DockMotionTest {
     @Test
+    fun collapseSettlesFasterThanExpansion() {
+        assertTrue(DockCollapseDurationMs < DockExpandDurationMs)
+        assertTrue(DockCollapseDurationMs <= 260)
+    }
+
+    @Test
     fun transientBlurIsZeroAtBothRestingStates() {
         assertEquals(0f, dockMotionBlurDp(0f, false), 0.0001f)
         assertEquals(0f, dockMotionBlurDp(1f, false), 0.0001f)

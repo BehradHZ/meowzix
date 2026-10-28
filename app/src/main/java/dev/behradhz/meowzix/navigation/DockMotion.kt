@@ -9,9 +9,12 @@ import androidx.compose.animation.core.snap
  * Shared choreography for the floating dock and the mini player.
  *
  * Two eased keyframe segments bring the geometry almost to rest before the
- * final settle. Both directions use mirrored targets, so scroll reversals
- * remain continuous rather than snapping back through a one-way animation.
+ * final settle. Collapse is intentionally faster than expansion. Both
+ * directions use mirrored targets, so scroll reversals remain continuous.
  */
+internal const val DockCollapseDurationMs = 245
+internal const val DockExpandDurationMs = 330
+
 internal fun dockMorphSpec(
     compact: Boolean,
     reduceMotion: Boolean,
@@ -19,9 +22,9 @@ internal fun dockMorphSpec(
     if (reduceMotion) return snap()
     val ease = CubicBezierEasing(0.20f, 0.72f, 0.30f, 1f)
     return keyframes {
-        durationMillis = 440
-        (if (compact) 0.76f else 0.24f) at 275 using ease
-        (if (compact) 0.96f else 0.04f) at 385 using ease
+        durationMillis = if (compact) DockCollapseDurationMs else DockExpandDurationMs
+        (if (compact) 0.76f else 0.24f) at (if (compact) 145 else 205) using ease
+        (if (compact) 0.96f else 0.04f) at (if (compact) 218 else 290) using ease
     }
 }
 
