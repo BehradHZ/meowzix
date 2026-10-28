@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.data.lyrics.LocalLyricsDiscovery
 import dev.behradhz.meowzix.domain.lyrics.LrcParser
 import dev.behradhz.meowzix.domain.lyrics.LyricsContentType
 import dev.behradhz.meowzix.domain.lyrics.LyricsRepository
+import dev.behradhz.meowzix.domain.lyrics.LyricsSourceType
 import dev.behradhz.meowzix.domain.lyrics.LyricsTiming
 import dev.behradhz.meowzix.domain.lyrics.LyricsVersion
 import dev.behradhz.meowzix.domain.lyrics.TrackLyrics
@@ -131,6 +132,21 @@ class NowPlayingLyricsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { repository.selectVersion(trackId, versionId) }
                 .onFailure { error.value = it.message ?: "Unable to select lyrics" }
+        }
+    }
+
+    fun deleteVersion(versionId: UUID) {
+        val lyrics = state.value.trackLyrics ?: return
+        if (state.value.trackId != lyrics.trackId ||
+            lyrics.versions.none { it.id == versionId && it.sourceType != LyricsSourceType.EMBEDDED }
+        ) return
+        viewModelScope.launch {
+            runCatching { repository.deleteVersion(lyrics.trackId, versionId) }
+                .onSuccess { error.value = null }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    error.value = it.message ?: "Unable to delete lyrics"
+                }
         }
     }
 

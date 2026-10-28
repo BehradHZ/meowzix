@@ -47,8 +47,6 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -187,6 +185,7 @@ fun NowPlayingRoute(
         onLyricsPaste = lyricsViewModel::pastePlainLyrics,
         onLyricsDelay = lyricsViewModel::adjustDelay,
         onLyricsVersion = lyricsViewModel::selectVersion,
+        onLyricsDeleteVersion = lyricsViewModel::deleteVersion,
         onLyricSeek = lyricsViewModel::seekToLine,
     )
 
@@ -264,6 +263,7 @@ private fun NowPlayingScreen(
     onLyricsPaste: (String) -> Unit,
     onLyricsDelay: (Long) -> Unit,
     onLyricsVersion: (java.util.UUID) -> Unit,
+    onLyricsDeleteVersion: (java.util.UUID) -> Unit,
     onLyricSeek: (Int) -> Unit,
 ) {
     val track = state.currentTrack
@@ -340,6 +340,7 @@ private fun NowPlayingScreen(
                 onLyricsPaste = onLyricsPaste,
                 onLyricsDelay = onLyricsDelay,
                 onLyricsVersion = onLyricsVersion,
+                onLyricsDeleteVersion = onLyricsDeleteVersion,
             )
 
             Spacer(Modifier.height(8.dp))
@@ -524,6 +525,7 @@ private fun PlayerHeader(
     onLyricsPaste: (String) -> Unit,
     onLyricsDelay: (Long) -> Unit,
     onLyricsVersion: (UUID) -> Unit,
+    onLyricsDeleteVersion: (UUID) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var pasteDialog by remember(lyricsState.trackId) { mutableStateOf(false) }
@@ -565,66 +567,23 @@ private fun PlayerHeader(
                 IconButton(onClick = { menuExpanded = true }) {
                     Icon(Icons.Rounded.MoreVert, contentDescription = "More track actions", tint = PlayerPrimaryContent)
                 }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text(if (lyricsExpanded) "Back to player" else "Lyrics") },
-                        onClick = {
-                            menuExpanded = false
-                            onToggleLyrics()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Sleep timer · " + sleepTimerStatusLabel(sleepTimer)) },
-                        onClick = {
-                            menuExpanded = false
-                            onOpenSleepTimer()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Why this song?") },
-                        onClick = {
-                            menuExpanded = false
-                            onWhyThisSong()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Continue the vibe") },
-                        onClick = {
-                            menuExpanded = false
-                            onContinueVibe()
-                        },
-                    )
-                    if (lyricsExpanded && lyricsState.hasDisplayableLyrics) {
-                        DropdownMenuItem(text = { Text("Import .lrc") }, onClick = {
-                            menuExpanded = false
-                            importLauncher.launch(arrayOf("*/*"))
-                        })
-                        DropdownMenuItem(text = { Text("Paste lyrics") }, onClick = {
-                            menuExpanded = false
-                            pasteDialog = true
-                        })
-                        if (lyricsState.isTimed) {
-                            DropdownMenuItem(text = { Text("Lyrics delay −250 ms") }, onClick = {
-                                menuExpanded = false
-                                onLyricsDelay(-250L)
-                            })
-                            DropdownMenuItem(text = { Text("Lyrics delay +250 ms") }, onClick = {
-                                menuExpanded = false
-                                onLyricsDelay(250L)
-                            })
-                        }
-                        lyricsState.trackLyrics?.versions.orEmpty().takeIf { it.size > 1 }?.forEach { version ->
-                            DropdownMenuItem(
-                                text = { Text((version.sourceLabel ?: version.sourceType.name) +
-                                    if (version.selected) " · selected" else "") },
-                                onClick = {
-                                    menuExpanded = false
-                                    onLyricsVersion(version.id)
-                                },
-                            )
-                        }
-                    }
-                }
+                PlayerActionsMenu(
+                    expanded = menuExpanded,
+                    trackId = lyricsState.trackId,
+                    lyricsState = lyricsState,
+                    lyricsExpanded = lyricsExpanded,
+                    sleepTimerLabel = sleepTimerStatusLabel(sleepTimer),
+                    onDismiss = { menuExpanded = false },
+                    onOpenSleepTimer = onOpenSleepTimer,
+                    onWhyThisSong = onWhyThisSong,
+                    onContinueVibe = onContinueVibe,
+                    onToggleLyrics = onToggleLyrics,
+                    onImportLrc = { importLauncher.launch(arrayOf("*/*")) },
+                    onPasteLyrics = { pasteDialog = true },
+                    onAdjustDelay = onLyricsDelay,
+                    onSelectVersion = onLyricsVersion,
+                    onDeleteVersion = onLyricsDeleteVersion,
+                )
             }
         }
     }
