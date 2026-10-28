@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -25,6 +26,7 @@ class TdLibClientAdapter {
     val updates: Flow<TdApi.Object> = globalUpdateChannel.asSharedFlow()
     val failures: Flow<Throwable> = globalFailureChannel.asSharedFlow()
     val chatFolders: StateFlow<List<TdApi.ChatFolderInfo>> = globalChatFolders.asStateFlow()
+    val chatFolderRevision: Long get() = globalChatFolderRevision.get()
     private val _authorizationStates = MutableStateFlow<TdApi.AuthorizationState?>(null)
     val authorizationStates: StateFlow<TdApi.AuthorizationState?> = _authorizationStates.asStateFlow()
     internal val fileStates = TdFileStateRegistry()
@@ -41,11 +43,13 @@ class TdLibClientAdapter {
                     fileStates.publish(update.file)
                 }
                 if (update is TdApi.UpdateChatFolders) {
+                    globalChatFolderRevision.incrementAndGet()
                     globalChatFolders.value = update.chatFolders.toList()
                 }
                 if (update is TdApi.UpdateAuthorizationState &&
                     update.authorizationState !is TdApi.AuthorizationStateReady
                 ) {
+                    globalChatFolderRevision.incrementAndGet()
                     globalChatFolders.value = emptyList()
                 }
                 val shouldForward = if (update is TdApi.UpdateAuthorizationState) {
@@ -133,6 +137,7 @@ class TdLibClientAdapter {
         private val globalUpdateChannel = MutableSharedFlow<TdApi.Object>(replay = 1, extraBufferCapacity = 64)
         private val globalFailureChannel = MutableSharedFlow<Throwable>(replay = 1, extraBufferCapacity = 8)
         private val globalChatFolders = MutableStateFlow<List<TdApi.ChatFolderInfo>>(emptyList())
+        private val globalChatFolderRevision = AtomicLong(0L)
         @Volatile
         private var activeInstance: TdLibClientAdapter? = null
 

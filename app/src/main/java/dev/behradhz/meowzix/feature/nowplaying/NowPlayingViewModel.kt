@@ -269,6 +269,7 @@ class NowPlayingViewModel @Inject constructor(
             ?: return
         forwardSearchJob?.cancel()
         forwardFoldersJob?.cancel()
+        val cachedFolders = telegramForwardRepository.cachedForwardFolders()
         forwardTrackId = selectedTrack.id
         _forwardState.update {
             it.copy(
@@ -276,9 +277,9 @@ class NowPlayingViewModel @Inject constructor(
                 track = selectedTrack,
                 query = "",
                 chats = emptyList(),
-                folders = emptyList(),
-                foldersLoading = true,
-                foldersError = null,
+                folders = cachedFolders.orEmpty(),
+                foldersLoading = cachedFolders == null,
+                foldersError = if (cachedFolders?.isEmpty() == true) "No Telegram folders found" else null,
                 isSearching = true,
                 isSending = false,
                 successfulForwardCount = 0,
@@ -286,11 +287,13 @@ class NowPlayingViewModel @Inject constructor(
             )
         }
         searchForwardChats("")
-        reloadForwardFolders()
+        if (cachedFolders == null) loadForwardFolders(forceRefresh = false)
     }
 
-    /** Folders are delivered asynchronously by TDLib and can require a retry. */
-    fun reloadForwardFolders() {
+    /** Explicit Retry is the only action that bypasses a valid in-memory snapshot. */
+    fun reloadForwardFolders() = loadForwardFolders(forceRefresh = true)
+
+    private fun loadForwardFolders(forceRefresh: Boolean) {
         val trackId = _forwardState.value.track?.id ?: return
         forwardFoldersJob?.cancel()
         _forwardState.update {
@@ -301,7 +304,11 @@ class NowPlayingViewModel @Inject constructor(
         }
         forwardFoldersJob = viewModelScope.launch {
             try {
-                val folders = telegramForwardRepository.loadForwardFolders()
+                val folders = if (forceRefresh) {
+                    telegramForwardRepository.refreshForwardFolders()
+                } else {
+                    telegramForwardRepository.loadForwardFolders()
+                }
                 _forwardState.update {
                     if (it.isOpen && it.track?.id == trackId) it.copy(
                         folders = folders,

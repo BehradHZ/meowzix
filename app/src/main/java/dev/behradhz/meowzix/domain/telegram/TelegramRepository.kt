@@ -154,7 +154,15 @@ interface TelegramForwardRepository {
     fun initialize()
 
     suspend fun searchChats(query: String, limit: Int = 50): List<TelegramChatSummary>
+
+    /** Return a valid in-memory snapshot without I/O, or null if a load is needed. */
+    fun cachedForwardFolders(): List<TelegramForwardFolder>? = null
+
+    /** Reuses the account-scoped snapshot when its TDLib revision is unchanged. */
     suspend fun loadForwardFolders(): List<TelegramForwardFolder>
+
+    /** Explicit user-initiated refresh bypasses the snapshot. */
+    suspend fun refreshForwardFolders(): List<TelegramForwardFolder> = loadForwardFolders()
 
     suspend fun enqueueTrack(
         trackId: UUID,

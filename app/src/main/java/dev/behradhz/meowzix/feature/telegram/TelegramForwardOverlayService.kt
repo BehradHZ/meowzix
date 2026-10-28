@@ -128,9 +128,16 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
             return START_NOT_STICKY
         }
         searchJob?.cancel()
-        _ui.value = OverlayForwardState(track = snapshot, foldersLoading = true)
+        foldersJob?.cancel()
+        val cachedFolders = forward.cachedForwardFolders()
+        _ui.value = OverlayForwardState(
+            track = snapshot,
+            folders = cachedFolders.orEmpty(),
+            foldersLoading = cachedFolders == null,
+            foldersError = if (cachedFolders?.isEmpty() == true) "No Telegram folders found" else null,
+        )
         search("")
-        reloadFolders()
+        if (cachedFolders == null) loadFolders(forceRefresh = false)
         scope.launch {
             runCatching { settings.telegramForwardSettings.first() }
                 .onSuccess { defaults -> _ui.update { if (it.track?.id == snapshot.id) it.copy(defaults = defaults) else it } }
@@ -234,7 +241,9 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
         }
     }
 
-    private fun reloadFolders() {
+    private fun reloadFolders() = loadFolders(forceRefresh = true)
+
+    private fun loadFolders(forceRefresh: Boolean) {
         val trackId = _ui.value.track?.id ?: return
         foldersJob?.cancel()
         _ui.update {
@@ -244,7 +253,11 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
         }
         foldersJob = scope.launch {
             try {
-                val folders = forward.loadForwardFolders()
+                val folders = if (forceRefresh) {
+                    forward.refreshForwardFolders()
+                } else {
+                    forward.loadForwardFolders()
+                }
                 _ui.update {
                     if (it.track?.id == trackId) it.copy(
                         folders = folders,

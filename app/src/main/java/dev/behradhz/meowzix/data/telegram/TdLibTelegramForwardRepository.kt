@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.SystemClock
 import android.webkit.MimeTypeMap
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
@@ -36,6 +37,8 @@ import javax.inject.Singleton
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
@@ -63,6 +66,10 @@ class TdLibTelegramForwardRepository @Inject constructor(
 ) : TelegramForwardRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val queueMutex = Mutex()
+    private val folderLoadMutex = Mutex()
+    private val folderCache = ForwardFolderMemoryCache<TelegramForwardFolder>()
+    private val folderRequestLock = Any()
+    private var inFlightFolderRequest: Deferred<List<TelegramForwardFolder>>? = null
     private val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
 
     override val sendJobs: Flow<List<TelegramSendJob>> = sendDao.observeRecent().map { jobs ->
@@ -155,36 +162,90 @@ class TdLibTelegramForwardRepository @Inject constructor(
         return result
     }
 
-    override suspend fun loadForwardFolders(): List<TelegramForwardFolder> {
-        val activeClient = TdLibClientAdapter.activeOrNull() ?: return emptyList()
-        if (telegramRepository.authState.value.step !is TelegramAuthStep.Ready) return emptyList()
-        val accountId = telegramRepository.musicSourceState.value.accountId ?: return emptyList()
-        val userId = accountId.toLongOrNull() ?: return emptyList()
-        val selectedIds = telegramRepository.musicSourceState.value.selectedChatIds
-        val infos = awaitTelegramFolderSnapshot(activeClient.chatFolders)
-        return infos.map { info ->
-            val chatList = TdApi.ChatListFolder(info.id)
-            // TDLib may initially have only part of this chat list cached. A
-            // fresh folder definition also includes explicitly pinned/included
-            // chats, even before their chat-list positions have loaded.
-            val definition = runCatching { activeClient.send(TdApi.GetChatFolder(info.id)) }.getOrNull()
-            runCatching { activeClient.send(TdApi.LoadChats(chatList, 100)) }
-            val chatIds = LinkedHashSet<Long>()
-            definition?.pinnedChatIds?.let { chatIds.addAll(it.toList()) }
-            definition?.includedChatIds?.let { chatIds.addAll(it.toList()) }
-            runCatching { activeClient.send(TdApi.GetChats(chatList, 100)).chatIds.toList() }
-                .getOrDefault(emptyList())
-                .let(chatIds::addAll)
-            definition?.excludedChatIds?.toSet()?.let(chatIds::removeAll)
-            val chats = chatIds.mapNotNull { id ->
-                runCatching { activeClient.send(TdApi.GetChat(id)) }.getOrNull()
-                    ?.toForwardSummary(userId, id in selectedIds)
+    override fun cachedForwardFolders(): List<TelegramForwardFolder>? {
+        val client = TdLibClientAdapter.activeOrNull() ?: return null
+        if (telegramRepository.authState.value.step !is TelegramAuthStep.Ready) return null
+        val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
+        return folderCache.snapshot(
+            accountId = accountId,
+            session = client,
+            revision = client.chatFolderRevision,
+            nowMillis = SystemClock.elapsedRealtime(),
+        )
+    }
+
+    override suspend fun loadForwardFolders(): List<TelegramForwardFolder> =
+        fetchForwardFolders(forceRefresh = false)
+
+    override suspend fun refreshForwardFolders(): List<TelegramForwardFolder> =
+        fetchForwardFolders(forceRefresh = true)
+
+    /**
+     * The singleton repository owns the load: dismissing the UI must not cancel
+     * the first TDLib fetch and cause another fetch on the next picker opening.
+     * Concurrent pickers share one in-flight request.
+     */
+    private suspend fun fetchForwardFolders(forceRefresh: Boolean): List<TelegramForwardFolder> {
+        if (!forceRefresh) cachedForwardFolders()?.let { return it }
+        val request = synchronized(folderRequestLock) {
+            inFlightFolderRequest?.takeIf { it.isActive }
+                ?: scope.async { loadFolderSnapshot(forceRefresh) }.also { inFlightFolderRequest = it }
+        }
+        return request.await()
+    }
+
+    private suspend fun loadFolderSnapshot(forceRefresh: Boolean): List<TelegramForwardFolder> =
+        folderLoadMutex.withLock {
+            if (!forceRefresh) cachedForwardFolders()?.let { return@withLock it }
+            val client = TdLibClientAdapter.activeOrNull() ?: return@withLock emptyList()
+            if (telegramRepository.authState.value.step !is TelegramAuthStep.Ready) {
+                return@withLock emptyList()
             }
-            TelegramForwardFolder(
-                info.id,
-                info.name?.text?.text?.ifBlank { "Folder" } ?: "Folder",
-                chats,
-            )
+            val accountId = telegramRepository.musicSourceState.value.accountId
+                ?: return@withLock emptyList()
+            val userId = accountId.toLongOrNull() ?: return@withLock emptyList()
+            val selectedIds = telegramRepository.musicSourceState.value.selectedChatIds
+            val infos = awaitTelegramFolderSnapshot(client.chatFolders)
+            val folderRevision = client.chatFolderRevision
+            val folders = infos.map { info ->
+                val chatList = TdApi.ChatListFolder(info.id)
+                // Include explicit pinned/included chats even when TDLib has not
+                // finished loading all folder list positions.
+                val definition = runCatching { client.send(TdApi.GetChatFolder(info.id)) }.getOrNull()
+                runCatching { client.send(TdApi.LoadChats(chatList, 100)) }
+                val chatIds = LinkedHashSet<Long>()
+                definition?.pinnedChatIds?.let { chatIds.addAll(it.toList()) }
+                definition?.includedChatIds?.let { chatIds.addAll(it.toList()) }
+                runCatching { client.send(TdApi.GetChats(chatList, 100)).chatIds.toList() }
+                    .getOrDefault(emptyList())
+                    .let(chatIds::addAll)
+                definition?.excludedChatIds?.toSet()?.let(chatIds::removeAll)
+                val chats = chatIds.mapNotNull { id ->
+                    runCatching { client.send(TdApi.GetChat(id)) }.getOrNull()
+                        ?.toForwardSummary(userId, id in selectedIds)
+                }
+                TelegramForwardFolder(
+                    info.id,
+                    info.name?.text?.text?.ifBlank { "Folder" } ?: "Folder",
+                    chats,
+                )
+            }
+            // Do not publish data from a stale client/account or from a folder
+            // revision that changed while the expensive fetch was in progress.
+            if (TdLibClientAdapter.activeOrNull() === client &&
+                telegramRepository.authState.value.step is TelegramAuthStep.Ready &&
+                telegramRepository.musicSourceState.value.accountId == accountId &&
+                client.chatFolderRevision == folderRevision
+            ) {
+                folderCache.save(
+                    accountId = accountId,
+                    session = client,
+                    revision = folderRevision,
+                    nowMillis = SystemClock.elapsedRealtime(),
+                    folders = folders,
+                )
+            }
+            folders
         }
     }
 
