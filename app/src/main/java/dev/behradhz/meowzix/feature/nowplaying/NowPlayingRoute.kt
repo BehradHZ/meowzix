@@ -42,7 +42,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
-import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
@@ -66,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
@@ -197,6 +198,8 @@ fun NowPlayingRoute(
             track = track,
             query = forwardState.query,
             chats = forwardState.chats,
+            folders = forwardState.folders,
+            successfulForwardCount = forwardState.successfulForwardCount,
             isSearching = forwardState.isSearching,
             isSending = forwardState.isSending,
             errorMessage = forwardState.errorMessage,
@@ -566,7 +569,7 @@ private fun PlayerHeader(
             )
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onOpenForward) {
-                Icon(Icons.Rounded.Send, contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
+                Icon(painterResource(R.drawable.ic_forward_rocket), contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
             }
             IconButton(onClick = onOpenQueue) {
                 Icon(Icons.Rounded.QueueMusic, contentDescription = "Open queue", tint = PlayerPrimaryContent)

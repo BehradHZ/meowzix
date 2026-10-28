@@ -24,7 +24,6 @@ import androidx.test.runner.lifecycle.Stage
 import com.google.common.util.concurrent.ListenableFuture
 import dev.behradhz.meowzix.MainActivity
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
-import dev.behradhz.meowzix.feature.telegram.NotificationForwardGatewayActivity
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardOverlayService
 import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
 import dev.behradhz.meowzix.domain.playback.CrossfadePolicy
@@ -174,30 +173,31 @@ class PlaybackServiceTest {
     }
 
     @Test
-    fun notificationForwardUsesAnOpaqueTaskAndPreservesPinnedSelection() {
+    fun notificationForwardUsesDirectTransparentPickerAndPreservesPinnedSelection() {
         val trackId = UUID.randomUUID().toString()
-        val launch = NotificationForwardGatewayActivity.intent(context, trackId, "Selected title", "Selected artist")
-        assertEquals(NotificationForwardGatewayActivity::class.java.name, launch.component?.className)
+        val launch = TelegramForwardActivity.intent(context, trackId, "Selected title", "Selected artist")
+        assertEquals(TelegramForwardActivity::class.java.name, launch.component?.className)
         assertEquals(trackId, launch.getStringExtra("forward_track_id"))
         assertEquals("Selected title", launch.getStringExtra("forward_track_title"))
         assertEquals("Selected artist", launch.getStringExtra("forward_track_artist"))
         assertTrue(launch.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+        assertTrue(launch.flags and Intent.FLAG_ACTIVITY_NO_ANIMATION != 0)
         assertFalse(launch.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK != 0)
 
         val info = context.packageManager.getActivityInfo(
-            ComponentName(context, NotificationForwardGatewayActivity::class.java), 0,
+            ComponentName(context, TelegramForwardActivity::class.java), 0,
         )
         val theme = context.resources.newTheme().apply { applyStyle(info.theme, true) }
         val values = theme.obtainStyledAttributes(intArrayOf(android.R.attr.windowIsTranslucent))
         try {
-            assertFalse("Gateway must be opaque to request a real foreground transition", values.getBoolean(0, true))
+            assertTrue("Notification picker should keep the underlying app visible", values.getBoolean(0, false))
         } finally {
             values.recycle()
         }
     }
 
     @Test
-    fun notificationForwardCommandOpensPickerViaOpaqueGatewayWithoutOverlayPermission() {
+    fun notificationForwardCommandOpensPickerDirectlyWithoutOverlayPermission() {
         val item = playableItem("Forward target", createWaveFile("notification-forward.wav", 12_000))
         onMain {
             controller.setMediaItem(item)
@@ -228,14 +228,6 @@ class PlaybackServiceTest {
             assertTrue(
                 "Notification Forward must use a real Activity, not the system-alert overlay",
                 !TelegramForwardOverlayService.overlayWindowVisible,
-            )
-            assertFalse(
-                "The opaque handoff Activity must not remain underneath the picker",
-                onMain {
-                    ActivityLifecycleMonitorRegistry.getInstance()
-                        .getActivitiesInStage(Stage.RESUMED)
-                        .any { it is NotificationForwardGatewayActivity }
-                },
             )
         } finally {
             onMain {

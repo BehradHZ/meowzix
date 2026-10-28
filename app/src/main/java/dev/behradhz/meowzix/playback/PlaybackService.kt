@@ -36,6 +36,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.MainActivity
+import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
@@ -53,7 +54,7 @@ import dev.behradhz.meowzix.domain.playback.SleepTimerMode
 import dev.behradhz.meowzix.domain.playback.SleepTimerPolicy
 import dev.behradhz.meowzix.domain.playback.SleepTimerTerminationReason
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
-import dev.behradhz.meowzix.feature.telegram.NotificationForwardGatewayActivity
+import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
 import dev.behradhz.meowzix.widget.PlaybackWidgetProvider
@@ -699,7 +700,8 @@ class PlaybackService : MediaLibraryService() {
             .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
             .setSlots(CommandButton.SLOT_FORWARD)
             .build(),
-        if (includeForward) CommandButton.Builder(CommandButton.ICON_SHARE)
+        if (includeForward) CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+            .setCustomIconResId(R.drawable.ic_forward_rocket)
             .setDisplayName("Forward on Telegram")
             .setSessionCommand(forwardCommand)
             .setSlots(CommandButton.SLOT_OVERFLOW)
@@ -744,10 +746,9 @@ class PlaybackService : MediaLibraryService() {
     @Suppress("DEPRECATION")
     private fun openTelegramForwardPicker(): Boolean {
         if (player.currentMediaItem == null) return false
-        // SystemUI sends the Android 13+ media custom command to this service, not an
-        // activity PendingIntent. Launch an opaque foreground gateway first; opening a
-        // translucent picker straight from the service leaves the shade expanded on
-        // some devices. The gateway waits for focus, then opens the existing picker.
+        // Launch the translucent picker directly. The old opaque gateway drew
+        // a visible black fullscreen frame before displaying the real panel.
+        // SystemUI/OEM firmware still controls the notification shade transition.
         val creatorOptions = if (Build.VERSION.SDK_INT >= 35) {
             ActivityOptions.makeBasic()
                 .setPendingIntentCreatorBackgroundActivityStartMode(
@@ -760,13 +761,11 @@ class PlaybackService : MediaLibraryService() {
         val forwardIntent = PendingIntent.getActivity(
             this,
             1,
-            NotificationForwardGatewayActivity.intent(
+            TelegramForwardActivity.intent(
                 this,
                 player.currentMediaItem?.mediaId,
                 player.currentMediaItem?.mediaMetadata?.title?.toString(),
                 player.currentMediaItem?.mediaMetadata?.artist?.toString(),
-            ).apply {
-                // Intent flags are defined by the gateway: one reusable transient task.
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             creatorOptions,

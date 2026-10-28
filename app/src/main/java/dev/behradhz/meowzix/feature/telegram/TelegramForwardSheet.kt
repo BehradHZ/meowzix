@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -53,6 +54,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
@@ -90,6 +93,11 @@ private val TelegramGlassStroke: Color
 private val TelegramGlassFill: Color
     @Composable get() = TelegramGlassChrome.fill
 private const val SentStatusVisibilityMillis = 3_000L
+private const val AutoDismissAfterFirstSendMillis = 2_000L
+
+/** The idle timer is armed only for the first accepted send. */
+internal fun shouldAutoDismissAfterFirstForward(acceptedSends: Int, touchedSinceFirst: Boolean): Boolean =
+    acceptedSends == 1 && !touchedSinceFirst
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)
@@ -103,6 +111,7 @@ fun TelegramForwardSheet(
     query: String,
     chats: List<TelegramChatSummary>,
     folders: List<TelegramForwardFolder> = emptyList(),
+    successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
     errorMessage: String?,
@@ -117,6 +126,7 @@ fun TelegramForwardSheet(
     query = query,
     chats = chats,
     folders = folders,
+    successfulForwardCount = successfulForwardCount,
     isSearching = isSearching,
     isSending = isSending,
     errorMessage = errorMessage,
@@ -135,6 +145,7 @@ fun TelegramForwardSheet(
     query: String,
     chats: List<TelegramChatSummary>,
     folders: List<TelegramForwardFolder> = emptyList(),
+    successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
     errorMessage: String?,
@@ -152,6 +163,7 @@ fun TelegramForwardSheet(
         query = query,
         chats = chats,
         folders = folders,
+        successfulForwardCount = successfulForwardCount,
         isSearching = isSearching,
         isSending = isSending,
         errorMessage = errorMessage,
@@ -172,6 +184,7 @@ private fun ForwardPickerBody(
     query: String,
     chats: List<TelegramChatSummary>,
     folders: List<TelegramForwardFolder> = emptyList(),
+    successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
     errorMessage: String?,
@@ -190,6 +203,15 @@ private fun ForwardPickerBody(
     }
     var rememberDefaults by rememberSaveable(trackId.toString()) { mutableStateOf(false) }
     var actionError by remember(trackId) { mutableStateOf<String?>(null) }
+    // After the first accepted send, dismiss only if no one interacts with the
+    // picker for two seconds. Later touches cancel the auto-dismiss entirely.
+    var interactedAfterFirstSend by remember(trackId) { mutableStateOf(false) }
+    LaunchedEffect(trackId, successfulForwardCount, interactedAfterFirstSend) {
+        if (shouldAutoDismissAfterFirstForward(successfulForwardCount, interactedAfterFirstSend)) {
+            delay(AutoDismissAfterFirstSendMillis)
+            onDismiss()
+        }
+    }
 
     var selectedFolderId by rememberSaveable(trackId.toString()) { mutableStateOf<Int?>(null) }
     val activeFolder = folders.firstOrNull { it.id == selectedFolderId }
@@ -239,8 +261,23 @@ private fun ForwardPickerBody(
         GlassSurface(
             hazeState = hazeState,
             modifier = Modifier.fillMaxWidth()
-                .then(if (floatingOverlay) Modifier.heightIn(max = maxPanelHeight)
-                    .border(1.dp, TelegramGlassStroke, sheetShape) else Modifier),
+                .then(
+                    if (floatingOverlay) Modifier.height(maxPanelHeight)
+                        .border(1.dp, TelegramGlassStroke, sheetShape)
+                    else Modifier.fillMaxHeight(0.96f)
+                )
+                .pointerInput(trackId, successfulForwardCount) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (successfulForwardCount > 0 &&
+                                event.changes.any { it.pressed && !it.previousPressed }
+                            ) {
+                                interactedAfterFirstSend = true
+                            }
+                        }
+                    }
+                },
             shape = sheetShape,
             fallbackColor = TelegramGlass.copy(alpha = 0.96f),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.065f),
@@ -254,8 +291,8 @@ private fun ForwardPickerBody(
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth()
-                        .then(if (floatingOverlay) Modifier.heightIn(max = maxPanelHeight)
-                            .verticalScroll(rememberScrollState()) else Modifier)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState())
                         .padding(horizontal = 18.dp, vertical = 14.dp),
                 ) {
                 if (!floatingOverlay) {
@@ -370,7 +407,10 @@ private fun ForwardPickerBody(
                 // Keep search immediately above the account/chat names.
                 TextField(
                     value = query,
-                    onValueChange = onQueryChange,
+                    onValueChange = {
+                        if (successfulForwardCount > 0) interactedAfterFirstSend = true
+                        onQueryChange(it)
+                    },
                     singleLine = true,
                     leadingIcon = {
                         Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f))
@@ -424,7 +464,11 @@ private fun ForwardPickerBody(
                     else -> LazyColumn(
                         modifier = Modifier.fillMaxWidth().heightIn(
                             min = 100.dp,
-                            max = if (floatingOverlay) 250.dp else 330.dp,
+                            max = if (floatingOverlay) {
+                                (maxPanelHeight - 360.dp).coerceAtLeast(330.dp)
+                            } else {
+                                (LocalConfiguration.current.screenHeightDp.dp - 370.dp).coerceAtLeast(330.dp)
+                            },
                         ),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {

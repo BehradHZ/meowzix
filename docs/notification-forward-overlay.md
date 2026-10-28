@@ -1,38 +1,24 @@
-# Notification Forward: opaque gateway, then floating Telegram picker
+# Notification Forward: direct translucent Telegram picker
 
-On Android 13+, a SystemUI MediaSession Forward button dispatches a custom command
-to `PlaybackService`; it is **not** a SystemUI-sent activity PendingIntent.
-Sending a translucent activity PendingIntent directly from the service can leave
-Quick Settings/notification shade open in front of the picker.
+The MediaSession Forward command launches `TelegramForwardActivity` directly
+with an immutable activity `PendingIntent`. No opaque black gateway frame is
+present. Android SystemUI/OEM firmware controls the notification-shade
+transition; a direct translucent activity cannot guarantee automatic shade
+dismissal on every Android build. No hidden status-bar APIs or system-overlay
+permission are used.
 
-The service now starts an explicit immutable PendingIntent for
-`NotificationForwardGatewayActivity`, a **real opaque Activity** in its own
-non-recents task. After the gateway resumes and receives window focus, it opens
-the existing translucent `TelegramForwardActivity` with the selected track's
-pinned ID/title/artist and immediately finishes. The old app can therefore remain
-visible behind the floating sheet after this handoff. The transient gateway
-doesn't require overlay permission, a timer, special accessibility access, or
-any status-bar/internal APIs.
+- The player and notification use the same rocket drawable.
+- Both entry points provide the Telegram folder chips and searchable chats.
+- A newly accepted first send arms a 2-second idle close. Touching, scrolling,
+  selecting folders, or typing in the picker before expiry leaves it open.
+- The floating card remains transparent around its edges and uses the available
+  screen height (minus small edge and system-bar insets), allowing more visible
+  chats. The player sheet also extends nearly to the top.
+- The selected track ID/title/artist remain pinned across notification launch.
+- Enqueue failures and duplicate/already-sent attempts do not arm auto-close.
 
-- The Forward sheet keeps the same searchable chat picker, send options, dark
-  glass card, bottom anchor, insets and height cap.
-- A loading state remains in the existing picker while its ViewModel prepares
-  the selected track and Telegram chats.
-- A repeated Forward intent refreshes its pinned selected-track snapshot.
-- Closing the picker returns to the previously visible app and leaves playback
-  and notification intact.
-- The retired NoDisplay/WindowManager paths stay in source for compatibility;
-  system-media Forward does not use them.
+**Real-device QA:** Check Forward from Android 13+ expanded media controls,
+backgrounded and foregrounded Meowzix, different OEM notification shades,
+themed icons, and keyboard open/closed. Verify tapping or scrolling during the
+2-second countdown prevents close, while no interaction closes the picker.
 
-**Platform boundary:** SystemUI/OEM firmware decides when its own shade retracts.
-On Android 13+ there is no public app API to force-close it after receiving a
-MediaSession custom command. `ACTION_CLOSE_SYSTEM_DIALOGS` is restricted, and
-hidden status-bar APIs must not be used. The opaque gateway provides a normal
-foreground activity transition instead of placing an overlay underneath the
-shade. This improves the route but does not guarantee shade animation on every
-OEM or lock-screen configuration.
-
-CI covers session command dispatch and Activity lifecycle handoff. A real-device
-QA pass must expand Quick Settings, tap Forward from the media controls, confirm
-the shade retracts and the Telegram picker is interactive, and repeat when
-Meowzix is backgrounded, the phone is locked/unlocked, and Forward is tapped twice.

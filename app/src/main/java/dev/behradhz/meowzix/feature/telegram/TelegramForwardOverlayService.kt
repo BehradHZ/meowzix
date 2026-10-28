@@ -190,7 +190,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                         modifier = Modifier.fillMaxSize()
                             .imePadding()
                             .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         contentAlignment = Alignment.BottomCenter,
                     ) {
                         val availableHeight = maxHeight
@@ -213,6 +213,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                                 query = state.query,
                                 chats = state.chats,
                                 folders = state.folders,
+                                successfulForwardCount = state.successfulForwardCount,
                                 isSearching = state.isSearching,
                                 isSending = state.isSending,
                                 errorMessage = state.errorMessage,
@@ -221,7 +222,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                                 onForward = ::send,
                                 onDismiss = ::dismiss,
                                 floatingOverlay = true,
-                                overlayMaxHeight = availableHeight * 0.82f,
+                                overlayMaxHeight = availableHeight,
                             )
                         }
                     }
@@ -256,6 +257,8 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
         val track = current.track ?: return
         if (current.isSending) return
         val title = current.chats.firstOrNull { it.chatId == chatId }?.title
+            ?: current.folders.asSequence().flatMap { it.chats.asSequence() }
+                .firstOrNull { it.chatId == chatId }?.title
         _ui.update { it.copy(isSending = true, errorMessage = null) }
         scope.launch {
             try {
@@ -268,7 +271,14 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                     is TelegramSendEnqueueResult.AlreadyQueued -> "Already queued for ${result.job.targetTitle ?: "this chat"}."
                     is TelegramSendEnqueueResult.AlreadyInChat -> "Already sent to ${result.targetTitle ?: "this chat"}."
                 }
-                _ui.update { if (it.track?.id == track.id) it.copy(isSending = false, errorMessage = message) else it }
+                _ui.update {
+                    if (it.track?.id == track.id) it.copy(
+                        isSending = false,
+                        errorMessage = message,
+                        successfulForwardCount = it.successfulForwardCount +
+                            if (result is TelegramSendEnqueueResult.Queued) 1 else 0,
+                    ) else it
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
@@ -328,6 +338,7 @@ private data class OverlayForwardState(
     val folders: List<TelegramForwardFolder> = emptyList(),
     val isSearching: Boolean = false,
     val isSending: Boolean = false,
+    val successfulForwardCount: Int = 0,
     val errorMessage: String? = null,
     val defaults: TelegramForwardSettings = TelegramForwardSettings(),
 )

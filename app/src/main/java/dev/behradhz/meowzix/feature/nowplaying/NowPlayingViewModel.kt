@@ -47,6 +47,8 @@ data class TelegramForwardUiState(
     val folders: List<TelegramForwardFolder> = emptyList(),
     val isSearching: Boolean = false,
     val isSending: Boolean = false,
+    /** Counts newly accepted sends for this picker session; never counts retries/errors. */
+    val successfulForwardCount: Int = 0,
     val errorMessage: String? = null,
     val defaults: TelegramForwardSettings = TelegramForwardSettings(),
 )
@@ -272,6 +274,7 @@ class NowPlayingViewModel @Inject constructor(
                 folders = emptyList(),
                 isSearching = true,
                 isSending = false,
+                successfulForwardCount = 0,
                 errorMessage = null,
             )
         }
@@ -296,6 +299,7 @@ class NowPlayingViewModel @Inject constructor(
                 folders = emptyList(),
                 isSearching = false,
                 isSending = false,
+                successfulForwardCount = 0,
                 errorMessage = null,
             )
         }
@@ -333,7 +337,10 @@ class NowPlayingViewModel @Inject constructor(
     ) {
         val trackId = forwardTrackId ?: return
         if (_forwardState.value.isSending) return
-        val targetTitle = _forwardState.value.chats.firstOrNull { it.chatId == targetChatId }?.title
+        val picker = _forwardState.value
+        val targetTitle = picker.chats.firstOrNull { it.chatId == targetChatId }?.title
+            ?: picker.folders.asSequence().flatMap { it.chats.asSequence() }
+                .firstOrNull { it.chatId == targetChatId }?.title
         _forwardState.update { it.copy(errorMessage = null, isSending = true) }
         viewModelScope.launch {
             runCatching {
@@ -357,7 +364,14 @@ class NowPlayingViewModel @Inject constructor(
                     is TelegramSendEnqueueResult.AlreadyInChat ->
                         "Already sent to ${result.targetTitle ?: "this Telegram chat"}."
                 }
-                _forwardState.update { it.copy(errorMessage = message, isSending = false) }
+                _forwardState.update {
+                    if (it.isOpen && it.track?.id == trackId) it.copy(
+                        errorMessage = message,
+                        isSending = false,
+                        successfulForwardCount = it.successfulForwardCount +
+                            if (result is TelegramSendEnqueueResult.Queued) 1 else 0,
+                    ) else it
+                }
             }.onFailure { error ->
                 _forwardState.update {
                     it.copy(

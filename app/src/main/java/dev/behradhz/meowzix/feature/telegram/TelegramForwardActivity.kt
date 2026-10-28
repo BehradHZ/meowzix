@@ -121,7 +121,7 @@ class TelegramForwardActivity : ComponentActivity() {
                 .fillMaxSize()
                 .imePadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             contentAlignment = Alignment.BottomCenter,
         ) {
             val availableHeight = maxHeight
@@ -153,6 +153,7 @@ class TelegramForwardActivity : ComponentActivity() {
                         query = forwardState.query,
                         chats = forwardState.chats,
                         folders = forwardState.folders,
+                        successfulForwardCount = forwardState.successfulForwardCount,
                         isSearching = forwardState.isSearching,
                         isSending = forwardState.isSending,
                         errorMessage = forwardState.errorMessage,
@@ -161,7 +162,7 @@ class TelegramForwardActivity : ComponentActivity() {
                         onForward = viewModel::forwardCurrentTrack,
                         onDismiss = viewModel::dismissForwardPicker,
                         floatingOverlay = true,
-                        overlayMaxHeight = availableHeight * 0.82f,
+                        overlayMaxHeight = availableHeight,
                     )
                 } else if (!visibilityGate.hasShownPicker) {
                     Surface(
@@ -191,6 +192,13 @@ class TelegramForwardActivity : ComponentActivity() {
 
         fun intent(context: Context, trackId: String?, title: String?, artist: String?): Intent =
             Intent(context, TelegramForwardActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                        Intent.FLAG_ACTIVITY_NO_ANIMATION,
+                )
                 putExtra(EXTRA_TRACK_ID, trackId)
                 putExtra(EXTRA_TITLE, title)
                 putExtra(EXTRA_ARTIST, artist)
