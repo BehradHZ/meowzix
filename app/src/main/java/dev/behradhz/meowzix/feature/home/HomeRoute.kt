@@ -28,6 +28,8 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -59,6 +61,8 @@ fun HomeRoute(
     currentTrack: Track?,
     onPlayCollection: (List<Track>) -> Unit,
     onOpenLibrary: () -> Unit,
+    onOpenPlaylist: (java.util.UUID) -> Unit,
+    onOpenProfile: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -85,11 +89,17 @@ fun HomeRoute(
         ) {
             item("header") {
                 Column {
-                    Text(
-                        text = "Home",
-                        style = MaterialTheme.typography.displaySmall,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Home",
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = onOpenProfile) {
+                            Icon(Icons.Rounded.AccountCircle, contentDescription = "Profile and settings")
+                        }
+                    }
                     Text(
                         text = "Your listening, shaped for this moment.",
                         style = MaterialTheme.typography.bodyLarge,
@@ -146,7 +156,7 @@ fun HomeRoute(
                     PlaylistGlassRail(
                         hazeState = hazeState,
                         playlists = state.playlists,
-                        onOpenLibrary = onOpenLibrary,
+                        onOpenPlaylist = onOpenPlaylist,
                     )
                 }
             }
@@ -453,7 +463,7 @@ private fun ArtistOrbit(
 private fun PlaylistGlassRail(
     hazeState: HazeState,
     playlists: List<PlaylistSummary>,
-    onOpenLibrary: () -> Unit,
+    onOpenPlaylist: (java.util.UUID) -> Unit,
 ) {
     Column {
         HomeSectionHeading(title = "Playlists", subtitle = "Your collections")
@@ -467,7 +477,7 @@ private fun PlaylistGlassRail(
                     modifier = Modifier
                         .width(196.dp)
                         .height(126.dp)
-                        .clickable(onClick = onOpenLibrary),
+                        .clickable { onOpenPlaylist(playlist.id) },
                     shape = RoundedCornerShape(28.dp),
                     fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.64f),
                     tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f),

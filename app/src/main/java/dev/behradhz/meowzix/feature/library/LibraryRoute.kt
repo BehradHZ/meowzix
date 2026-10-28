@@ -26,6 +26,8 @@ fun LibraryRoute(
     searchQuery: String = "",
     requestedArtist: String? = null,
     onArtistRequestConsumed: () -> Unit = {},
+    requestedAlbum: dev.behradhz.meowzix.data.repository.AlbumSummary? = null,
+    onAlbumRequestConsumed: () -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel(),
     tracksViewModel: LibraryTracksViewModel = hiltViewModel(),
     recommendationActions: RecommendationActionsViewModel = hiltViewModel(),
@@ -74,6 +76,8 @@ fun LibraryRoute(
                 tracksViewModel = tracksViewModel,
                 requestedArtist = requestedArtist,
                 onArtistRequestConsumed = onArtistRequestConsumed,
+                requestedAlbum = requestedAlbum,
+                onAlbumRequestConsumed = onAlbumRequestConsumed,
             )
         }
         dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs(recommendationActions)

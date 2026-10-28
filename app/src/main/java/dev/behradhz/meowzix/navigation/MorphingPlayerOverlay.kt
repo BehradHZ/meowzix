@@ -8,6 +8,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -80,7 +81,6 @@ import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
-import dev.behradhz.meowzix.ui.components.AudioSpectrum
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
@@ -182,6 +182,7 @@ internal fun MorphingPlayerOverlay(
     spectrum: AudioSpectrumState,
     viewModel: NowPlayingViewModel,
     morphState: MorphingPlayerState,
+    dockCompact: Boolean = false,
     onOpenQueue: () -> Unit,
     onGoToArtist: (String) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -236,13 +237,28 @@ internal fun MorphingPlayerOverlay(
         val navigationBottom = WindowInsets.navigationBars
             .asPaddingValues()
             .calculateBottomPadding()
-        val collapsedBottom = navigationBottom + CollapsedPlayerDockClearance
-        val horizontalInset = lerp(CollapsedPlayerHorizontalInset, 0.dp, expansionFraction)
+        val compactHeight by animateDpAsState(
+            if (dockCompact) 56.dp else CollapsedPlayerHeight,
+            animationSpec = tween(if (reduceMotion) 0 else 240),
+            label = "mini-height",
+        )
+        val miniInset by animateDpAsState(
+            if (dockCompact) 84.dp else CollapsedPlayerHorizontalInset,
+            animationSpec = tween(if (reduceMotion) 0 else 240),
+            label = "mini-horizontal-inset",
+        )
+        val dockClearance by animateDpAsState(
+            if (dockCompact) 18.dp else CollapsedPlayerDockClearance,
+            animationSpec = tween(if (reduceMotion) 0 else 240),
+            label = "mini-dock-clearance",
+        )
+        val collapsedBottom = navigationBottom + dockClearance
+        val horizontalInset = lerp(miniInset, 0.dp, expansionFraction)
         val bottomInset = lerp(collapsedBottom, 0.dp, expansionFraction)
-        val playerHeight = lerp(CollapsedPlayerHeight, maxHeight, expansionFraction)
+        val playerHeight = lerp(compactHeight, maxHeight, expansionFraction)
         val cornerRadius = lerp(28.dp, 0.dp, expansionFraction)
         val travelPx = with(density) {
-            (maxHeight - CollapsedPlayerHeight).toPx().coerceAtLeast(1f)
+            (maxHeight - compactHeight).toPx().coerceAtLeast(1f)
         }
         val settleDistancePx = with(density) { PlayerSettleDistance.toPx() }
 
@@ -323,24 +339,27 @@ internal fun MorphingPlayerOverlay(
             val miniAlpha = (1f - expansionFraction / 0.24f).coerceIn(0f, 1f)
             val fullAlpha = ((expansionFraction - 0.10f) / 0.34f).coerceIn(0f, 1f)
 
-            MiniPlayerContent(
-                state = state,
-                queueState = queueState,
-                spectrum = spectrum,
-                onTogglePlayPause = viewModel::togglePlayPause,
-                onNext = viewModel::next,
-                onPlayQueueItemAt = viewModel::playQueueItemAt,
-                reduceMotion = reduceMotion,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(CollapsedPlayerHeight)
-                    .graphicsLayer {
-                        alpha = miniAlpha
-                        scaleX = 1f - (0.025f * expansionFraction)
-                        scaleY = 1f - (0.025f * expansionFraction)
-                    },
-            )
+            if (dockCompact) {
+                CompactMiniPlayerContent(
+                    state = state,
+                    onTogglePlayPause = viewModel::togglePlayPause,
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .height(compactHeight)
+                        .graphicsLayer { alpha = miniAlpha },
+                )
+            } else {
+                MiniPlayerContent(
+                    state = state,
+                    queueState = queueState,
+                    onTogglePlayPause = viewModel::togglePlayPause,
+                    onNext = viewModel::next,
+                    onPlayQueueItemAt = viewModel::playQueueItemAt,
+                    reduceMotion = reduceMotion,
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .height(compactHeight)
+                        .graphicsLayer { alpha = miniAlpha },
+                )
+            }
 
             if (expansionFraction > 0.035f || morphState.targetExpanded) {
                 Box(
@@ -375,7 +394,7 @@ internal fun MorphingPlayerOverlay(
                 .padding(
                     start = 30.dp,
                     end = 30.dp,
-                    bottom = collapsedBottom + CollapsedPlayerHeight + 10.dp,
+                    bottom = collapsedBottom + compactHeight + 10.dp,
                 ),
             enter = slideInVertically(
                 animationSpec = tween(if (reduceMotion) 0 else 260, easing = FastOutSlowInEasing),
@@ -431,10 +450,45 @@ private fun QueueActionFeedbackPill(
 }
 
 @Composable
+private fun CompactMiniPlayerContent(
+    state: PlaybackState,
+    onTogglePlayPause: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val track = state.currentTrack ?: return
+    val progress = if (state.durationMs > 0L) {
+        (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
+    } else 0f
+
+    Box(modifier = modifier) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(start = 6.dp, end = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TrackArtwork(track.artworkRef, track.title, 38.dp)
+            Text(
+                text = track.title,
+                modifier = Modifier.weight(1f).padding(start = 6.dp),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            IconButton(onClick = onTogglePlayPause, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    if (state.status == PlaybackStatus.PLAYING) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (state.status == PlaybackStatus.PLAYING) "Pause" else "Play",
+                )
+            }
+        }
+        MiniPlayerProgressBar(progress = progress, modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth())
+    }
+}
+
+@Composable
 private fun MiniPlayerContent(
     state: PlaybackState,
     queueState: QueueState,
-    spectrum: AudioSpectrumState,
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     onPlayQueueItemAt: (Int) -> Unit,
@@ -447,21 +501,6 @@ private fun MiniPlayerContent(
     } else {
         0f
     }
-    val compactBands = remember(spectrum.bands) {
-        val source = spectrum.bands
-        FloatArray(8) { compactIndex ->
-            val start = compactIndex * source.size / 8
-            val endExclusive = ((compactIndex + 1) * source.size / 8)
-                .coerceAtLeast(start + 1)
-                .coerceAtMost(source.size)
-            var peak = 0f
-            for (index in start until endExclusive) {
-                if (source[index] > peak) peak = source[index]
-            }
-            peak
-        }
-    }
-    val hasWaveform = remember(compactBands) { compactBands.any { it > 0.001f } }
     val activeIndex = remember(
         playingTrack.id,
         state.queueIndex,
@@ -484,8 +523,6 @@ private fun MiniPlayerContent(
                 if (activeIndex !in queueState.items.indices) {
                     MiniPlayerTrackSummary(
                         track = playingTrack.toMiniCard(),
-                        showWaveform = !reduceMotion && hasWaveform && state.status == PlaybackStatus.PLAYING,
-                        compactBands = compactBands,
                         reduceMotion = reduceMotion,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -494,8 +531,6 @@ private fun MiniPlayerContent(
                         state = state,
                         queueState = queueState,
                         activeIndex = activeIndex,
-                        compactBands = compactBands,
-                        hasWaveform = hasWaveform,
                         onNext = onNext,
                         onPlayQueueItemAt = onPlayQueueItemAt,
                         reduceMotion = reduceMotion,
@@ -548,8 +583,6 @@ private fun InteractiveMiniTrackPager(
     state: PlaybackState,
     queueState: QueueState,
     activeIndex: Int,
-    compactBands: FloatArray,
-    hasWaveform: Boolean,
     onNext: () -> Unit,
     onPlayQueueItemAt: (Int) -> Unit,
     reduceMotion: Boolean = false,
@@ -745,9 +778,6 @@ private fun InteractiveMiniTrackPager(
         if (!hasTarget) {
             MiniPlayerTrackSummary(
                 track = currentCard,
-                showWaveform = !reduceMotion && currentCard.id == state.currentTrack?.id &&
-                    hasWaveform && state.status == PlaybackStatus.PLAYING,
-                compactBands = compactBands,
                 reduceMotion = reduceMotion,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -764,9 +794,6 @@ private fun InteractiveMiniTrackPager(
                 underlay = {
                     MiniPlayerTrackSummary(
                         track = underlayCard,
-                        showWaveform = !reduceMotion && underlayCard.id == state.currentTrack?.id &&
-                            hasWaveform && state.status == PlaybackStatus.PLAYING,
-                        compactBands = compactBands,
                         reduceMotion = reduceMotion,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -774,9 +801,6 @@ private fun InteractiveMiniTrackPager(
                 foreground = {
                     MiniPlayerTrackSummary(
                         track = movingCard,
-                        showWaveform = !reduceMotion && movingCard.id == state.currentTrack?.id &&
-                            hasWaveform && state.status == PlaybackStatus.PLAYING,
-                        compactBands = compactBands,
                         reduceMotion = reduceMotion,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -789,8 +813,6 @@ private fun InteractiveMiniTrackPager(
 @Composable
 private fun MiniPlayerTrackSummary(
     track: MiniTrackCard,
-    showWaveform: Boolean,
-    compactBands: FloatArray,
     reduceMotion: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -820,17 +842,7 @@ private fun MiniPlayerTrackSummary(
             )
         }
 
-        if (showWaveform) {
-            AudioSpectrum(
-                bands = compactBands,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .width(44.dp)
-                    .height(22.dp)
-                    .padding(horizontal = 2.dp),
-            )
-            Spacer(Modifier.width(4.dp))
-        }
+
     }
 }
 
