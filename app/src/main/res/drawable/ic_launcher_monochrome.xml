@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android 13+ launcher applies its own foreground and background tones to this alpha mask. -->
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M36,31 L36,70 C36,80 28,85 20,82 C12,79 11,68 18,63 C22,60 27,60 31,61 L31,37 L77,29 L77,63 C77,73 69,78 61,75 C53,72 52,61 59,56 C63,53 68,53 72,54 L72,36 Z" />
-</vector>
+<!-- Themed launcher icon: derive the alpha mask from the actual Meowzix cat,
+     not the unrelated musical-note placeholder. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="20dp"
+    android:insetTop="20dp"
+    android:insetRight="20dp"
+    android:insetBottom="20dp">
+    <bitmap
+        android:src="@drawable/meowzix_logo_transparent"
+        android:gravity="fill"
+        android:tint="#FFFFFFFF" />
+</inset>
