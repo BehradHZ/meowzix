@@ -12,6 +12,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +51,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -135,11 +137,19 @@ fun MeowzixApp(
             DockDestination(SEARCH_ROUTE, "Search") { Icon(Icons.Rounded.Search, contentDescription = null) },
             DockDestination(QUEUE_ROUTE, "Queue") { Icon(Icons.Rounded.QueueMusic, contentDescription = null) },
             DockDestination(PROFILE_ROUTE, "Profile") {
-                Image(
-                    painter = painterResource(R.drawable.meowzix_logo),
-                    contentDescription = null,
-                    modifier = Modifier.size(25.dp),
-                )
+                Box(
+                    modifier = Modifier.size(29.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(3.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.meowzix_logo_transparent),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             },
         )
     }

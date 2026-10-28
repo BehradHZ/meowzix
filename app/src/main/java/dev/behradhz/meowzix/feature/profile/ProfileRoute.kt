@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.feature.profile
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -56,12 +58,13 @@ fun ProfileRoute(
     ) {
         item("profile-header") {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Surface(modifier = Modifier.size(88.dp), shape = RoundedCornerShape(30.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f)) {
+                Surface(modifier = Modifier.size(88.dp), shape = RoundedCornerShape(30.dp), color = MaterialTheme.colorScheme.primaryContainer) {
                     Box(Modifier.padding(8.dp), contentAlignment = Alignment.Center) {
                         Image(
-                            painter = painterResource(R.drawable.meowzix_logo),
+                            painter = painterResource(R.drawable.meowzix_logo_transparent),
                             contentDescription = "Meowzix",
-                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(24.dp)),
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit,
                         )
                     }
                 }
