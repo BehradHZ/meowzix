@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -76,7 +77,7 @@ class TelegramForwardActivity : ComponentActivity() {
                 ThemePreference.LIGHT -> false
             }
             MeowzixTheme(darkTheme = dark, colorTheme = appearance.colorTheme, customColorSeed = appearance.customColorSeed) {
-                NotificationForwardPicker()
+                NotificationForwardPicker(reduceMotion = appearance.reduceMotion)
             }
         }
     }
@@ -88,12 +89,16 @@ class TelegramForwardActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun NotificationForwardPicker() {
+    private fun NotificationForwardPicker(reduceMotion: Boolean) {
         val viewModel: NowPlayingViewModel = hiltViewModel()
         val playbackState by viewModel.state.collectAsStateWithLifecycle()
         val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
         val visibilityGate = remember { ForwardPickerVisibilityGate() }
         var openRequested by remember(requestVersion) { mutableStateOf(false) }
+        var dismissRequested by remember(requestVersion) { mutableStateOf(false) }
+        BackHandler(enabled = forwardState.isOpen && !dismissRequested) {
+            dismissRequested = true
+        }
 
         LaunchedEffect(requestVersion, playbackState.currentTrack?.id) {
             val pinnedId = intent?.getStringExtra(EXTRA_TRACK_ID)
@@ -132,7 +137,7 @@ class TelegramForwardActivity : ComponentActivity() {
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                 ) {
-                    if (forwardState.isOpen) viewModel.dismissForwardPicker() else finish()
+                    if (forwardState.isOpen) dismissRequested = true else finish()
                 },
             )
             Box(
@@ -166,6 +171,8 @@ class TelegramForwardActivity : ComponentActivity() {
                         onQueryChange = viewModel::searchForwardChats,
                         onForward = viewModel::forwardCurrentTrack,
                         onDismiss = viewModel::dismissForwardPicker,
+                        requestDismiss = dismissRequested,
+                        reduceMotion = reduceMotion,
                         floatingOverlay = true,
                         overlayMaxHeight = availableHeight,
                     )

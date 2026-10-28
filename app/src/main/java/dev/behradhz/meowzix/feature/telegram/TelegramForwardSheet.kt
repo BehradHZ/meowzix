@@ -1,5 +1,8 @@
 package dev.behradhz.meowzix.feature.telegram
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -51,6 +54,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import android.os.SystemClock
@@ -58,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -139,6 +144,8 @@ fun TelegramForwardSheet(
     onQueryChange: (String) -> Unit,
     onForward: (Long, TelegramForwardOptions, Boolean) -> Unit,
     onDismiss: () -> Unit,
+    reduceMotion: Boolean = false,
+    requestDismiss: Boolean = false,
 ) = TelegramForwardSheet(
     trackId = track.id,
     title = track.title,
@@ -161,6 +168,8 @@ fun TelegramForwardSheet(
     onQueryChange = onQueryChange,
     onForward = onForward,
     onDismiss = onDismiss,
+    reduceMotion = reduceMotion,
+    requestDismiss = requestDismiss,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -185,6 +194,8 @@ fun TelegramForwardSheet(
     onDismiss: () -> Unit,
     floatingOverlay: Boolean = false,
     overlayMaxHeight: Dp = Dp.Unspecified,
+    reduceMotion: Boolean = false,
+    requestDismiss: Boolean = false,
 ) {
     ForwardPickerBody(
         trackId = trackId,
@@ -210,6 +221,8 @@ fun TelegramForwardSheet(
         onDismiss = onDismiss,
         floatingOverlay = floatingOverlay,
         overlayMaxHeight = overlayMaxHeight,
+        reduceMotion = reduceMotion,
+        requestDismiss = requestDismiss,
     )
 }
 
@@ -234,6 +247,8 @@ private fun ForwardPickerBody(
     onDismiss: () -> Unit,
     floatingOverlay: Boolean,
     overlayMaxHeight: Dp,
+    reduceMotion: Boolean,
+    requestDismiss: Boolean,
 ) {
     var includeSourceAttribution by rememberSaveable(trackId.toString()) {
         mutableStateOf(defaults.includeSourceAttribution)
@@ -243,6 +258,30 @@ private fun ForwardPickerBody(
     }
     var rememberDefaults by rememberSaveable(trackId.toString()) { mutableStateOf(false) }
     var actionError by remember(trackId) { mutableStateOf<String?>(null) }
+    val animationScope = rememberCoroutineScope()
+    val latestOnDismiss by rememberUpdatedState(onDismiss)
+    val exitProgress = remember(trackId) { Animatable(0f) }
+    var exitStarted by remember(trackId) { mutableStateOf(false) }
+    val dismissWithMotion: () -> Unit = {
+        if (!exitStarted) {
+            exitStarted = true
+            animationScope.launch {
+                if (!reduceMotion) {
+                    exitProgress.animateTo(
+                        1f,
+                        animationSpec = tween(
+                            durationMillis = ForwardPanelExitDurationMs,
+                            easing = FastOutSlowInEasing,
+                        ),
+                    )
+                }
+                latestOnDismiss()
+            }
+        }
+    }
+    LaunchedEffect(requestDismiss) {
+        if (requestDismiss) dismissWithMotion()
+    }
     var lastObservedSendCount by remember(trackId) { mutableIntStateOf(0) }
     var lastSendAtMillis by remember(trackId) { mutableLongStateOf(0L) }
     var lastTouchAtMillis by remember(trackId) { mutableLongStateOf(0L) }
@@ -265,7 +304,7 @@ private fun ForwardPickerBody(
                 successfulForwardCount, lastSendAtMillis, lastTouchAtMillis,
                 pointerDown, SystemClock.elapsedRealtime(),
             ) == 0L
-        ) onDismiss()
+        ) dismissWithMotion()
     }
 
     var selectedFolderId by rememberSaveable(trackId.toString()) { mutableStateOf<Int?>(null) }
@@ -311,11 +350,18 @@ private fun ForwardPickerBody(
     } else Dp.Unspecified
     val sheetShape = if (floatingOverlay) RoundedCornerShape(28.dp)
         else RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp)
+    val exitFrame = forwardPanelExitFrame(exitProgress.value)
 
     val body: @Composable () -> Unit = {
         GlassSurface(
             hazeState = hazeState,
             modifier = Modifier.fillMaxWidth()
+                .graphicsLayer {
+                    alpha = exitFrame.alpha
+                    translationY = exitFrame.translationDp.dp.toPx()
+                    scaleX = exitFrame.scale
+                    scaleY = exitFrame.scale
+                }
                 .then(
                     if (floatingOverlay) Modifier.height(maxPanelHeight)
                         .border(1.dp, TelegramGlassStroke, sheetShape)
@@ -389,7 +435,7 @@ private fun ForwardPickerBody(
                     }
                     if (isSending) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                     if (floatingOverlay) {
-                        TextButton(onClick = onDismiss) {
+                        TextButton(onClick = dismissWithMotion) {
                             Icon(Icons.Rounded.Close, contentDescription = "Close sharing")
                         }
                     }
@@ -574,7 +620,7 @@ private fun ForwardPickerBody(
         body()
     } else {
         ModalBottomSheet(
-            onDismissRequest = onDismiss,
+            onDismissRequest = dismissWithMotion,
             containerColor = Color.Transparent,
             scrimColor = Color.Black.copy(alpha = 0.66f),
             contentColor = MaterialTheme.colorScheme.onSurface,

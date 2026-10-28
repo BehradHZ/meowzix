@@ -210,6 +210,7 @@ fun NowPlayingRoute(
             onQueryChange = viewModel::searchForwardChats,
             onForward = viewModel::forwardCurrentTrack,
             onDismiss = viewModel::dismissForwardPicker,
+            reduceMotion = appearance.reduceMotion,
         )
     }
 

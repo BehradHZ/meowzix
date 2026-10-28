@@ -230,7 +230,9 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                                 defaults = state.defaults,
                                 onQueryChange = ::search,
                                 onForward = ::send,
-                                onDismiss = ::dismiss,
+                                onDismiss = ::finishDismiss,
+                                requestDismiss = state.dismissRequested,
+                                reduceMotion = appearance.reduceMotion,
                                 floatingOverlay = true,
                                 overlayMaxHeight = availableHeight,
                             )
@@ -336,7 +338,10 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
         }
     }
 
-    private fun dismiss() { stopSelf() }
+    private fun dismiss() {
+        _ui.update { it.copy(dismissRequested = true) }
+    }
+    private fun finishDismiss() { stopSelf() }
     override fun onDestroy() {
         overlayWindowVisible = false
         searchJob?.cancel()
@@ -383,6 +388,7 @@ private data class OverlayForwardState(
     val query: String = "",
     val chats: List<TelegramChatSummary> = emptyList(),
     val folders: List<TelegramForwardFolder> = emptyList(),
+    val dismissRequested: Boolean = false,
     val foldersLoading: Boolean = false,
     val foldersError: String? = null,
     val isSearching: Boolean = false,
