@@ -627,7 +627,7 @@ class TdLibTelegramRepository @Inject constructor(
             // TDLib generates the correct public/private link and handles its own message IDs.
             val link = runCatching {
                 activeClient.send(
-                    TdApi.GetMessageLink(source.chatId, source.messageId, 0, false, false),
+                    TdApi.GetMessageLink(source.chatId, source.messageId, 0, 0, "", false, false),
                 ).link
             }.getOrNull()
             if (link?.startsWith("https://t.me/") == true) return link
