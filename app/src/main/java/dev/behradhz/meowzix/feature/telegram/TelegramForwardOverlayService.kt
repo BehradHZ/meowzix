@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -188,9 +189,10 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                 state.track?.let { selected ->
                     BoxWithConstraints(
                         modifier = Modifier.fillMaxSize()
+                            .statusBarsPadding()
                             .imePadding()
                             .navigationBarsPadding()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                            .padding(start = 12.dp, end = 12.dp, top = 22.dp, bottom = 12.dp),
                         contentAlignment = Alignment.BottomCenter,
                     ) {
                         val availableHeight = maxHeight

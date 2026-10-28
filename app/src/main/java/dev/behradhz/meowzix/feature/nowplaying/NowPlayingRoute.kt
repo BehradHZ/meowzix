@@ -569,7 +569,7 @@ private fun PlayerHeader(
             )
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onOpenForward) {
-                Icon(painterResource(R.drawable.ic_forward_rocket), contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
+                Icon(painterResource(R.drawable.ic_forward_paper_plane), contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
             }
             IconButton(onClick = onOpenQueue) {
                 Icon(Icons.Rounded.QueueMusic, contentDescription = "Open queue", tint = PlayerPrimaryContent)

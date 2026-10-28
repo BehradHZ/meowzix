@@ -6,15 +6,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -45,11 +46,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import android.os.SystemClock
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -95,9 +99,22 @@ private val TelegramGlassFill: Color
 private const val SentStatusVisibilityMillis = 3_000L
 private const val AutoDismissAfterFirstSendMillis = 2_000L
 
-/** The idle timer is armed only for the first accepted send. */
-internal fun shouldAutoDismissAfterFirstForward(acceptedSends: Int, touchedSinceFirst: Boolean): Boolean =
-    acceptedSends == 1 && !touchedSinceFirst
+/**
+ * Dismiss 2s after the later of the most recent accepted forward and the most
+ * recent panel interaction. Never dismiss before an accepted send, or while
+ * a finger is held on the panel. Returns null when the timer is not armed.
+ */
+internal fun forwardIdleRemainingMillis(
+    acceptedSends: Int,
+    lastSendAtMillis: Long,
+    lastTouchAtMillis: Long,
+    pointerDown: Boolean,
+    nowMillis: Long,
+): Long? {
+    if (acceptedSends <= 0 || lastSendAtMillis <= 0L || pointerDown) return null
+    val idleSince = maxOf(lastSendAtMillis, lastTouchAtMillis)
+    return (idleSince + AutoDismissAfterFirstSendMillis - nowMillis).coerceAtLeast(0L)
+}
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)
@@ -203,14 +220,29 @@ private fun ForwardPickerBody(
     }
     var rememberDefaults by rememberSaveable(trackId.toString()) { mutableStateOf(false) }
     var actionError by remember(trackId) { mutableStateOf<String?>(null) }
-    // After the first accepted send, dismiss only if no one interacts with the
-    // picker for two seconds. Later touches cancel the auto-dismiss entirely.
-    var interactedAfterFirstSend by remember(trackId) { mutableStateOf(false) }
-    LaunchedEffect(trackId, successfulForwardCount, interactedAfterFirstSend) {
-        if (shouldAutoDismissAfterFirstForward(successfulForwardCount, interactedAfterFirstSend)) {
-            delay(AutoDismissAfterFirstSendMillis)
-            onDismiss()
+    var lastObservedSendCount by remember(trackId) { mutableIntStateOf(0) }
+    var lastSendAtMillis by remember(trackId) { mutableLongStateOf(0L) }
+    var lastTouchAtMillis by remember(trackId) { mutableLongStateOf(0L) }
+    var pointerDown by remember(trackId) { mutableStateOf(false) }
+
+    // Use a monotonic clock, and re-arm on EVERY accepted send, not just the first.
+    LaunchedEffect(trackId, successfulForwardCount) {
+        if (successfulForwardCount > lastObservedSendCount) {
+            lastObservedSendCount = successfulForwardCount
+            lastSendAtMillis = SystemClock.elapsedRealtime()
         }
+    }
+    LaunchedEffect(trackId, successfulForwardCount, lastSendAtMillis, lastTouchAtMillis, pointerDown) {
+        val remaining = forwardIdleRemainingMillis(
+            successfulForwardCount, lastSendAtMillis, lastTouchAtMillis,
+            pointerDown, SystemClock.elapsedRealtime(),
+        ) ?: return@LaunchedEffect
+        if (remaining > 0L) delay(remaining)
+        if (forwardIdleRemainingMillis(
+                successfulForwardCount, lastSendAtMillis, lastTouchAtMillis,
+                pointerDown, SystemClock.elapsedRealtime(),
+            ) == 0L
+        ) onDismiss()
     }
 
     var selectedFolderId by rememberSaveable(trackId.toString()) { mutableStateOf<Int?>(null) }
@@ -252,7 +284,7 @@ private fun ForwardPickerBody(
     val hazeState = rememberHazeState()
     val maxPanelHeight = if (floatingOverlay) {
         if (overlayMaxHeight != Dp.Unspecified) overlayMaxHeight
-        else (LocalConfiguration.current.screenHeightDp.dp - 48.dp).coerceAtLeast(280.dp)
+        else (LocalConfiguration.current.screenHeightDp.dp - 78.dp).coerceAtLeast(280.dp)
     } else Dp.Unspecified
     val sheetShape = if (floatingOverlay) RoundedCornerShape(28.dp)
         else RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp)
@@ -264,17 +296,18 @@ private fun ForwardPickerBody(
                 .then(
                     if (floatingOverlay) Modifier.height(maxPanelHeight)
                         .border(1.dp, TelegramGlassStroke, sheetShape)
-                    else Modifier.fillMaxHeight(0.96f)
+                    else Modifier.fillMaxHeight(0.90f)
                 )
-                .pointerInput(trackId, successfulForwardCount) {
+                .pointerInput(trackId) {
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
-                            if (successfulForwardCount > 0 &&
-                                event.changes.any { it.pressed && !it.previousPressed }
-                            ) {
-                                interactedAfterFirstSend = true
+                            val touches = event.changes
+                            if (touches.any { it.pressed || it.previousPressed }) {
+                                // Include drag movement and the lift event as interactions.
+                                lastTouchAtMillis = SystemClock.elapsedRealtime()
                             }
+                            pointerDown = touches.any { it.pressed }
                         }
                     }
                 },
@@ -284,17 +317,21 @@ private fun ForwardPickerBody(
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        TelegramGlassChrome.backdrop,
-                    ),
+                    .fillMaxSize()
+                    .background(TelegramGlassChrome.backdrop),
             ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth()
-                        .fillMaxHeight()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                // One lazy vertical scroller owns the ENTIRE panel, including its
+                // chat rows. This avoids the old nested Column/LazyColumn scroll
+                // conflict that clipped the last destinations at the bottom.
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().testTag("telegram-forward-list"),
+                    contentPadding = PaddingValues(
+                        start = 18.dp, end = 18.dp, top = 14.dp, bottom = 22.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    item(key = "forward-controls") {
+                        Column {
                 if (!floatingOverlay) {
                     Box(
                         modifier = Modifier
@@ -408,7 +445,7 @@ private fun ForwardPickerBody(
                 TextField(
                     value = query,
                     onValueChange = {
-                        if (successfulForwardCount > 0) interactedAfterFirstSend = true
+                        lastTouchAtMillis = SystemClock.elapsedRealtime()
                         onQueryChange(it)
                     },
                     singleLine = true,
@@ -445,34 +482,31 @@ private fun ForwardPickerBody(
                     Spacer(Modifier.height(10.dp))
                 }
 
-                when {
-                    isSearching && activeFolder == null && visibleChats.isEmpty() -> Box(
-                        modifier = Modifier.fillMaxWidth().height(150.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+                        }
                     }
-                    visibleChats.isEmpty() -> Box(
-                        modifier = Modifier.fillMaxWidth().height(130.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            if (activeFolder != null) "No matching chats in ${activeFolder.title}." else if (query.isBlank()) "No Telegram chats available." else "No chats match your search.",
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
-                        )
-                    }
-                    else -> LazyColumn(
-                        modifier = Modifier.fillMaxWidth().heightIn(
-                            min = 100.dp,
-                            max = if (floatingOverlay) {
-                                (maxPanelHeight - 360.dp).coerceAtLeast(330.dp)
-                            } else {
-                                (LocalConfiguration.current.screenHeightDp.dp - 370.dp).coerceAtLeast(330.dp)
-                            },
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        items(visibleChats, key = { it.chatId }) { chat ->
+                    when {
+                        isSearching && activeFolder == null && visibleChats.isEmpty() -> item(key = "loading") {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().height(150.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+                            }
+                        }
+                        visibleChats.isEmpty() -> item(key = "empty") {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().height(130.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    if (activeFolder != null) "No matching chats in ${activeFolder.title}."
+                                    else if (query.isBlank()) "No Telegram chats available."
+                                    else "No chats match your search.",
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                                )
+                            }
+                        }
+                        else -> items(visibleChats, key = { "chat:${it.chatId}" }) { chat ->
                             val latestJob = trackJobs.firstOrNull {
                                 it.targetChatId == chat.chatId && it.state != TelegramSendState.CANCELED
                             }
@@ -494,8 +528,7 @@ private fun ForwardPickerBody(
                             )
                         }
                     }
-                }
-                Spacer(Modifier.height(14.dp))
+                    item(key = "bottom-clearance") { Spacer(Modifier.height(8.dp)) }
                 }
             }
         }
