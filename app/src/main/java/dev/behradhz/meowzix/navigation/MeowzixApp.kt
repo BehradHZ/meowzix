@@ -80,6 +80,7 @@ import dev.behradhz.meowzix.feature.profile.ProfileRoute
 import dev.behradhz.meowzix.feature.queue.QueueRoute
 import dev.behradhz.meowzix.feature.search.SearchViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
+import dev.behradhz.meowzix.ui.theme.LocalMeowzixLogoBackground
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -140,7 +141,7 @@ fun MeowzixApp(
                 Box(
                     modifier = Modifier.size(29.dp)
                         .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .background(LocalMeowzixLogoBackground.current)
                         .padding(3.dp),
                     contentAlignment = Alignment.Center,
                 ) {

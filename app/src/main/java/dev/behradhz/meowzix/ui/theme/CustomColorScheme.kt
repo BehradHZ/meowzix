@@ -24,6 +24,10 @@ internal fun ColorThemePreference.seedArgb(custom: Int): Int = when (this) {
     ColorThemePreference.CUSTOM -> custom or 0xFF000000.toInt()
 }
 
+/** The logo displays its exact RGB background, independent of the tonal Material palette. */
+internal fun ColorThemePreference.logoBackgroundArgb(custom: Int): Int =
+    if (this == ColorThemePreference.MEOWZIX) 0xFFE5948A.toInt() else seedArgb(custom)
+
 /**
  * Build light/dark color ROLES from a chosen hue, not by placing a raw seed behind arbitrary text.
  * Contrast is checked for both primary/onPrimary combinations; muted neutral surfaces keep

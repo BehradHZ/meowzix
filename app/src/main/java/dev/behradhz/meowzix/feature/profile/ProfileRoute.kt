@@ -16,6 +16,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import dev.behradhz.meowzix.ui.theme.LocalMeowzixLogoBackground
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
@@ -50,6 +59,8 @@ fun ProfileRoute(
 ) {
     var showEqualizer by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showFullscreenCat by remember { mutableStateOf(false) }
+    val logoBackground = LocalMeowzixLogoBackground.current
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
@@ -58,11 +69,15 @@ fun ProfileRoute(
     ) {
         item("profile-header") {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Surface(modifier = Modifier.size(88.dp), shape = RoundedCornerShape(30.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                Surface(
+                    modifier = Modifier.size(88.dp).clickable(role = Role.Button) { showFullscreenCat = true },
+                    shape = RoundedCornerShape(30.dp),
+                    color = logoBackground,
+                ) {
                     Box(Modifier.padding(8.dp), contentAlignment = Alignment.Center) {
                         Image(
                             painter = painterResource(R.drawable.meowzix_logo_transparent),
-                            contentDescription = "Meowzix",
+                            contentDescription = "Open Meowzix cat fullscreen",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit,
                         )
@@ -91,6 +106,41 @@ fun ProfileRoute(
         }
         item("history") {
             ProfileDestinationRow("Listening history", "Recent plays and personalization controls", Icons.Rounded.History, onOpenHistory)
+        }
+    }
+
+    if (showFullscreenCat) {
+        Dialog(
+            onDismissRequest = { showFullscreenCat = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(logoBackground),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.meowzix_logo_transparent),
+                    contentDescription = "Fullscreen Meowzix cat",
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    contentScale = ContentScale.Fit,
+                )
+                val closeTint = if (logoBackground.luminance() > 0.45f) Color.Black else Color.White
+                IconButton(
+                    onClick = { showFullscreenCat = false },
+                    modifier = Modifier.align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(12.dp)
+                        .background(
+                            closeTint.copy(alpha = 0.12f),
+                            CircleShape,
+                        ),
+                ) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Close fullscreen cat", tint = closeTint)
+                }
+            }
         }
     }
 

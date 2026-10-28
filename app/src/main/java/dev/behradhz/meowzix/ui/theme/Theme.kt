@@ -6,10 +6,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import dev.behradhz.meowzix.domain.settings.ColorThemePreference
 import dev.behradhz.meowzix.domain.settings.DEFAULT_CUSTOM_COLOR_SEED
+
+/** Raw, opaque logo background; never use a tonal container or translucent overlay for the cat. */
+val LocalMeowzixLogoBackground = staticCompositionLocalOf { Color(0xFFE5948A) }
 
 @Composable
 fun MeowzixTheme(
@@ -29,10 +35,16 @@ fun MeowzixTheme(
         else -> seededColorScheme(colorTheme.seedArgb(customColorSeed), darkTheme)
     }
 
-    MaterialTheme(
-        colorScheme = palette,
-        shapes = MeowzixShapes,
-        typography = MeowzixTypography,
-        content = content,
-    )
+    val logoBackground = if (colorTheme == ColorThemePreference.WALLPAPER &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    ) palette.primary else Color(colorTheme.logoBackgroundArgb(customColorSeed))
+
+    CompositionLocalProvider(LocalMeowzixLogoBackground provides logoBackground) {
+        MaterialTheme(
+            colorScheme = palette,
+            shapes = MeowzixShapes,
+            typography = MeowzixTypography,
+            content = content,
+        )
+    }
 }

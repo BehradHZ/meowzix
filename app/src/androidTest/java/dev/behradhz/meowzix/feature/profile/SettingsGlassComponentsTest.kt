@@ -7,6 +7,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -37,6 +40,20 @@ class SettingsGlassComponentsTest {
 
         compose.onNodeWithText("Reduced motion").performClick()
         compose.runOnIdle { assertTrue(updated) }
+    }
+
+    @Test
+    fun tappingProfileCatOpensAndClosesFullscreenViewer() {
+        compose.setContent {
+            MeowzixTheme {
+                ProfileRoute(onOpenOffline = {}, onOpenHistory = {}, onOpenTelegram = {})
+            }
+        }
+
+        compose.onNodeWithContentDescription("Open Meowzix cat fullscreen").performClick()
+        compose.onNodeWithContentDescription("Fullscreen Meowzix cat").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Close fullscreen cat").performClick()
+        compose.onNodeWithContentDescription("Fullscreen Meowzix cat").assertDoesNotExist()
     }
 
     @Test

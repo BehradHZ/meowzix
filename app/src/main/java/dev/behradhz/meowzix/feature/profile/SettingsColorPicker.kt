@@ -195,7 +195,7 @@ internal fun SettingsColorPicker(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "In-app logo backgrounds follow the app accent. Launcher icon colors are controlled by Android and the launcher, not by the app's custom RGB setting.",
+            "The original Meowzix logo background is #E5948A. Other in-app logo colors use the exact chosen RGB without tonal filtering; launcher icons are controlled by Android.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
