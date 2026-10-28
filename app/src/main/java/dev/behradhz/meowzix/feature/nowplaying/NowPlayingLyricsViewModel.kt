@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -146,6 +147,34 @@ class NowPlayingLyricsViewModel @Inject constructor(
                 .onFailure {
                     if (it is CancellationException) throw it
                     error.value = it.message ?: "Unable to delete lyrics"
+                }
+        }
+    }
+
+    fun removeAllLyrics() {
+        val trackId = state.value.trackId ?: return
+        viewModelScope.launch {
+            runCatching { repository.removeAllFromTrack(trackId) }
+                .onSuccess { error.value = null }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    error.value = it.message ?: "Unable to remove lyrics from track"
+                }
+        }
+    }
+
+    fun restoreAutomaticLyrics() {
+        val trackId = state.value.trackId ?: return
+        viewModelScope.launch {
+            runCatching {
+                repository.restoreAutomaticDiscovery(trackId)
+                // Rescan immediately: readable source flow may not emit again after restoration.
+                val sources = libraryDao.observeReadableSources(trackId.toString()).first()
+                lyricsDiscovery.inspect(trackId, sources)
+            }.onSuccess { error.value = null }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    error.value = it.message ?: "Unable to restore detected lyrics"
                 }
         }
     }

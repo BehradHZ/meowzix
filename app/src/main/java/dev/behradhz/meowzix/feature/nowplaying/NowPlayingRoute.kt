@@ -186,6 +186,8 @@ fun NowPlayingRoute(
         onLyricsDelay = lyricsViewModel::adjustDelay,
         onLyricsVersion = lyricsViewModel::selectVersion,
         onLyricsDeleteVersion = lyricsViewModel::deleteVersion,
+        onLyricsRemoveAll = lyricsViewModel::removeAllLyrics,
+        onLyricsRestoreAutomatic = lyricsViewModel::restoreAutomaticLyrics,
         onLyricSeek = lyricsViewModel::seekToLine,
     )
 
@@ -264,6 +266,8 @@ private fun NowPlayingScreen(
     onLyricsDelay: (Long) -> Unit,
     onLyricsVersion: (java.util.UUID) -> Unit,
     onLyricsDeleteVersion: (java.util.UUID) -> Unit,
+    onLyricsRemoveAll: () -> Unit,
+    onLyricsRestoreAutomatic: () -> Unit,
     onLyricSeek: (Int) -> Unit,
 ) {
     val track = state.currentTrack
@@ -341,6 +345,8 @@ private fun NowPlayingScreen(
                 onLyricsDelay = onLyricsDelay,
                 onLyricsVersion = onLyricsVersion,
                 onLyricsDeleteVersion = onLyricsDeleteVersion,
+                onLyricsRemoveAll = onLyricsRemoveAll,
+                onLyricsRestoreAutomatic = onLyricsRestoreAutomatic,
             )
 
             Spacer(Modifier.height(8.dp))
@@ -526,6 +532,8 @@ private fun PlayerHeader(
     onLyricsDelay: (Long) -> Unit,
     onLyricsVersion: (UUID) -> Unit,
     onLyricsDeleteVersion: (UUID) -> Unit,
+    onLyricsRemoveAll: () -> Unit,
+    onLyricsRestoreAutomatic: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var pasteDialog by remember(lyricsState.trackId) { mutableStateOf(false) }
@@ -583,6 +591,8 @@ private fun PlayerHeader(
                     onAdjustDelay = onLyricsDelay,
                     onSelectVersion = onLyricsVersion,
                     onDeleteVersion = onLyricsDeleteVersion,
+                    onRemoveAllLyrics = onLyricsRemoveAll,
+                    onRestoreAutomaticLyrics = onLyricsRestoreAutomatic,
                 )
             }
         }

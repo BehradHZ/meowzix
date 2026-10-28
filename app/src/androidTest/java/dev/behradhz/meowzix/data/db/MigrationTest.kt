@@ -256,6 +256,39 @@ class MigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun migrateSixteenToSeventeenPreservesLyricsAndAddsDetachmentState() {
+        val database = helper.createDatabase(TEST_DATABASE_16_17, 16)
+        database.execSQL(
+            "INSERT INTO tracks (id, title, normalizedTitle, durationMs, favorite, hidden, createdAtEpochMs, updatedAtEpochMs) " +
+                "VALUES ('lyrics-track', 'Track', 'track', 100000, 0, 0, 1, 1)",
+        )
+        database.execSQL(
+            "INSERT INTO lyrics_versions (id, trackId, sourceType, sourceLabel, rawText, contentType, " +
+                "selected, userSelected, userDelayMs, createdAtEpochMs, updatedAtEpochMs) " +
+                "VALUES ('lyrics-one', 'lyrics-track', 'USER_LRC', NULL, '[00:01.00]Test', " +
+                "'TIMED', 1, 1, 0, 1, 1)",
+        )
+        database.close()
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DATABASE_16_17, 17, true, MIGRATION_16_17,
+        )
+        migrated.query("SELECT id FROM lyrics_versions WHERE trackId = 'lyrics-track'").use {
+            assertTrue(it.moveToFirst())
+            assertEquals("lyrics-one", it.getString(0))
+        }
+        migrated.execSQL("INSERT INTO lyrics_detached_tracks(trackId) VALUES ('lyrics-track')")
+        migrated.query("SELECT trackId FROM lyrics_detached_tracks").use {
+            assertTrue(it.moveToFirst())
+            assertEquals("lyrics-track", it.getString(0))
+        }
+        migrated.query("PRAGMA foreign_key_list(lyrics_detached_tracks)").use {
+            assertTrue(it.moveToFirst())
+            assertEquals("tracks", it.getString(it.getColumnIndexOrThrow("table")))
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"
@@ -269,5 +302,6 @@ class MigrationTest {
         const val TEST_DATABASE_12_13 = "migration-test-12-13"
         const val TEST_DATABASE_13_14 = "migration-test-13-14"
         const val TEST_DATABASE_15_16 = "migration-test-15-16"
+        const val TEST_DATABASE_16_17 = "migration-test-16-17"
     }
 }

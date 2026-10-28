@@ -12,6 +12,18 @@ import kotlinx.coroutines.flow.Flow
 interface LyricsDao {
     @Query("SELECT * FROM lyrics_versions WHERE trackId = :trackId ORDER BY selected DESC, userSelected DESC, updatedAtEpochMs DESC")
     fun observeForTrack(trackId: String): Flow<List<LyricsVersionEntity>>
+    @Query("SELECT EXISTS(SELECT 1 FROM lyrics_detached_tracks WHERE trackId = :trackId)")
+    fun observeDiscoveryDisabled(trackId: String): Flow<Boolean>
+    @Query("SELECT EXISTS(SELECT 1 FROM lyrics_detached_tracks WHERE trackId = :trackId)")
+    suspend fun isDiscoveryDisabled(trackId: String): Boolean
+    @Query("SELECT * FROM lyrics_detached_tracks ORDER BY trackId")
+    suspend fun allDetachedTracks(): List<LyricsDetachedTrackEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun disableDiscovery(track: LyricsDetachedTrackEntity)
+    @Query("DELETE FROM lyrics_detached_tracks WHERE trackId = :trackId")
+    suspend fun enableDiscovery(trackId: String): Int
+    @Query("DELETE FROM lyrics_versions WHERE trackId = :trackId")
+    suspend fun deleteAllForTrack(trackId: String): Int
     @Query("SELECT * FROM lyrics_versions WHERE trackId = :trackId ORDER BY createdAtEpochMs, id")
     suspend fun versionsForTrack(trackId: String): List<LyricsVersionEntity>
     @Query("SELECT * FROM lyrics_versions WHERE id = :id LIMIT 1") suspend fun byId(id: String): LyricsVersionEntity?

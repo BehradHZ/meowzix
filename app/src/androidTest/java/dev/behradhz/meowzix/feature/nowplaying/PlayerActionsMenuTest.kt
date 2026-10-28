@@ -136,6 +136,43 @@ class PlayerActionsMenuTest {
         compose.runOnIdle { assertEquals(1, pasted) }
     }
 
+    @Test fun removeAllLyricsRequiresConfirmationThenOffersRestore() {
+        val trackId = UUID.randomUUID()
+        val embedded = version(trackId, "Detected", true).copy(sourceType = LyricsSourceType.EMBEDDED)
+        var removed by mutableIntStateOf(0)
+        var restored by mutableIntStateOf(0)
+        var disabled by mutableStateOf(false)
+        compose.setContent {
+            val trackLyrics = if (disabled) TrackLyrics(trackId, automaticDiscoveryDisabled = true)
+                else TrackLyrics(trackId, embedded, listOf(embedded))
+            MeowzixTheme(darkTheme = true) {
+                PlayerActionsMenu(
+                    expanded = true, trackId = trackId,
+                    lyricsState = NowPlayingLyricsState(trackId, trackLyrics),
+                    lyricsExpanded = false, sleepTimerLabel = "Off",
+                    onDismiss = {}, onOpenSleepTimer = {}, onWhyThisSong = {},
+                    onContinueVibe = {}, onToggleLyrics = {},
+                    onImportLrc = {}, onPasteLyrics = {}, onAdjustDelay = {},
+                    onSelectVersion = {}, onDeleteVersion = {},
+                    onRemoveAllLyrics = { removed++; disabled = true },
+                    onRestoreAutomaticLyrics = { restored++ },
+                )
+            }
+        }
+        compose.onNodeWithTag("player-action-lyrics").performClick()
+        compose.onNodeWithTag("player-action-remove-lyrics-from-track").performClick()
+        compose.onNodeWithText("Remove lyrics from track?").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(0, removed) }
+        compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithText("Remove lyrics from track?").assertDoesNotExist()
+        compose.onNodeWithTag("player-action-remove-lyrics-from-track").performClick()
+        compose.onNodeWithText("Remove").performClick()
+        compose.runOnIdle { assertEquals(1, removed) }
+        compose.onNodeWithTag("player-lyrics-empty").assertIsDisplayed()
+        compose.onNodeWithTag("player-action-restore-detected-lyrics").performClick()
+        compose.runOnIdle { assertEquals(1, restored) }
+    }
+
     private fun version(trackId: UUID, label: String, selected: Boolean): LyricsVersion =
         LyricsVersion(
             id = UUID.randomUUID(), trackId = trackId,

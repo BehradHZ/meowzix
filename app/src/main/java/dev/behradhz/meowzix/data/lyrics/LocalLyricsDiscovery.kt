@@ -28,6 +28,7 @@ class LocalLyricsDiscovery @Inject constructor(
     private val repository: LyricsRepository,
 ) {
     suspend fun inspect(trackId: UUID, sources: List<TrackSourceEntity>) = withContext(Dispatchers.IO) {
+        if (repository.isAutomaticDiscoveryDisabled(trackId)) return@withContext
         val existingLabels = lyricsDao.versionsForTrack(trackId.toString())
             .filter { it.sourceType == LyricsSourceType.EMBEDDED.name }
             .mapNotNull { it.sourceLabel }.toSet()

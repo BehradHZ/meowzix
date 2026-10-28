@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.data.lyrics
 
 import androidx.room.withTransaction
 import dev.behradhz.meowzix.data.db.LyricsDao
+import dev.behradhz.meowzix.data.db.LyricsDetachedTrackEntity
 import dev.behradhz.meowzix.data.db.LyricsVersionEntity
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.domain.lyrics.LrcParser
@@ -14,14 +15,17 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 
 @Singleton
 class RoomLyricsRepository @Inject constructor(
     private val database: MeowzixDatabase,
     private val dao: LyricsDao,
 ) : LyricsRepository {
-    override fun observe(trackId: UUID): Flow<TrackLyrics> = dao.observeForTrack(trackId.toString()).map { rows ->
+    override fun observe(trackId: UUID): Flow<TrackLyrics> = combine(
+        dao.observeForTrack(trackId.toString()),
+        dao.observeDiscoveryDisabled(trackId.toString()),
+    ) { rows, discoveryDisabled ->
         val versions = rows.mapNotNull(::toDomain)
         TrackLyrics(
             trackId = trackId,
@@ -29,6 +33,7 @@ class RoomLyricsRepository @Inject constructor(
                 ?: versions.firstOrNull { it.userSelected }
                 ?: versions.firstOrNull(),
             versions = versions,
+            automaticDiscoveryDisabled = discoveryDisabled,
         )
     }
 
@@ -45,10 +50,28 @@ class RoomLyricsRepository @Inject constructor(
         return saveNew(trackId, LyricsSourceType.USER_PASTE, text, "Pasted lyrics", userSelected = true, select = true)
     }
 
-    override suspend fun saveEmbedded(trackId: UUID, rawText: String, sourceLabel: String?): UUID {
+    override suspend fun saveEmbedded(trackId: UUID, rawText: String, sourceLabel: String?): UUID? {
         val parsed = LrcParser.parse(rawText)
         require(parsed.contentType != LyricsContentType.INVALID) { "Embedded lyrics are invalid" }
-        return saveNew(trackId, LyricsSourceType.EMBEDDED, rawText, sourceLabel, userSelected = false, select = false)
+        // A serialized check+save prevents concurrent source scans from undoing user removal.
+        return database.withTransaction {
+            if (dao.isDiscoveryDisabled(trackId.toString())) null
+            else saveNew(trackId, LyricsSourceType.EMBEDDED, rawText, sourceLabel, userSelected = false, select = false)
+        }
+    }
+
+    override suspend fun isAutomaticDiscoveryDisabled(trackId: UUID): Boolean =
+        dao.isDiscoveryDisabled(trackId.toString())
+
+    override suspend fun removeAllFromTrack(trackId: UUID) {
+        database.withTransaction {
+            dao.deleteAllForTrack(trackId.toString())
+            dao.disableDiscovery(LyricsDetachedTrackEntity(trackId.toString()))
+        }
+    }
+
+    override suspend fun restoreAutomaticDiscovery(trackId: UUID) {
+        dao.enableDiscovery(trackId.toString())
     }
 
     override suspend fun selectVersion(trackId: UUID, versionId: UUID) {

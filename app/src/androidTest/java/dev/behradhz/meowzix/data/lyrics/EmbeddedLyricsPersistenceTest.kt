@@ -35,6 +35,35 @@ class EmbeddedLyricsPersistenceTest {
 
     @After fun tearDown() { db.close() }
 
+    @Test fun removeAllSuppressesRedetectionUntilExplicitlyRestored() = runBlocking {
+        val repo = RoomLyricsRepository(db, db.lyricsDao())
+        val label = "Detected from source-1"
+        val automatic = repo.saveEmbedded(trackId, "[00:01.00]Auto", label)
+        val manual = repo.savePlainText(trackId, "My lyrics")
+        assertEquals(2, repo.observe(trackId).first().versions.size)
+
+        repo.removeAllFromTrack(trackId)
+        val removed = repo.observe(trackId).first()
+        assertTrue(removed.versions.isEmpty())
+        assertEquals(null, removed.selected)
+        assertTrue(removed.automaticDiscoveryDisabled)
+        assertEquals(null, repo.saveEmbedded(trackId, "[00:02.00]Auto again", label))
+        assertTrue(repo.observe(trackId).first().versions.isEmpty())
+        assertEquals(1, db.lyricsDao().allDetachedTracks().size)
+
+        // A new user-provided lyric may be added without re-enabling auto-detection.
+        val newManual = repo.importLrc(trackId, "[00:01.00]New manual")
+        assertEquals(newManual, repo.observe(trackId).first().selected?.id)
+        assertEquals(null, repo.saveEmbedded(trackId, "[00:02.00]Still suppressed", label))
+
+        repo.removeAllFromTrack(trackId)
+        repo.restoreAutomaticDiscovery(trackId)
+        assertTrue(!repo.observe(trackId).first().automaticDiscoveryDisabled)
+        val detected = repo.saveEmbedded(trackId, "[00:02.00]Restored", label)
+        assertEquals(detected, repo.observe(trackId).first().selected?.id)
+        assertEquals(1, repo.observe(trackId).first().versions.size)
+    }
+
     @Test fun repeatedDetectionDoesNotDuplicateAndManualSelectionAlwaysWins() = runBlocking {
         val repo = RoomLyricsRepository(db, db.lyricsDao())
         val label = "Detected from source-1"

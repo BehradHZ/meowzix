@@ -50,16 +50,20 @@ data class TrackLyrics(
     val trackId: UUID,
     val selected: LyricsVersion? = null,
     val versions: List<LyricsVersion> = emptyList(),
+    val automaticDiscoveryDisabled: Boolean = false,
 )
 
 interface LyricsRepository {
     fun observe(trackId: UUID): Flow<TrackLyrics>
     suspend fun importLrc(trackId: UUID, rawText: String, sourceLabel: String? = null): UUID
     suspend fun savePlainText(trackId: UUID, text: String): UUID
-    suspend fun saveEmbedded(trackId: UUID, rawText: String, sourceLabel: String? = null): UUID
+    suspend fun saveEmbedded(trackId: UUID, rawText: String, sourceLabel: String? = null): UUID?
     suspend fun selectVersion(trackId: UUID, versionId: UUID)
     suspend fun setUserDelay(versionId: UUID, delayMs: Long)
     suspend fun deleteVersion(trackId: UUID, versionId: UUID)
+    suspend fun removeAllFromTrack(trackId: UUID)
+    suspend fun restoreAutomaticDiscovery(trackId: UUID)
+    suspend fun isAutomaticDiscoveryDisabled(trackId: UUID): Boolean
 }
 
 object LyricsTiming {

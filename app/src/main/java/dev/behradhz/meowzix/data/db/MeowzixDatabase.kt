@@ -12,10 +12,11 @@ import androidx.room.TypeConverters
         ListeningSessionEntity::class, ListeningEventEntity::class, TrackPreferenceStatsEntity::class,
         TrackTimePreferenceEntity::class, AudioFeatureVectorEntity::class, TrackSearchFtsEntity::class,
         TrainingSampleEntity::class, RecommendationEventClockEntity::class, LyricsVersionEntity::class,
+        LyricsDetachedTrackEntity::class,
         TrackMetadataOverrideEntity::class, TrackMergeJournalEntity::class, RulePlaylistEntity::class,
         BackupUnresolvedReferenceEntity::class, LoudnessAnalysisEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 @TypeConverters(DbConverters::class)

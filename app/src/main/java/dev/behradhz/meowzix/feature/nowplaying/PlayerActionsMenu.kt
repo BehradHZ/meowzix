@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
@@ -85,9 +86,12 @@ internal fun PlayerActionsMenu(
     onAdjustDelay: (Long) -> Unit,
     onSelectVersion: (UUID) -> Unit,
     onDeleteVersion: (UUID) -> Unit,
+    onRemoveAllLyrics: () -> Unit = {},
+    onRestoreAutomaticLyrics: () -> Unit = {},
 ) {
     var page by remember(trackId) { mutableStateOf(PlayerActionsPage.ACTIONS) }
     var pendingDelete by remember(trackId) { mutableStateOf<LyricsVersion?>(null) }
+    var pendingRemoveAll by remember(trackId) { mutableStateOf(false) }
     LaunchedEffect(expanded) { if (!expanded) page = PlayerActionsPage.ACTIONS }
     val accent = MaterialTheme.colorScheme.primary
     val glass = MaterialTheme.colorScheme.surface
@@ -146,7 +150,7 @@ internal fun PlayerActionsMenu(
                             PlayerActionLine(
                                 icon = Icons.Rounded.MusicNote,
                                 title = "Lyrics",
-                                subtitle = if (versions.isEmpty) "Add lyrics" else
+                                subtitle = if (versions.isEmpty()) "Add lyrics" else
                                     versions.size.toString() + " version" + (if (versions.size == 1) "" else "s"),
                                 trailing = true,
                                 onClick = { page = PlayerActionsPage.LYRICS },
@@ -226,7 +230,9 @@ internal fun PlayerActionsMenu(
                             }
                         }
                         if (versions.isEmpty()) {
-                            Text("No lyrics yet. Import an .lrc file or paste text.",
+                            Text(if (lyricsState.trackLyrics?.automaticDiscoveryDisabled == true)
+                                    "Lyrics removed from this track." else
+                                    "No lyrics yet. Import an .lrc file or paste text.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(10.dp).testTag("player-lyrics-empty"))
@@ -275,10 +281,50 @@ internal fun PlayerActionsMenu(
                                 }
                             }
                         }
+                        Spacer(Modifier.heightIn(min = 10.dp))
+                        if (versions.isNotEmpty()) {
+                            PlayerActionLine(
+                                icon = Icons.Rounded.DeleteOutline,
+                                title = "Remove lyrics from track",
+                            ) { pendingRemoveAll = true }
+                            Text(
+                                "Removes all lyrics in Meowzix, not files on your device.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 8.dp, bottom = 3.dp),
+                            )
+                        } else if (lyricsState.trackLyrics?.automaticDiscoveryDisabled == true) {
+                            PlayerActionLine(
+                                icon = Icons.Rounded.Refresh,
+                                title = "Restore detected lyrics",
+                            ) {
+                                onDismiss()
+                                onRestoreAutomaticLyrics()
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    if (pendingRemoveAll) {
+        AlertDialog(
+            onDismissRequest = { pendingRemoveAll = false },
+            title = { Text("Remove lyrics from track?") },
+            text = { Text("All lyrics versions will be removed from Meowzix. The song and any original .lrc files on your device will remain untouched. Auto-detection will be disabled for this track until restored.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingRemoveAll = false
+                    onRemoveAllLyrics()
+                }) {
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRemoveAll = false }) { Text("Cancel") }
+            },
+        )
     }
 
     pendingDelete?.let { version ->

@@ -8,6 +8,7 @@ import dev.behradhz.meowzix.data.db.LibraryToolsDao
 import dev.behradhz.meowzix.data.db.ListeningEventEntity
 import dev.behradhz.meowzix.data.db.ListeningSessionEntity
 import dev.behradhz.meowzix.data.db.LyricsDao
+import dev.behradhz.meowzix.data.db.LyricsDetachedTrackEntity
 import dev.behradhz.meowzix.data.db.LyricsVersionEntity
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.PlaylistDao
@@ -88,6 +89,11 @@ class RoomLocalBackupRepository @Inject constructor(
                         lyric.createdAtEpochMs.toString(), lyric.updatedAtEpochMs.toString(),
                     ) + ref.fields(),
                 )
+            }
+        }
+        lyricsDao.allDetachedTracks().forEach { detached ->
+            refs[detached.trackId]?.let { ref ->
+                records += BackupRecord(TYPE_LYRICS_DETACHED, ref.fields())
             }
         }
         toolsDao.allMetadataOverrides().forEach { override ->
@@ -263,6 +269,14 @@ class RoomLocalBackupRepository @Inject constructor(
                                 updatedAtEpochMs = f.long(9),
                             ),
                         )
+                        restored++
+                    }
+                    TYPE_LYRICS_DETACHED -> {
+                        val ref = record.refAt(0)
+                        val id = trackId(ref, TYPE_LYRICS_DETACHED,
+                            ref?.originalTrackId?.toString().orEmpty()) ?: continue
+                        lyricsDao.deleteAllForTrack(id)
+                        lyricsDao.disableDiscovery(LyricsDetachedTrackEntity(id))
                         restored++
                     }
                     TYPE_OVERRIDE -> {
@@ -486,6 +500,7 @@ class RoomLocalBackupRepository @Inject constructor(
         const val TYPE_PLAYLIST = "PLAYLIST"
         const val TYPE_PLAYLIST_TRACK = "PLAYLIST_TRACK"
         const val TYPE_LYRICS = "LYRICS"
+        const val TYPE_LYRICS_DETACHED = "LYRICS_DETACHED"
         const val TYPE_OVERRIDE = "OVERRIDE"
         const val TYPE_RULE_PLAYLIST = "RULE_PLAYLIST"
         const val TYPE_FEEDBACK = "FEEDBACK"
