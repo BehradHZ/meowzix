@@ -303,8 +303,9 @@ private fun ForwardPickerBody(
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             val touches = event.changes
-                            if (touches.any { it.pressed || it.previousPressed }) {
-                                // Include drag movement and the lift event as interactions.
+                            if (touches.any { it.pressed != it.previousPressed }) {
+                                // A press or release resets the deadline; a held pointer
+                                // suspends auto-close even when a drag stops moving.
                                 lastTouchAtMillis = SystemClock.elapsedRealtime()
                             }
                             pointerDown = touches.any { it.pressed }
