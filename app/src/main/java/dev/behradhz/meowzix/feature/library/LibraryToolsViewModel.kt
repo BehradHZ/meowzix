@@ -10,6 +10,7 @@ import dev.behradhz.meowzix.domain.library.DuplicateEvidence
 import dev.behradhz.meowzix.domain.library.LibraryToolsRepository
 import dev.behradhz.meowzix.domain.library.TrackMergeJournal
 import dev.behradhz.meowzix.domain.library.TrackMetadataOverride
+import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,12 +36,15 @@ data class LibraryToolsUiState(
 class LibraryToolsViewModel @Inject constructor(
     private val tools: LibraryToolsRepository,
     private val queryRepository: LibraryQueryRepository,
+    private val telegramRepository: TelegramRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryToolsUiState())
     val state: StateFlow<LibraryToolsUiState> = _state.asStateFlow()
 
     fun openMetadata(trackId: UUID) = load(trackId, LibraryToolsPanel.METADATA)
     fun openDuplicates(trackId: UUID) = load(trackId, LibraryToolsPanel.DUPLICATES)
+
+    suspend fun telegramMessageLink(trackId: UUID): String? = telegramRepository.messageLinkForTrack(trackId)
 
     fun dismiss() {
         _state.update { LibraryToolsUiState() }

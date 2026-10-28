@@ -224,7 +224,21 @@ private fun LibraryTrackRowContent(
     val recommendationActions = LocalLibraryRecommendationActions.current
     val trackToolsActions = LocalLibraryTrackToolsActions.current
     val forwardAction = LocalTrackForwardAction.current
+    val chatLinkActions = LocalTrackChatLinkActions.current
     var menuExpanded by remember { mutableStateOf(false) }
+    var chatLink by remember(track.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(menuExpanded, track.id) {
+        if (menuExpanded) {
+            chatLink = null
+            chatLink = try {
+                chatLinkActions?.lookup?.invoke(track.id)
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
 
     Surface(
         modifier = Modifier
@@ -315,6 +329,7 @@ private fun LibraryTrackRowContent(
                         onAddToQueue = onAddToQueue,
                         onFavorite = onFavorite,
                         onForward = { forwardAction(TrackForwardSelection(track.id, track.title, track.artist)) },
+                        onViewInChat = chatLink?.let { link -> { chatLinkActions?.open?.invoke(link) } },
                         onGoToArtist = onGoToArtist,
                         onAddToPlaylist = onAddToPlaylist,
                         onContinueVibe = { recommendationActions?.continueVibe?.invoke(track.id) },

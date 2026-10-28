@@ -614,6 +614,29 @@ class TdLibTelegramRepository @Inject constructor(
         return created
     }
 
+    override suspend fun messageLinkForTrack(trackId: UUID): String? {
+        // Prefer the active Telegram account. Previously imported music retains source links.
+        val source = currentUserId?.toString()?.let { accountId ->
+            telegramDao.telegramSourceForTrack(accountId, trackId.toString())
+        } ?: telegramDao.telegramSourceForAnyAccountTrack(trackId.toString()) ?: return null
+
+        val activeClient = client
+        if (activeClient != null && currentUserId?.toString() == source.accountId &&
+            _authState.value.step == TelegramAuthStep.Ready
+        ) {
+            // TDLib generates the correct public/private link and handles its own message IDs.
+            val link = runCatching {
+                activeClient.send(
+                    TdApi.GetMessageLink(source.chatId, source.messageId, 0, false, false),
+                ).link
+            }.getOrNull()
+            if (link?.startsWith("https://t.me/") == true) return link
+        }
+
+        // Saved Messages and private/basic-group messages usually have no shareable link.
+        return telegramMessageDeepLink(source.chatId, source.messageId)
+    }
+
     override suspend fun trackIdsForChat(chatId: Long): List<UUID> {
         val accountId = currentUserId?.toString() ?: _musicSourceState.value.accountId ?: return emptyList()
         return telegramDao.activeTrackIdsForChat(accountId, chatId)

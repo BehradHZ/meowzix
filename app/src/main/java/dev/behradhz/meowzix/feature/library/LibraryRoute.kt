@@ -1,5 +1,9 @@
 package dev.behradhz.meowzix.feature.library
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -28,6 +32,7 @@ fun LibraryRoute(
     libraryTools: LibraryToolsViewModel = hiltViewModel(),
     forwardViewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
     var forwardSelection by remember { mutableStateOf<TrackForwardSelection?>(null) }
     LaunchedEffect(searchQuery) {
         tracksViewModel.setSearchQuery(searchQuery)
@@ -46,6 +51,21 @@ fun LibraryRoute(
             forwardSelection = selection
             forwardViewModel.openForwardPickerForTrack(selection.id)
         },
+        LocalTrackChatLinkActions provides TrackChatLinkActions(
+            lookup = libraryTools::telegramMessageLink,
+            open = { link ->
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link))
+                    .addCategory(Intent.CATEGORY_BROWSABLE)
+                runCatching {
+                    context.startActivity(Intent(intent).setPackage("org.telegram.messenger"))
+                }.recoverCatching {
+                    // Support other installed Telegram clients as well.
+                    context.startActivity(intent)
+                }.onFailure {
+                    Toast.makeText(context, "No app available to open the Telegram message", Toast.LENGTH_LONG).show()
+                }
+            },
+        ),
     ) {
         Box(Modifier.fillMaxSize()) {
             LibraryRouteV4(

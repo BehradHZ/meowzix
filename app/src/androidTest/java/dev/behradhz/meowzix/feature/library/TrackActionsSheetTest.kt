@@ -49,6 +49,7 @@ class TrackActionsMenuTest {
         compose.onNodeWithTag("track-action-favorite").assertExists()
         compose.onNodeWithTag("track-action-forward").assertExists()
         compose.onNodeWithTag("track-action-row-go-to-artist").assertExists()
+        compose.onNodeWithTag("track-action-row-view-in-chat").assertDoesNotExist()
         compose.onNodeWithTag("track-action-row-continue-the-vibe").assertExists()
         compose.onNodeWithTag("track-action-row-edit-metadata").assertExists()
         compose.onNodeWithTag("track-action-row-manage-duplicates").assertExists()
@@ -60,6 +61,24 @@ class TrackActionsMenuTest {
             assertEquals(playlistId, addedTo)
             assertEquals(0, playNext)
         }
+    }
+
+    @Test fun viewInChatAppearsOnlyForTracksWithLinksAndInvokesCallback() {
+        var opened by mutableIntStateOf(0)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                TrackActionsMenu(
+                    expanded = true,
+                    title = "Telegram song", artist = "Artist", favorite = false, isQueue = false,
+                    playlists = emptyList(), onDismiss = {}, onPrimary = {}, onAddToQueue = {},
+                    onFavorite = {}, onForward = {}, onGoToArtist = {}, onAddToPlaylist = {},
+                    onContinueVibe = {}, onEditMetadata = {}, onManageDuplicates = {}, onWhy = {},
+                    onViewInChat = { opened++ },
+                )
+            }
+        }
+        compose.onNodeWithTag("track-action-row-view-in-chat").performClick()
+        compose.runOnIdle { assertEquals(1, opened) }
     }
 
     @Test fun queueReplacesPlayNextWithRemoveButKeepsOtherQuickActions() {

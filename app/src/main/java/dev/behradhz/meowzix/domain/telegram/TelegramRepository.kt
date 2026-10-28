@@ -142,6 +142,8 @@ interface TelegramRepository {
     fun refreshSelectableChats()
     fun setMusicSourceSelected(chatId: Long, selected: Boolean)
     fun syncSelectedSources()
+    /** URL/deep link for the source message, or null for tracks without Telegram sources. */
+    suspend fun messageLinkForTrack(trackId: UUID): String? = null
     suspend fun trackIdsForChat(chatId: Long): List<UUID>
     fun clearMusicSourceError()
 }

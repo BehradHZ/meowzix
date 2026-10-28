@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.HelpOutline
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.PlaylistPlay
@@ -73,6 +74,13 @@ internal data class TrackForwardSelection(val id: UUID, val title: String, val a
 internal val LocalTrackForwardAction =
     staticCompositionLocalOf<(TrackForwardSelection) -> Unit> { {} }
 
+/** Source links are resolved only for the selected Library track's overflow menu. */
+internal data class TrackChatLinkActions(
+    val lookup: suspend (UUID) -> String?,
+    val open: (String) -> Unit,
+)
+internal val LocalTrackChatLinkActions = staticCompositionLocalOf<TrackChatLinkActions?> { null }
+
 internal enum class TrackActionsPage { ACTIONS, PLAYLISTS }
 
 /** Compact popup anchored to the calling track's overflow button in Library and Queue. */
@@ -99,6 +107,7 @@ internal fun TrackActionsMenu(
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
+    onViewInChat: (() -> Unit)? = null,
 ) {
     var page by remember(title, artist, isQueue) { mutableStateOf(TrackActionsPage.ACTIONS) }
     val accent = MaterialTheme.colorScheme.primary
@@ -221,6 +230,11 @@ internal fun TrackActionsMenu(
                     ) {
                     ActionLine(Icons.Rounded.Person, "Go to artist", enabled = !artist.isNullOrBlank()) {
                         onDismiss(); onGoToArtist()
+                    }
+                    onViewInChat?.let { open ->
+                        ActionLine(Icons.Rounded.OpenInNew, "View in Chat") {
+                            onDismiss(); open()
+                        }
                     }
                     ActionLine(Icons.Rounded.PlaylistAdd, "Add to playlist", trailing = true) {
                         page = TrackActionsPage.PLAYLISTS
