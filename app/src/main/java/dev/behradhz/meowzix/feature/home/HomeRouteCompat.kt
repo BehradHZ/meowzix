@@ -25,6 +25,8 @@ fun HomeRoute(
         currentTrack = currentTrack,
         onPlayCollection = onPlayCollection,
         onOpenLibrary = onOpenLibrary,
+        onOpenPlaylist = { onOpenLibrary() },
+        onOpenProfile = onOpenLibrary,
         viewModel = viewModel,
     )
 }
