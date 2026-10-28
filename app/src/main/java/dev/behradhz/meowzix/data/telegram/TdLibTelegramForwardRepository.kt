@@ -161,17 +161,30 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val accountId = telegramRepository.musicSourceState.value.accountId ?: return emptyList()
         val userId = accountId.toLongOrNull() ?: return emptyList()
         val selectedIds = telegramRepository.musicSourceState.value.selectedChatIds
-        return activeClient.chatFolders.value.map { info ->
+        val infos = awaitTelegramFolderSnapshot(activeClient.chatFolders)
+        return infos.map { info ->
             val chatList = TdApi.ChatListFolder(info.id)
-            // TDLib may initially have only the first page of the folder loaded.
+            // TDLib may initially have only part of this chat list cached. A
+            // fresh folder definition also includes explicitly pinned/included
+            // chats, even before their chat-list positions have loaded.
+            val definition = runCatching { activeClient.send(TdApi.GetChatFolder(info.id)) }.getOrNull()
             runCatching { activeClient.send(TdApi.LoadChats(chatList, 100)) }
-            val ids = runCatching { activeClient.send(TdApi.GetChats(chatList, 100)).chatIds.toList() }
+            val chatIds = LinkedHashSet<Long>()
+            definition?.pinnedChatIds?.let { chatIds.addAll(it.toList()) }
+            definition?.includedChatIds?.let { chatIds.addAll(it.toList()) }
+            runCatching { activeClient.send(TdApi.GetChats(chatList, 100)).chatIds.toList() }
                 .getOrDefault(emptyList())
-            val chats = ids.distinct().mapNotNull { id ->
+                .let(chatIds::addAll)
+            definition?.excludedChatIds?.toSet()?.let(chatIds::removeAll)
+            val chats = chatIds.mapNotNull { id ->
                 runCatching { activeClient.send(TdApi.GetChat(id)) }.getOrNull()
                     ?.toForwardSummary(userId, id in selectedIds)
             }
-            TelegramForwardFolder(info.id, info.name?.text?.text?.ifBlank { "Folder" } ?: "Folder", chats)
+            TelegramForwardFolder(
+                info.id,
+                info.name?.text?.text?.ifBlank { "Folder" } ?: "Folder",
+                chats,
+            )
         }
     }
 

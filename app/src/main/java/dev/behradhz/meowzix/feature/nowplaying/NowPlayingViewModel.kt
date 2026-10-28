@@ -24,6 +24,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramSendEnqueueResult
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +46,8 @@ data class TelegramForwardUiState(
     val query: String = "",
     val chats: List<TelegramChatSummary> = emptyList(),
     val folders: List<TelegramForwardFolder> = emptyList(),
+    val foldersLoading: Boolean = false,
+    val foldersError: String? = null,
     val isSearching: Boolean = false,
     val isSending: Boolean = false,
     /** Counts newly accepted sends for this picker session; never counts retries/errors. */
@@ -151,6 +154,7 @@ class NowPlayingViewModel @Inject constructor(
     private val _forwardState = MutableStateFlow(TelegramForwardUiState())
     val forwardState: StateFlow<TelegramForwardUiState> = _forwardState.asStateFlow()
     private var forwardSearchJob: Job? = null
+    private var forwardFoldersJob: Job? = null
     private var forwardTrackId: UUID? = null
 
     init {
@@ -264,6 +268,7 @@ class NowPlayingViewModel @Inject constructor(
             ?: fallbackTrack?.takeIf { it.id == trackId }
             ?: return
         forwardSearchJob?.cancel()
+        forwardFoldersJob?.cancel()
         forwardTrackId = selectedTrack.id
         _forwardState.update {
             it.copy(
@@ -272,6 +277,8 @@ class NowPlayingViewModel @Inject constructor(
                 query = "",
                 chats = emptyList(),
                 folders = emptyList(),
+                foldersLoading = true,
+                foldersError = null,
                 isSearching = true,
                 isSending = false,
                 successfulForwardCount = 0,
@@ -279,16 +286,45 @@ class NowPlayingViewModel @Inject constructor(
             )
         }
         searchForwardChats("")
-        viewModelScope.launch {
-            val folders = runCatching { telegramForwardRepository.loadForwardFolders() }.getOrDefault(emptyList())
-            if (_forwardState.value.isOpen && _forwardState.value.track?.id == trackId) {
-                _forwardState.update { it.copy(folders = folders) }
+        reloadForwardFolders()
+    }
+
+    /** Folders are delivered asynchronously by TDLib and can require a retry. */
+    fun reloadForwardFolders() {
+        val trackId = _forwardState.value.track?.id ?: return
+        forwardFoldersJob?.cancel()
+        _forwardState.update {
+            if (it.isOpen && it.track?.id == trackId) it.copy(
+                foldersLoading = true,
+                foldersError = null,
+            ) else it
+        }
+        forwardFoldersJob = viewModelScope.launch {
+            try {
+                val folders = telegramForwardRepository.loadForwardFolders()
+                _forwardState.update {
+                    if (it.isOpen && it.track?.id == trackId) it.copy(
+                        folders = folders,
+                        foldersLoading = false,
+                        foldersError = if (folders.isEmpty()) "Folders not available yet" else null,
+                    ) else it
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                _forwardState.update {
+                    if (it.isOpen && it.track?.id == trackId) it.copy(
+                        foldersLoading = false,
+                        foldersError = "Couldn't load Telegram folders",
+                    ) else it
+                }
             }
         }
     }
 
     fun dismissForwardPicker() {
         forwardSearchJob?.cancel()
+        forwardFoldersJob?.cancel()
         forwardTrackId = null
         _forwardState.update {
             it.copy(
@@ -297,6 +333,8 @@ class NowPlayingViewModel @Inject constructor(
                 query = "",
                 chats = emptyList(),
                 folders = emptyList(),
+                foldersLoading = false,
+                foldersError = null,
                 isSearching = false,
                 isSending = false,
                 successfulForwardCount = 0,

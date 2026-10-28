@@ -128,6 +128,9 @@ fun TelegramForwardSheet(
     query: String,
     chats: List<TelegramChatSummary>,
     folders: List<TelegramForwardFolder> = emptyList(),
+    foldersLoading: Boolean = false,
+    foldersError: String? = null,
+    onReloadFolders: (() -> Unit)? = null,
     successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
@@ -143,6 +146,13 @@ fun TelegramForwardSheet(
     query = query,
     chats = chats,
     folders = folders,
+
+    foldersLoading = foldersLoading,
+
+    foldersError = foldersError,
+
+    onReloadFolders = onReloadFolders,
+
     successfulForwardCount = successfulForwardCount,
     isSearching = isSearching,
     isSending = isSending,
@@ -162,6 +172,9 @@ fun TelegramForwardSheet(
     query: String,
     chats: List<TelegramChatSummary>,
     folders: List<TelegramForwardFolder> = emptyList(),
+    foldersLoading: Boolean = false,
+    foldersError: String? = null,
+    onReloadFolders: (() -> Unit)? = null,
     successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
@@ -180,6 +193,13 @@ fun TelegramForwardSheet(
         query = query,
         chats = chats,
         folders = folders,
+
+        foldersLoading = foldersLoading,
+
+        foldersError = foldersError,
+
+        onReloadFolders = onReloadFolders,
+
         successfulForwardCount = successfulForwardCount,
         isSearching = isSearching,
         isSending = isSending,
@@ -201,6 +221,9 @@ private fun ForwardPickerBody(
     query: String,
     chats: List<TelegramChatSummary>,
     folders: List<TelegramForwardFolder> = emptyList(),
+    foldersLoading: Boolean = false,
+    foldersError: String? = null,
+    onReloadFolders: (() -> Unit)? = null,
     successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
@@ -469,19 +492,32 @@ private fun ForwardPickerBody(
                     modifier = Modifier.fillMaxWidth().border(1.dp, TelegramGlassStroke, RoundedCornerShape(22.dp)),
                 )
                 Spacer(Modifier.height(8.dp))
-                if (folders.isNotEmpty()) {
+                // Keep this row visible while TDLib publishes the folder list.
+                ForwardFolderNavigation(
+                    folders = folders,
+                    selectedFolderId = activeFolder?.id,
+                    loading = foldersLoading,
+                    onSelectFolder = { selectedFolderId = it },
+                )
+                if (folders.isEmpty() && !foldersLoading && onReloadFolders != null) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                            .testTag("telegram-forward-folders"),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        ForwardFolderChip("All chats", activeFolder == null) { selectedFolderId = null }
-                        folders.forEach { folder ->
-                            ForwardFolderChip(folder.title, activeFolder?.id == folder.id) { selectedFolderId = folder.id }
+                        Text(
+                            foldersError ?: "No Telegram folders found",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onReloadFolders) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = null)
+                            Text("Retry folders")
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
                 }
+                Spacer(Modifier.height(10.dp))
 
                         }
                     }
@@ -804,6 +840,31 @@ internal fun visibleForwardChats(
     if (folder == null) return searchResults
     val needle = query.trim()
     return folder.chats.filter { needle.isBlank() || it.title.contains(needle, ignoreCase = true) }
+}
+
+/** Reusable navigation row; always visible even while folder metadata is pending. */
+@Composable
+internal fun ForwardFolderNavigation(
+    folders: List<TelegramForwardFolder>,
+    selectedFolderId: Int?,
+    loading: Boolean,
+    onSelectFolder: (Int?) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+            .testTag("telegram-forward-folders"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ForwardFolderChip("All chats", selectedFolderId == null) { onSelectFolder(null) }
+        folders.forEach { folder ->
+            ForwardFolderChip(folder.title, folder.id == selectedFolderId) { onSelectFolder(folder.id) }
+        }
+        if (loading) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            Text("Loading folders", style = MaterialTheme.typography.labelMedium)
+        }
+    }
 }
 
 @Composable

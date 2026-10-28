@@ -90,6 +90,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
     private val _ui = MutableStateFlow(OverlayForwardState())
     private val ui = _ui.asStateFlow()
     private var searchJob: Job? = null
+    private var foldersJob: Job? = null
     private var view: ComposeView? = null
     private var windowManager: WindowManager? = null
 
@@ -127,12 +128,9 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
             return START_NOT_STICKY
         }
         searchJob?.cancel()
-        _ui.value = OverlayForwardState(track = snapshot)
+        _ui.value = OverlayForwardState(track = snapshot, foldersLoading = true)
         search("")
-        scope.launch {
-            val folders = runCatching { forward.loadForwardFolders() }.getOrDefault(emptyList())
-            _ui.update { if (it.track?.id == snapshot.id) it.copy(folders = folders) else it }
-        }
+        reloadFolders()
         scope.launch {
             runCatching { settings.telegramForwardSettings.first() }
                 .onSuccess { defaults -> _ui.update { if (it.track?.id == snapshot.id) it.copy(defaults = defaults) else it } }
@@ -215,6 +213,9 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                                 query = state.query,
                                 chats = state.chats,
                                 folders = state.folders,
+                                foldersLoading = state.foldersLoading,
+                                foldersError = state.foldersError,
+                                onReloadFolders = ::reloadFolders,
                                 successfulForwardCount = state.successfulForwardCount,
                                 isSearching = state.isSearching,
                                 isSending = state.isSending,
@@ -228,6 +229,37 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+
+    private fun reloadFolders() {
+        val trackId = _ui.value.track?.id ?: return
+        foldersJob?.cancel()
+        _ui.update {
+            if (it.track?.id == trackId) it.copy(
+                foldersLoading = true, foldersError = null,
+            ) else it
+        }
+        foldersJob = scope.launch {
+            try {
+                val folders = forward.loadForwardFolders()
+                _ui.update {
+                    if (it.track?.id == trackId) it.copy(
+                        folders = folders,
+                        foldersLoading = false,
+                        foldersError = if (folders.isEmpty()) "Folders not available yet" else null,
+                    ) else it
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                _ui.update {
+                    if (it.track?.id == trackId) it.copy(
+                        foldersLoading = false,
+                        foldersError = "Couldn't load Telegram folders",
+                    ) else it
                 }
             }
         }
@@ -338,6 +370,8 @@ private data class OverlayForwardState(
     val query: String = "",
     val chats: List<TelegramChatSummary> = emptyList(),
     val folders: List<TelegramForwardFolder> = emptyList(),
+    val foldersLoading: Boolean = false,
+    val foldersError: String? = null,
     val isSearching: Boolean = false,
     val isSending: Boolean = false,
     val successfulForwardCount: Int = 0,
