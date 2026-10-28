@@ -159,6 +159,26 @@ class RoomLocalBackupRepositoryTest {
     }
 
     @Test
+    fun detachedLyricsBackupRetainsManuallyAttachedVersions() = runTest {
+        seedTrack(trackId.toString(), "hash-main", favorite = false)
+        db.lyricsDao().disableDiscovery(LyricsDetachedTrackEntity(trackId.toString()))
+        db.lyricsDao().insert(
+            LyricsVersionEntity("manual-after-detach", trackId.toString(), "USER_PASTE",
+                "Pasted lyrics", "Original text", "PLAIN", true, true, 0L, 10L, 10L),
+        )
+
+        val saved = repository.export()
+        assertTrue(BackupFormat.decode(saved).records.any { it.type == "LYRICS_DETACHED" })
+        db.lyricsDao().enableDiscovery(trackId.toString())
+        db.lyricsDao().deleteAllForTrack(trackId.toString())
+
+        repository.restore(saved)
+        assertTrue(db.lyricsDao().isDiscoveryDisabled(trackId.toString()))
+        assertEquals(1, db.lyricsDao().versionsForTrack(trackId.toString()).size)
+        assertEquals("manual-after-detach", db.lyricsDao().versionsForTrack(trackId.toString())[0].id)
+    }
+
+    @Test
     fun historyIsOffByDefault() = runTest {
         seedTrack(trackId.toString(), "hash-main", favorite = false)
         val sessionId = UUID.randomUUID().toString()

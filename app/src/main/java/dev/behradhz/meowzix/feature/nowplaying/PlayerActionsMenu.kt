@@ -293,7 +293,8 @@ internal fun PlayerActionsMenu(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(start = 8.dp, bottom = 3.dp),
                             )
-                        } else if (lyricsState.trackLyrics?.automaticDiscoveryDisabled == true) {
+                        }
+                        if (lyricsState.trackLyrics?.automaticDiscoveryDisabled == true) {
                             PlayerActionLine(
                                 icon = Icons.Rounded.Refresh,
                                 title = "Restore detected lyrics",

@@ -275,7 +275,8 @@ class RoomLocalBackupRepository @Inject constructor(
                         val ref = record.refAt(0)
                         val id = trackId(ref, TYPE_LYRICS_DETACHED,
                             ref?.originalTrackId?.toString().orEmpty()) ?: continue
-                        lyricsDao.deleteAllForTrack(id)
+                        // The backup may also include manually added lyrics from this track.
+                        // Preserve those while disabling only automatic re-discovery.
                         lyricsDao.disableDiscovery(LyricsDetachedTrackEntity(id))
                         restored++
                     }
