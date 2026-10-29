@@ -30,7 +30,7 @@ internal object LiveSongSessionActions {
  * The receiver is non-exported and handles only explicit immutable PendingIntents.
  * Use the existing Media3 session, not an exposed custom action on the playback service.
  */
-@UnstableApi
+@OptIn(UnstableApi::class)
 class LiveSongControlsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val requested = intent?.action?.removePrefix("${context.packageName}.live_song.") ?: return
