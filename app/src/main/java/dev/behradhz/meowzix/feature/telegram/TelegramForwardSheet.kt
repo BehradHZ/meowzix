@@ -618,7 +618,7 @@ private fun ForwardPickerBody(
                             ) {
                                 Text(
                                     if (folderLoadError) "Couldn't load this folder yet."
-                                    else if (activeFolder != null && query.isBlank()) "This folder has no loaded chats."
+                                    else if (activeFolder != null && query.isBlank()) "This folder is empty."
                                     else if (activeFolder != null) "No matching chats in ${activeFolder.title}."
                                     else if (query.isBlank()) "No Telegram chats available."
                                     else "No chats match your search.",

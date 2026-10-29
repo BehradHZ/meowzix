@@ -368,6 +368,14 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
         hydrateLocal(FOLDER_FIRST_SCREEN_COUNT)
 
+        // For a cold folder, load one small page first. Emit every group of
+        // resolved destinations immediately rather than waiting for a 100-chat pass.
+        var reachedEnd = false
+        if (resolved.isEmpty()) {
+            reachedEnd = loadPage(FOLDER_FIRST_SCREEN_COUNT)
+            checkUpdatesAfterLoad(FOLDER_FIRST_SCREEN_COUNT)
+        }
+
         // Read the static definition separately. Explicit inclusions may have no
         // chat-list position yet, so they should not disappear when GetChats is empty.
         val definitionResult = runCatching {
@@ -382,14 +390,6 @@ class TdLibTelegramForwardRepository @Inject constructor(
         orderedIds.removeAll(excluded)
         excluded.forEach(resolved::remove)
         hydrateAndEmit(included.filterNot(excluded::contains))
-
-        // For a cold folder, load one small page first. Emit every group of
-        // resolved destinations immediately rather than waiting for a 100-chat pass.
-        var reachedEnd = false
-        if (resolved.isEmpty()) {
-            reachedEnd = loadPage(FOLDER_FIRST_SCREEN_COUNT)
-            checkUpdatesAfterLoad(FOLDER_FIRST_SCREEN_COUNT)
-        }
 
         if (!reachedEnd && orderedIds.size < FOLDER_MAX_VISIBLE_COUNT) {
             // TDLib may load fewer chats than requested in each call. Retry a
