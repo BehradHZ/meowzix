@@ -70,6 +70,25 @@ class LiveSongContentTest {
         assertNotEquals(original, original.copy(progress = liveSongProgress(12_000, 100_000)))
     }
 
+    @Test fun artworkCacheSeparatesTracksAndArtworkSources() {
+        assertNotEquals(
+            liveSongArtworkKey("track-1", "content://art/cover", null),
+            liveSongArtworkKey("track-2", "content://art/cover", null),
+        )
+        assertNotEquals(
+            liveSongArtworkKey("track-1", "content://art/old", null),
+            liveSongArtworkKey("track-1", "content://art/new", null),
+        )
+        assertNotEquals(
+            liveSongArtworkKey("track-1", null, 128),
+            liveSongArtworkKey("track-1", null, 256),
+        )
+        assertEquals(
+            liveSongArtworkKey("track-1", null, null),
+            liveSongArtworkKey("track-1", null, null),
+        )
+    }
+
     @Test fun titleAndArtistAreNormalized() {
         assertEquals(LiveSongContent("Track", "Artist"), liveSongContent(true, false, " Track ", " Artist "))
         assertEquals(LiveSongContent("Track", "Unknown artist"), liveSongContent(true, false, "Track", null))

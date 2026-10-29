@@ -574,7 +574,9 @@ class PlaybackService : MediaLibraryService() {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        liveSongCard = NowPlayingLiveCard(this, openPlayerIntent)
+        liveSongCard = NowPlayingLiveCard(this, openPlayerIntent, serviceScope) {
+            updateLiveSongCard()
+        }
         mediaSession = MediaLibrarySession.Builder(this, player, sessionCallback)
             .setSessionActivity(openPlayerIntent)
             .setMediaButtonPreferences(mediaButtons())
