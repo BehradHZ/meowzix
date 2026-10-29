@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -64,6 +65,9 @@ fun SleepTimerGlassDialog(
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(24.dp)
+    // Blend the current track's accent into the middle glass layer rather than using
+    // the untinted surfaceVariant; both the header controls and panel now match.
+    val accentGlass = colors.primary.copy(alpha = 0.16f).compositeOver(colors.surface)
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -76,7 +80,7 @@ fun SleepTimerGlassDialog(
                     Brush.verticalGradient(
                         listOf(
                             colors.surface.copy(alpha = 0.94f),
-                            colors.surfaceVariant.copy(alpha = 0.97f),
+                            accentGlass.copy(alpha = 0.97f),
                             colors.surface.copy(alpha = 0.995f),
                         ),
                     ),

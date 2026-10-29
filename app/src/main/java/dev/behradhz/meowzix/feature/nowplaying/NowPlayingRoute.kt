@@ -225,6 +225,19 @@ fun NowPlayingRoute(
         onLyricsRestoreAutomatic = lyricsViewModel::restoreAutomaticLyrics,
         onLyricSeek = lyricsViewModel::seekToLine,
         )
+        // The dialog must inherit the exact same artwork-derived MaterialTheme as
+        // Now Playing. Dialog creates a new window but retains CompositionLocals.
+        if (sleepTimerOpen) {
+            SleepTimerGlassDialog(
+                state = sleepTimer,
+                endOfTrackEnabled = state.currentTrack != null,
+                onDismiss = { sleepTimerOpen = false },
+                onSetMinutes = viewModel::setSleepTimerMinutes,
+                onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
+                onExtend = viewModel::extendSleepTimer,
+                onCancel = viewModel::cancelSleepTimer,
+            )
+        }
     }
 
     val track = forwardState.track ?: state.currentTrack
@@ -246,18 +259,6 @@ fun NowPlayingRoute(
             onForward = viewModel::forwardCurrentTrack,
             onDismiss = viewModel::dismissForwardPicker,
             reduceMotion = appearance.reduceMotion,
-        )
-    }
-
-    if (sleepTimerOpen) {
-        SleepTimerGlassDialog(
-            state = sleepTimer,
-            endOfTrackEnabled = state.currentTrack != null,
-            onDismiss = { sleepTimerOpen = false },
-            onSetMinutes = viewModel::setSleepTimerMinutes,
-            onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
-            onExtend = viewModel::extendSleepTimer,
-            onCancel = viewModel::cancelSleepTimer,
         )
     }
 
