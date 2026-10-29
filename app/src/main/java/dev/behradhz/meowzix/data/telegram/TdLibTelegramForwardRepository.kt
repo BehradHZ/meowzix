@@ -281,7 +281,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
             // a cached empty snapshot as proof that a folder has no destinations.
             folderChatCaches[folderId]?.snapshot(
                 accountId, client, client.chatFolderRevision, SystemClock.elapsedRealtime(),
-            )?.takeIf(List<TelegramChatSummary>::isNotEmpty)
+            )?.takeIf { it.isNotEmpty() }
         }
     }
 
@@ -323,9 +323,10 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val chatList = TdApi.ChatListFolder(folderId)
         val orderedIds = LinkedHashSet<Long>()
         val resolved = LinkedHashMap<Long, TelegramChatSummary>()
+        val excludedIds = mutableSetOf<Long>()
 
         suspend fun hydrateAndEmit(ids: Collection<Long>) {
-            orderedIds.addAll(ids)
+            orderedIds.addAll(ids.filterNot(excludedIds::contains))
             for (batch in orderedIds.filterNot(resolved::containsKey).chunked(FOLDER_CHAT_BATCH_SIZE)) {
                 val found = resolveForwardChats(client, batch, userId, selectedIds)
                 found.forEach { resolved[it.chatId] = it }
@@ -377,6 +378,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
         definition?.pinnedChatIds?.let { included.addAll(it.toList()) }
         definition?.includedChatIds?.let { included.addAll(it.toList()) }
         val excluded = definition?.excludedChatIds?.toSet().orEmpty()
+        excludedIds.addAll(excluded)
         orderedIds.removeAll(excluded)
         excluded.forEach(resolved::remove)
         hydrateAndEmit(included.filterNot(excluded::contains))
@@ -429,6 +431,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
         // Cache only a complete, validated snapshot. A partial 100-chat page
         // must not suppress future loads of other folder members.
         if (shouldCacheForwardFolderChats(
+                knownChatCount = orderedIds.size,
                 resolvedChatCount = final.size,
                 reachedEnd = reachedEnd,
                 definitionLoaded = definitionResult.isSuccess,

@@ -19,9 +19,10 @@ class ForwardFolderLoadPolicyTest {
     }
 
     @Test fun onlyCompleteNonemptyFoldersAreCached() {
-        assertFalse(shouldCacheForwardFolderChats(0, reachedEnd = true, definitionLoaded = true))
-        assertFalse(shouldCacheForwardFolderChats(50, reachedEnd = false, definitionLoaded = true))
-        assertFalse(shouldCacheForwardFolderChats(50, reachedEnd = true, definitionLoaded = false))
-        assertTrue(shouldCacheForwardFolderChats(50, reachedEnd = true, definitionLoaded = true))
+        assertFalse(shouldCacheForwardFolderChats(0, 0, reachedEnd = true, definitionLoaded = true))
+        assertFalse(shouldCacheForwardFolderChats(50, 50, reachedEnd = false, definitionLoaded = true))
+        assertFalse(shouldCacheForwardFolderChats(50, 50, reachedEnd = true, definitionLoaded = false))
+        assertFalse(shouldCacheForwardFolderChats(51, 50, reachedEnd = true, definitionLoaded = true))
+        assertTrue(shouldCacheForwardFolderChats(50, 50, reachedEnd = true, definitionLoaded = true))
     }
 }

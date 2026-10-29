@@ -14,7 +14,9 @@ internal fun isConfirmedEmptyForwardFolder(
 
 /** Do not cache an empty, failed or incomplete folder as a final snapshot. */
 internal fun shouldCacheForwardFolderChats(
+    knownChatCount: Int,
     resolvedChatCount: Int,
     reachedEnd: Boolean,
     definitionLoaded: Boolean,
-): Boolean = resolvedChatCount > 0 && reachedEnd && definitionLoaded
+): Boolean = resolvedChatCount > 0 && knownChatCount == resolvedChatCount &&
+    reachedEnd && definitionLoaded
