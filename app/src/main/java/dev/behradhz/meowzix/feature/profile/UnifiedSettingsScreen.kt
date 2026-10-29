@@ -246,9 +246,10 @@ fun UnifiedSettingsScreen(
                             SettingsToggleRow(
                                 "Equalizer seekbar", "Switch between the animated waveform and the standard Android slider",
                                 Icons.Rounded.GraphicEq, state.appearance.playerSeekBarStyle == PlayerSeekBarStyle.WAVEFORM,
-                            ) { useWaveform ->
-                                viewModel.setPlayerSeekBarStyle(if (useWaveform) PlayerSeekBarStyle.WAVEFORM else PlayerSeekBarStyle.CLASSIC)
-                            }
+                                onChecked = { useWaveform ->
+                                    viewModel.setPlayerSeekBarStyle(if (useWaveform) PlayerSeekBarStyle.WAVEFORM else PlayerSeekBarStyle.CLASSIC)
+                                },
+                            )
                             SettingsRowDivider()
                             SettingsActionRow("Equalizer", "Device-aware audio controls", Icons.Rounded.Equalizer, "Open", onOpenEqualizer)
                             SettingsRowDivider()

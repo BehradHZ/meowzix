@@ -26,7 +26,7 @@ val MIGRATION_17_18 = object : Migration(17, 18) {
                         val customizedArtwork = rows.getString(2) != null
                         db.execSQL(
                             "UPDATE playlists SET telegramManaged = 1, titleOverridden = ?, descriptionOverridden = ?, artworkOverridden = ? WHERE id = ?",
-                            arrayOf(
+                            arrayOf<Any>(
                                 if (customizedTitle) 1 else 0,
                                 if (customizedDescription) 1 else 0,
                                 if (customizedArtwork) 1 else 0,
