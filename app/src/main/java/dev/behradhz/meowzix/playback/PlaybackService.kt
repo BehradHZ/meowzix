@@ -498,6 +498,7 @@ class PlaybackService : MediaLibraryService() {
                     Player.EVENT_PLAY_WHEN_READY_CHANGED,
                     Player.EVENT_PLAYBACK_STATE_CHANGED,
                     Player.EVENT_MEDIA_METADATA_CHANGED,
+                    Player.EVENT_POSITION_DISCONTINUITY,
                     Player.EVENT_TIMELINE_CHANGED,
                     Player.EVENT_AVAILABLE_COMMANDS_CHANGED,
                 )

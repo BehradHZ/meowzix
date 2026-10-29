@@ -76,7 +76,7 @@ internal class NowPlayingLiveCard(
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(content.title)
-            .setContentText(content.artist)
+            .setContentText("${content.artist} · ${if (isFavorite) "♥" else "♡"} · ${progress.label}")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
                 "${content.artist}\n${if (isFavorite) "♥ Liked" else "♡ Not liked"} · ${progress.label}"
             ))
