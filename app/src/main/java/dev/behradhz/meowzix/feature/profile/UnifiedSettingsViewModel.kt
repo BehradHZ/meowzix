@@ -129,6 +129,7 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setDefaultRepeat(value: RepeatMode) = launch { settings.setDefaultRepeatMode(value) }
     fun setResume(value: Boolean) = launch { settings.setResumeOnLaunch(value) }
     fun setResumeAfterExternalAudio(value: Boolean) = launch { settings.setResumeAfterExternalAudio(value) }
+    fun setLiveSongCardEnabled(value: Boolean) = launch { settings.setLiveSongCardEnabled(value) }
     fun setLoudnessNormalization(value: Boolean) = launch { settings.setLoudnessNormalizationEnabled(value) }
     fun setCrossfadeSeconds(value: Int) = launch { settings.setCrossfadeDurationSeconds(value) }
     fun setSleepTimerMinutes(minutes: Int, fade: Boolean) = launch {

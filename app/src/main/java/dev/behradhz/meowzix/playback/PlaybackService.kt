@@ -99,6 +99,8 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var playbackAudioAttributes: AudioAttributes
     private lateinit var audioManager: AudioManager
     private var resumeAfterExternalAudioEnabled = false
+    private var liveSongCardEnabled = false
+    private var liveSongCard: NowPlayingLiveCard? = null
     private var resumePendingExternalAudio = false
     private var observedExternalPlayback = false
     private var otherAppPlayingMedia = false
@@ -110,7 +112,6 @@ class PlaybackService : MediaLibraryService() {
             // a permanent focus-loss resume is pending, so only active external media counts.
             val activeOtherMedia = configs.any { config ->
                 config.isActive &&
-                    config.clientUid != applicationInfo.uid &&
                     config.audioAttributes.usage in setOf(
                         android.media.AudioAttributes.USAGE_MEDIA,
                         android.media.AudioAttributes.USAGE_GAME,
@@ -486,6 +487,15 @@ class PlaybackService : MediaLibraryService() {
             ) {
                 refreshPlaybackWidget()
             }
+            if (events.containsAny(
+                    Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                    Player.EVENT_PLAYBACK_STATE_CHANGED,
+                    Player.EVENT_MEDIA_METADATA_CHANGED,
+                )
+            ) {
+                updateLiveSongCard()
+            }
         }
 
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -504,7 +514,6 @@ class PlaybackService : MediaLibraryService() {
                     resumePendingExternalAudio = true
                     observedExternalPlayback = otherAppPlayingMedia ||
                         audioManager.activePlaybackConfigurations.any { it.isActive &&
-                            it.clientUid != applicationInfo.uid &&
                             it.audioAttributes.usage == android.media.AudioAttributes.USAGE_MEDIA
                         }
                     externalResumeJob?.cancel()
@@ -556,6 +565,7 @@ class PlaybackService : MediaLibraryService() {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        liveSongCard = NowPlayingLiveCard(this, openPlayerIntent)
         mediaSession = MediaLibrarySession.Builder(this, player, sessionCallback)
             .setSessionActivity(openPlayerIntent)
             .setMediaButtonPreferences(mediaButtons())
@@ -563,6 +573,10 @@ class PlaybackService : MediaLibraryService() {
 
         serviceScope.launch {
             settingsRepository.playbackPreferenceSettings.collect { preferences ->
+                if (liveSongCardEnabled != preferences.liveSongCardEnabled) {
+                    liveSongCardEnabled = preferences.liveSongCardEnabled
+                    updateLiveSongCard()
+                }
                 val nextNormalization = preferences.loudnessNormalizationEnabled
                 if (resumeAfterExternalAudioEnabled != preferences.resumeAfterExternalAudio) {
                     resumeAfterExternalAudioEnabled = preferences.resumeAfterExternalAudio
@@ -680,6 +694,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: ControllerInfo): MediaLibrarySession = mediaSession
 
     override fun onDestroy() {
+        liveSongCard?.cancel()
         if (resumeAfterExternalAudioEnabled) audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
         cancelExternalResume()
         clearPlaybackRetry()
@@ -723,6 +738,10 @@ class PlaybackService : MediaLibraryService() {
                 player.play()
             }
         }
+    }
+
+    private fun updateLiveSongCard() {
+        liveSongCard?.update(player, liveSongCardEnabled)
     }
 
     private fun refreshPlaybackWidget() {

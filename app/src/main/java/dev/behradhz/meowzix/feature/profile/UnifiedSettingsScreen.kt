@@ -1,6 +1,10 @@
 package dev.behradhz.meowzix.feature.profile
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -37,6 +41,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PrivacyTip
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
@@ -134,6 +139,13 @@ fun UnifiedSettingsScreen(
         }
     }
 
+    val liveCardPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) viewModel.setLiveSongCardEnabled(true)
+        else Toast.makeText(context, "Allow notifications to show the live song card", Toast.LENGTH_LONG).show()
+    }
+
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             runCatching {
@@ -216,6 +228,22 @@ fun UnifiedSettingsScreen(
                                 Icons.Rounded.PlayCircle,
                                 state.playback.resumeAfterExternalAudio,
                                 viewModel::setResumeAfterExternalAudio,
+                            )
+                            SettingsRowDivider()
+                            SettingsToggleRow(
+                                "Live song card",
+                                "Show a separate track-and-artist card on the lock screen and, if supported, AOD. Requires notification permission; Android controls prominence.",
+                                Icons.Rounded.MusicNote,
+                                state.playback.liveSongCardEnabled,
+                                onChecked = { enabled ->
+                                    when {
+                                        !enabled -> viewModel.setLiveSongCardEnabled(false)
+                                        Build.VERSION.SDK_INT >= 33 &&
+                                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ->
+                                            liveCardPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        else -> viewModel.setLiveSongCardEnabled(true)
+                                    }
+                                },
                             )
                             SettingsRowDivider()
                             SettingsToggleRow(
