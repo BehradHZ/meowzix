@@ -51,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -78,6 +80,7 @@ internal fun SettingsSeekBarStylePicker(
     onSelect: (PlayerSeekBarStyle) -> Unit,
     playback: PlaybackState = PlaybackState(),
     spectrum: AudioSpectrumState = AudioSpectrumState(),
+    spectrumFlow: StateFlow<AudioSpectrumState>? = null,
     reduceMotion: Boolean = false,
     onPreviewCaptureChange: (Boolean) -> Unit = {},
 ) {
@@ -87,7 +90,6 @@ internal fun SettingsSeekBarStylePicker(
     val playbackFraction = if (playing && playback.durationMs > 0L) {
         (playback.positionMs.toFloat() / playback.durationMs).coerceIn(0f, 1f)
     } else 0.42f
-    val hasLiveCapture = playing && !spectrum.sourceUri.isNullOrBlank()
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -133,11 +135,18 @@ internal fun SettingsSeekBarStylePicker(
                     }
                 }
                 val previewPosition = scrubPosition ?: playbackFraction
+                // No high-frequency FFT subscription while this specific preview is offscreen.
+                val currentSpectrum = if (style == PlayerSeekBarStyle.WAVEFORM &&
+                    cardVisible && playing && spectrumFlow != null
+                ) {
+                    val observed by spectrumFlow.collectAsStateWithLifecycle()
+                    observed
+                } else spectrum
                 if (style == PlayerSeekBarStyle.WAVEFORM) {
                     SyntheticWaveformSeekBar(
                         trackKey = trackKey,
                         liveBands = if (playing) {
-                            if (hasLiveCapture) spectrum.bands else FloatArray(0)
+                            if (!currentSpectrum.sourceUri.isNullOrBlank()) currentSpectrum.bands else FloatArray(0)
                         } else demoBands,
                         value = previewPosition,
                         onValueChange = { scrubPosition = it },

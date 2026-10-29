@@ -281,12 +281,11 @@ fun UnifiedSettingsScreen(
                             }
                             SettingsRowDivider()
                             val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()
-                            val previewSpectrum by viewModel.seekBarPreviewSpectrum.collectAsStateWithLifecycle()
                             SettingsSeekBarStylePicker(
                                 selected = state.appearance.playerSeekBarStyle,
                                 onSelect = viewModel::setPlayerSeekBarStyle,
                                 playback = previewPlayback,
-                                spectrum = previewSpectrum,
+                                spectrumFlow = viewModel.seekBarPreviewSpectrum,
                                 reduceMotion = state.appearance.reduceMotion,
                                 onPreviewCaptureChange = viewModel::setSettingsPreviewCaptureEnabled,
                             )
