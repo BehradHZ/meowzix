@@ -51,8 +51,10 @@ internal class NowPlayingLiveCard(
         )
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(content.title)
-            .setContentText(content.artist)
+            // The authoritative Media3 card already shows the song and artist on AOD.
+            // Keep this auxiliary promoted card generic to avoid repeating both.
+            .setContentTitle("Playing music")
+            .setContentText("Tap to open player")
             .setContentIntent(openPlayerIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
