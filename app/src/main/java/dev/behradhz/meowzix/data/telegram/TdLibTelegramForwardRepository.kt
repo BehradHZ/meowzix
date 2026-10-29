@@ -345,6 +345,16 @@ class TdLibTelegramForwardRepository @Inject constructor(
         }.getOrDefault(emptyList())
         hydrateAndEmit(locallyKnownIds)
 
+        // Cold folder: no local chat positions exist yet. Request just one small
+        // page first rather than waiting for the original 100-chat LoadChats.
+        if (resolved.isEmpty()) {
+            runCatching { client.send(TdApi.LoadChats(chatList, FOLDER_FIRST_SCREEN_COUNT)) }
+            val firstLoadedIds = runCatching {
+                client.send(TdApi.GetChats(chatList, FOLDER_FIRST_SCREEN_COUNT)).chatIds.toList()
+            }.getOrDefault(emptyList())
+            hydrateAndEmit(firstLoadedIds)
+        }
+
         // Explicit inclusions (which may not yet have chat-list positions) are
         // fetched after the cached positions are already visible.
         val definition = runCatching { client.send(TdApi.GetChatFolder(folderId)) }.getOrNull()
