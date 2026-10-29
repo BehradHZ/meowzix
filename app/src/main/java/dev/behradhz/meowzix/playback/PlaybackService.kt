@@ -580,6 +580,14 @@ class PlaybackService : MediaLibraryService() {
             .setMediaButtonPreferences(mediaButtons())
             .build()
 
+        // Observe the lightweight favorite-count invalidation so in-app likes update
+        // the Live Update and Media3 favorite button immediately, not only on track changes.
+        serviceScope.launch {
+            libraryQueryRepository.invalidations().collect {
+                if (player.currentMediaItem != null) refreshFavoriteState()
+            }
+        }
+
         serviceScope.launch {
             settingsRepository.playbackPreferenceSettings.collect { preferences ->
                 if (liveSongCardEnabled != preferences.liveSongCardEnabled) {
