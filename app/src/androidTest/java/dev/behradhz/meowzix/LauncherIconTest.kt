@@ -40,6 +40,15 @@ class LauncherIconTest {
     }
 
     @Test
+    fun launcherBackgroundMatchesPeachBrandColor() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        org.junit.Assert.assertEquals(
+            0xFFFFB38A.toInt(),
+            context.getColor(R.color.ic_launcher_background),
+        )
+    }
+
+    @Test
     fun monochromeCatDrawableCanBeInflated() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         assertNotNull(
