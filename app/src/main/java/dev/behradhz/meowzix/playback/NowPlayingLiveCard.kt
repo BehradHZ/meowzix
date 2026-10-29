@@ -53,8 +53,6 @@ internal class NowPlayingLiveCard(
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(content.title)
             .setContentText(content.artist)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("${content.title}  ·  ${content.artist}"))
-            .setSubText("Meowzix · Now playing")
             .setContentIntent(openPlayerIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
@@ -66,7 +64,7 @@ internal class NowPlayingLiveCard(
         // promotion instead; system eligibility and device UI remain outside our control.
         if (Build.VERSION.SDK_INT >= 36) {
             builder.setRequestPromotedOngoing(true)
-            builder.setShortCriticalText("♫")
+            builder.setShortCriticalText(liveSongChipLabel(content.title))
         }
         try {
             manager.notify(NOTIFICATION_ID, builder.build())
@@ -95,6 +93,13 @@ internal class NowPlayingLiveCard(
 }
 
 internal data class LiveSongContent(val title: String, val artist: String)
+
+/** Android reserves at most 96dp for a live-update chip; keep a short, readable title. */
+internal fun liveSongChipLabel(title: String): String {
+    val clean = title.trim()
+    if (clean.length <= 7) return clean
+    return clean.take(6).trimEnd() + "…"
+}
 
 /** Avoid stale notifications after pause, stop, or disabling the preference. */
 internal fun liveSongContent(

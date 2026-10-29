@@ -12,6 +12,12 @@ class LiveSongContentTest {
         assertNull(liveSongContent(true, false, " ", "Artist"))
     }
 
+    @Test fun statusChipUsesSongTitleInsteadOfAnIconOnly() {
+        assertEquals("Numb", liveSongChipLabel(" Numb "))
+        assertEquals("Wonder…", liveSongChipLabel("Wonderful Life"))
+        assertEquals("Song", liveSongChipLabel("Song"))
+    }
+
     @Test fun titleAndArtistAreNormalized() {
         assertEquals(LiveSongContent("Track", "Artist"), liveSongContent(true, false, " Track ", " Artist "))
         assertEquals(LiveSongContent("Track", "Unknown artist"), liveSongContent(true, false, "Track", null))
