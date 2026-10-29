@@ -10,6 +10,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,11 +38,13 @@ class LiveSongControlsReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         scope.launch {
-            val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
-            val future = MediaController.Builder(context, token).buildAsync()
             var controller: MediaController? = null
+            var future: ListenableFuture<MediaController>? = null
             try {
-                val player = withTimeout(5_000L) { future.await() }
+                val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+                val connecting = MediaController.Builder(context, token).buildAsync()
+                future = connecting
+                val player = withTimeout(5_000L) { connecting.await() }
                 controller = player
                 // Ignore stale action clicks after the original playback has stopped.
                 if (player.currentMediaItem != null && player.playWhenReady) {
@@ -62,7 +65,7 @@ class LiveSongControlsReceiver : BroadcastReceiver() {
             } catch (_: Exception) {
                 // No reachable session; do not start a second player or crash SystemUI.
             } finally {
-                if (controller != null) controller.release() else MediaController.releaseFuture(future)
+                if (controller != null) controller.release() else future?.let(MediaController::releaseFuture)
                 pendingResult.finish()
                 scope.cancel()
             }
@@ -77,5 +80,5 @@ class LiveSongControlsReceiver : BroadcastReceiver() {
 
 private fun MediaController.liveSongCustomCommand(name: String) {
     val command = SessionCommand(name, Bundle.EMPTY)
-    if (availableSessionCommands.contains(command)) sendCustomCommand(command, Bundle.EMPTY)
+    if (isSessionCommandAvailable(command)) sendCustomCommand(command, Bundle.EMPTY)
 }
