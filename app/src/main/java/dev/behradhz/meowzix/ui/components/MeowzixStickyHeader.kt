@@ -3,6 +3,8 @@ package dev.behradhz.meowzix.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -41,10 +43,13 @@ fun MeowzixStickyHeader(
     GlassSurface(
         hazeState = hazeState,
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
-        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.91f),
-        tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.16f),
+        shape = RoundedCornerShape(0.dp),
+        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
     ) {
+        // A real rectangular frosted strip, not a transparent floating title.
+        // The translucent fill remains visible when device blur is unavailable.
+        Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.surface.copy(alpha = 0.30f)))
         Row(
             modifier = Modifier.fillMaxWidth().statusBarsPadding()
                 .padding(horizontal = 18.dp, vertical = 12.dp)
