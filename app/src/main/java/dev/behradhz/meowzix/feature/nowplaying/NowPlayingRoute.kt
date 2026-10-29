@@ -127,6 +127,8 @@ fun NowPlayingRoute(
     onOpenQueue: () -> Unit,
     onGoToArtist: (String) -> Unit = {},
     onLyricsExpandedChange: (Boolean) -> Unit = {},
+    onMoreActionsMenuExpandedChange: (Boolean) -> Unit = {},
+    onMoreActionsButtonBoundsChanged: (Rect) -> Unit = {},
     viewModel: NowPlayingViewModel = hiltViewModel(),
     lyricsViewModel: NowPlayingLyricsViewModel = hiltViewModel(),
 ) {
@@ -193,6 +195,8 @@ fun NowPlayingRoute(
         reduceMotion = appearance.reduceMotion,
         seekBarStyle = appearance.playerSeekBarStyle,
         onBack = closeOrCollapse,
+        onMoreActionsMenuExpandedChange = onMoreActionsMenuExpandedChange,
+        onMoreActionsButtonBoundsChanged = onMoreActionsButtonBoundsChanged,
         onToggleLyrics = { lyricsExpanded = !lyricsExpanded },
         onExpandLyrics = { lyricsExpanded = true },
         onTogglePlayPause = viewModel::togglePlayPause,
@@ -279,6 +283,8 @@ private fun NowPlayingScreen(
     reduceMotion: Boolean,
     seekBarStyle: PlayerSeekBarStyle,
     onBack: () -> Unit,
+    onMoreActionsMenuExpandedChange: (Boolean) -> Unit,
+    onMoreActionsButtonBoundsChanged: (Rect) -> Unit,
     onToggleLyrics: () -> Unit,
     onExpandLyrics: () -> Unit,
     onTogglePlayPause: () -> Unit,
@@ -366,6 +372,8 @@ private fun NowPlayingScreen(
                 lyricsExpanded = lyricsExpanded,
                 sleepTimer = sleepTimer,
                 onBack = onBack,
+                onMoreActionsMenuExpandedChange = onMoreActionsMenuExpandedChange,
+                onMoreActionsButtonBoundsChanged = onMoreActionsButtonBoundsChanged,
                 onOpenForward = onOpenForward,
                 onOpenQueue = onOpenQueue,
                 onOpenSleepTimer = onOpenSleepTimer,
@@ -584,6 +592,8 @@ private fun PlayerHeader(
     lyricsExpanded: Boolean,
     sleepTimer: SleepTimerState,
     onBack: () -> Unit,
+    onMoreActionsMenuExpandedChange: (Boolean) -> Unit,
+    onMoreActionsButtonBoundsChanged: (Rect) -> Unit,
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSleepTimer: () -> Unit,
@@ -605,6 +615,8 @@ private fun PlayerHeader(
     var draggedLyricsRequest by remember { mutableIntStateOf(0) }
     var triggerBounds by remember { mutableStateOf(Rect.Zero) }
     val actionBounds = remember { mutableStateMapOf<Int, Rect>() }
+    // The player-wide vertical swipe handler is suspended while this menu is visible.
+    LaunchedEffect(menuExpanded) { onMoreActionsMenuExpandedChange(menuExpanded) }
     var pasteDialog by remember(lyricsState.trackId) { mutableStateOf(false) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(onLyricsImport)
@@ -647,12 +659,16 @@ private fun PlayerHeader(
                         .onGloballyPositioned { coords ->
                             val topLeft = coords.positionOnScreen()
                             if (topLeft != Offset.Unspecified) {
-                                triggerBounds = Rect(
+                                val bounds = Rect(
                                     topLeft.x,
                                     topLeft.y,
                                     topLeft.x + coords.size.width.toFloat(),
                                     topLeft.y + coords.size.height.toFloat(),
                                 )
+                                if (triggerBounds != bounds) {
+                                    triggerBounds = bounds
+                                    onMoreActionsButtonBoundsChanged(bounds)
+                                }
                             }
                         }
                         .pointerInput(lyricsState.trackId) {

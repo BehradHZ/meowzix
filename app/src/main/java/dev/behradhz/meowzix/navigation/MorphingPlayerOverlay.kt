@@ -57,12 +57,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -99,6 +102,23 @@ private val CollapsedPlayerHorizontalInset = 14.dp
 private val CollapsedPlayerDockClearance = 90.dp
 private val PlayerSettleDistance = 72.dp
 private const val MINI_CARD_COMMIT_THRESHOLD = 0.35f
+
+/**
+ * Swipe-to-collapse must never claim a gesture that starts on the More actions
+ * trigger. These bounds are measured on screen, so the guard remains correct
+ * across device sizes, insets, and the player's morph animation.
+ */
+internal fun shouldIgnorePlayerSwipeFromMoreActions(
+    downOnScreen: Offset,
+    moreButtonBounds: Rect?,
+    marginPx: Float,
+): Boolean {
+    val bounds = moreButtonBounds ?: return false
+    return downOnScreen.x >= bounds.left - marginPx &&
+        downOnScreen.x <= bounds.right + marginPx &&
+        downOnScreen.y >= bounds.top - marginPx &&
+        downOnScreen.y <= bounds.bottom + marginPx
+}
 
 internal enum class MiniCardDirection { PREVIOUS, NEXT }
 
@@ -199,6 +219,9 @@ internal fun MorphingPlayerOverlay(
         mutableFloatStateOf(if (morphState.targetExpanded) 1f else 0f)
     }
     var lyricsExpanded by remember(track.id) { mutableStateOf(false) }
+    var moreActionsMenuOpen by remember(track.id) { mutableStateOf(false) }
+    var moreButtonBounds by remember(track.id) { mutableStateOf<Rect?>(null) }
+    var playerSurfaceTopLeft by remember { mutableStateOf(Offset.Zero) }
     var queueFeedback by remember { mutableStateOf<QueueActionFeedback?>(null) }
     var queueFeedbackVisible by remember { mutableStateOf(false) }
 
@@ -263,6 +286,7 @@ internal fun MorphingPlayerOverlay(
             (maxHeight - compactHeight).toPx().coerceAtLeast(1f)
         }
         val settleDistancePx = with(density) { PlayerSettleDistance.toPx() }
+        val moreButtonSafeMarginPx = with(density) { 10.dp.toPx() }
 
         GlassSurface(
             hazeState = hazeState,
@@ -271,15 +295,31 @@ internal fun MorphingPlayerOverlay(
                 .fillMaxWidth()
                 .padding(start = horizontalInset, end = horizontalInset, bottom = bottomInset)
                 .height(playerHeight)
-                .pointerInput(track.id, travelPx, lyricsExpanded) {
-                    // The expanded lyrics list owns vertical gestures. Do not translate its
-                    // browsing scroll into a swipe that closes the entire player.
-                    if (lyricsExpanded) return@pointerInput
+                .onGloballyPositioned { coordinates ->
+                    val topLeft = coordinates.positionOnScreen()
+                    if (topLeft != Offset.Unspecified) playerSurfaceTopLeft = topLeft
+                }
+                .pointerInput(track.id, travelPx, lyricsExpanded, moreActionsMenuOpen) {
+                    // Keep both the lyrics scroller and the open actions menu independent
+                    // of the player-wide swipe-to-collapse recognizer.
+                    if (lyricsExpanded || moreActionsMenuOpen) return@pointerInput
                     awaitEachGesture {
                         val down = awaitFirstDown(
                             requireUnconsumed = false,
                             pass = PointerEventPass.Initial,
                         )
+                        val downOnScreen = playerSurfaceTopLeft + down.position
+                        if (shouldIgnorePlayerSwipeFromMoreActions(
+                                downOnScreen,
+                                moreButtonBounds,
+                                moreButtonSafeMarginPx,
+                            )
+                        ) {
+                            // The menu's own pointer recognizer retains this entire touch
+                            // stream, including drag-to-select and release, without the
+                            // outer player modifying its expansion fraction.
+                            return@awaitEachGesture
+                        }
                         val startFraction = expansionFraction
                         var lastPosition = down.position
                         var totalDrag = Offset.Zero
@@ -393,6 +433,8 @@ internal fun MorphingPlayerOverlay(
                         },
                         viewModel = viewModel,
                         onLyricsExpandedChange = { lyricsExpanded = it },
+                        onMoreActionsMenuExpandedChange = { moreActionsMenuOpen = it },
+                        onMoreActionsButtonBoundsChanged = { moreButtonBounds = it },
                     )
                 }
             }
