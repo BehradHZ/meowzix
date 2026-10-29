@@ -5,12 +5,15 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.common.Player
 import dev.behradhz.meowzix.R
+import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
+import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 
 /**
  * Optional, secondary now-playing status card. The Media3 MediaStyle notification remains
@@ -22,9 +25,15 @@ internal class NowPlayingLiveCard(
     private val openPlayerIntent: PendingIntent,
 ) {
     private val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    private var lastContent: LiveSongContent? = null
+    private var lastState: LiveSongCardSnapshot? = null
 
-    fun update(player: Player, enabled: Boolean) {
+    fun update(
+        player: Player,
+        enabled: Boolean,
+        style: LiveSongCardStyle,
+        left: LiveSongSideAction,
+        right: LiveSongSideAction,
+    ) {
         val metadata = player.currentMediaItem?.mediaMetadata
         val content = if (enabled) liveSongContent(
             playWhenReady = player.playWhenReady,
@@ -38,7 +47,15 @@ internal class NowPlayingLiveCard(
             cancel()
             return
         }
-        if (lastContent == content) return
+        val actions = liveSongControls(
+            style, left, right,
+            canPrevious = player.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) &&
+                player.hasPreviousMediaItem(),
+            canNext = player.isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) &&
+                player.hasNextMediaItem(),
+        )
+        val snapshot = LiveSongCardSnapshot(content, actions)
+        if (lastState == snapshot) return
 
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Live song card", NotificationManager.IMPORTANCE_DEFAULT).apply {
@@ -62,6 +79,20 @@ internal class NowPlayingLiveCard(
             .setOngoing(true)
             .setShowWhen(false)
 
+        actions.forEach { action ->
+            builder.addAction(
+                liveSongActionIcon(action),
+                liveSongActionLabel(action),
+                PendingIntent.getBroadcast(
+                    context,
+                    4980 + action.ordinal,
+                    Intent(context, LiveSongControlsReceiver::class.java)
+                        .setAction(LiveSongControlsReceiver.actionName(context, action)),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                ),
+            )
+        }
+
         // MediaStyle cannot be promoted. This optional Standard/BigText notification requests
         // promotion instead; system eligibility and device UI remain outside our control.
         if (Build.VERSION.SDK_INT >= 36) {
@@ -70,16 +101,16 @@ internal class NowPlayingLiveCard(
         }
         try {
             manager.notify(NOTIFICATION_ID, builder.build())
-            lastContent = content
+            lastState = snapshot
         } catch (_: SecurityException) {
             cancel()
         }
     }
 
     fun cancel() {
-        if (lastContent != null) {
+        if (lastState != null) {
             manager.cancel(NOTIFICATION_ID)
-            lastContent = null
+            lastState = null
         }
     }
 
@@ -113,3 +144,42 @@ internal fun liveSongContent(
     if (!playWhenReady || isEnded || title.isNullOrBlank()) return null
     return LiveSongContent(title.trim(), artist?.trim()?.takeIf { it.isNotEmpty() } ?: "Unknown artist")
 }
+
+internal data class LiveSongCardSnapshot(
+    val content: LiveSongContent,
+    val actions: List<LiveSongAction>,
+)
+
+internal enum class LiveSongAction { PREVIOUS, PAUSE, NEXT, FAVORITE, SHUFFLE, REPEAT }
+
+/** The Android standard notification shows at most three expanded action buttons. */
+internal fun liveSongControls(
+    style: LiveSongCardStyle,
+    left: LiveSongSideAction,
+    right: LiveSongSideAction,
+    canPrevious: Boolean,
+    canNext: Boolean,
+): List<LiveSongAction> {
+    if (style == LiveSongCardStyle.MINIMAL) return emptyList()
+    return listOf(LiveSongAction.valueOf(left.name), LiveSongAction.PAUSE, LiveSongAction.valueOf(right.name))
+        .distinct()
+        .filter {
+            when (it) {
+                LiveSongAction.PREVIOUS -> canPrevious
+                LiveSongAction.NEXT -> canNext
+                else -> true
+            }
+        }
+}
+
+private fun liveSongActionIcon(action: LiveSongAction): Int = when (action) {
+    LiveSongAction.PREVIOUS -> R.drawable.widget_previous
+    LiveSongAction.PAUSE -> R.drawable.widget_pause
+    LiveSongAction.NEXT -> R.drawable.widget_next
+    LiveSongAction.FAVORITE -> R.drawable.live_song_favorite
+    LiveSongAction.SHUFFLE -> R.drawable.live_song_shuffle
+    LiveSongAction.REPEAT -> R.drawable.live_song_repeat
+}
+
+private fun liveSongActionLabel(action: LiveSongAction): String =
+    action.name.lowercase().replaceFirstChar(Char::uppercase)

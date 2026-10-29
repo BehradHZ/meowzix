@@ -45,6 +45,8 @@ import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
+import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
+import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.playback.CrossfadePolicy
 import dev.behradhz.meowzix.domain.playback.EqualizerRepository
 import dev.behradhz.meowzix.domain.playback.LoudnessNormalizationRepository
@@ -100,6 +102,9 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var audioManager: AudioManager
     private var resumeAfterExternalAudioEnabled = false
     private var liveSongCardEnabled = false
+    private var liveSongCardStyle = LiveSongCardStyle.MINIMAL
+    private var liveSongLeftAction = LiveSongSideAction.PREVIOUS
+    private var liveSongRightAction = LiveSongSideAction.NEXT
     private var liveSongCard: NowPlayingLiveCard? = null
     private var resumePendingExternalAudio = false
     private var observedExternalPlayback = false
@@ -492,6 +497,8 @@ class PlaybackService : MediaLibraryService() {
                     Player.EVENT_PLAY_WHEN_READY_CHANGED,
                     Player.EVENT_PLAYBACK_STATE_CHANGED,
                     Player.EVENT_MEDIA_METADATA_CHANGED,
+                    Player.EVENT_TIMELINE_CHANGED,
+                    Player.EVENT_AVAILABLE_COMMANDS_CHANGED,
                 )
             ) {
                 updateLiveSongCard()
@@ -575,6 +582,15 @@ class PlaybackService : MediaLibraryService() {
             settingsRepository.playbackPreferenceSettings.collect { preferences ->
                 if (liveSongCardEnabled != preferences.liveSongCardEnabled) {
                     liveSongCardEnabled = preferences.liveSongCardEnabled
+                    updateLiveSongCard()
+                }
+                if (liveSongCardStyle != preferences.liveSongCardStyle ||
+                    liveSongLeftAction != preferences.liveSongLeftAction ||
+                    liveSongRightAction != preferences.liveSongRightAction
+                ) {
+                    liveSongCardStyle = preferences.liveSongCardStyle
+                    liveSongLeftAction = preferences.liveSongLeftAction
+                    liveSongRightAction = preferences.liveSongRightAction
                     updateLiveSongCard()
                 }
                 val nextNormalization = preferences.loudnessNormalizationEnabled
@@ -741,7 +757,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun updateLiveSongCard() {
-        liveSongCard?.update(player, liveSongCardEnabled)
+        liveSongCard?.update(player, liveSongCardEnabled, liveSongCardStyle, liveSongLeftAction, liveSongRightAction)
     }
 
     private fun refreshPlaybackWidget() {
@@ -1834,9 +1850,9 @@ class PlaybackService : MediaLibraryService() {
         const val CAR_VOICE_CANDIDATES = 20
         const val TDLIB_SCHEME = "meowzix-tdlib"
         const val ACTION_OPEN_TELEGRAM_FORWARD = "dev.behradhz.meowzix.action.OPEN_TELEGRAM_FORWARD"
-        const val ACTION_TOGGLE_SHUFFLE = "dev.behradhz.meowzix.action.TOGGLE_SHUFFLE"
-        const val ACTION_CYCLE_REPEAT = "dev.behradhz.meowzix.action.CYCLE_REPEAT"
-        const val ACTION_TOGGLE_FAVORITE = "dev.behradhz.meowzix.action.TOGGLE_FAVORITE"
+        const val ACTION_TOGGLE_SHUFFLE = LiveSongSessionActions.SHUFFLE
+        const val ACTION_CYCLE_REPEAT = LiveSongSessionActions.REPEAT
+        const val ACTION_TOGGLE_FAVORITE = LiveSongSessionActions.FAVORITE
         const val MAX_REMOTE_PLAYBACK_RETRIES = 3
         const val REMOTE_PLAYBACK_RETRY_BASE_DELAY_MS = 600L
         const val FORWARD_INCREMENT_MS = 15_000L

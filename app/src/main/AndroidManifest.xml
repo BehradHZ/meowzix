@@ -86,6 +86,11 @@
             </intent-filter>
         </service>
 
+        <!-- Explicit PendingIntent actions only; never exported to other apps. -->
+        <receiver
+            android:name=".playback.LiveSongControlsReceiver"
+            android:exported="false" />
+
         <receiver
             android:name="androidx.media3.session.MediaButtonReceiver"
             android:exported="true">
