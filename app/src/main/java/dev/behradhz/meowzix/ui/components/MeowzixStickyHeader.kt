@@ -37,6 +37,7 @@ fun MeowzixStickyHeader(
     subtitle: String,
     hazeState: HazeState,
     modifier: Modifier = Modifier,
+    tintAlpha: Float = 0.76f,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     GlassSurface(
@@ -44,7 +45,7 @@ fun MeowzixStickyHeader(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(0.dp),
         fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-        tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
+        tint = MaterialTheme.colorScheme.surface.copy(alpha = tintAlpha),
     ) {
         // A real rectangular frosted strip, not a transparent floating title.
         // The translucent fill remains visible when device blur is unavailable.

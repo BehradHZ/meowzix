@@ -59,6 +59,7 @@ import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import dev.chrisbanes.haze.hazeSource
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.rememberHazeState
 
 @Composable
 fun HomeRoute(
@@ -73,6 +74,8 @@ fun HomeRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    // Keep the Home header's blur input separate from NavHost/dock and card haze sources.
+    val headerHazeState = rememberHazeState()
     HomeScrollToTopEffect(listState, scrollToTopRequest)
 
     LifecycleStartEffect(viewModel) {
@@ -81,93 +84,99 @@ fun HomeRoute(
     }
 
     Box(Modifier.fillMaxSize()) {
-        HomeAmbientBackdrop()
-
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .hazeSource(hazeState),
-            contentPadding = PaddingValues(
-                start = 18.dp,
-                end = 18.dp,
-                top = 100.dp,
-                bottom = 198.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(28.dp),
-        ) {
-            currentTrack?.let { track ->
-                item("continue") {
-                    ContinueGlassHero(
-                        hazeState = hazeState,
-                        track = track,
-                        onClick = { viewModel.playFromHome(track.id) },
-                    )
+        // Capture the ambient backdrop and the scrolling feed as one real blur source.
+        // The header is a sibling, never a descendant of this captured layer.
+        Box(Modifier.fillMaxSize().hazeSource(headerHazeState)) {
+            HomeAmbientBackdrop()
+    
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .hazeSource(hazeState),
+                contentPadding = PaddingValues(
+                    start = 18.dp,
+                    end = 18.dp,
+                    top = 100.dp,
+                    bottom = 198.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(28.dp),
+            ) {
+                currentTrack?.let { track ->
+                    item("continue") {
+                        ContinueGlassHero(
+                            hazeState = hazeState,
+                            track = track,
+                            onClick = { viewModel.playFromHome(track.id) },
+                        )
+                    }
                 }
-            }
-
-            if (state.recommended.isNotEmpty()) {
-                item("recommended") {
-                    FeaturedRecommendations(
-                        hazeState = hazeState,
-                        tracks = state.recommended,
-                        onPlay = { track -> viewModel.playFromHome(track.id) },
-                    )
+    
+                if (state.recommended.isNotEmpty()) {
+                    item("recommended") {
+                        FeaturedRecommendations(
+                            hazeState = hazeState,
+                            tracks = state.recommended,
+                            onPlay = { track -> viewModel.playFromHome(track.id) },
+                        )
+                    }
                 }
-            }
-
-            if (state.recent.isNotEmpty()) {
-                item("recent") {
-                    RecentGlassList(
-                        hazeState = hazeState,
-                        tracks = state.recent,
-                        onPlay = { track -> viewModel.playFromHome(track.id) },
-                    )
+    
+                if (state.recent.isNotEmpty()) {
+                    item("recent") {
+                        RecentGlassList(
+                            hazeState = hazeState,
+                            tracks = state.recent,
+                            onPlay = { track -> viewModel.playFromHome(track.id) },
+                        )
+                    }
                 }
-            }
-
-            if (state.artists.isNotEmpty()) {
-                item("artists") {
-                    ArtistOrbit(
-                        hazeState = hazeState,
-                        artists = state.artists,
-                        onPlayArtist = { artist ->
-                            viewModel.playArtist(artist.normalizedName, onPlayCollection)
-                        },
-                    )
+    
+                if (state.artists.isNotEmpty()) {
+                    item("artists") {
+                        ArtistOrbit(
+                            hazeState = hazeState,
+                            artists = state.artists,
+                            onPlayArtist = { artist ->
+                                viewModel.playArtist(artist.normalizedName, onPlayCollection)
+                            },
+                        )
+                    }
                 }
-            }
-
-            if (state.playlists.isNotEmpty()) {
-                item("playlists") {
-                    PlaylistGlassRail(
-                        hazeState = hazeState,
-                        playlists = state.playlists,
-                        onOpenPlaylist = onOpenPlaylist,
-                    )
+    
+                if (state.playlists.isNotEmpty()) {
+                    item("playlists") {
+                        PlaylistGlassRail(
+                            hazeState = hazeState,
+                            playlists = state.playlists,
+                            onOpenPlaylist = onOpenPlaylist,
+                        )
+                    }
                 }
-            }
-
-            if (state.recentlyAdded.isNotEmpty()) {
-                item("recently-added") {
-                    RecentlyAddedGlassPanel(
-                        hazeState = hazeState,
-                        tracks = state.recentlyAdded,
-                        onPlay = { track -> viewModel.playFromHome(track.id) },
-                        onOpenLibrary = onOpenLibrary,
-                    )
-                }
-            } else if (state.isReady) {
-                item("empty") {
-                    EmptyLibraryGlassCard(hazeState, onOpenLibrary)
+    
+                if (state.recentlyAdded.isNotEmpty()) {
+                    item("recently-added") {
+                        RecentlyAddedGlassPanel(
+                            hazeState = hazeState,
+                            tracks = state.recentlyAdded,
+                            onPlay = { track -> viewModel.playFromHome(track.id) },
+                            onOpenLibrary = onOpenLibrary,
+                        )
+                    }
+                } else if (state.isReady) {
+                    item("empty") {
+                        EmptyLibraryGlassCard(hazeState, onOpenLibrary)
+                    }
                 }
             }
         }
+
         MeowzixStickyHeader(
             title = "Home",
             subtitle = "Your listening, shaped for this moment.",
-            hazeState = hazeState,
+            hazeState = headerHazeState,
+            tintAlpha = 0.28f,
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
             MeowzixHeaderAction("Open settings", Icons.Rounded.Settings, onOpenSettings)
