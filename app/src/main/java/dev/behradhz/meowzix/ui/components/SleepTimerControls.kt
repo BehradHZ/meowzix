@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -139,7 +141,11 @@ fun SleepTimerControls(
     onSetEnabled: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var customMinutes by remember(lastMinutes) { mutableFloatStateOf(lastMinutes.coerceIn(5, 180).toFloat()) }
+    var customMinutes by remember(lastMinutes) {
+        mutableFloatStateOf(lastMinutes.coerceIn(5, 180).toFloat())
+    }
+    // A newly opened dialog is always compact, even if the last timer used a custom duration.
+    var customExpanded by remember { androidx.compose.runtime.mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
 
     Column(
@@ -161,8 +167,11 @@ fun SleepTimerControls(
                 tint = colors.primary,
             )
             Column(Modifier.weight(1f)) {
-                Text("Current timer", style = MaterialTheme.typography.labelMedium,
-                    color = colors.onSurfaceVariant)
+                Text(
+                    "Current timer",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.onSurfaceVariant,
+                )
                 Text(
                     sleepTimerStatusLabel(state),
                     style = MaterialTheme.typography.titleSmall,
@@ -185,55 +194,82 @@ fun SleepTimerControls(
             )
         }
 
-        Text("Quick durations", style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SleepTimerPreset(15, Modifier.weight(1f)) { onSetMinutes(15) }
-            SleepTimerPreset(30, Modifier.weight(1f)) { onSetMinutes(30) }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SleepTimerPreset(45, Modifier.weight(1f)) { onSetMinutes(45) }
-            SleepTimerPreset(60, Modifier.weight(1f)) { onSetMinutes(60) }
-        }
-
-        Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                .background(colors.onSurface.copy(alpha = 0.045f))
-                .border(1.dp, colors.onSurface.copy(alpha = 0.09f), RoundedCornerShape(16.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-        ) {
-            Text("Custom duration · ${customMinutes.roundToInt()} min",
-                style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            Slider(
-                value = customMinutes,
-                onValueChange = { customMinutes = it },
-                valueRange = 5f..180f,
-                modifier = Modifier.testTag("sleep-timer-custom-slider"),
-            )
-            Button(
-                onClick = { onSetMinutes(customMinutes.roundToInt()) },
-                modifier = Modifier.fillMaxWidth().testTag("sleep-timer-custom-start"),
+        // Four always-visible actions. Only Custom reveals the duration controls.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SleepTimerChoice(
+                label = "End of\ntrack",
+                selected = state.active && state.mode == SleepTimerMode.END_OF_TRACK,
+                enabled = endOfTrackEnabled,
+                tag = "sleep-timer-end-of-track",
+                modifier = Modifier.weight(1f),
             ) {
-                Text("Start custom timer")
+                customExpanded = false
+                onEndOfTrack()
+            }
+            SleepTimerChoice(
+                label = "15 min",
+                selected = state.active && state.mode == SleepTimerMode.DURATION &&
+                    lastMinutes == 15 && !customExpanded,
+                tag = "sleep-timer-preset-15",
+                modifier = Modifier.weight(1f),
+            ) {
+                customExpanded = false
+                onSetMinutes(15)
+            }
+            SleepTimerChoice(
+                label = "60 min",
+                selected = state.active && state.mode == SleepTimerMode.DURATION &&
+                    lastMinutes == 60 && !customExpanded,
+                tag = "sleep-timer-preset-60",
+                modifier = Modifier.weight(1f),
+            ) {
+                customExpanded = false
+                onSetMinutes(60)
+            }
+            SleepTimerChoice(
+                label = "Custom",
+                selected = customExpanded || (
+                    state.active && state.mode == SleepTimerMode.DURATION &&
+                        lastMinutes != 15 && lastMinutes != 60
+                    ),
+                tag = "sleep-timer-option-custom",
+                modifier = Modifier.weight(1f),
+            ) {
+                customExpanded = !customExpanded
             }
         }
 
-        Surface(
-            onClick = onEndOfTrack,
-            enabled = endOfTrackEnabled,
-            modifier = Modifier.fillMaxWidth().testTag("sleep-timer-end-of-track"),
-            shape = RoundedCornerShape(14.dp),
-            color = colors.primary.copy(alpha = if (endOfTrackEnabled) 0.11f else 0.04f),
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp, colors.primary.copy(alpha = if (endOfTrackEnabled) 0.20f else 0.06f),
-            ),
-        ) {
-            Text(
-                if (endOfTrackEnabled) "Stop at end of current track" else "No current track",
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (endOfTrackEnabled) colors.onSurface else colors.onSurfaceVariant,
-            )
+        AnimatedVisibility(visible = customExpanded) {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(colors.onSurface.copy(alpha = 0.045f))
+                    .border(
+                        1.dp,
+                        colors.onSurface.copy(alpha = 0.09f),
+                        RoundedCornerShape(16.dp),
+                    )
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .testTag("sleep-timer-custom-panel"),
+            ) {
+                Text(
+                    "Custom duration · " + customMinutes.roundToInt() + " min",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Slider(
+                    value = customMinutes,
+                    onValueChange = { customMinutes = it },
+                    valueRange = 5f..180f,
+                    modifier = Modifier.testTag("sleep-timer-custom-slider"),
+                )
+                Button(
+                    onClick = { onSetMinutes(customMinutes.roundToInt()) },
+                    modifier = Modifier.fillMaxWidth().testTag("sleep-timer-custom-start"),
+                ) {
+                    Text("Start custom timer")
+                }
+            }
         }
 
         if (state.active && state.mode == SleepTimerMode.DURATION) {
@@ -248,18 +284,35 @@ fun SleepTimerControls(
 }
 
 @Composable
-private fun SleepTimerPreset(minutes: Int, modifier: Modifier, onClick: () -> Unit) {
+private fun SleepTimerChoice(
+    label: String,
+    selected: Boolean,
+    tag: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     Surface(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 48.dp).testTag("sleep-timer-preset-$minutes"),
+        enabled = enabled,
+        modifier = modifier.heightIn(min = 54.dp).testTag(tag),
         shape = RoundedCornerShape(14.dp),
-        color = colors.primary.copy(alpha = 0.105f),
-        border = androidx.compose.foundation.BorderStroke(1.dp, colors.primary.copy(alpha = 0.17f)),
+        color = colors.primary.copy(alpha = if (selected) 0.32f else 0.105f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            colors.primary.copy(alpha = if (selected) 0.56f else 0.17f),
+        ),
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(8.dp)) {
-            Text("$minutes min", style = MaterialTheme.typography.labelLarge,
-                color = colors.onSurface, fontWeight = FontWeight.Medium)
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 3.dp, vertical = 8.dp)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (enabled) colors.onSurface else colors.onSurfaceVariant.copy(alpha = 0.5f),
+                textAlign = TextAlign.Center,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 2,
+            )
         }
     }
 }
