@@ -41,8 +41,8 @@ class LiveSongControlsReceiver : BroadcastReceiver() {
             val future = MediaController.Builder(context, token).buildAsync()
             var controller: MediaController? = null
             try {
-                controller = withTimeout(5_000L) { future.await() }
-                val player = controller
+                val player = withTimeout(5_000L) { future.await() }
+                controller = player
                 // Ignore stale action clicks after the original playback has stopped.
                 if (player.currentMediaItem != null && player.playWhenReady) {
                     when (action) {
