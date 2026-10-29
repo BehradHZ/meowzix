@@ -76,7 +76,10 @@ internal class NowPlayingLiveCard(
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(content.title)
-            .setContentText("${content.artist} · ${if (isFavorite) "♥ Liked" else "♡ Not liked"} · ${progress.label}")
+            .setContentText(content.artist)
+            // Keep the full artist separate from the clock/favorite metadata to avoid truncation.
+            // The subtext is meaningful (unlike the old duplicated "Meowzix" header).
+            .setSubText("${if (isFavorite) "♥ Liked" else "♡ Not liked"} · ${progress.label}")
             .setContentIntent(openPlayerIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
