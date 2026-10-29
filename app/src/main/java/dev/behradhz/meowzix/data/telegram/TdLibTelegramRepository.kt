@@ -650,10 +650,12 @@ class TdLibTelegramRepository @Inject constructor(
             PlaylistEntity(
                 id = telegramPlaylistId(accountId, chatId).toString(),
                 title = title.ifBlank { "Telegram" },
+                telegramManaged = true,
                 createdAtEpochMs = now,
                 updatedAtEpochMs = now,
             ),
         )
+        playlistDao.syncTelegramTitle(telegramPlaylistId(accountId, chatId).toString(), title.ifBlank { "Telegram" }, now)
     }
 
     private suspend fun syncChatPlaylist(accountId: String, chatId: Long, title: String) = database.withTransaction {

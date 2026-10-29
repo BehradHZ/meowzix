@@ -20,6 +20,8 @@ import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
 import dev.behradhz.meowzix.domain.settings.LibrarySortMode
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
+import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
+import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
 import dev.behradhz.meowzix.domain.settings.RecommendationPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
@@ -80,6 +82,8 @@ class DataStoreSettingsRepository @Inject constructor(
             customColorSeed = (values[CUSTOM_COLOR_SEED] ?: DEFAULT_CUSTOM_COLOR_SEED) or (0xFF shl 24),
             lyricsTextScalePercent = (values[LYRICS_TEXT_SCALE] ?: 100).coerceIn(80, 160),
             reduceMotion = values[REDUCE_MOTION] ?: false,
+            playerAccentSource = values[PLAYER_ACCENT_SOURCE].enumOrDefault(PlayerAccentSource.GLOBAL),
+            playerSeekBarStyle = values[PLAYER_SEEKBAR_STYLE].enumOrDefault(PlayerSeekBarStyle.WAVEFORM),
         )
     }
 
@@ -108,6 +112,8 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setPrefetchOnMetered(enabled: Boolean) = set(PREFETCH_METERED, enabled)
     override suspend fun setListeningHistoryEnabled(enabled: Boolean) = set(LISTENING_HISTORY, enabled)
     override suspend fun setReduceMotion(enabled: Boolean) = set(REDUCE_MOTION, enabled)
+    override suspend fun setPlayerAccentSource(source: PlayerAccentSource) = setEnum(PLAYER_ACCENT_SOURCE, source)
+    override suspend fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle) = setEnum(PLAYER_SEEKBAR_STYLE, style)
     override suspend fun setResumeOnLaunch(enabled: Boolean) = set(RESUME_ON_LAUNCH, enabled)
     override suspend fun setLoudnessNormalizationEnabled(enabled: Boolean) = set(LOUDNESS_NORMALIZATION, enabled)
     override suspend fun setCrossfadeDurationSeconds(seconds: Int) {
@@ -173,6 +179,8 @@ class DataStoreSettingsRepository @Inject constructor(
         val CUSTOM_COLOR_SEED = intPreferencesKey("custom_color_seed")
         val LYRICS_TEXT_SCALE = intPreferencesKey("lyrics_text_scale_percent")
         val REDUCE_MOTION = booleanPreferencesKey("reduce_motion")
+        val PLAYER_ACCENT_SOURCE = stringPreferencesKey("player_accent_source")
+        val PLAYER_SEEKBAR_STYLE = stringPreferencesKey("player_seekbar_style")
         val DEFAULT_PLAYBACK_MODE = stringPreferencesKey("default_playback_mode")
         val DEFAULT_REPEAT_MODE = stringPreferencesKey("default_repeat_mode")
         val RESUME_ON_LAUNCH = booleanPreferencesKey("resume_on_launch")

@@ -289,6 +289,16 @@ class LibraryViewModel @Inject constructor(
             .onFailure { reportLoadError(it, "Unable to create playlist") }
     }
 
+    fun restoreTelegramPlaylistMetadata(playlistId: UUID) = viewModelScope.launch {
+        val selected = telegramRepository.musicSourceState.value
+        val accountId = selected.accountId ?: return@launch
+        val source = selected.chats.firstOrNull {
+            telegramPlaylistId(accountId, it.chatId) == playlistId
+        } ?: return@launch
+        runCatching { playlistRepository.restoreTelegramMetadata(playlistId, source.title) }
+            .onFailure { reportLoadError(it, "Unable to restore Telegram playlist metadata") }
+    }
+
     fun renamePlaylist(playlistId: UUID, title: String) = viewModelScope.launch {
         runCatching { playlistRepository.rename(playlistId, title) }
             .onFailure { reportLoadError(it, "Unable to rename playlist") }

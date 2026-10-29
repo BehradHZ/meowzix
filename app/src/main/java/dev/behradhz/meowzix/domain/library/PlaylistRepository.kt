@@ -12,7 +12,13 @@ data class PlaylistSummary(
     val description: String? = null,
     val artworkRef: String? = null,
     val updatedAt: Instant = Instant.EPOCH,
-)
+    val telegramManaged: Boolean = false,
+    val titleOverridden: Boolean = false,
+    val descriptionOverridden: Boolean = false,
+    val artworkOverridden: Boolean = false,
+) {
+    val modified: Boolean get() = titleOverridden || descriptionOverridden || artworkOverridden
+}
 
 interface PlaylistRepository {
     fun observePlaylists(): Flow<List<PlaylistSummary>>
@@ -20,6 +26,7 @@ interface PlaylistRepository {
     suspend fun create(title: String): UUID
     suspend fun rename(playlistId: UUID, title: String)
     suspend fun updateMetadata(playlistId: UUID, title: String, description: String?, artworkRef: String?)
+    suspend fun restoreTelegramMetadata(playlistId: UUID, sourceTitle: String)
     suspend fun delete(playlistId: UUID)
     suspend fun addTrack(playlistId: UUID, trackId: UUID)
     suspend fun removeTrack(playlistId: UUID, trackId: UUID)

@@ -289,6 +289,40 @@ class MigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun migrateSeventeenToEighteenPreservesCustomTelegramMetadataAndIndependentOverrides() {
+        val database = helper.createDatabase(TEST_DATABASE_17_18, 16)
+        MIGRATION_16_17.migrate(database)
+        database.version = 17
+        val accountId = "100"
+        val chatId = 1234L
+        val playlistId = dev.behradhz.meowzix.domain.telegram.telegramPlaylistId(accountId, chatId).toString()
+        database.execSQL(
+            "INSERT INTO telegram_selected_sources(accountId, chatId, title, kind, initialScanComplete) " +
+                "VALUES ('100', 1234, 'Original chat', 'CHANNEL', 1)",
+        )
+        database.execSQL(
+            "INSERT INTO playlists(id, title, description, artworkRef, createdAtEpochMs, updatedAtEpochMs) " +
+                "VALUES (?, 'My custom name', NULL, NULL, 1, 2)",
+            arrayOf(playlistId),
+        )
+        MIGRATION_17_18.migrate(database)
+        database.version = 18
+        database.query(
+            "SELECT telegramManaged, titleOverridden, descriptionOverridden, artworkOverridden, title " +
+                "FROM playlists WHERE id = ?",
+            arrayOf(playlistId),
+        ).use { row ->
+            assertTrue(row.moveToFirst())
+            assertEquals(1, row.getInt(0))
+            assertEquals(1, row.getInt(1))
+            assertEquals(0, row.getInt(2))
+            assertEquals(0, row.getInt(3))
+            assertEquals("My custom name", row.getString(4))
+        }
+        database.close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"
@@ -303,5 +337,6 @@ class MigrationTest {
         const val TEST_DATABASE_13_14 = "migration-test-13-14"
         const val TEST_DATABASE_15_16 = "migration-test-15-16"
         const val TEST_DATABASE_16_17 = "migration-test-16-17"
+        const val TEST_DATABASE_17_18 = "migration-test-17-18"
     }
 }

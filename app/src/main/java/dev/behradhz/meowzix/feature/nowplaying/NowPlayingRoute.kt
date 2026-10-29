@@ -48,6 +48,7 @@ import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,6 +63,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -82,12 +85,15 @@ import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.playback.SleepTimerState
+import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
+import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
 import dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs
 import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.SleepTimerControls
 import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
+import dev.behradhz.meowzix.ui.components.rememberArtworkAccentColor
 import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
 import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
 import dev.chrisbanes.haze.HazeState
@@ -153,7 +159,20 @@ fun NowPlayingRoute(
         if (lyricsExpanded) lyricsExpanded = false else onBack()
     }
 
-    NowPlayingScreen(
+    val globalColors = MaterialTheme.colorScheme
+    val extractedAccent = rememberArtworkAccentColor(
+        if (appearance.playerAccentSource == PlayerAccentSource.TRACK) state.currentTrack?.artworkRef else null,
+    )
+    val customAccent = if (appearance.playerAccentSource == PlayerAccentSource.TRACK) extractedAccent else null
+    val effectiveColors = if (customAccent == null) globalColors else globalColors.copy(
+        primary = customAccent,
+        tertiary = customAccent,
+        primaryContainer = customAccent.copy(alpha = 0.23f).compositeOver(globalColors.surface),
+        secondaryContainer = customAccent.copy(alpha = 0.13f).compositeOver(globalColors.surface),
+        surface = customAccent.copy(alpha = 0.055f).compositeOver(globalColors.surface),
+    )
+    MaterialTheme(colorScheme = effectiveColors) {
+        NowPlayingScreen(
         state = state,
         queueState = queueState,
         liveBands = spectrum.bands,
@@ -162,6 +181,7 @@ fun NowPlayingRoute(
         lyricsExpanded = lyricsExpanded,
         sleepTimer = sleepTimer,
         reduceMotion = appearance.reduceMotion,
+        seekBarStyle = appearance.playerSeekBarStyle,
         onBack = closeOrCollapse,
         onToggleLyrics = { lyricsExpanded = !lyricsExpanded },
         onExpandLyrics = { lyricsExpanded = true },
@@ -190,7 +210,8 @@ fun NowPlayingRoute(
         onLyricsRemoveAll = lyricsViewModel::removeAllLyrics,
         onLyricsRestoreAutomatic = lyricsViewModel::restoreAutomaticLyrics,
         onLyricSeek = lyricsViewModel::seekToLine,
-    )
+        )
+    }
 
     val track = forwardState.track ?: state.currentTrack
     if (forwardState.isOpen && track != null) {
@@ -252,6 +273,7 @@ private fun NowPlayingScreen(
     lyricsExpanded: Boolean,
     sleepTimer: SleepTimerState,
     reduceMotion: Boolean,
+    seekBarStyle: PlayerSeekBarStyle,
     onBack: () -> Unit,
     onToggleLyrics: () -> Unit,
     onExpandLyrics: () -> Unit,
@@ -424,32 +446,47 @@ private fun NowPlayingScreen(
             // v0.5 kept the identity immediately above the waveform with a compact 12.dp gap.
             Spacer(Modifier.height(12.dp))
 
-            SyntheticWaveformSeekBar(
-                trackKey = track.id.toString(),
-                liveBands = liveBands,
-                value = shownPosition.toFloat(),
-                onValueChange = { pendingSeek = it },
-                onValueChangeFinished = {
-                    pendingSeek?.let { value ->
-                        val target = value.toLong()
-                        settlingSeekTarget = target
-                        onSeek(target)
-                    }
-                    pendingSeek = null
-                },
-                valueRange = 0f..duration.toFloat(),
-                enabled = state.durationMs > 0L && !isLoading,
-                isPlaying = state.status == PlaybackStatus.PLAYING,
-                isLoading = isLoading,
-                activeBarColor = MaterialTheme.colorScheme.primary,
-                inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),
-                pointerColor = PlayerPrimaryContent,
-                loadingShimmerColor = PlayerLoadingShimmer,
-                reduceMotion = reduceMotion,
-                accessibilityLabel = "Playback position",
-                accessibilityValue = "${formatDuration(shownPosition)} of ${formatDuration(duration)}",
-                modifier = Modifier.fillMaxWidth(),
-            )
+            val onDragSeek: (Float) -> Unit = { pendingSeek = it }
+            val finishSeek: () -> Unit = {
+                pendingSeek?.let { value ->
+                    val target = value.toLong()
+                    settlingSeekTarget = target
+                    onSeek(target)
+                }
+                pendingSeek = null
+            }
+            if (seekBarStyle == PlayerSeekBarStyle.WAVEFORM) {
+                SyntheticWaveformSeekBar(
+                    trackKey = track.id.toString(),
+                    liveBands = liveBands,
+                    value = shownPosition.toFloat(),
+                    onValueChange = onDragSeek,
+                    onValueChangeFinished = finishSeek,
+                    valueRange = 0f..duration.toFloat(),
+                    enabled = state.durationMs > 0L && !isLoading,
+                    isPlaying = state.status == PlaybackStatus.PLAYING,
+                    isLoading = isLoading,
+                    activeBarColor = MaterialTheme.colorScheme.primary,
+                    inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),
+                    pointerColor = PlayerPrimaryContent,
+                    loadingShimmerColor = PlayerLoadingShimmer,
+                    reduceMotion = reduceMotion,
+                    accessibilityLabel = "Playback position",
+                    accessibilityValue = "${formatDuration(shownPosition)} of ${formatDuration(duration)}",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Slider(
+                    value = shownPosition.toFloat().coerceIn(0f, duration.toFloat()),
+                    onValueChange = onDragSeek,
+                    onValueChangeFinished = finishSeek,
+                    valueRange = 0f..duration.toFloat(),
+                    enabled = state.durationMs > 0L && !isLoading,
+                    modifier = Modifier.fillMaxWidth().height(58.dp).semantics {
+                        contentDescription = "Playback position"
+                    },
+                )
+            }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(formatDuration(shownPosition), style = MaterialTheme.typography.labelMedium, color = PlayerSecondaryContent)

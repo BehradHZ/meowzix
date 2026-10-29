@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -11,4 +12,8 @@ data class PlaylistEntity(
     val artworkRef: String? = null,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
+    @ColumnInfo(defaultValue = "0") val telegramManaged: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val titleOverridden: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val descriptionOverridden: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val artworkOverridden: Boolean = false,
 )

@@ -30,6 +30,10 @@ class RoomPlaylistRepository @Inject constructor(
                 description = row.description,
                 artworkRef = row.artworkRef,
                 updatedAt = Instant.ofEpochMilli(row.updatedAtEpochMs),
+                telegramManaged = row.telegramManaged,
+                titleOverridden = row.titleOverridden,
+                descriptionOverridden = row.descriptionOverridden,
+                artworkOverridden = row.artworkOverridden,
             )
         }
     }
@@ -70,13 +74,38 @@ class RoomPlaylistRepository @Inject constructor(
         artworkRef: String?,
     ) {
         val normalizedTitle = title.trim().takeIf(String::isNotEmpty) ?: return
-        dao.updatePlaylistMetadata(
-            playlistId = playlistId.toString(),
-            title = normalizedTitle,
-            description = description?.trim()?.takeIf(String::isNotEmpty),
-            artworkRef = artworkRef?.trim()?.takeIf(String::isNotEmpty),
-            updatedAt = Instant.now().toEpochMilli(),
-        )
+        val normalizedDescription = description?.trim()?.takeIf(String::isNotEmpty)
+        val normalizedArtwork = artworkRef?.trim()?.takeIf(String::isNotEmpty)
+        database.withTransaction {
+            val existing = dao.playlist(playlistId.toString()) ?: return@withTransaction
+            if (existing.telegramManaged) {
+                dao.updateCustomizedMetadata(
+                    playlistId = playlistId.toString(),
+                    title = normalizedTitle,
+                    description = normalizedDescription,
+                    artworkRef = normalizedArtwork,
+                    titleOverride = existing.titleOverridden || normalizedTitle != existing.title,
+                    descriptionOverride = existing.descriptionOverridden || normalizedDescription != existing.description,
+                    // Clearing an explicitly selected cover returns to the live Telegram photo.
+                    artworkOverride = normalizedArtwork != null,
+                    updatedAt = Instant.now().toEpochMilli(),
+                )
+            } else {
+                dao.updatePlaylistMetadata(
+                    playlistId = playlistId.toString(),
+                    title = normalizedTitle,
+                    description = normalizedDescription,
+                    artworkRef = normalizedArtwork,
+                    updatedAt = Instant.now().toEpochMilli(),
+                )
+            }
+        }
+    }
+
+    override suspend fun restoreTelegramMetadata(playlistId: UUID, sourceTitle: String) {
+        database.withTransaction {
+            dao.restoreTelegramMetadata(playlistId.toString(), sourceTitle, Instant.now().toEpochMilli())
+        }
     }
 
     override suspend fun delete(playlistId: UUID) = dao.deletePlaylist(playlistId.toString())

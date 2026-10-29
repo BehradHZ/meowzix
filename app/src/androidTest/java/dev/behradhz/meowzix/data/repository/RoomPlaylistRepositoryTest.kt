@@ -107,6 +107,56 @@ class RoomPlaylistRepositoryTest {
     }
 
     @Test
+    fun telegramPlaylistSyncTracksOnlyUnmodifiedFieldsAndCanBeRestored() = runTest {
+        val id = UUID.randomUUID()
+        val dao = database.playlistDao()
+        dao.insertPlaylistIfAbsent(
+            dev.behradhz.meowzix.data.db.PlaylistEntity(
+                id = id.toString(), title = "Original chat",
+                createdAtEpochMs = 1L, updatedAtEpochMs = 1L, telegramManaged = true,
+            ),
+        )
+        // The normal state follows a Telegram chat rename.
+        dao.syncTelegramTitle(id.toString(), "Renamed on Telegram", 2L)
+        assertEquals("Renamed on Telegram", repository.observePlaylists().first().single().title)
+
+        // Editing only the title must leave the artwork and description on their own paths.
+        repository.updateMetadata(id, "My mix", null, null)
+        dao.syncTelegramTitle(id.toString(), "New Telegram title", 3L)
+        val customized = repository.observePlaylists().first().single()
+        assertEquals("My mix", customized.title)
+        assertEquals(true, customized.titleOverridden)
+        assertEquals(false, customized.descriptionOverridden)
+        assertEquals(false, customized.artworkOverridden)
+        assertEquals(null, customized.artworkRef)
+        assertEquals(true, customized.modified)
+
+        // A description customization does not stop untouched Telegram fields from syncing.
+        repository.restoreTelegramMetadata(id, "New Telegram title")
+        repository.updateMetadata(id, "New Telegram title", "Notes", null)
+        dao.syncTelegramTitle(id.toString(), "Updated again", 4L)
+        val descriptionOnly = repository.observePlaylists().first().single()
+        assertEquals("Updated again", descriptionOnly.title)
+        assertEquals("Notes", descriptionOnly.description)
+        assertEquals(false, descriptionOnly.titleOverridden)
+        assertEquals(true, descriptionOnly.descriptionOverridden)
+
+        // Cover override is independent; clearing it returns to live Telegram artwork.
+        repository.updateMetadata(id, "Updated again", "Notes", "content://local-cover")
+        assertEquals(true, repository.observePlaylists().first().single().artworkOverridden)
+        repository.updateMetadata(id, "Updated again", "Notes", null)
+        assertEquals(false, repository.observePlaylists().first().single().artworkOverridden)
+
+        repository.restoreTelegramMetadata(id, "Current channel title")
+        val restored = repository.observePlaylists().first().single()
+        assertEquals("Current channel title", restored.title)
+        assertEquals(null, restored.description)
+        assertEquals(null, restored.artworkRef)
+        assertEquals(false, restored.modified)
+        assertEquals(true, restored.telegramManaged)
+    }
+
+    @Test
     fun archivedSmartPlaylistsRemainHiddenWithoutDeletingUserData() = runTest {
         val manualId = repository.create("Manual")
         val legacyId = repository.create("Old smart playlist")

@@ -82,6 +82,8 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.settings.ThemePreference
+import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
+import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.ui.components.SleepTimerControls
 import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
@@ -215,6 +217,13 @@ fun UnifiedSettingsScreen(
                             SettingsRowDivider()
                             SettingsColorPicker(state.appearance, viewModel::setColorTheme, viewModel::setCustomColorSeed)
                             SettingsRowDivider()
+                            SettingsChoiceRow(
+                                "Full player accent", "Choose the track cover's color or the global app accent",
+                                Icons.Rounded.Palette,
+                                if (state.appearance.playerAccentSource == PlayerAccentSource.TRACK) "Track artwork" else "Global accent",
+                                listOf("Global accent", "Track artwork"),
+                            ) { viewModel.setPlayerAccentSource(if (it == "Track artwork") PlayerAccentSource.TRACK else PlayerAccentSource.GLOBAL) }
+                            SettingsRowDivider()
                             SettingsSliderRow("Lyrics text size", null, Icons.Rounded.TextFields,
                                 "${state.appearance.lyricsTextScalePercent}%", state.appearance.lyricsTextScalePercent.toFloat(),
                                 80f..160f, 7, { viewModel.setLyricsScale(it.toInt()) })
@@ -233,6 +242,13 @@ fun UnifiedSettingsScreen(
                             SettingsRowDivider()
                             SettingsToggleRow("Resume playback state", "Restore the previous queue and position",
                                 Icons.Rounded.Restore, state.playback.resumeOnLaunch, viewModel::setResume)
+                            SettingsRowDivider()
+                            SettingsToggleRow(
+                                "Equalizer seekbar", "Switch between the animated waveform and the standard Android slider",
+                                Icons.Rounded.GraphicEq, state.appearance.playerSeekBarStyle == PlayerSeekBarStyle.WAVEFORM,
+                            ) { useWaveform ->
+                                viewModel.setPlayerSeekBarStyle(if (useWaveform) PlayerSeekBarStyle.WAVEFORM else PlayerSeekBarStyle.CLASSIC)
+                            }
                             SettingsRowDivider()
                             SettingsActionRow("Equalizer", "Device-aware audio controls", Icons.Rounded.Equalizer, "Open", onOpenEqualizer)
                             SettingsRowDivider()

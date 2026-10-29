@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.ui.components
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.util.LruCache
 import androidx.compose.foundation.Image
@@ -34,8 +35,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
@@ -158,6 +161,50 @@ private fun rememberArtworkBitmap(
         retainPreviousWhileLoading -> loadedArtwork.bitmap
         else -> null
     }
+}
+
+/**
+ * Returns a high-contrast accent sampled locally from artwork. No new bitmap request/network call:
+ * the small image uses the same LRU decoder as the rest of the player.
+ */
+@Composable
+fun rememberArtworkAccentColor(artworkRef: String?): Color? {
+    val bitmap = rememberArtworkBitmap(artworkRef, targetPixels = 96)
+    val isLight = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    var color by remember(artworkRef, isLight) { mutableStateOf<Color?>(null) }
+    LaunchedEffect(bitmap, artworkRef, isLight) {
+        color = if (bitmap == null || artworkRef == null) null else withContext(Dispatchers.Default) {
+            extractArtworkAccent(bitmap.asAndroidBitmap(), isLight)
+        }
+    }
+    return color
+}
+
+private fun extractArtworkAccent(bitmap: android.graphics.Bitmap, lightTheme: Boolean): Color? {
+    if (bitmap.width == 0 || bitmap.height == 0) return null
+    // Prefer chromatic, opaque pixels; discard dark borders and near-white highlights.
+    val votes = FloatArray(12)
+    val saturation = FloatArray(12)
+    val hsv = FloatArray(3)
+    val stepX = (bitmap.width / 24).coerceAtLeast(1)
+    val stepY = (bitmap.height / 24).coerceAtLeast(1)
+    for (y in stepY / 2 until bitmap.height step stepY) {
+        for (x in stepX / 2 until bitmap.width step stepX) {
+            val pixel = bitmap.getPixel(x, y)
+            if (AndroidColor.alpha(pixel) < 180) continue
+            AndroidColor.colorToHSV(pixel, hsv)
+            if (hsv[1] < 0.23f || hsv[2] < 0.18f || hsv[2] > 0.97f) continue
+            val bin = ((hsv[0] / 30f).toInt()).coerceIn(0, 11)
+            val weight = hsv[1] * (0.4f + hsv[2])
+            votes[bin] += weight
+            saturation[bin] += hsv[1] * weight
+        }
+    }
+    val best = votes.indices.maxByOrNull { votes[it] } ?: return null
+    if (votes[best] < 0.5f) return null
+    val s = (saturation[best] / votes[best]).coerceIn(0.38f, 0.78f)
+    val v = if (lightTheme) 0.57f else 0.89f
+    return Color(AndroidColor.HSVToColor(floatArrayOf(best * 30f + 15f, s, v)))
 }
 
 /** Pre-decodes adjacent Now Playing covers into the shared artwork cache without rendering them. */

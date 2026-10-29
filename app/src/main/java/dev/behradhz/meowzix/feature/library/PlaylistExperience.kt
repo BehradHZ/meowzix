@@ -359,6 +359,7 @@ internal fun PlaylistDetailScreenV3(
     deleting: Boolean = false,
     errorMessage: String? = null,
     canEditMetadata: Boolean = editable,
+    onRestoreTelegramMetadata: () -> Unit = {},
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = editing) { editing = false }
@@ -367,6 +368,12 @@ internal fun PlaylistDetailScreenV3(
             initialTitle = title,
             initialDescription = playlist?.description,
             initialArtworkRef = playlist?.artworkRef,
+            telegramManaged = playlist?.telegramManaged == true,
+            isModified = playlist?.modified == true,
+            onRestore = {
+                onRestoreTelegramMetadata()
+                editing = false
+            },
             onBack = { editing = false },
             onSave = { newTitle, description, selectedArtwork ->
                 onSaveMetadata(newTitle, description, selectedArtwork)
@@ -460,7 +467,9 @@ internal fun PlaylistDetailScreenV3(
                         }
                     }
                     Text(
-                        if (isFavorites) "Favorites" else if (editable) "Your playlist" else "Telegram playlist",
+                        if (isFavorites) "Favorites" else if (playlist?.telegramManaged == true) {
+                            if (playlist.modified) "Telegram playlist · Modified" else "Telegram playlist · Synced"
+                        } else "Your playlist",
                         modifier = Modifier.weight(1f).padding(horizontal = 14.dp),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -795,8 +804,23 @@ private fun PlaylistEditScreenV3(
     initialArtworkRef: String?,
     onBack: () -> Unit,
     onSave: (String, String?, String?) -> Unit,
+    telegramManaged: Boolean,
+    isModified: Boolean,
+    onRestore: () -> Unit,
 ) {
     val context = LocalContext.current
+    var confirmRestore by remember { mutableStateOf(false) }
+    if (confirmRestore) {
+        AlertDialog(
+            onDismissRequest = { confirmRestore = false },
+            title = { Text("Restore Telegram metadata?") },
+            text = { Text("Your custom name, description and cover will be reset. Songs continue syncing with Telegram.") },
+            confirmButton = {
+                TextButton(onClick = { confirmRestore = false; onRestore() }) { Text("Restore") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRestore = false }) { Text("Cancel") } },
+        )
+    }
     var title by rememberSaveable(initialTitle) { mutableStateOf(initialTitle) }
     var description by rememberSaveable(initialDescription) { mutableStateOf(initialDescription.orEmpty()) }
     var artworkRef by rememberSaveable(initialArtworkRef) { mutableStateOf(initialArtworkRef) }
@@ -863,6 +887,23 @@ private fun PlaylistEditScreenV3(
                             label = { Text("Description") },
                             minLines = 4,
                         )
+                    }
+                }
+            }
+            if (telegramManaged) {
+                item(key = "telegram-sync-state") {
+                    PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(if (isModified) "Modified" else "Synced", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Only changed fields are kept locally. Other Telegram metadata and tracks keep updating.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (isModified) {
+                                TextButton(onClick = { confirmRestore = true }) { Text("Restore Telegram metadata") }
+                            }
+                        }
                     }
                 }
             }

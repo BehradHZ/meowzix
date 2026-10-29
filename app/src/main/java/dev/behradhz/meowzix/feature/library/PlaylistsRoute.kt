@@ -147,7 +147,7 @@ fun PlaylistsRoute(
             val playlistId = if (favorites) null else UUID.fromString(contentKey)
             val playlist = state.playlists.firstOrNull { it.id == playlistId }
             val tracks = if (favorites) state.tracks.filter(Track::favorite) else state.selectedPlaylistTracks
-            val telegramManaged = playlistId != null && state.playlistArtwork.containsKey(playlistId)
+            val telegramManaged = playlist?.telegramManaged == true
 
             PlaylistDetailScreenV3(
                 playlist = playlist,
@@ -158,6 +158,7 @@ fun PlaylistsRoute(
                     ?: tracks.firstOrNull()?.artworkRef,
                 editable = !favorites && !telegramManaged,
                 canEditMetadata = !favorites,
+                onRestoreTelegramMetadata = { playlistId?.let(viewModel::restoreTelegramPlaylistMetadata) },
                 isFavorites = favorites,
                 currentTrackId = state.playback.currentTrack?.id,
                 availability = state.availability,

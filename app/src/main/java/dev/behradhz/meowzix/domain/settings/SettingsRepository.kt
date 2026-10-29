@@ -38,6 +38,9 @@ enum class ColorThemePreference {
     MEOWZIX, WALLPAPER, CORAL, AMBER, OCEAN, MINT, VIOLET, ROSE, CUSTOM
 }
 
+enum class PlayerAccentSource { GLOBAL, TRACK }
+enum class PlayerSeekBarStyle { WAVEFORM, CLASSIC }
+
 const val DEFAULT_CUSTOM_COLOR_SEED: Int = 0xFF6750A4.toInt()
 
 data class AppearanceSettings(
@@ -46,6 +49,8 @@ data class AppearanceSettings(
     val customColorSeed: Int = DEFAULT_CUSTOM_COLOR_SEED,
     val lyricsTextScalePercent: Int = 100,
     val reduceMotion: Boolean = false,
+    val playerAccentSource: PlayerAccentSource = PlayerAccentSource.GLOBAL,
+    val playerSeekBarStyle: PlayerSeekBarStyle = PlayerSeekBarStyle.WAVEFORM,
 )
 
 data class PlaybackPreferenceSettings(
@@ -87,6 +92,8 @@ interface SettingsRepository {
     suspend fun setCustomColorSeed(argb: Int)
     suspend fun setLyricsTextScalePercent(percent: Int)
     suspend fun setReduceMotion(enabled: Boolean)
+    suspend fun setPlayerAccentSource(source: PlayerAccentSource)
+    suspend fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle)
     suspend fun setDefaultPlaybackMode(mode: PlaybackMode)
     suspend fun setDefaultRepeatMode(mode: RepeatMode)
     suspend fun setResumeOnLaunch(enabled: Boolean)

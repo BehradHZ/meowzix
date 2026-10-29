@@ -20,7 +20,7 @@ private const val VISIBLE_PLAYLIST_TRACK_COUNT =
 @Dao
 interface PlaylistDao {
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id ORDER BY p.title COLLATE NOCASE",
@@ -39,6 +39,9 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlist_tracks WHERE playlistId = :playlistId ORDER BY position")
     suspend fun entries(playlistId: String): List<PlaylistTrackEntity>
 
+    @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
+    suspend fun playlist(playlistId: String): PlaylistEntity?
+
     @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlistId = :playlistId")
     suspend fun nextPosition(playlistId: String): Int
 
@@ -50,7 +53,7 @@ interface PlaylistDao {
 
 
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id ORDER BY p.title COLLATE NOCASE LIMIT :limit OFFSET :offset",
@@ -58,7 +61,7 @@ interface PlaylistDao {
     suspend fun browsePlaylists(limit: Int, offset: Int): List<PlaylistSummaryRow>
 
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE p.id = :playlistId AND NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id LIMIT 1",
@@ -73,6 +76,12 @@ interface PlaylistDao {
 
     @Upsert suspend fun upsertPlaylist(playlist: PlaylistEntity)
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertPlaylistIfAbsent(playlist: PlaylistEntity): Long
+    @Query("UPDATE playlists SET title = :sourceTitle, updatedAtEpochMs = :updatedAt WHERE id = :playlistId AND telegramManaged = 1 AND titleOverridden = 0 AND title != :sourceTitle")
+    suspend fun syncTelegramTitle(playlistId: String, sourceTitle: String, updatedAt: Long)
+    @Query("UPDATE playlists SET title = :title, description = :description, artworkRef = :artworkRef, titleOverridden = :titleOverride, descriptionOverridden = :descriptionOverride, artworkOverridden = :artworkOverride, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
+    suspend fun updateCustomizedMetadata(playlistId: String, title: String, description: String?, artworkRef: String?, titleOverride: Boolean, descriptionOverride: Boolean, artworkOverride: Boolean, updatedAt: Long)
+    @Query("UPDATE playlists SET title = :sourceTitle, description = NULL, artworkRef = NULL, titleOverridden = 0, descriptionOverridden = 0, artworkOverridden = 0, updatedAtEpochMs = :updatedAt WHERE id = :playlistId AND telegramManaged = 1")
+    suspend fun restoreTelegramMetadata(playlistId: String, sourceTitle: String, updatedAt: Long)
     @Query("UPDATE playlists SET title = :title, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
     suspend fun renamePlaylist(playlistId: String, title: String, updatedAt: Long)
     @Query("UPDATE playlists SET title = :title, description = :description, artworkRef = :artworkRef, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
@@ -92,4 +101,8 @@ data class PlaylistSummaryRow(
     val artworkRef: String?,
     val updatedAtEpochMs: Long,
     val trackCount: Int,
+    val telegramManaged: Boolean,
+    val titleOverridden: Boolean,
+    val descriptionOverridden: Boolean,
+    val artworkOverridden: Boolean,
 )

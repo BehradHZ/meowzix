@@ -23,6 +23,8 @@ import dev.behradhz.meowzix.domain.settings.AppearanceSettings
 import dev.behradhz.meowzix.domain.settings.ColorThemePreference
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
+import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
+import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
 import dev.behradhz.meowzix.domain.settings.RecommendationPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
@@ -121,6 +123,8 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setCustomColorSeed(argb: Int) = launch { settings.setCustomColorSeed(argb) }
     fun setLyricsScale(value: Int) = launch { settings.setLyricsTextScalePercent(value) }
     fun setReduceMotion(value: Boolean) = launch { settings.setReduceMotion(value) }
+    fun setPlayerAccentSource(source: PlayerAccentSource) = launch { settings.setPlayerAccentSource(source) }
+    fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle) = launch { settings.setPlayerSeekBarStyle(style) }
     fun setDefaultMode(value: PlaybackMode) = launch { settings.setDefaultPlaybackMode(value) }
     fun setDefaultRepeat(value: RepeatMode) = launch { settings.setDefaultRepeatMode(value) }
     fun setResume(value: Boolean) = launch { settings.setResumeOnLaunch(value) }
