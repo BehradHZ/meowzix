@@ -79,12 +79,6 @@ class TdLibTelegramForwardRepository @Inject constructor(
     private val folderChatCaches = mutableMapOf<Int, ForwardFolderMemoryCache<TelegramChatSummary>>()
     private val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
 
-    private companion object {
-        const val FOLDER_FIRST_SCREEN_COUNT = 24
-        const val FOLDER_CHAT_BATCH_SIZE = 12
-        const val FOLDER_MAX_VISIBLE_COUNT = 100
-    }
-
     override val sendJobs: Flow<List<TelegramSendJob>> = sendDao.observeRecent().map { jobs ->
         jobs.map(TelegramSendJobEntity::toDomain)
     }
@@ -345,6 +339,14 @@ class TdLibTelegramForwardRepository @Inject constructor(
         }.getOrDefault(emptyList())
         hydrateAndEmit(firstIds)
 
+        // The rest of the *locally known* folder is also available without LoadChats.
+        val locallyKnownIds = runCatching {
+            client.send(TdApi.GetChats(chatList, FOLDER_MAX_VISIBLE_COUNT)).chatIds.toList()
+        }.getOrDefault(emptyList())
+        hydrateAndEmit(locallyKnownIds)
+
+        // Explicit inclusions (which may not yet have chat-list positions) are
+        // fetched after the cached positions are already visible.
         val definition = runCatching { client.send(TdApi.GetChatFolder(folderId)) }.getOrNull()
         val pinnedAndIncluded = LinkedHashSet<Long>()
         definition?.pinnedChatIds?.let { pinnedAndIncluded.addAll(it.toList()) }
@@ -353,12 +355,6 @@ class TdLibTelegramForwardRepository @Inject constructor(
         orderedIds.removeAll(excluded)
         excluded.forEach(resolved::remove)
         hydrateAndEmit(pinnedAndIncluded.filterNot(excluded::contains))
-
-        // The rest of the *locally known* folder is also available without LoadChats.
-        val locallyKnownIds = runCatching {
-            client.send(TdApi.GetChats(chatList, FOLDER_MAX_VISIBLE_COUNT)).chatIds.toList()
-        }.getOrDefault(emptyList())
-        hydrateAndEmit(locallyKnownIds.filterNot(excluded::contains))
 
         // Load more TDLib folder positions only after publishing the locally available rows.
         // This can be slow on a weak Telegram connection, but no longer blocks first paint.
@@ -818,6 +814,9 @@ class TdLibTelegramForwardRepository @Inject constructor(
     }
 
     private companion object {
+        const val FOLDER_FIRST_SCREEN_COUNT = 24
+        const val FOLDER_CHAT_BATCH_SIZE = 12
+        const val FOLDER_MAX_VISIBLE_COUNT = 100
         const val MAX_AUTO_ATTEMPTS = 3
         const val SEND_CONFIRMATION_TIMEOUT_MS = 30L * 60L * 1_000L
         const val TELEGRAM_SEND_WORK_NAME = "telegram-send-queue"

@@ -321,6 +321,9 @@ private fun ForwardPickerBody(
         mutableStateOf(selectedFolderId?.let(repository::cachedForwardFolderChats))
     }
     var folderLoadError by remember(trackId, selectedFolderId) { mutableStateOf(false) }
+    var folderLoadComplete by remember(trackId, selectedFolderId) {
+        mutableStateOf(loadedFolderChats != null)
+    }
     LaunchedEffect(trackId, activeFolder?.id) {
         val folderId = activeFolder?.id ?: return@LaunchedEffect
         if (loadedFolderChats != null) return@LaunchedEffect
@@ -329,10 +332,12 @@ private fun ForwardPickerBody(
                 loadedFolderChats = batch
                 folderLoadError = false
             }
+            folderLoadComplete = true
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             folderLoadError = true
+            folderLoadComplete = true
         }
     }
     val folderLoading = activeFolder != null && loadedFolderChats == null && !folderLoadError
@@ -633,6 +638,18 @@ private fun ForwardPickerBody(
                                         rememberDefaults,
                                     )
                                 },
+                            )
+                        }
+                    }
+                    if (activeFolder != null && loadedFolderChats?.isNotEmpty() == true &&
+                        !folderLoadComplete && !folderLoadError
+                    ) {
+                        item(key = "folder-more-loading") {
+                            Text(
+                                "Loading more chats…",
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
                             )
                         }
                     }
