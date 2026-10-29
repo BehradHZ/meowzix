@@ -53,6 +53,7 @@ class SettingsSeekBarPreviewTest {
                             onSelect = {},
                             playback = activeTrack,
                             spectrum = fft,
+                            reduceMotion = true,
                             onPreviewCaptureChange = { captureChanges.add(it) },
                         )
                     }
@@ -80,6 +81,7 @@ class SettingsSeekBarPreviewTest {
                     selected = PlayerSeekBarStyle.WAVEFORM,
                     onSelect = {},
                     playback = PlaybackState(),
+                    reduceMotion = true,
                     onPreviewCaptureChange = { captureChanges.add(it) },
                 )
             }

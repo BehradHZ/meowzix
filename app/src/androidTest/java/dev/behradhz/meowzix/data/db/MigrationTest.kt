@@ -269,10 +269,11 @@ class MigrationTest {
                 "VALUES ('lyrics-one', 'lyrics-track', 'USER_LRC', NULL, '[00:01.00]Test', " +
                 "'TIMED', 1, 1, 0, 1, 1)",
         )
-        database.close()
-        val migrated = helper.runMigrationsAndValidate(
-            TEST_DATABASE_16_17, 17, true, MIGRATION_16_17,
-        )
+        // No historical 17.json was exported. Exercise the real 16->17 migration
+        // against a committed v16 fixture instead of pretending a v17 schema exists.
+        MIGRATION_16_17.migrate(database)
+        database.version = 17
+        val migrated = database
         migrated.query("SELECT id FROM lyrics_versions WHERE trackId = 'lyrics-track'").use {
             assertTrue(it.moveToFirst())
             assertEquals("lyrics-one", it.getString(0))

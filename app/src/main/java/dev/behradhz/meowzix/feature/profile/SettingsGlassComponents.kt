@@ -162,7 +162,7 @@ internal fun SettingsSeekBarStylePicker(
                         value = previewPosition,
                         onValueChange = { scrubPosition = it },
                         valueRange = 0f..1f,
-                        isPlaying = cardVisible && (playing || !reduceMotion),
+                        isPlaying = cardVisible && playing && !reduceMotion,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }

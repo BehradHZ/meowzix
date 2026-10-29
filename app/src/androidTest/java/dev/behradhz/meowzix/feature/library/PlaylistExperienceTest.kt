@@ -164,9 +164,8 @@ class PlaylistExperienceTest {
         compose.onNodeWithContentDescription("Save playlist").assertIsNotEnabled()
         compose.onNodeWithText("Playlist name").performTextReplacement("  Evening favorites  ")
         compose.onNodeWithText("Description").performTextReplacement("  A calmer mix.  ")
-        // The header action stays available after dismissing the keyboard and scrolling back.
-        compose.onNodeWithTag("playlist-edit-list").performScrollToNode(hasContentDescription("Save playlist"))
-        compose.onNodeWithContentDescription("Save playlist").performClick()
+        // Save is in the fixed header, not inside the scrollable edit list.
+        compose.onNodeWithContentDescription("Save playlist").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(Triple("Evening favorites", "A calmer mix.", null), calls.saved) }
     }
 
@@ -322,7 +321,8 @@ class PlaylistExperienceTest {
 
     @Test fun darkDetailAndEditorRenderWithAllControls() {
         showDetail()
-        compose.onNodeWithText(playlist.title).assertIsDisplayed()
+        // The playlist title legitimately appears in the sticky header and the card.
+        compose.onAllNodesWithText(playlist.title)[0].assertIsDisplayed()
         capture("playlist-detail-dark")
         compose.onNodeWithContentDescription("Edit playlist").performClick()
         compose.onNodeWithText("Choose image").assertIsDisplayed()
