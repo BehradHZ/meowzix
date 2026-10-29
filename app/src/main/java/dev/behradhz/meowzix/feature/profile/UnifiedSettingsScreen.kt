@@ -53,6 +53,9 @@ import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Wifi
 import dev.behradhz.meowzix.feature.library.PlaylistGlassBackdrop
+import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
@@ -158,48 +161,12 @@ fun UnifiedSettingsScreen(
     var pendingDanger by remember { mutableStateOf<SettingsDangerAction?>(null) }
 
     PlaylistGlassBackdrop { hazeState ->
+        Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().statusBarsPadding(),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 196.dp),
+            modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 196.dp),
             verticalArrangement = Arrangement.spacedBy(25.dp),
         ) {
-            item(key = "navigation") {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(15.dp),
-                ) {
-                    PlaylistGlassPanel(
-                        hazeState,
-                        modifier = Modifier.size(52.dp).clickable(role = Role.Button, onClick = onBack),
-                        radius = 19.dp,
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Rounded.ArrowBack,
-                                contentDescription = "Back to Home",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(
-                            "MEOWZIX",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 11.sp, letterSpacing = 1.5.sp,
-                            ),
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            "Settings",
-                            style = MaterialTheme.typography.headlineLarge.copy(
-                                fontSize = 30.sp, lineHeight = 36.sp,
-                            ),
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-            }
             item(key = "hero") {
                 SettingsGlassHero(
                     hazeState,
@@ -242,6 +209,14 @@ fun UnifiedSettingsScreen(
                             SettingsRowDivider()
                             SettingsToggleRow("Resume playback state", "Restore the previous queue and position",
                                 Icons.Rounded.Restore, state.playback.resumeOnLaunch, viewModel::setResume)
+                            SettingsRowDivider()
+                            SettingsToggleRow(
+                                "Resume after other apps",
+                                "Restart music when an audio-focus interruption ends; manual pauses never resume automatically",
+                                Icons.Rounded.PlayCircle,
+                                state.playback.resumeAfterExternalAudio,
+                                viewModel::setResumeAfterExternalAudio,
+                            )
                             SettingsRowDivider()
                             SettingsToggleRow(
                                 "Equalizer seekbar", "Switch between the animated waveform and the standard Android slider",
@@ -402,6 +377,15 @@ fun UnifiedSettingsScreen(
                             }
                         }
                     }
+        }
+        MeowzixStickyHeader(
+            title = "Settings",
+            subtitle = "Make Meowzix yours.",
+            hazeState = hazeState,
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            MeowzixHeaderAction("Back to Home", Icons.Rounded.ArrowBack, onBack)
+        }
         }
     }
 

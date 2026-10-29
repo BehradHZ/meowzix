@@ -89,6 +89,8 @@ import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
 import dev.chrisbanes.haze.hazeSource
@@ -225,55 +227,15 @@ private fun QueueScreen(
         draggedDistance = 0f
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .hazeSource(feedbackHazeState),
-    ) {
+    Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+            modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(feedbackHazeState),
             state = listState,
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 182.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = 182.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            stickyHeader {
-                Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.background) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Queue", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                            Text(
-                                when {
-                                    state.items.isEmpty() -> "Nothing queued"
-                                    searchActive -> "${filteredItems.size} of ${state.items.size} tracks"
-                                    else -> "${state.items.size} tracks"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
-                            )
-                        }
-                        if (state.items.size > 1) {
-                            val shuffleEnabled = state.playbackMode == PlaybackMode.PURE_SHUFFLE
-                            IconButton(onClick = onToggleShuffle) {
-                                Icon(
-                                    Icons.Rounded.Shuffle,
-                                    contentDescription = if (shuffleEnabled) "Disable shuffle" else "Shuffle queue",
-                                    tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        if (state.items.isNotEmpty()) {
-                            Button(onClick = onClear, shape = RoundedCornerShape(16.dp)) {
-                                Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.size(6.dp))
-                                Text("Clear")
-                            }
-                        }
-                    }
-                }
-            }
+            // Preserve item index 0 for drag/reorder computations.
+            item(key = "queue-header-spacer") { Spacer(Modifier.size(0.dp)) }
 
             if (displayItems.isEmpty()) {
                 item {
@@ -387,6 +349,27 @@ private fun QueueScreen(
                         )
                     }
                 }
+            }
+        }
+
+        MeowzixStickyHeader(
+            title = "Queue",
+            subtitle = when {
+                state.items.isEmpty() -> "Nothing queued"
+                searchActive -> "${filteredItems.size} of ${state.items.size} tracks"
+                else -> "${state.items.size} tracks"
+            },
+            hazeState = feedbackHazeState,
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            if (state.items.size > 1) {
+                MeowzixHeaderAction(
+                    if (state.playbackMode == PlaybackMode.PURE_SHUFFLE) "Disable shuffle" else "Shuffle queue",
+                    Icons.Rounded.Shuffle, onToggleShuffle,
+                )
+            }
+            if (state.items.isNotEmpty()) {
+                MeowzixHeaderAction("Clear queue", Icons.Rounded.DeleteSweep, onClear)
             }
         }
 

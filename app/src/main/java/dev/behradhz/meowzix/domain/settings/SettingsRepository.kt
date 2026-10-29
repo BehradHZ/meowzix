@@ -57,6 +57,7 @@ data class PlaybackPreferenceSettings(
     val defaultMode: PlaybackMode = PlaybackMode.ORDERED,
     val defaultRepeat: RepeatMode = RepeatMode.OFF,
     val resumeOnLaunch: Boolean = true,
+    val resumeAfterExternalAudio: Boolean = false,
     val loudnessNormalizationEnabled: Boolean = false,
     val crossfadeDurationSeconds: Int = 0,
 )
@@ -97,6 +98,7 @@ interface SettingsRepository {
     suspend fun setDefaultPlaybackMode(mode: PlaybackMode)
     suspend fun setDefaultRepeatMode(mode: RepeatMode)
     suspend fun setResumeOnLaunch(enabled: Boolean)
+    suspend fun setResumeAfterExternalAudio(enabled: Boolean)
     suspend fun setLoudnessNormalizationEnabled(enabled: Boolean)
     suspend fun setCrossfadeDurationSeconds(seconds: Int)
     suspend fun setSmartRecommendationsEnabled(enabled: Boolean)

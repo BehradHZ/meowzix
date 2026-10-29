@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Album
@@ -104,6 +105,9 @@ import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.ui.components.TrackArtwork
+import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
+import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.HazeState
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -155,58 +159,15 @@ internal fun PlaylistsSectionV3(
     }
 
     PlaylistGlassBackdrop { hazeState ->
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 156.dp),
-            modifier = Modifier.fillMaxSize().statusBarsPadding().testTag("playlist-grid"),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 26.dp, bottom = 188.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            item(key = "playlist-heading", span = { GridItemSpan(maxLineSpan) }) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text("Your collections", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        Text(
-                            "A place for every mood.",
-                            modifier = Modifier.padding(top = 4.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        onCreate?.let { create ->
-                            PlaylistHeaderAction(hazeState, "New playlist", accented = true, onClick = create) {
-                                Icon(
-                                    Icons.Rounded.Add,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(24.dp),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                        onSaveQueue?.let {
-                            PlaylistHeaderAction(hazeState, "Save queue", onClick = { confirmSaveQueue = true }) {
-                                Box(Modifier.size(29.dp)) {
-                                    Icon(
-                                        Icons.Rounded.QueueMusic,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(25.dp).align(Alignment.TopStart),
-                                    )
-                                    Icon(
-                                        Icons.Rounded.Add,
-                                        contentDescription = null,
-                                        modifier = Modifier.align(Alignment.BottomEnd).size(17.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surface)
-                                            .padding(1.dp),
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        Box(Modifier.fillMaxSize()) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 156.dp),
+                modifier = Modifier.fillMaxSize().statusBarsPadding()
+                    .hazeSource(hazeState).testTag("playlist-grid"),
+                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 188.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
             item(key = "favorites-v3", span = { GridItemSpan(maxLineSpan) }) {
                 PlaylistMorphCardV3(
                     hazeState = hazeState,
@@ -249,27 +210,22 @@ internal fun PlaylistsSectionV3(
                     }
                 }
             }
+            }
+            MeowzixStickyHeader(
+                title = "Your collections",
+                subtitle = "A place for every mood.",
+                hazeState = hazeState,
+                modifier = Modifier.align(Alignment.TopCenter),
+            ) {
+                onCreate?.let { MeowzixHeaderAction("New playlist", Icons.Rounded.Add, it) }
+                onSaveQueue?.let {
+                    MeowzixHeaderAction(
+                        "Save queue", Icons.Rounded.PlaylistAdd,
+                        onClick = { confirmSaveQueue = true },
+                    )
+                }
+            }
         }
-    }
-}
-
-@Composable
-private fun PlaylistHeaderAction(
-    hazeState: HazeState,
-    label: String,
-    accented: Boolean = false,
-    onClick: () -> Unit,
-    icon: @Composable BoxScope.() -> Unit,
-) {
-    PlaylistGlassPanel(
-        hazeState = hazeState,
-        modifier = Modifier.size(48.dp)
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = label },
-        radius = 16.dp,
-        accented = accented,
-    ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center, content = icon)
     }
 }
 
@@ -285,7 +241,8 @@ private fun PlaylistMorphCardV3(
     PlaylistGlassPanel(
         hazeState = hazeState,
         modifier = Modifier.fillMaxWidth()
-            .then(if (favorite) Modifier else Modifier.height(288.dp))
+            .then(if (favorite) Modifier else Modifier.height(250.dp))
+            .testTag("playlist-card:$title")
             .clickable(role = Role.Button, onClick = onClick),
         accented = favorite,
     ) {
@@ -453,44 +410,13 @@ internal fun PlaylistDetailScreenV3(
     }
 
     PlaylistGlassBackdrop { hazeState ->
+        Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().testTag("playlist-detail-list"),
+            modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState).testTag("playlist-detail-list"),
             state = listState,
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 188.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 100.dp, bottom = 188.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item(key = "playlist-navigation") {
-                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PlaylistGlassPanel(hazeState, radius = 18.dp) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to playlists")
-                        }
-                    }
-                    Text(
-                        if (isFavorites) "Favorites" else if (playlist?.telegramManaged == true) {
-                            if (playlist.modified) "Telegram playlist · Modified" else "Telegram playlist · Synced"
-                        } else "Your playlist",
-                        modifier = Modifier.weight(1f).padding(horizontal = 14.dp),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (editable) {
-                        PlaylistGlassPanel(hazeState, radius = 18.dp) {
-                            IconButton(enabled = !deleting, onClick = { showDeleteConfirmation = true }) {
-                                Icon(Icons.Rounded.DeleteOutline, contentDescription = "Delete playlist")
-                            }
-                        }
-                    }
-                    if (canEditMetadata) {
-                        Spacer(Modifier.size(8.dp))
-                        PlaylistGlassPanel(hazeState, radius = 18.dp) {
-                            IconButton(enabled = !deleting, onClick = { editing = true }) {
-                                Icon(Icons.Rounded.Edit, contentDescription = "Edit playlist")
-                            }
-                        }
-                    }
-                }
-            }
             item(key = "playlist-hero") {
                 PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth(), radius = 32.dp, accented = true) {
                     Column(
@@ -738,6 +664,26 @@ internal fun PlaylistDetailScreenV3(
                 }
             }
         }
+        MeowzixStickyHeader(
+            title = title,
+            subtitle = if (isFavorites) "Your liked tracks" else if (playlist?.telegramManaged == true) {
+                if (playlist.modified) "Telegram · Modified" else "Telegram · Synced"
+            } else "Your playlist",
+            hazeState = hazeState,
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            MeowzixHeaderAction("Back to playlists", Icons.Rounded.ArrowBack, onBack)
+            if (editable) {
+                MeowzixHeaderAction(
+                    "Delete playlist", Icons.Rounded.DeleteOutline,
+                    { showDeleteConfirmation = true }, enabled = !deleting,
+                )
+            }
+            if (canEditMetadata) {
+                MeowzixHeaderAction("Edit playlist", Icons.Rounded.Edit, { editing = true }, enabled = !deleting)
+            }
+        }
+        }
     }
 }
 
@@ -834,23 +780,12 @@ private fun PlaylistEditScreenV3(
     }
 
     PlaylistGlassBackdrop { hazeState ->
+        Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding().testTag("playlist-edit-list"),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 188.dp),
+            modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding().hazeSource(hazeState).testTag("playlist-edit-list"),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 188.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            item(key = "edit-navigation") {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    PlaylistGlassPanel(hazeState, radius = 18.dp) {
-                        IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back to playlist") }
-                    }
-                    Text("Edit playlist", modifier = Modifier.weight(1f).padding(start = 14.dp), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    IconButton(
-                        enabled = title.isNotBlank(),
-                        onClick = { onSave(title.trim(), description.trim().takeIf(String::isNotEmpty), artworkRef) },
-                    ) { Icon(Icons.Rounded.Save, "Save playlist", tint = MaterialTheme.colorScheme.primary) }
-                }
-            }
             item(key = "edit-artwork") {
                 PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth(), radius = 32.dp, accented = true) {
                     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -920,6 +855,20 @@ private fun PlaylistEditScreenV3(
                 }
             }
         }
+        MeowzixStickyHeader(
+            title = "Edit playlist",
+            subtitle = if (telegramManaged) "Customize synced metadata." else "Edit your collection.",
+            hazeState = hazeState,
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            MeowzixHeaderAction("Back to playlist", Icons.Rounded.ArrowBack, onBack)
+            MeowzixHeaderAction(
+                "Save playlist", Icons.Rounded.Save,
+                { onSave(title.trim(), description.trim().takeIf(String::isNotEmpty), artworkRef) },
+                enabled = title.isNotBlank(),
+            )
+        }
+        }
     }
 }
 
@@ -939,8 +888,7 @@ private fun PlaylistArtworkV3(
             .background(
                 Brush.linearGradient(
                     if (favorite) {
-                        val pink = Color(0xFFFF2D55)
-                        listOf(pink.copy(alpha = 0.22f).compositeOver(colors.surface), pink.copy(alpha = 0.08f).compositeOver(colors.surface))
+                        listOf(colors.primary.copy(alpha = 0.22f).compositeOver(colors.surface), colors.primary.copy(alpha = 0.08f).compositeOver(colors.surface))
                     } else {
                         listOf(colors.primaryContainer, colors.secondaryContainer)
                     },
@@ -954,7 +902,7 @@ private fun PlaylistArtworkV3(
                 Icons.Rounded.Favorite,
                 contentDescription = null,
                 modifier = Modifier.size(size * 0.58f),
-                tint = Color(0xFFFF2D55),
+                tint = colors.primary,
             )
         } else if (artworkRef != null) {
             TrackArtwork(artworkRef = artworkRef, description = title, size = size)

@@ -21,5 +21,6 @@ class AdvancedPlaybackSettingsTest {
         val appearance = AppearanceSettings()
         assertEquals(PlayerAccentSource.GLOBAL, appearance.playerAccentSource)
         assertEquals(PlayerSeekBarStyle.WAVEFORM, appearance.playerSeekBarStyle)
+        assertFalse(PlaybackPreferenceSettings().resumeAfterExternalAudio)
     }
 }

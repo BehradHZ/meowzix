@@ -15,6 +15,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -35,6 +36,7 @@ import java.io.File
 import java.time.Instant
 import java.util.UUID
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -278,6 +280,31 @@ class PlaylistExperienceTest {
         compose.waitForIdle()
         compose.runOnIdle { assertEquals(playlist.id, opened) }
         compose.runOnIdle { assertEquals(1, created); assertEquals(1, savedQueue) }
+    }
+
+    @Test fun collectionCardsAreCompactAndHeaderRemainsVisibleWhileScrolling() {
+        val many = (1..24).map { index ->
+            playlist.copy(id = UUID(0, index.toLong()), title = "Playlist $index", trackCount = index)
+        }
+        compose.setContent {
+            MeowzixTheme {
+                PlaylistsSectionV3(
+                    playlists = many,
+                    playlistArtwork = emptyMap(),
+                    favoriteTracks = emptyList(),
+                    onOpenFavorites = {},
+                    onOpenPlaylist = {},
+                )
+            }
+        }
+        val height = compose.onNodeWithTag("playlist-card:Playlist 1").getUnclippedBoundsInRoot().height
+        val adjacent = compose.onNodeWithTag("playlist-card:Playlist 2").getUnclippedBoundsInRoot().height
+        compose.runOnIdle {
+            assertEquals(height, adjacent)
+            assertTrue("Card should not have a large unused bottom area", height <= 260.dp)
+        }
+        compose.onNodeWithTag("playlist-grid").performScrollToNode(hasText("Playlist 24"))
+        compose.onNodeWithText("Your collections").assertIsDisplayed()
     }
 
     @Test fun emptyFavoritesDisableAllPlaybackModesInLargeText() {

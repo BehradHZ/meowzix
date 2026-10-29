@@ -54,6 +54,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
+import dev.chrisbanes.haze.hazeSource
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.chrisbanes.haze.HazeState
 
@@ -84,50 +87,16 @@ fun HomeRoute(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding(),
+                .statusBarsPadding()
+                .hazeSource(hazeState),
             contentPadding = PaddingValues(
                 start = 18.dp,
                 end = 18.dp,
-                top = 22.dp,
+                top = 100.dp,
                 bottom = 198.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(28.dp),
         ) {
-            item("header") {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Home",
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        GlassSurface(
-                            hazeState = hazeState,
-                            modifier = Modifier.size(48.dp).clickable(onClick = onOpenSettings),
-                            shape = RoundedCornerShape(18.dp),
-                            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.Rounded.Settings,
-                                    contentDescription = "Open settings",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(24.dp),
-                                )
-                            }
-                        }
-                    }
-                    Text(
-                        text = "Your listening, shaped for this moment.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-
             currentTrack?.let { track ->
                 item("continue") {
                     ContinueGlassHero(
@@ -194,6 +163,14 @@ fun HomeRoute(
                     EmptyLibraryGlassCard(hazeState, onOpenLibrary)
                 }
             }
+        }
+        MeowzixStickyHeader(
+            title = "Home",
+            subtitle = "Your listening, shaped for this moment.",
+            hazeState = hazeState,
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            MeowzixHeaderAction("Open settings", Icons.Rounded.Settings, onOpenSettings)
         }
     }
 }

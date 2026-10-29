@@ -43,6 +43,9 @@ import dev.behradhz.meowzix.domain.downloads.ManagedStorageUsage
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.ui.components.TrackArtwork
+import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -59,12 +62,13 @@ fun DownloadsRoute(
     val storageSettings by storageViewModel.settings.collectAsStateWithLifecycle()
     val active = rows.filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
     val rest = rows.filterNot { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
+    val headerHazeState = rememberHazeState()
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 182.dp),
+        modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(headerHazeState),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 182.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Text("Offline", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold) }
         item { SettingToggle("Offline mode", settings.offlineMode, viewModel::setOfflineMode) }
         item { SettingToggle("Wi-Fi only downloads", settings.wifiOnlyDownloads, viewModel::setWifiOnly) }
         item { SettingToggle("Prefetch next track", settings.prefetchEnabled, viewModel::setPrefetch) }
@@ -115,6 +119,13 @@ fun DownloadsRoute(
                 )
             }
         }
+    }
+    MeowzixStickyHeader(
+        title = "Offline",
+        subtitle = "Downloads and offline playback.",
+        hazeState = headerHazeState,
+        modifier = Modifier.align(Alignment.TopCenter),
+    )
     }
 }
 

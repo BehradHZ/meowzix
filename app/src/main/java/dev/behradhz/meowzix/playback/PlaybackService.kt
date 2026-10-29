@@ -3,6 +3,11 @@ package dev.behradhz.meowzix.playback
 import android.app.ActivityOptions
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.Context
+import android.media.AudioManager
+import android.media.AudioPlaybackConfiguration
+import android.os.Handler
+import android.os.Looper
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -92,6 +97,35 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaLibrarySession
     private lateinit var playbackAudioAttributes: AudioAttributes
+    private lateinit var audioManager: AudioManager
+    private var resumeAfterExternalAudioEnabled = false
+    private var resumePendingExternalAudio = false
+    private var observedExternalPlayback = false
+    private var otherAppPlayingMedia = false
+    private var wasPlayingBeforeAudioFocusLoss = false
+    private var externalResumeJob: Job? = null
+    private val externalAudioObserver = object : AudioManager.AudioPlaybackCallback() {
+        override fun onPlaybackConfigChanged(configs: List<AudioPlaybackConfiguration>) {
+            // Non-privileged apps may see anonymized configs; the local player is paused when
+            // a permanent focus-loss resume is pending, so only active external media counts.
+            val activeOtherMedia = configs.any { config ->
+                config.isActive &&
+                    config.clientUid != applicationInfo.uid &&
+                    config.audioAttributes.usage in setOf(
+                        android.media.AudioAttributes.USAGE_MEDIA,
+                        android.media.AudioAttributes.USAGE_GAME,
+                    )
+            }
+            otherAppPlayingMedia = activeOtherMedia
+            if (!resumePendingExternalAudio) return
+            if (activeOtherMedia) {
+                observedExternalPlayback = true
+                externalResumeJob?.cancel()
+            } else if (observedExternalPlayback) {
+                scheduleExternalAudioResume()
+            }
+        }
+    }
     private var persistJob: Job? = null
     private var widgetRefreshJob: Job? = null
     private var playbackRetryJob: Job? = null
@@ -116,6 +150,21 @@ class PlaybackService : MediaLibraryService() {
     private val favoriteCommand = SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY)
 
     private val sessionCallback = object : MediaLibrarySession.Callback {
+        @Suppress("DEPRECATION")
+        override fun onPlayerCommandRequest(
+            session: MediaSession,
+            controller: ControllerInfo,
+            playerCommand: Int,
+        ): Int {
+            // MediaController.pause() can arrive while the focus loss has already paused the
+            // underlying player; no second onPlayWhenReadyChanged(false) is guaranteed.
+            if (playerCommand == Player.COMMAND_PLAY_PAUSE || playerCommand == Player.COMMAND_STOP) {
+                cancelExternalResume()
+                wasPlayingBeforeAudioFocusLoss = false
+            }
+            return super.onPlayerCommandRequest(session, controller, playerCommand)
+        }
+
         override fun onConnectAsync(
             session: MediaSession,
             controller: ControllerInfo,
@@ -445,6 +494,27 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            when {
+                playWhenReady -> {
+                    cancelExternalResume()
+                    wasPlayingBeforeAudioFocusLoss = true
+                }
+                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS &&
+                    wasPlayingBeforeAudioFocusLoss && resumeAfterExternalAudioEnabled && !isRestoring -> {
+                    resumePendingExternalAudio = true
+                    observedExternalPlayback = otherAppPlayingMedia ||
+                        audioManager.activePlaybackConfigurations.any { it.isActive &&
+                            it.clientUid != applicationInfo.uid &&
+                            it.audioAttributes.usage == android.media.AudioAttributes.USAGE_MEDIA
+                        }
+                    externalResumeJob?.cancel()
+                }
+                else -> {
+                    // The user, controller, timer or end of queue stopped playback.
+                    cancelExternalResume()
+                    wasPlayingBeforeAudioFocusLoss = false
+                }
+            }
             // The incoming crossfade player does not own audio focus until handoff.
             // Pausing it during transient focus loss is NOT a user pause; the outgoing
             // Media3-managed player will restore the intended playback after focus gain.
@@ -469,6 +539,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         playbackAudioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -493,6 +564,16 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.launch {
             settingsRepository.playbackPreferenceSettings.collect { preferences ->
                 val nextNormalization = preferences.loudnessNormalizationEnabled
+                if (resumeAfterExternalAudioEnabled != preferences.resumeAfterExternalAudio) {
+                    resumeAfterExternalAudioEnabled = preferences.resumeAfterExternalAudio
+                    if (resumeAfterExternalAudioEnabled) {
+                        audioManager.registerAudioPlaybackCallback(externalAudioObserver, Handler(Looper.getMainLooper()))
+                        externalAudioObserver.onPlaybackConfigChanged(audioManager.activePlaybackConfigurations)
+                    } else {
+                        audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
+                        cancelExternalResume()
+                    }
+                }
                 val nextCrossfadeSeconds = CrossfadePolicy.sanitizeSeconds(preferences.crossfadeDurationSeconds)
                 if (
                     activeCrossfade != null &&
@@ -599,6 +680,8 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: ControllerInfo): MediaLibrarySession = mediaSession
 
     override fun onDestroy() {
+        if (resumeAfterExternalAudioEnabled) audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
+        cancelExternalResume()
         clearPlaybackRetry()
         cancelCrossfade("service destroyed")
         player.removeListener(playerListener)
@@ -610,6 +693,36 @@ class PlaybackService : MediaLibraryService() {
         player.release()
         serviceScope.cancel()
         super.onDestroy()
+    }
+
+    private fun cancelExternalResume() {
+        externalResumeJob?.cancel()
+        externalResumeJob = null
+        resumePendingExternalAudio = false
+        observedExternalPlayback = false
+    }
+
+    private fun scheduleExternalAudioResume() {
+        if (!resumeAfterExternalAudioEnabled || !resumePendingExternalAudio) return
+        externalResumeJob?.cancel()
+        externalResumeJob = serviceScope.launch {
+            // Audio playback callbacks can briefly report silence during video transitions.
+            delay(1_300L)
+            if (resumeAfterExternalAudioEnabled &&
+                resumePendingExternalAudio &&
+                observedExternalPlayback &&
+                !otherAppPlayingMedia &&
+                !player.playWhenReady &&
+                player.currentMediaItem != null &&
+                player.playbackState != Player.STATE_ENDED &&
+                sleepTimer.state.value.mode == SleepTimerMode.OFF
+            ) {
+                cancelExternalResume()
+                // Media3 still owns focus arbitration. This only expresses the opt-in intent;
+                // Android may refuse focus while the service is no longer foreground.
+                player.play()
+            }
+        }
     }
 
     private fun refreshPlaybackWidget() {

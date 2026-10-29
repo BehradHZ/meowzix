@@ -20,6 +20,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -32,6 +36,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.Button
@@ -238,45 +243,12 @@ internal fun LibraryRouteV4(
         return
     }
 
+    val headerHazeState = rememberHazeState()
+    Box(Modifier.fillMaxSize()) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
+        modifier = Modifier.fillMaxSize().statusBarsPadding()
+            .padding(top = 96.dp).hazeSource(headerHazeState),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 18.dp, end = 10.dp, top = 12.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                modifier = Modifier.size(44.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                contentColor = MaterialTheme.colorScheme.primary,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.LibraryMusic, contentDescription = null)
-                }
-            }
-            Spacer(Modifier.size(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Library", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text(
-                    "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
-                )
-            }
-            IconButton(onClick = viewModel::refresh, enabled = !state.isRefreshing) {
-                if (state.isRefreshing) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Rounded.Refresh, contentDescription = "Refresh library")
-                }
-            }
-        }
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -364,6 +336,15 @@ internal fun LibraryRouteV4(
                 LibrarySectionV4.ALBUMS -> AlbumListV4(albums, tracksViewModel::openAlbum)
             }
         }
+    }
+    MeowzixStickyHeader(
+        title = "Library",
+        subtitle = "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
+        hazeState = headerHazeState,
+        modifier = Modifier.align(Alignment.TopCenter),
+    ) {
+        MeowzixHeaderAction("Refresh library", Icons.Rounded.Refresh, viewModel::refresh, enabled = !state.isRefreshing)
+    }
     }
 
     if (showDisplaySheet) {
@@ -490,31 +471,11 @@ private fun LibraryDetailV4(
     viewModel: LibraryViewModel,
     onGoToArtist: (Track) -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, contentDescription = "Back") }
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text("${tracks.size} tracks", style = MaterialTheme.typography.bodySmall)
-            }
-            if (tracks.isNotEmpty()) {
-                Surface(
-                    modifier = Modifier.clickable {
-                        viewModel.playCollection(tracks, PlaybackMode.ORDERED)
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                ) {
-                    Text("Play", modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
-                }
-            }
-        }
+    val hazeState = rememberHazeState()
+    Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 188.dp),
+            modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
+            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 100.dp, bottom = 188.dp),
         ) {
             items(tracks, key = { it.id.toString() }, contentType = { "track" }) { track ->
                 SwipeableLibraryTrackRow(
@@ -532,6 +493,19 @@ private fun LibraryDetailV4(
                     onGoToArtist = { onGoToArtist(track) },
                     onEnsureArtwork = { viewModel.ensureArtwork(track) },
                 )
+            }
+        }
+        MeowzixStickyHeader(
+            title = title,
+            subtitle = "${tracks.size} tracks",
+            hazeState = hazeState,
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            MeowzixHeaderAction("Back to library", Icons.Rounded.ArrowBack, onBack)
+            if (tracks.isNotEmpty()) {
+                MeowzixHeaderAction("Play", Icons.Rounded.PlayArrow, {
+                    viewModel.playCollection(tracks, PlaybackMode.ORDERED)
+                })
             }
         }
     }

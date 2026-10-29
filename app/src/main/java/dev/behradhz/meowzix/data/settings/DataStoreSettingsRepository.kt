@@ -92,6 +92,7 @@ class DataStoreSettingsRepository @Inject constructor(
             defaultMode = values[DEFAULT_PLAYBACK_MODE].enumOrDefault(PlaybackMode.ORDERED),
             defaultRepeat = values[DEFAULT_REPEAT_MODE].enumOrDefault(RepeatMode.OFF),
             resumeOnLaunch = values[RESUME_ON_LAUNCH] ?: true,
+            resumeAfterExternalAudio = values[RESUME_AFTER_EXTERNAL_AUDIO] ?: false,
             loudnessNormalizationEnabled = values[LOUDNESS_NORMALIZATION] ?: false,
             crossfadeDurationSeconds = (values[CROSSFADE_SECONDS] ?: 0).coerceIn(0, 12),
         )
@@ -115,6 +116,7 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setPlayerAccentSource(source: PlayerAccentSource) = setEnum(PLAYER_ACCENT_SOURCE, source)
     override suspend fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle) = setEnum(PLAYER_SEEKBAR_STYLE, style)
     override suspend fun setResumeOnLaunch(enabled: Boolean) = set(RESUME_ON_LAUNCH, enabled)
+    override suspend fun setResumeAfterExternalAudio(enabled: Boolean) = set(RESUME_AFTER_EXTERNAL_AUDIO, enabled)
     override suspend fun setLoudnessNormalizationEnabled(enabled: Boolean) = set(LOUDNESS_NORMALIZATION, enabled)
     override suspend fun setCrossfadeDurationSeconds(seconds: Int) {
         context.settingsDataStore.edit { it[CROSSFADE_SECONDS] = seconds.coerceIn(0, 12) }
@@ -184,6 +186,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val DEFAULT_PLAYBACK_MODE = stringPreferencesKey("default_playback_mode")
         val DEFAULT_REPEAT_MODE = stringPreferencesKey("default_repeat_mode")
         val RESUME_ON_LAUNCH = booleanPreferencesKey("resume_on_launch")
+        val RESUME_AFTER_EXTERNAL_AUDIO = booleanPreferencesKey("resume_after_external_audio")
         val LOUDNESS_NORMALIZATION = booleanPreferencesKey("loudness_normalization_enabled")
         val CROSSFADE_SECONDS = intPreferencesKey("crossfade_duration_seconds")
         val SMART_RECOMMENDATIONS = booleanPreferencesKey("smart_recommendations_enabled")

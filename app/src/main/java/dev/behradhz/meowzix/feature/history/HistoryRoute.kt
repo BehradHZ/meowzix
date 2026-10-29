@@ -3,6 +3,8 @@ package dev.behradhz.meowzix.feature.history
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,6 +12,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -47,8 +52,14 @@ fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
         }
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 18.dp)) {
-        Text("History", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(vertical = 20.dp))
+    val headerHazeState = rememberHazeState()
+    Box(Modifier.fillMaxSize()) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(headerHazeState),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 192.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Store listening history on this device", modifier = Modifier.weight(1f))
             Switch(privacy.listeningHistoryEnabled, viewModel::setHistoryEnabled)
@@ -83,8 +94,8 @@ fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
             }
         }
         Text("Recently played", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 20.dp, bottom = 8.dp))
+        }
         val recent = rows.filter { it.type == ListeningEventType.PLAY_STARTED }.distinctBy { it.trackId }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(recent, key = { it.trackId }) { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(row.title, modifier = Modifier.weight(1f))
@@ -94,6 +105,12 @@ fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
                     )
                 }
             }
-        }
+    }
+    MeowzixStickyHeader(
+        title = "History",
+        subtitle = "Your listening activity.",
+        hazeState = headerHazeState,
+        modifier = Modifier.align(Alignment.TopCenter),
+    )
     }
 }
