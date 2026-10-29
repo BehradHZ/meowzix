@@ -108,7 +108,7 @@ internal fun SettingsSeekBarStylePicker(
                         value = previewPosition,
                         onValueChange = { previewPosition = it },
                         valueRange = 0f..1f,
-                        isPlaying = false,
+                        isPlaying = true,
                         barCount = 40,
                         modifier = Modifier.fillMaxWidth(),
                         accessibilityLabel = "Live equalizer preview",
