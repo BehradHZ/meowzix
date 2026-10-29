@@ -458,6 +458,7 @@ class PlaybackService : MediaLibraryService() {
                 syncLogicalCurrentFromPlayer()
                 expandProgressiveWindow()
                 runCatching { audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString()) }
+                currentFavorite = false
                 refreshFavoriteState()
                 refreshNormalizationGain()
                 if (sleepTimer.state.value.mode == SleepTimerMode.END_OF_TRACK) {
@@ -697,9 +698,18 @@ class PlaybackService : MediaLibraryService() {
                 }
                 refreshFavoriteState()
                 refreshNormalizationGain()
+                var liveCardTicks = 0
                 while (isActive) {
                     delay(POSITION_SAVE_INTERVAL_MS)
-                    if (player.isPlaying) persistPositionSafely()
+                    if (player.isPlaying) {
+                        persistPositionSafely()
+                        if (liveSongCardEnabled && ++liveCardTicks >= LIVE_CARD_REFRESH_INTERVAL_TICKS) {
+                            liveCardTicks = 0
+                            updateLiveSongCard()
+                        }
+                    } else {
+                        liveCardTicks = 0
+                    }
                 }
             } finally {
                 isRestoring = false
@@ -757,7 +767,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun updateLiveSongCard() {
-        liveSongCard?.update(player, liveSongCardEnabled, liveSongCardStyle, liveSongLeftAction, liveSongRightAction)
+        liveSongCard?.update(player, liveSongCardEnabled, liveSongCardStyle, liveSongLeftAction, liveSongRightAction, currentFavorite)
     }
 
     private fun refreshPlaybackWidget() {
@@ -1535,6 +1545,7 @@ class PlaybackService : MediaLibraryService() {
                 if (player.currentMediaItem?.mediaId == trackId.toString()) {
                     currentFavorite = favorite
                     refreshMediaButtons()
+                    updateLiveSongCard()
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -1549,6 +1560,7 @@ class PlaybackService : MediaLibraryService() {
         if (trackId == null) {
             currentFavorite = false
             refreshMediaButtons()
+            updateLiveSongCard()
             return
         }
         serviceScope.launch {
@@ -1563,6 +1575,7 @@ class PlaybackService : MediaLibraryService() {
             if (player.currentMediaItem?.mediaId == trackId.toString()) {
                 currentFavorite = favorite
                 refreshMediaButtons()
+                updateLiveSongCard()
             }
         }
     }
@@ -1858,6 +1871,7 @@ class PlaybackService : MediaLibraryService() {
         const val FORWARD_INCREMENT_MS = 15_000L
         const val PERSIST_DEBOUNCE_MS = 250L
         const val POSITION_SAVE_INTERVAL_MS = 1_000L
+        const val LIVE_CARD_REFRESH_INTERVAL_TICKS = 3
         const val SLEEP_TIMER_TICK_MS = 250L
         const val CROSSFADE_TICK_MS = 50L
     }
