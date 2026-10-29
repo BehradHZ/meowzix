@@ -404,7 +404,7 @@ private fun PagedTrackListV4(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 188.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(
                 count = items.itemCount,
@@ -441,7 +441,7 @@ private fun PagedTrackListV4(
                         onGoToArtist = { onGoToArtist(row.track) },
                         onEnsureArtwork = { viewModel.ensureArtwork(row.track) },
                         artworkVisible = row.track.id.toString() in visibleTrackKeys,
-                        containerColor = Color(0xFF252329),
+                        containerColor = Color(0x4D252329),
                     )
                 }
             }
@@ -461,6 +461,7 @@ private fun ArtistListV4(rows: List<ArtistSummary>, onOpen: (ArtistSummary) -> U
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 188.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(rows, key = { it.normalizedName }, contentType = { "artist" }) { row ->
             SummaryRowV4(row.name, "${row.trackCount} tracks", Icons.Rounded.Person) { onOpen(row) }
@@ -473,6 +474,7 @@ private fun AlbumListV4(rows: List<AlbumSummary>, onOpen: (AlbumSummary) -> Unit
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 188.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(rows, key = { "${it.name}:${it.normalizedArtist}" }, contentType = { "album" }) { row ->
             SummaryRowV4(row.name, "${row.artist} · ${row.trackCount} tracks", Icons.Rounded.Album) { onOpen(row) }
@@ -500,6 +502,7 @@ private fun LibraryDetailV4(
             state = listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
             contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 100.dp, bottom = 188.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(tracks, key = { it.id.toString() }, contentType = { "track" }) { track ->
                 SwipeableLibraryTrackRow(
@@ -517,7 +520,7 @@ private fun LibraryDetailV4(
                     onGoToArtist = { onGoToArtist(track) },
                     onEnsureArtwork = { viewModel.ensureArtwork(track) },
                     artworkVisible = track.id.toString() in visibleTrackKeys,
-                    containerColor = Color(0xFF252329),
+                    containerColor = Color(0x4D252329),
                 )
             }
         }
@@ -544,10 +547,19 @@ private fun SummaryRowV4(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0x4D252329),
+        contentColor = Color.White,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
         Surface(
             modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(16.dp),
@@ -557,10 +569,10 @@ private fun SummaryRowV4(
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.70f))
+        }
         }
     }
-    HorizontalDivider(modifier = Modifier.padding(start = 68.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f))
 }
 
 @Composable
