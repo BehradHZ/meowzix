@@ -61,7 +61,7 @@ class PlayerActionsMenuTest {
             }
         }
         compose.onNodeWithTag("glass-player-actions-menu").assertIsDisplayed()
-        compose.onNodeWithTag("player-quick-sleep-timer").assertIsDisplayed()
+        compose.onNodeWithTag("player-action-sleep-timer").assertIsDisplayed()
         compose.onNodeWithTag("player-action-lyrics").performClick()
         compose.onNodeWithTag("player-lyrics-page").assertIsDisplayed()
         compose.onNodeWithTag("player-lyrics-delay-plus").performClick()
@@ -83,6 +83,54 @@ class PlayerActionsMenuTest {
             assertEquals(1, imported)
             assertEquals(false, expanded)
         }
+    }
+
+    @Test fun primaryMenuUsesRowsWithInlineTimerStatusAndPreservesActions() {
+        val trackId = UUID.randomUUID()
+        var expanded by mutableStateOf(true)
+        var timerOpened by mutableIntStateOf(0)
+        var whyOpened by mutableIntStateOf(0)
+        var vibeOpened by mutableIntStateOf(0)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                Box {
+                    Button(onClick = { expanded = true }) { Text("Open menu") }
+                    PlayerActionsMenu(
+                        expanded = expanded,
+                        trackId = trackId,
+                        lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId)),
+                        lyricsExpanded = false,
+                        sleepTimerLabel = "Off",
+                        onDismiss = { expanded = false },
+                        onOpenSleepTimer = { timerOpened++ },
+                        onWhyThisSong = { whyOpened++ },
+                        onContinueVibe = { vibeOpened++ },
+                        onToggleLyrics = {},
+                        onImportLrc = {},
+                        onPasteLyrics = {},
+                        onAdjustDelay = {},
+                        onSelectVersion = {},
+                        onDeleteVersion = {},
+                    )
+                }
+            }
+        }
+        compose.onNodeWithText("More options").assertIsDisplayed()
+        compose.onNodeWithText("Quick actions").assertDoesNotExist()
+        compose.onNodeWithTag("player-action-sleep-timer").assertIsDisplayed()
+        compose.onNodeWithTag("player-action-why-this-song").assertIsDisplayed()
+        compose.onNodeWithTag("player-action-continue-the-vibe").assertIsDisplayed()
+        compose.onNodeWithTag("player-action-lyrics").assertIsDisplayed()
+        compose.onNodeWithText("Off").assertIsDisplayed()
+
+        compose.onNodeWithTag("player-action-sleep-timer").performClick()
+        compose.runOnIdle { assertEquals(1, timerOpened); assertEquals(false, expanded) }
+        compose.onNodeWithText("Open menu").performClick()
+        compose.onNodeWithTag("player-action-why-this-song").performClick()
+        compose.runOnIdle { assertEquals(1, whyOpened); assertEquals(false, expanded) }
+        compose.onNodeWithText("Open menu").performClick()
+        compose.onNodeWithTag("player-action-continue-the-vibe").performClick()
+        compose.runOnIdle { assertEquals(1, vibeOpened); assertEquals(false, expanded) }
     }
 
     @Test fun deletingLyricsRequiresConfirmationAndAllowsCancel() {

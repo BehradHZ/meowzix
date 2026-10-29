@@ -57,6 +57,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
@@ -123,43 +124,42 @@ internal fun PlayerActionsMenu(
                 label = "player-actions-page",
             ) { currentPage ->
                 if (currentPage == PlayerActionsPage.ACTIONS) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp)
-                        .testTag("player-actions-page")) {
-                        Text("Now Playing", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text("Quick actions", style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.heightIn(min = 10.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                            PlayerQuickAction(Icons.Rounded.Schedule, "Sleep timer") {
-                                onDismiss(); onOpenSleepTimer()
-                            }
-                            PlayerQuickAction(Icons.Rounded.HelpOutline, "Why this song") {
-                                onDismiss(); onWhyThisSong()
-                            }
-                            PlayerQuickAction(Icons.Rounded.AutoAwesome, "Continue the vibe") {
-                                onDismiss(); onContinueVibe()
-                            }
-                        }
-                        Spacer(Modifier.heightIn(min = 10.dp))
-                        Column(
-                            Modifier.fillMaxWidth()
-                                .background(Color.White.copy(alpha = 0.055f), RoundedCornerShape(13.dp))
-                                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(13.dp))
-                                .padding(horizontal = 8.dp),
-                        ) {
-                            PlayerActionLine(
-                                icon = Icons.Rounded.MusicNote,
-                                title = "Lyrics",
-                                subtitle = if (versions.isEmpty()) "Add lyrics" else
-                                    versions.size.toString() + " version" + (if (versions.size == 1) "" else "s"),
-                                trailing = true,
-                                onClick = { page = PlayerActionsPage.LYRICS },
-                            )
-                        }
-                        Text("Timer: " + sleepTimerLabel,
-                            modifier = Modifier.padding(start = 8.dp, top = 8.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 10.dp)
+                            .testTag("player-actions-page"),
+                    ) {
+                        Text(
+                            "More options",
+                            modifier = Modifier.padding(start = 10.dp, top = 2.dp, bottom = 8.dp),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        // Full-width rows keep labels independent, readable and clickable even
+                        // with large accessibility fonts. The timer status belongs to its action.
+                        PlayerMenuOptionRow(
+                            icon = Icons.Rounded.Schedule,
+                            title = "Sleep timer",
+                            subtitle = sleepTimerLabel,
+                            onClick = { onDismiss(); onOpenSleepTimer() },
+                        )
+                        PlayerMenuOptionRow(
+                            icon = Icons.Rounded.HelpOutline,
+                            title = "Why this song?",
+                            onClick = { onDismiss(); onWhyThisSong() },
+                        )
+                        PlayerMenuOptionRow(
+                            icon = Icons.Rounded.AutoAwesome,
+                            title = "Continue the vibe",
+                            onClick = { onDismiss(); onContinueVibe() },
+                        )
+                        PlayerMenuOptionRow(
+                            icon = Icons.Rounded.MusicNote,
+                            title = "Lyrics",
+                            subtitle = if (versions.isEmpty()) "Add lyrics" else
+                                versions.size.toString() + " version" + (if (versions.size == 1) "" else "s"),
+                            onClick = { page = PlayerActionsPage.LYRICS },
+                        )
                     }
                 } else {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
@@ -369,24 +369,60 @@ private fun PlayerDelayButton(
     }
 }
 
+/** A consistent, accessible row for every primary Now Playing menu action. */
 @Composable
-private fun PlayerQuickAction(icon: ImageVector, label: String, onClick: () -> Unit) {
-    val accent = MaterialTheme.colorScheme.primary
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(
-            onClick = onClick,
-            modifier = Modifier.size(44.dp).testTag("player-quick-" + label.lowercase().replace(' ', '-')),
-            shape = CircleShape,
-            color = accent.copy(alpha = 0.11f),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.17f)),
+private fun PlayerMenuOptionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(13.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .heightIn(min = 56.dp)
+            .padding(horizontal = 10.dp, vertical = 7.dp)
+            .testTag("player-action-" + title.lowercase().replace(' ', '-').replace("?", "")),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier.size(40.dp)
+                .background(colors.primary.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = label, tint = accent, modifier = Modifier.size(20.dp))
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = colors.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Column(
+            modifier = Modifier.weight(1f).padding(start = 12.dp, end = 4.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onSurface,
+            )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                )
             }
         }
-        Text(label, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 3.dp))
+        Icon(
+            Icons.Rounded.ChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = colors.onSurfaceVariant,
+        )
     }
 }
 
