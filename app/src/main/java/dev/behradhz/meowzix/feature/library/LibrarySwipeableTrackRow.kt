@@ -92,9 +92,10 @@ internal fun SwipeableLibraryTrackRow(
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
     containerColor: Color? = null,
+    artworkVisible: Boolean = true,
 ) {
-    LaunchedEffect(track.id, track.artworkRef) {
-        onEnsureArtwork()
+    LaunchedEffect(track.id, track.artworkRef, artworkVisible) {
+        if (artworkVisible) onEnsureArtwork()
     }
 
     val density = LocalDensity.current
@@ -196,6 +197,7 @@ internal fun SwipeableLibraryTrackRow(
                 onMoveUp = onMoveUp,
                 onMoveDown = onMoveDown,
                 containerColor = containerColor,
+                artworkVisible = artworkVisible,
             )
         }
     }
@@ -220,6 +222,7 @@ private fun LibraryTrackRowContent(
     onMoveUp: (() -> Unit)?,
     onMoveDown: (() -> Unit)?,
     containerColor: Color?,
+    artworkVisible: Boolean,
 ) {
     val recommendationActions = LocalLibraryRecommendationActions.current
     val trackToolsActions = LocalLibraryTrackToolsActions.current
@@ -255,6 +258,7 @@ private fun LibraryTrackRowContent(
             },
         shape = RoundedCornerShape(16.dp),
         color = containerColor ?: MaterialTheme.colorScheme.background,
+        contentColor = if (containerColor != null) Color.White else MaterialTheme.colorScheme.onSurface,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
@@ -265,7 +269,7 @@ private fun LibraryTrackRowContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             DownloadableTrackArtwork(
-                artworkRef = track.artworkRef,
+                artworkRef = if (artworkVisible) track.artworkRef else null,
                 description = track.title,
                 size = 52.dp,
                 isOffline = availability == LibraryTrackAvailability.OFFLINE,
@@ -279,7 +283,7 @@ private fun LibraryTrackRowContent(
                         Icon(
                             Icons.Rounded.GraphicEq,
                             contentDescription = "Currently playing",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = if (containerColor != null) Color(0xFFFFB38A) else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(17.dp),
                         )
                         Spacer(Modifier.size(5.dp))
@@ -289,9 +293,9 @@ private fun LibraryTrackRowContent(
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
                         color = if (isCurrent) {
-                            MaterialTheme.colorScheme.primary
+                            if (containerColor != null) Color(0xFFFFB38A) else MaterialTheme.colorScheme.primary
                         } else {
-                            MaterialTheme.colorScheme.onSurface
+                            if (containerColor != null) Color.White else MaterialTheme.colorScheme.onSurface
                         },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -300,7 +304,7 @@ private fun LibraryTrackRowContent(
                 Text(
                     "${track.artist ?: "Unknown artist"} · ${libraryAvailabilityLabel(availability)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                    color = (if (containerColor != null) Color.White else MaterialTheme.colorScheme.onSurface).copy(alpha = if (containerColor != null) 0.72f else 0.52f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),
@@ -310,7 +314,7 @@ private fun LibraryTrackRowContent(
             Text(
                 formatLibraryDuration(track.durationMs),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                color = (if (containerColor != null) Color.White else MaterialTheme.colorScheme.onSurface).copy(alpha = if (containerColor != null) 0.55f else 0.38f),
             )
             Box {
                 IconButton(onClick = { menuExpanded = true }) {

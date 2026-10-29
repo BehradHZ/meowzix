@@ -217,6 +217,11 @@ fun MeowzixApp(
     }
 
     fun navigateTopLevel(route: String) {
+        // Refresh only on an intentional second tap of the already-selected Library tab.
+        if (route == LIBRARY_ROUTE && currentRoute == LIBRARY_ROUTE && !searchActive) {
+            libraryViewModel.refresh()
+            return
+        }
         clearSearchState()
         if (currentRoute == LIBRARY_ROUTE || route == LIBRARY_ROUTE) {
             libraryViewModel.resetNavigationState()

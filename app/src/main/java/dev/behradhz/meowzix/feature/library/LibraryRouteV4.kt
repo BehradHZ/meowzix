@@ -37,7 +37,6 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,8 +48,10 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -61,6 +62,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -91,6 +93,7 @@ import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
 import dev.behradhz.meowzix.domain.settings.LibrarySortMode
 import java.util.UUID
+import kotlinx.coroutines.delay
 
 private enum class LibrarySectionV4(val label: String) {
     TRACKS("Tracks"), ARTISTS("Artists"), ALBUMS("Albums")
@@ -155,8 +158,15 @@ internal fun LibraryRouteV4(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    // Only check periodically while the Library is visible; tab navigation never forces a scan.
     LaunchedEffect(permissionGranted) {
-        if (permissionGranted) viewModel.refresh()
+        if (permissionGranted) {
+            viewModel.refreshIfDue()
+            while (true) {
+                delay(LIBRARY_AUTO_REFRESH_INTERVAL_MS)
+                viewModel.refreshIfDue()
+            }
+        }
     }
 
     var sectionIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -245,9 +255,13 @@ internal fun LibraryRouteV4(
 
     val headerHazeState = rememberHazeState()
     Box(Modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = state.isRefreshing,
+            onRefresh = viewModel::refresh,
+            modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 96.dp),
+        ) {
     Column(
-        modifier = Modifier.fillMaxSize().statusBarsPadding()
-            .padding(top = 96.dp).hazeSource(headerHazeState),
+        modifier = Modifier.fillMaxSize().hazeSource(headerHazeState),
     ) {
         Row(
             modifier = Modifier
@@ -337,14 +351,13 @@ internal fun LibraryRouteV4(
             }
         }
     }
-    MeowzixStickyHeader(
-        title = "Library",
-        subtitle = "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
-        hazeState = headerHazeState,
-        modifier = Modifier.align(Alignment.TopCenter),
-    ) {
-        MeowzixHeaderAction("Refresh library", Icons.Rounded.Refresh, viewModel::refresh, enabled = !state.isRefreshing)
-    }
+        }
+        MeowzixStickyHeader(
+            title = "Library",
+            subtitle = "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
+            hazeState = headerHazeState,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
     }
 
     if (showDisplaySheet) {
@@ -367,6 +380,10 @@ private fun PagedTrackListV4(
     onGoToArtist: (Track) -> Unit,
 ) {
     val listState = rememberLazyListState()
+    // Compose can prefetch off-screen rows: bitmap decode/repair waits for actual viewport entry.
+    val visibleTrackKeys by remember(listState) {
+        derivedStateOf { listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
+    }
     val refresh = items.loadState.refresh
     val hasPresentedItems = items.itemCount > 0
 
@@ -423,6 +440,8 @@ private fun PagedTrackListV4(
                         onAddToPlaylist = { playlistId -> viewModel.addToPlaylist(row.track, playlistId) },
                         onGoToArtist = { onGoToArtist(row.track) },
                         onEnsureArtwork = { viewModel.ensureArtwork(row.track) },
+                        artworkVisible = row.track.id.toString() in visibleTrackKeys,
+                        containerColor = Color(0xFF252329),
                     )
                 }
             }
@@ -472,8 +491,13 @@ private fun LibraryDetailV4(
     onGoToArtist: (Track) -> Unit,
 ) {
     val hazeState = rememberHazeState()
+    val listState = rememberLazyListState()
+    val visibleTrackKeys by remember(listState) {
+        derivedStateOf { listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
+    }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
             contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 100.dp, bottom = 188.dp),
         ) {
@@ -492,6 +516,8 @@ private fun LibraryDetailV4(
                     onAddToPlaylist = { id -> viewModel.addToPlaylist(track, id) },
                     onGoToArtist = { onGoToArtist(track) },
                     onEnsureArtwork = { viewModel.ensureArtwork(track) },
+                    artworkVisible = track.id.toString() in visibleTrackKeys,
+                    containerColor = Color(0xFF252329),
                 )
             }
         }
