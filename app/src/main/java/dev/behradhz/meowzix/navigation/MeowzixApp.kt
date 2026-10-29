@@ -100,6 +100,7 @@ import dev.behradhz.meowzix.feature.search.SearchViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
 import dev.behradhz.meowzix.ui.theme.LocalMeowzixLogoBackground
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.SecondaryAmbientBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
@@ -266,6 +267,17 @@ fun MeowzixApp(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        if (currentRoute != HOME_ROUTE) {
+            SecondaryAmbientBackdrop(
+                variation = when (currentRoute) {
+                    LIBRARY_ROUTE -> 0
+                    PLAYLISTS_ROUTE -> 1
+                    QUEUE_ROUTE -> 3
+                    SETTINGS_ROUTE -> 2
+                    else -> 4
+                },
+            )
+        }
         NavHost(
             navController = navController,
             startDestination = HOME_ROUTE,

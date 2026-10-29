@@ -158,7 +158,7 @@ internal fun PlaylistsSectionV3(
         )
     }
 
-    PlaylistGlassBackdrop { hazeState ->
+    PlaylistGlassBackdrop(variation = 1) { hazeState ->
         Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 156.dp),

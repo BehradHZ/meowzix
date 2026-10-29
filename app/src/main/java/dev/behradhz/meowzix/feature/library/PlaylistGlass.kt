@@ -35,30 +35,17 @@ import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
+import dev.behradhz.meowzix.ui.components.SecondaryAmbientBackdrop
 
 /** Only the ambient layer is a blur source: panels never recursively blur their own content. */
 @Composable
-internal fun PlaylistGlassBackdrop(content: @Composable (HazeState) -> Unit) {
+internal fun PlaylistGlassBackdrop(variation: Int = 1, content: @Composable (HazeState) -> Unit) {
     val hazeState = remember { HazeState() }
     val colors = MaterialTheme.colorScheme
     CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
         Box(Modifier.fillMaxSize()) {
-            Canvas(Modifier.fillMaxSize().hazeSource(hazeState)) {
-                drawRect(colors.background)
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(colors.primary.copy(alpha = 0.20f), Color.Transparent),
-                        center = Offset(size.width * 0.05f, size.height * 0.20f),
-                        radius = size.width * 0.95f,
-                    ),
-                )
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(colors.tertiary.copy(alpha = 0.14f), Color.Transparent),
-                        center = Offset(size.width * 1.05f, size.height * 0.62f),
-                        radius = size.width * 0.85f,
-                    ),
-                )
+            Box(Modifier.fillMaxSize().hazeSource(hazeState)) {
+                SecondaryAmbientBackdrop(variation)
             }
             content(hazeState)
         }

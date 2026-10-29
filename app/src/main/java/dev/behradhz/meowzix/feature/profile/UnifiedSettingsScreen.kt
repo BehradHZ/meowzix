@@ -172,7 +172,7 @@ fun UnifiedSettingsScreen(
 
     var pendingDanger by remember { mutableStateOf<SettingsDangerAction?>(null) }
 
-    PlaylistGlassBackdrop { hazeState ->
+    PlaylistGlassBackdrop(variation = 2) { hazeState ->
         Box(Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
