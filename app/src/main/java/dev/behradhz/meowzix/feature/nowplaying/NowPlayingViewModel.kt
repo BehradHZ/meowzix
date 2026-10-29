@@ -203,6 +203,8 @@ class NowPlayingViewModel @Inject constructor(
 
     fun refreshVisualizer() = audioVisualizerRepository.refresh()
 
+    fun setVisualizerCaptureEnabled(enabled: Boolean) = audioVisualizerRepository.setCaptureEnabled(enabled)
+
     fun setSleepTimerMinutes(minutes: Int) = viewModelScope.launch {
         val bounded = minutes.coerceIn(5, 180)
         settingsRepository.saveSleepTimerPreset(SleepTimerPresetMode.DURATION, bounded)

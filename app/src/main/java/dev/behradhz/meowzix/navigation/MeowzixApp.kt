@@ -57,8 +57,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -67,6 +65,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -138,7 +137,6 @@ fun MeowzixApp(
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
     val queueState by playerViewModel.queueState.collectAsStateWithLifecycle()
-    val spectrum by playerViewModel.spectrum.collectAsStateWithLifecycle()
     val appearance by playerViewModel.appearanceSettings.collectAsStateWithLifecycle()
     val reduceMotion = appearance.reduceMotion
     val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
@@ -454,7 +452,6 @@ fun MeowzixApp(
             MorphingPlayerOverlay(
                 hazeState = hazeState,
                 state = playbackState,
-                spectrum = spectrum,
                 viewModel = playerViewModel,
                 morphState = morphingPlayerState,
                 dockCompact = dockCompact && !searchActive,
@@ -541,7 +538,6 @@ internal fun MorphingDock(
         animationSpec = dockMorphSpec(dockCompact, reduceMotion),
         label = "dock-morph",
     )
-    val motionBlur = dockMotionBlurDp(morph, reduceMotion).dp
     val expandedAlpha = ((0.48f - morph) / 0.38f).coerceIn(0f, 1f)
     val compactAlpha = ((morph - 0.18f) / 0.55f).coerceIn(0f, 1f)
     val activeDestination = destinations.firstOrNull { it.route == selectedRoute }
@@ -560,8 +556,7 @@ internal fun MorphingDock(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .width(leftWidth)
-                    .height(leftHeight)
-                    .blur(motionBlur, edgeTreatment = BlurredEdgeTreatment.Unbounded),
+                    .height(leftHeight),
                 shape = RoundedCornerShape(lerp(36.dp, 26.dp, morph)),
                 fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f),
@@ -574,6 +569,8 @@ internal fun MorphingDock(
                             .fillMaxSize()
                             .padding(horizontal = 5.dp, vertical = 7.dp)
                             .graphicsLayer {
+                                // Child dock icons do not overlap; avoid an extra alpha render target.
+                                compositingStrategy = CompositingStrategy.ModulateAlpha
                                 alpha = expandedAlpha
                                 translationX = -morph * 10.dp.toPx()
                             },
@@ -596,6 +593,7 @@ internal fun MorphingDock(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
+                                compositingStrategy = CompositingStrategy.ModulateAlpha
                                 alpha = compactAlpha
                                 val scale = 0.88f + 0.12f * morph
                                 scaleX = scale
@@ -618,7 +616,6 @@ internal fun MorphingDock(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .size(searchSize)
-                    .blur(motionBlur, edgeTreatment = BlurredEdgeTreatment.Unbounded)
                     .clickable { onSelect(SEARCH_ROUTE) },
                 shape = RoundedCornerShape(searchSize / 2),
                 fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.80f),

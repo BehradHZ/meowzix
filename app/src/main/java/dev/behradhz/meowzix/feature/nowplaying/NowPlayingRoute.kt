@@ -56,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -158,6 +159,12 @@ fun NowPlayingRoute(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) viewModel.refreshVisualizer()
+    }
+    // Only capture FFT while the expanded waveform player is actually started.
+    // Equalizer effects stay attached to the playback session independently.
+    LifecycleStartEffect(viewModel, appearance.playerSeekBarStyle) {
+        viewModel.setVisualizerCaptureEnabled(appearance.playerSeekBarStyle == PlayerSeekBarStyle.WAVEFORM)
+        onStopOrDispose { viewModel.setVisualizerCaptureEnabled(false) }
     }
     LaunchedEffect(appearance.playerSeekBarStyle) {
         if (appearance.playerSeekBarStyle != PlayerSeekBarStyle.WAVEFORM) return@LaunchedEffect

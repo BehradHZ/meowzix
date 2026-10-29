@@ -76,7 +76,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
@@ -201,7 +200,6 @@ internal fun rememberMorphingPlayerState(): MorphingPlayerState =
 internal fun MorphingPlayerOverlay(
     hazeState: HazeState,
     state: PlaybackState,
-    spectrum: AudioSpectrumState,
     viewModel: NowPlayingViewModel,
     morphState: MorphingPlayerState,
     dockCompact: Boolean = false,

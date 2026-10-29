@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.ui.components
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.net.Uri
@@ -30,7 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -39,8 +39,6 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -49,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.roundToInt
 import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -104,6 +103,142 @@ private object ArtworkBitmapCache {
 
     private fun cacheKey(artworkRef: String, targetPixels: Int): String =
         "$artworkRef#${artworkTargetBucket(targetPixels)}"
+}
+
+
+/**
+ * Pre-blurred, bounded artwork cache for the player background.
+ *
+ * Blur runs once per artwork on Dispatchers.Default, not on the RenderThread every frame.
+ * Keep it independent of the full-resolution foreground artwork cache.
+ */
+private object BlurredBackdropCache {
+    private const val MAX_CACHE_KB = 6 * 1024
+    private val cache = object : LruCache<String, ImageBitmap>(MAX_CACHE_KB) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            ((value.width.toLong() * value.height.toLong() * 4L) / 1024L)
+                .coerceAtLeast(1L)
+                .coerceAtMost(Int.MAX_VALUE.toLong())
+                .toInt()
+    }
+    private val decodeLocks = ConcurrentHashMap<String, Mutex>()
+
+    fun getCached(ref: String): ImageBitmap? = synchronized(cache) { cache.get(ref) }
+
+    suspend fun getOrCreate(context: Context, ref: String): ImageBitmap? {
+        getCached(ref)?.let { return it }
+        val mutex = decodeLocks.getOrPut(ref) { Mutex() }
+        return try {
+            mutex.withLock {
+                getCached(ref)?.let { return@withLock it }
+                val decoded = decodeSampledArtwork(
+                    context = context,
+                    uri = Uri.parse(ref),
+                    targetPixels = BACKDROP_TARGET_PIXELS,
+                ) ?: return@withLock null
+                val blurred = withContext(Dispatchers.Default) {
+                    preblurBackdrop(decoded.asAndroidBitmap()).asImageBitmap()
+                }
+                synchronized(cache) { cache.put(ref, blurred) }
+                blurred
+            }
+        } finally {
+            if (!mutex.isLocked) decodeLocks.remove(ref, mutex)
+        }
+    }
+}
+
+@Composable
+private fun rememberBlurredBackdrop(ref: String?): ImageBitmap? {
+    val context = LocalContext.current.applicationContext
+    val normalized = ref?.takeIf(String::isNotBlank)
+    var loaded by remember { mutableStateOf(LoadedArtwork(null, null)) }
+    val cached = remember(normalized) { normalized?.let(BlurredBackdropCache::getCached) }
+    LaunchedEffect(normalized) {
+        if (normalized == null) {
+            loaded = LoadedArtwork(null, null)
+        } else {
+            val image = cached ?: BlurredBackdropCache.getOrCreate(context, normalized)
+            loaded = LoadedArtwork(normalized, image)
+        }
+    }
+    // Keep the previous blurred image while a new track is decoded, avoiding a backdrop flash.
+    return if (normalized == null) null else cached ?: loaded.bitmap
+}
+
+/** Three fast clamped box passes approximate a wide Gaussian at thumbnail resolution. */
+private fun preblurBackdrop(original: Bitmap): Bitmap {
+    val scale = (BACKDROP_TARGET_PIXELS.toFloat() / max(original.width, original.height))
+        .coerceAtMost(1f)
+    val width = (original.width * scale).roundToInt().coerceAtLeast(1)
+    val height = (original.height * scale).roundToInt().coerceAtLeast(1)
+    val source = Bitmap.createScaledBitmap(original, width, height, true)
+    val pixels = IntArray(width * height)
+    val scratch = IntArray(pixels.size)
+    source.getPixels(pixels, 0, width, 0, 0, width, height)
+    repeat(3) {
+        blurHorizontal(pixels, scratch, width, height, BACKDROP_BLUR_RADIUS_PX)
+        blurVertical(scratch, pixels, width, height, BACKDROP_BLUR_RADIUS_PX)
+    }
+    val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    output.setPixels(pixels, 0, width, 0, 0, width, height)
+    if (source !== original) source.recycle()
+    return output
+}
+
+private fun blurHorizontal(src: IntArray, dst: IntArray, width: Int, height: Int, radius: Int) {
+    val divisor = radius * 2 + 1
+    for (y in 0 until height) {
+        val start = y * width
+        var a = 0
+        var r = 0
+        var g = 0
+        var b = 0
+        for (offset in -radius..radius) {
+            val pixel = src[start + offset.coerceIn(0, width - 1)]
+            a += pixel ushr 24
+            r += (pixel ushr 16) and 255
+            g += (pixel ushr 8) and 255
+            b += pixel and 255
+        }
+        for (x in 0 until width) {
+            dst[start + x] = ((a / divisor) shl 24) or
+                ((r / divisor) shl 16) or ((g / divisor) shl 8) or (b / divisor)
+            val leaving = src[start + (x - radius).coerceIn(0, width - 1)]
+            val entering = src[start + (x + radius + 1).coerceIn(0, width - 1)]
+            a += (entering ushr 24) - (leaving ushr 24)
+            r += ((entering ushr 16) and 255) - ((leaving ushr 16) and 255)
+            g += ((entering ushr 8) and 255) - ((leaving ushr 8) and 255)
+            b += (entering and 255) - (leaving and 255)
+        }
+    }
+}
+
+private fun blurVertical(src: IntArray, dst: IntArray, width: Int, height: Int, radius: Int) {
+    val divisor = radius * 2 + 1
+    for (x in 0 until width) {
+        var a = 0
+        var r = 0
+        var g = 0
+        var b = 0
+        for (offset in -radius..radius) {
+            val pixel = src[offset.coerceIn(0, height - 1) * width + x]
+            a += pixel ushr 24
+            r += (pixel ushr 16) and 255
+            g += (pixel ushr 8) and 255
+            b += pixel and 255
+        }
+        for (y in 0 until height) {
+            dst[y * width + x] = ((a / divisor) shl 24) or
+                ((r / divisor) shl 16) or ((g / divisor) shl 8) or (b / divisor)
+            val leaving = src[(y - radius).coerceIn(0, height - 1) * width + x]
+            val entering = src[(y + radius + 1).coerceIn(0, height - 1) * width + x]
+            a += (entering ushr 24) - (leaving ushr 24)
+            r += ((entering ushr 16) and 255) - ((leaving ushr 16) and 255)
+            g += ((entering ushr 8) and 255) - ((leaving ushr 8) and 255)
+            b += (entering and 255) - (leaving and 255)
+        }
+    }
 }
 
 private data class LoadedArtwork(
@@ -469,21 +604,13 @@ fun NowPlayingArtwork(
     }
 }
 
-/**
- * Full-screen blurred copy of the current cover for Now Playing. This intentionally uses a
- * display-sized high-resolution decode rather than the low-resolution list thumbnail. The cover
- * is overscanned before blur so no transparent blur edges are visible around the screen.
- */
+/** Pre-blurred thumbnail stretched behind the player; no per-frame RenderEffect needed. */
 @Composable
 fun TrackArtworkBackdrop(
     artworkRef: String?,
     modifier: Modifier = Modifier,
 ) {
-    val bitmap = rememberArtworkBitmap(
-        artworkRef = artworkRef,
-        targetPixels = BACKDROP_TARGET_PIXELS,
-        retainPreviousWhileLoading = true,
-    )
+    val bitmap = rememberBlurredBackdrop(artworkRef)
 
     val palette = MaterialTheme.colorScheme
     val lightTheme = palette.background.luminance() > 0.5f
@@ -493,14 +620,8 @@ fun TrackArtworkBackdrop(
             Image(
                 bitmap = bitmap,
                 contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = BLURRED_ARTWORK_SCALE
-                        scaleY = BLURRED_ARTWORK_SCALE
-                        alpha = 0.92f
-                    }
-                    .blur(PLAYER_BACKDROP_BLUR),
+                modifier = Modifier.fillMaxSize(),
+                alpha = 0.92f,
                 contentScale = ContentScale.Crop,
                 alignment = Alignment.Center,
             )
@@ -551,8 +672,7 @@ fun TrackArtworkBackdrop(
     }
 }
 
-private val PLAYER_BACKDROP_BLUR = 52.dp
 private val ARTWORK_SIZE_BUCKETS = intArrayOf(128, 256, 512, 1024, 1536, 2048)
 private const val PLAYER_ARTWORK_TARGET_PIXELS = 2048
-private const val BACKDROP_TARGET_PIXELS = 1800
-private const val BLURRED_ARTWORK_SCALE = 1.20f
+private const val BACKDROP_TARGET_PIXELS = 384
+private const val BACKDROP_BLUR_RADIUS_PX = 24

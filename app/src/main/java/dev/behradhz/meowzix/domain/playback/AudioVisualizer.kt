@@ -20,6 +20,9 @@ interface AudioVisualizerRepository {
     /** Attaches measured FFT capture and playback-owned effects to the player's non-zero audio session. */
     fun attachToAudioSession(audioSessionId: Int)
 
+    /** Captures FFT only when the expanded waveform seek bar is visible. */
+    fun setCaptureEnabled(enabled: Boolean)
+
     /** Retries capture after an audio-session/output capability change. */
     fun refresh()
 

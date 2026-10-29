@@ -28,6 +28,7 @@ class AndroidAudioVisualizer @Inject constructor(
     override val spectrum: StateFlow<AudioSpectrumState> = _spectrum.asStateFlow()
 
     private var visualizer: Visualizer? = null
+    private var captureEnabled = false
     private var audioSessionId: Int = NO_AUDIO_SESSION
     private var sourceUri: String? = null
     private val smoothedBands = FloatArray(AUDIO_SPECTRUM_BAND_COUNT)
@@ -61,6 +62,7 @@ class AndroidAudioVisualizer @Inject constructor(
             this.sourceUri = sourceUri
             smoothedBands.fill(0f)
             if (sourceUri.isNullOrBlank()) {
+                releaseVisualizerLocked()
                 _spectrum.value = AudioSpectrumState()
                 return
             }
@@ -89,11 +91,26 @@ class AndroidAudioVisualizer @Inject constructor(
         refresh()
     }
 
+    override fun setCaptureEnabled(enabled: Boolean) {
+        synchronized(lock) {
+            if (captureEnabled == enabled) return
+            captureEnabled = enabled
+            if (!enabled) {
+                releaseVisualizerLocked()
+                smoothedBands.fill(0f)
+                _spectrum.value = AudioSpectrumState(sourceUri = sourceUri)
+                return
+            }
+        }
+        refresh()
+    }
+
     override fun refresh() {
         synchronized(lock) {
             val uri = sourceUri
-            if (uri.isNullOrBlank()) {
-                _spectrum.value = AudioSpectrumState()
+            if (!captureEnabled || uri.isNullOrBlank()) {
+                releaseVisualizerLocked()
+                _spectrum.value = AudioSpectrumState(sourceUri = uri)
                 return
             }
             if (!hasRecordAudioPermission()) {
@@ -130,6 +147,7 @@ class AndroidAudioVisualizer @Inject constructor(
         synchronized(lock) {
             releaseVisualizerLocked()
             audioSessionId = NO_AUDIO_SESSION
+            captureEnabled = false
             sourceUri = null
             smoothedBands.fill(0f)
             _spectrum.value = AudioSpectrumState()
