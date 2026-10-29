@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.playback
 
+import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.domain.playback.BrowseAlbum
@@ -50,6 +51,39 @@ class MeowzixMediaLibraryTest {
         assertFalse(serialized.contains("auth"))
         assertFalse(serialized.contains("chat"))
         assertFalse(serialized.contains("backup"))
+    }
+
+    @Test
+    fun carNavigationHasFourIconTabsAndBatchedOfflineQuickAccess() = runBlocking {
+        val carRoot = library.children(MeowzixMediaLibrary.ROOT_ID, 0, 10, forCar = true)!!
+        assertEquals(
+            listOf(
+                MeowzixMediaLibrary.LISTEN_NOW_ID,
+                MeowzixMediaLibrary.PLAYLISTS_ID,
+                MeowzixMediaLibrary.ARTISTS_ID,
+                MeowzixMediaLibrary.LIBRARY_ID,
+            ),
+            carRoot.map(MediaItem::mediaId),
+        )
+        assertTrue(carRoot.all { it.mediaMetadata.isBrowsable == true && it.mediaMetadata.isPlayable == false })
+        assertTrue(carRoot.all { it.mediaMetadata.artworkUri?.scheme == "android.resource" })
+
+        assertEquals(carRoot.take(2), library.children(MeowzixMediaLibrary.ROOT_ID, 0, 2, forCar = true))
+        assertEquals(carRoot.drop(2), library.children(MeowzixMediaLibrary.ROOT_ID, 1, 2, forCar = true))
+
+        val quick = library.children(MeowzixMediaLibrary.LISTEN_NOW_ID, 0, 10)!!
+        assertEquals(
+            listOf(MeowzixMediaLibrary.FAVORITES_ID, MeowzixMediaLibrary.OFFLINE_ID),
+            quick.map(MediaItem::mediaId),
+        )
+        val offline = library.children(MeowzixMediaLibrary.OFFLINE_ID, 0, 10)!!
+        assertEquals(listOf("meowzix:track:$playableId"), offline.map(MediaItem::mediaId))
+        assertTrue(offline.single().mediaMetadata.isPlayable == true)
+        assertEquals(
+            listOf(MeowzixMediaLibrary.TRACKS_ID, MeowzixMediaLibrary.ALBUMS_ID),
+            library.children(MeowzixMediaLibrary.LIBRARY_ID, 0, 10)!!.map(MediaItem::mediaId),
+        )
+        assertNotNull(library.item(MeowzixMediaLibrary.OFFLINE_ID))
     }
 
     @Test
@@ -167,6 +201,9 @@ class MeowzixMediaLibraryTest {
         }
 
         override suspend fun browseFavorites(offset: Int, limit: Int): List<BrowseTrack> =
+            if (offset == 0) listOf(playable).take(limit) else emptyList()
+
+        override suspend fun browseOffline(offset: Int, limit: Int): List<BrowseTrack> =
             if (offset == 0) listOf(playable).take(limit) else emptyList()
 
         override suspend fun browseArtists(offset: Int, limit: Int): List<BrowseArtist> =

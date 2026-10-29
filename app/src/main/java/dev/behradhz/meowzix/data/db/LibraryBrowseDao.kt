@@ -258,6 +258,42 @@ interface LibraryBrowseDao {
     )
     suspend fun browseFavoriteTracks(limit: Int, offset: Int): List<TrackEntity>
 
+    /**
+     * Locally readable songs visible under the selected-source policy. Do not expose
+     * private Telegram-only tracks from deselected chats; avoid duplicate source rows.
+     */
+    @Query(
+        """
+        SELECT t.*
+        FROM tracks t
+        WHERE t.hidden = 0
+          AND EXISTS (
+              SELECT 1 FROM track_sources s
+              WHERE s.trackId = t.id
+                AND s.availability = 'AVAILABLE_LOCAL'
+                AND (s.contentUri IS NOT NULL OR s.localPath IS NOT NULL)
+          )
+          AND (
+              EXISTS (
+                  SELECT 1 FROM track_sources local
+                  WHERE local.trackId = t.id
+                    AND local.type = 'LOCAL_MEDIASTORE'
+                    AND local.availability = 'AVAILABLE_LOCAL'
+              )
+              OR EXISTS (
+                  SELECT 1 FROM telegram_track_sources tg
+                  INNER JOIN telegram_selected_sources chosen
+                    ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+              )
+          )
+        ORDER BY t.normalizedTitle ASC, t.id ASC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun browseOfflineTracks(limit: Int, offset: Int): List<TrackEntity>
+
     @Query(
         """
         SELECT

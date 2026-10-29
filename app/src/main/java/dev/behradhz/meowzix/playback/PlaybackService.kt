@@ -239,7 +239,9 @@ class PlaybackService : MediaLibraryService() {
             val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
             val job = serviceScope.launch(Dispatchers.IO) {
                 try {
-                    val items = mediaLibrary.children(parentId, page, pageSize)
+                    val carClient = session.isAutoCompanionController(browser) ||
+                        session.isAutomotiveController(browser)
+                    val items = mediaLibrary.children(parentId, page, pageSize, forCar = carClient)
                     future.set(
                         if (items == null) {
                             LibraryResult.ofError(SessionError.ERROR_BAD_VALUE, params)

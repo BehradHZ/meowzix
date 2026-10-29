@@ -87,6 +87,8 @@ interface PlaybackCatalog {
      */
     suspend fun browseTracks(offset: Int, limit: Int): List<BrowseTrack> = emptyList()
     suspend fun browseFavorites(offset: Int, limit: Int): List<BrowseTrack> = emptyList()
+    /** Offline and visible under the same selected-source policy as the canonical library. */
+    suspend fun browseOffline(offset: Int, limit: Int): List<BrowseTrack> = emptyList()
     suspend fun browseArtists(offset: Int, limit: Int): List<BrowseArtist> = emptyList()
     suspend fun browseAlbums(offset: Int, limit: Int): List<BrowseAlbum> = emptyList()
     suspend fun browseTracksByArtist(

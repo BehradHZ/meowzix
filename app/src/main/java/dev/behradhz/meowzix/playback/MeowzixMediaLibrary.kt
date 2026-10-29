@@ -28,6 +28,14 @@ class MeowzixMediaLibrary @Inject constructor(
 ) {
     fun root(): MediaItem = browsable(ROOT_ID, "Meowzix")
 
+    /** Four stable root tabs for the driver-optimized Android Auto media browser. */
+    fun carRootChildren(): List<MediaItem> = listOf(
+        browsable(LISTEN_NOW_ID, "Listen Now", artworkRef = carIcon("ic_auto_listen")),
+        browsable(PLAYLISTS_ID, "Playlists", artworkRef = carIcon("ic_auto_playlists")),
+        browsable(ARTISTS_ID, "Artists", artworkRef = carIcon("ic_auto_artists")),
+        browsable(LIBRARY_ID, "Library", artworkRef = carIcon("ic_auto_library")),
+    )
+
     suspend fun rootChildren(): List<MediaItem> = buildList {
         add(browsable(TRACKS_ID, "Tracks"))
         add(browsable(ARTISTS_ID, "Artists"))
@@ -41,10 +49,26 @@ class MeowzixMediaLibrary @Inject constructor(
     suspend fun searchResults(trackIds: List<UUID>): List<MediaItem> =
         catalog.browseTracksByIds(trackIds.take(MAX_PAGE_SIZE)).map(::trackItem)
 
-    suspend fun children(parentId: String, page: Int, pageSize: Int): List<MediaItem>? {
+    suspend fun children(
+        parentId: String,
+        page: Int,
+        pageSize: Int,
+        forCar: Boolean = false,
+    ): List<MediaItem>? {
         val window = PageWindow.of(page, pageSize)
         return when {
-            parentId == ROOT_ID -> rootChildren().drop(window.offset).take(window.limit)
+            parentId == ROOT_ID -> (if (forCar) carRootChildren() else rootChildren())
+                .drop(window.offset).take(window.limit)
+            parentId == LISTEN_NOW_ID -> buildList {
+                add(browsable(FAVORITES_ID, "Favorites"))
+                add(browsable(OFFLINE_ID, "Available Offline"))
+                if (safeMixes().isNotEmpty()) add(browsable(MIXES_ID, "Smart Mixes"))
+            }.drop(window.offset).take(window.limit)
+            parentId == LIBRARY_ID -> listOf(
+                browsable(TRACKS_ID, "Tracks"),
+                browsable(ALBUMS_ID, "Albums"),
+            ).drop(window.offset).take(window.limit)
+            parentId == OFFLINE_ID -> catalog.browseOffline(window.offset, window.limit).map(::trackItem)
             parentId == MIXES_ID -> {
                 val mixes = safeMixes()
                 mixes.drop(window.offset).take(window.limit).map(::mixItem)
@@ -82,6 +106,9 @@ class MeowzixMediaLibrary @Inject constructor(
 
     suspend fun item(mediaId: String): MediaItem? = when {
         mediaId == ROOT_ID -> root()
+        mediaId == LISTEN_NOW_ID -> browsable(LISTEN_NOW_ID, "Listen Now", artworkRef = carIcon("ic_auto_listen"))
+        mediaId == LIBRARY_ID -> browsable(LIBRARY_ID, "Library", artworkRef = carIcon("ic_auto_library"))
+        mediaId == OFFLINE_ID -> browsable(OFFLINE_ID, "Available Offline")
         mediaId == TRACKS_ID -> browsable(TRACKS_ID, "Tracks")
         mediaId == ARTISTS_ID -> browsable(ARTISTS_ID, "Artists")
         mediaId == ALBUMS_ID -> browsable(ALBUMS_ID, "Albums")
@@ -190,6 +217,8 @@ class MeowzixMediaLibrary @Inject constructor(
         )
         .build()
 
+    private fun carIcon(name: String): String = "android.resource://dev.behradhz.meowzix/drawable/$name"
+
     private fun safeArtworkUri(ref: String): Uri? = runCatching { Uri.parse(ref) }
         .getOrNull()
         ?.takeIf { it.scheme == "content" || it.scheme == "android.resource" }
@@ -211,6 +240,9 @@ class MeowzixMediaLibrary @Inject constructor(
 
     companion object {
         const val ROOT_ID = "meowzix:root"
+        const val LISTEN_NOW_ID = "meowzix:listen-now"
+        const val LIBRARY_ID = "meowzix:library"
+        const val OFFLINE_ID = "meowzix:offline"
         const val TRACKS_ID = "meowzix:tracks"
         const val ARTISTS_ID = "meowzix:artists"
         const val ALBUMS_ID = "meowzix:albums"

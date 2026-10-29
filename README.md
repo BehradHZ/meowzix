@@ -51,6 +51,22 @@ Get the latest signed Android package from [GitHub Releases](https://github.com/
 
 Installation outside a store may require enabling installation from the file manager/browser you use. Do not install APKs from untrusted mirrors.
 
+## Android Auto
+
+Connect a compatible Android Auto head unit to the phone running Meowzix: no separate
+in-car APK, Telegram login, or second music library is required. Android Auto renders
+the driver-safe UI using the existing Media3 library service.
+
+The four navigation tabs are **Listen Now** (Favorites, Available Offline, Smart Mixes
+when enabled), **Playlists**, **Artists**, and **Library** (Tracks and Albums).
+Only tracks visible in selected sources are browsable; downloaded music remains
+accessible offline. The shared media session provides voice search and playback
+controls. Phone-only Telegram forwarding is not advertised to the car.
+
+For validation, use the [Android Auto Desktop Head Unit](https://developer.android.com/training/cars/testing/dhu)
+and run `./gradlew :app:connectedDebugAndroidTest` on a device or emulator.
+A full Android Auto host/device check is still required before release.
+
 ## Build from source
 
 **Requirements:** Android SDK (compile SDK 37), JDK 17, and the included Gradle wrapper.

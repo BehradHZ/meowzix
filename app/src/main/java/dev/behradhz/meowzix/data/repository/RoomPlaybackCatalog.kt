@@ -110,6 +110,12 @@ class RoomPlaybackCatalog @Inject constructor(
             toBrowseTracks(libraryBrowseDao.browseFavoriteTracks(window.limit, window.offset))
         }
 
+    override suspend fun browseOffline(offset: Int, limit: Int): List<BrowseTrack> =
+        withContext(Dispatchers.Default) {
+            val window = browseWindow(offset, limit)
+            toBrowseTracks(libraryBrowseDao.browseOfflineTracks(window.limit, window.offset))
+        }
+
     override suspend fun browseArtists(offset: Int, limit: Int): List<BrowseArtist> =
         withContext(Dispatchers.Default) {
             val window = browseWindow(offset, limit)
