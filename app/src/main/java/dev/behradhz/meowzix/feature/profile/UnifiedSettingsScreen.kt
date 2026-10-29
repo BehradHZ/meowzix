@@ -92,6 +92,8 @@ import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.settings.ThemePreference
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
+import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
+import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.ui.components.SleepTimerControls
 import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
@@ -245,6 +247,38 @@ fun UnifiedSettingsScreen(
                                     }
                                 },
                             )
+                            if (state.playback.liveSongCardEnabled) {
+                                SettingsRowDivider()
+                                SettingsChoiceRow(
+                                    "Live Update layout",
+                                    "Minimal chip or three playback buttons in the expanded card",
+                                    Icons.Rounded.PlayCircle,
+                                    if (state.playback.liveSongCardStyle == LiveSongCardStyle.MINIMAL) "Minimal" else "Playback controls",
+                                    listOf("Minimal", "Playback controls"),
+                                ) { value ->
+                                    viewModel.setLiveSongCardStyle(
+                                        if (value == "Minimal") LiveSongCardStyle.MINIMAL else LiveSongCardStyle.CONTROLS
+                                    )
+                                }
+                                if (state.playback.liveSongCardStyle == LiveSongCardStyle.CONTROLS) {
+                                    SettingsRowDivider()
+                                    SettingsChoiceRow(
+                                        "Left Live Update button",
+                                        "The middle button is always Pause",
+                                        Icons.Rounded.MusicNote,
+                                        state.playback.liveSongLeftAction.name,
+                                        LiveSongSideAction.entries.map { it.name },
+                                    ) { viewModel.setLiveSongLeftAction(LiveSongSideAction.valueOf(it)) }
+                                    SettingsRowDivider()
+                                    SettingsChoiceRow(
+                                        "Right Live Update button",
+                                        "Previous, Next, Favorite, Shuffle, or Repeat",
+                                        Icons.Rounded.MusicNote,
+                                        state.playback.liveSongRightAction.name,
+                                        LiveSongSideAction.entries.map { it.name },
+                                    ) { viewModel.setLiveSongRightAction(LiveSongSideAction.valueOf(it)) }
+                                }
+                            }
                             SettingsRowDivider()
                             SettingsSeekBarStylePicker(
                                 selected = state.appearance.playerSeekBarStyle,

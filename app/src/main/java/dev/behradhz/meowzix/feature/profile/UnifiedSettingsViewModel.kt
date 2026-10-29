@@ -25,6 +25,8 @@ import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
+import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
+import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.settings.RecommendationPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
@@ -130,6 +132,9 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setResume(value: Boolean) = launch { settings.setResumeOnLaunch(value) }
     fun setResumeAfterExternalAudio(value: Boolean) = launch { settings.setResumeAfterExternalAudio(value) }
     fun setLiveSongCardEnabled(value: Boolean) = launch { settings.setLiveSongCardEnabled(value) }
+    fun setLiveSongCardStyle(value: LiveSongCardStyle) = launch { settings.setLiveSongCardStyle(value) }
+    fun setLiveSongLeftAction(value: LiveSongSideAction) = launch { settings.setLiveSongLeftAction(value) }
+    fun setLiveSongRightAction(value: LiveSongSideAction) = launch { settings.setLiveSongRightAction(value) }
     fun setLoudnessNormalization(value: Boolean) = launch { settings.setLoudnessNormalizationEnabled(value) }
     fun setCrossfadeSeconds(value: Int) = launch { settings.setCrossfadeDurationSeconds(value) }
     fun setSleepTimerMinutes(minutes: Int, fade: Boolean) = launch {

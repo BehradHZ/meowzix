@@ -22,6 +22,8 @@ import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
+import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
+import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.settings.RecommendationPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
@@ -94,6 +96,9 @@ class DataStoreSettingsRepository @Inject constructor(
             resumeOnLaunch = values[RESUME_ON_LAUNCH] ?: true,
             resumeAfterExternalAudio = values[RESUME_AFTER_EXTERNAL_AUDIO] ?: false,
             liveSongCardEnabled = values[LIVE_SONG_CARD_ENABLED] ?: false,
+            liveSongCardStyle = values[LIVE_SONG_CARD_STYLE].enumOrDefault(LiveSongCardStyle.MINIMAL),
+            liveSongLeftAction = values[LIVE_SONG_LEFT_ACTION].enumOrDefault(LiveSongSideAction.PREVIOUS),
+            liveSongRightAction = values[LIVE_SONG_RIGHT_ACTION].enumOrDefault(LiveSongSideAction.NEXT),
             loudnessNormalizationEnabled = values[LOUDNESS_NORMALIZATION] ?: false,
             crossfadeDurationSeconds = (values[CROSSFADE_SECONDS] ?: 0).coerceIn(0, 12),
         )
@@ -119,6 +124,9 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setResumeOnLaunch(enabled: Boolean) = set(RESUME_ON_LAUNCH, enabled)
     override suspend fun setResumeAfterExternalAudio(enabled: Boolean) = set(RESUME_AFTER_EXTERNAL_AUDIO, enabled)
     override suspend fun setLiveSongCardEnabled(enabled: Boolean) = set(LIVE_SONG_CARD_ENABLED, enabled)
+    override suspend fun setLiveSongCardStyle(style: LiveSongCardStyle) = setEnum(LIVE_SONG_CARD_STYLE, style)
+    override suspend fun setLiveSongLeftAction(action: LiveSongSideAction) = setEnum(LIVE_SONG_LEFT_ACTION, action)
+    override suspend fun setLiveSongRightAction(action: LiveSongSideAction) = setEnum(LIVE_SONG_RIGHT_ACTION, action)
     override suspend fun setLoudnessNormalizationEnabled(enabled: Boolean) = set(LOUDNESS_NORMALIZATION, enabled)
     override suspend fun setCrossfadeDurationSeconds(seconds: Int) {
         context.settingsDataStore.edit { it[CROSSFADE_SECONDS] = seconds.coerceIn(0, 12) }
@@ -190,6 +198,9 @@ class DataStoreSettingsRepository @Inject constructor(
         val RESUME_ON_LAUNCH = booleanPreferencesKey("resume_on_launch")
         val RESUME_AFTER_EXTERNAL_AUDIO = booleanPreferencesKey("resume_after_external_audio")
         val LIVE_SONG_CARD_ENABLED = booleanPreferencesKey("live_song_card_enabled")
+        val LIVE_SONG_CARD_STYLE = stringPreferencesKey("live_song_card_style")
+        val LIVE_SONG_LEFT_ACTION = stringPreferencesKey("live_song_left_action")
+        val LIVE_SONG_RIGHT_ACTION = stringPreferencesKey("live_song_right_action")
         val LOUDNESS_NORMALIZATION = booleanPreferencesKey("loudness_normalization_enabled")
         val CROSSFADE_SECONDS = intPreferencesKey("crossfade_duration_seconds")
         val SMART_RECOMMENDATIONS = booleanPreferencesKey("smart_recommendations_enabled")

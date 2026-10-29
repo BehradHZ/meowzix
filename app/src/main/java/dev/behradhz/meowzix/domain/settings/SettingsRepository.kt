@@ -41,6 +41,10 @@ enum class ColorThemePreference {
 enum class PlayerAccentSource { GLOBAL, TRACK }
 enum class PlayerSeekBarStyle { WAVEFORM, CLASSIC }
 
+/** The opt-in Live Update complements, rather than replaces, Android's media player. */
+enum class LiveSongCardStyle { MINIMAL, CONTROLS }
+enum class LiveSongSideAction { PREVIOUS, NEXT, FAVORITE, SHUFFLE, REPEAT }
+
 const val DEFAULT_CUSTOM_COLOR_SEED: Int = 0xFF6750A4.toInt()
 
 data class AppearanceSettings(
@@ -59,6 +63,9 @@ data class PlaybackPreferenceSettings(
     val resumeOnLaunch: Boolean = true,
     val resumeAfterExternalAudio: Boolean = false,
     val liveSongCardEnabled: Boolean = false,
+    val liveSongCardStyle: LiveSongCardStyle = LiveSongCardStyle.MINIMAL,
+    val liveSongLeftAction: LiveSongSideAction = LiveSongSideAction.PREVIOUS,
+    val liveSongRightAction: LiveSongSideAction = LiveSongSideAction.NEXT,
     val loudnessNormalizationEnabled: Boolean = false,
     val crossfadeDurationSeconds: Int = 0,
 )
@@ -101,6 +108,9 @@ interface SettingsRepository {
     suspend fun setResumeOnLaunch(enabled: Boolean)
     suspend fun setResumeAfterExternalAudio(enabled: Boolean)
     suspend fun setLiveSongCardEnabled(enabled: Boolean)
+    suspend fun setLiveSongCardStyle(style: LiveSongCardStyle)
+    suspend fun setLiveSongLeftAction(action: LiveSongSideAction)
+    suspend fun setLiveSongRightAction(action: LiveSongSideAction)
     suspend fun setLoudnessNormalizationEnabled(enabled: Boolean)
     suspend fun setCrossfadeDurationSeconds(seconds: Int)
     suspend fun setSmartRecommendationsEnabled(enabled: Boolean)
