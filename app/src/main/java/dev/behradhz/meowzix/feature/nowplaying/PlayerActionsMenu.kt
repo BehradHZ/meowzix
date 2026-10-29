@@ -42,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -102,6 +103,9 @@ internal fun PlayerActionsMenu(
     onDeleteVersion: (UUID) -> Unit,
     onRemoveAllLyrics: () -> Unit = {},
     onRestoreAutomaticLyrics: () -> Unit = {},
+    sleepTimerActive: Boolean = false,
+    sleepTimerCanEnable: Boolean = true,
+    onSleepTimerEnabledChange: (Boolean) -> Unit = {},
     dragInProgress: Boolean = false,
     draggedAction: Int? = null,
     draggedLyricsRequest: Int = 0,
@@ -165,6 +169,12 @@ internal fun PlayerActionsMenu(
                             highlighted = draggedAction == 0,
                             onBoundsChanged = { onActionBoundsChanged(0, it) },
                             subtitle = sleepTimerLabel,
+                            switchChecked = sleepTimerActive,
+                            switchEnabled = sleepTimerCanEnable,
+                            onSwitchCheckedChange = { enabled ->
+                                onDismiss()
+                                onSleepTimerEnabledChange(enabled)
+                            },
                             onClick = { onDismiss(); onOpenSleepTimer() },
                         )
                         PlayerMenuOptionRow(
@@ -407,6 +417,9 @@ private fun PlayerMenuOptionRow(
     subtitle: String? = null,
     highlighted: Boolean = false,
     onBoundsChanged: ((Rect) -> Unit)? = null,
+    switchChecked: Boolean? = null,
+    switchEnabled: Boolean = true,
+    onSwitchCheckedChange: ((Boolean) -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -463,12 +476,22 @@ private fun PlayerMenuOptionRow(
                 )
             }
         }
-        Icon(
-            Icons.Rounded.ChevronRight,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = colors.onSurfaceVariant,
-        )
+        if (switchChecked != null && onSwitchCheckedChange != null) {
+            // Separate hit target: toggling does not trigger the row's settings action.
+            Switch(
+                checked = switchChecked,
+                enabled = switchEnabled,
+                onCheckedChange = onSwitchCheckedChange,
+                modifier = Modifier.testTag("player-sleep-timer-switch"),
+            )
+        } else {
+            Icon(
+                Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = colors.onSurfaceVariant,
+            )
+        }
     }
 }
 

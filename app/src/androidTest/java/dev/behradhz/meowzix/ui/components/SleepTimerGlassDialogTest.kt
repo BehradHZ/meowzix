@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.domain.playback.SleepTimerState
+import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -24,21 +25,20 @@ class SleepTimerGlassDialogTest {
 
     @Test fun glassDialogKeepsPresetsAndStatusAndDismiss() {
         var requestedMinutes by mutableIntStateOf(0)
-        var fadeRequested by mutableStateOf(false)
+        var enabledRequested by mutableStateOf(false)
         var dismissCount by mutableIntStateOf(0)
         compose.setContent {
             MeowzixTheme(darkTheme = true) {
                 SleepTimerGlassDialog(
                     state = SleepTimerState.Off,
                     endOfTrackEnabled = false,
+                    lastMinutes = 30,
+                    lastMode = SleepTimerPresetMode.DURATION,
                     onDismiss = { dismissCount++ },
-                    onSetMinutes = { minutes, fade ->
-                        requestedMinutes = minutes
-                        fadeRequested = fade
-                    },
+                    onSetMinutes = { requestedMinutes = it },
                     onEndOfTrack = {},
                     onExtend = {},
-                    onCancel = {},
+                    onSetEnabled = { enabledRequested = it },
                 )
             }
         }
@@ -48,8 +48,11 @@ class SleepTimerGlassDialogTest {
         compose.onNodeWithTag("sleep-timer-preset-15").performClick()
         compose.runOnIdle {
             assertEquals(15, requestedMinutes)
-            assertEquals(true, fadeRequested)
+            assertEquals(false, enabledRequested)
         }
+        compose.onNodeWithTag("sleep-timer-enabled").assertIsDisplayed()
+        compose.onNodeWithTag("sleep-timer-enabled").performClick()
+        compose.runOnIdle { assertEquals(true, enabledRequested) }
         compose.onNodeWithTag("sleep-timer-close").performClick()
         compose.runOnIdle { assertEquals(1, dismissCount) }
     }

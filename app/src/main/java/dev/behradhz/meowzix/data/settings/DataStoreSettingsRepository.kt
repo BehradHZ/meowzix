@@ -26,6 +26,7 @@ import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.settings.RecommendationPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.settings.ThemePreference
@@ -101,6 +102,9 @@ class DataStoreSettingsRepository @Inject constructor(
             liveSongRightAction = values[LIVE_SONG_RIGHT_ACTION].enumOrDefault(LiveSongSideAction.NEXT),
             loudnessNormalizationEnabled = values[LOUDNESS_NORMALIZATION] ?: false,
             crossfadeDurationSeconds = (values[CROSSFADE_SECONDS] ?: 0).coerceIn(0, 12),
+            sleepTimerFadeEnabled = values[SLEEP_TIMER_FADE_ENABLED] ?: true,
+            sleepTimerLastMode = values[SLEEP_TIMER_LAST_MODE].enumOrDefault(SleepTimerPresetMode.DURATION),
+            sleepTimerLastMinutes = (values[SLEEP_TIMER_LAST_MINUTES] ?: 30).coerceIn(5, 180),
         )
     }
 
@@ -130,6 +134,13 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setLoudnessNormalizationEnabled(enabled: Boolean) = set(LOUDNESS_NORMALIZATION, enabled)
     override suspend fun setCrossfadeDurationSeconds(seconds: Int) {
         context.settingsDataStore.edit { it[CROSSFADE_SECONDS] = seconds.coerceIn(0, 12) }
+    }
+    override suspend fun setSleepTimerFadeEnabled(enabled: Boolean) = set(SLEEP_TIMER_FADE_ENABLED, enabled)
+    override suspend fun saveSleepTimerPreset(mode: SleepTimerPresetMode, minutes: Int) {
+        context.settingsDataStore.edit {
+            it[SLEEP_TIMER_LAST_MODE] = mode.name
+            if (mode == SleepTimerPresetMode.DURATION) it[SLEEP_TIMER_LAST_MINUTES] = minutes.coerceIn(5, 180)
+        }
     }
     override suspend fun setSmartRecommendationsEnabled(enabled: Boolean) = set(SMART_RECOMMENDATIONS, enabled)
     override suspend fun setAudioAnalysisEnabled(enabled: Boolean) = set(AUDIO_ANALYSIS, enabled)
@@ -203,6 +214,9 @@ class DataStoreSettingsRepository @Inject constructor(
         val LIVE_SONG_RIGHT_ACTION = stringPreferencesKey("live_song_right_action")
         val LOUDNESS_NORMALIZATION = booleanPreferencesKey("loudness_normalization_enabled")
         val CROSSFADE_SECONDS = intPreferencesKey("crossfade_duration_seconds")
+        val SLEEP_TIMER_FADE_ENABLED = booleanPreferencesKey("sleep_timer_fade_enabled")
+        val SLEEP_TIMER_LAST_MODE = stringPreferencesKey("sleep_timer_last_mode")
+        val SLEEP_TIMER_LAST_MINUTES = intPreferencesKey("sleep_timer_last_minutes")
         val SMART_RECOMMENDATIONS = booleanPreferencesKey("smart_recommendations_enabled")
         val EXPLORATION_PERCENT = intPreferencesKey("recommendation_exploration_percent")
         val AUDIO_ANALYSIS = booleanPreferencesKey("audio_analysis_enabled")

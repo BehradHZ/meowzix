@@ -29,7 +29,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,6 +44,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import dev.behradhz.meowzix.domain.playback.SleepTimerMode
 import dev.behradhz.meowzix.domain.playback.SleepTimerState
+import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import kotlin.math.roundToInt
 
 /**
@@ -58,10 +58,12 @@ fun SleepTimerGlassDialog(
     state: SleepTimerState,
     endOfTrackEnabled: Boolean,
     onDismiss: () -> Unit,
-    onSetMinutes: (Int, Boolean) -> Unit,
-    onEndOfTrack: (Boolean) -> Unit,
+    lastMinutes: Int,
+    lastMode: SleepTimerPresetMode,
+    onSetMinutes: (Int) -> Unit,
+    onEndOfTrack: () -> Unit,
     onExtend: () -> Unit,
-    onCancel: () -> Unit,
+    onSetEnabled: (Boolean) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(24.dp)
@@ -108,10 +110,12 @@ fun SleepTimerGlassDialog(
             SleepTimerControls(
                 state = state,
                 endOfTrackEnabled = endOfTrackEnabled,
+                lastMinutes = lastMinutes,
+                lastMode = lastMode,
                 onSetMinutes = onSetMinutes,
                 onEndOfTrack = onEndOfTrack,
                 onExtend = onExtend,
-                onCancel = onCancel,
+                onSetEnabled = onSetEnabled,
             )
             TextButton(
                 onClick = onDismiss,
@@ -127,14 +131,15 @@ fun SleepTimerGlassDialog(
 fun SleepTimerControls(
     state: SleepTimerState,
     endOfTrackEnabled: Boolean,
-    onSetMinutes: (Int, Boolean) -> Unit,
-    onEndOfTrack: (Boolean) -> Unit,
+    lastMinutes: Int,
+    lastMode: SleepTimerPresetMode,
+    onSetMinutes: (Int) -> Unit,
+    onEndOfTrack: () -> Unit,
     onExtend: () -> Unit,
-    onCancel: () -> Unit,
+    onSetEnabled: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var fade by remember { mutableStateOf(true) }
-    var customMinutes by remember { mutableFloatStateOf(90f) }
+    var customMinutes by remember(lastMinutes) { mutableFloatStateOf(lastMinutes.coerceIn(5, 180).toFloat()) }
     val colors = MaterialTheme.colorScheme
 
     Column(
@@ -164,18 +169,31 @@ fun SleepTimerControls(
                     color = colors.onSurface,
                     modifier = Modifier.testTag("sleep-timer-status"),
                 )
+                if (!state.active) {
+                    Text(
+                        "Last: " + sleepTimerPresetLabel(lastMode, lastMinutes),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant,
+                    )
+                }
             }
+            Switch(
+                checked = state.active,
+                enabled = state.active || lastMode != SleepTimerPresetMode.END_OF_TRACK || endOfTrackEnabled,
+                onCheckedChange = onSetEnabled,
+                modifier = Modifier.testTag("sleep-timer-enabled"),
+            )
         }
 
         Text("Quick durations", style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Medium)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SleepTimerPreset(15, Modifier.weight(1f)) { onSetMinutes(15, fade) }
-            SleepTimerPreset(30, Modifier.weight(1f)) { onSetMinutes(30, fade) }
+            SleepTimerPreset(15, Modifier.weight(1f)) { onSetMinutes(15) }
+            SleepTimerPreset(30, Modifier.weight(1f)) { onSetMinutes(30) }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SleepTimerPreset(45, Modifier.weight(1f)) { onSetMinutes(45, fade) }
-            SleepTimerPreset(60, Modifier.weight(1f)) { onSetMinutes(60, fade) }
+            SleepTimerPreset(45, Modifier.weight(1f)) { onSetMinutes(45) }
+            SleepTimerPreset(60, Modifier.weight(1f)) { onSetMinutes(60) }
         }
 
         Column(
@@ -193,7 +211,7 @@ fun SleepTimerControls(
                 modifier = Modifier.testTag("sleep-timer-custom-slider"),
             )
             Button(
-                onClick = { onSetMinutes(customMinutes.roundToInt(), fade) },
+                onClick = { onSetMinutes(customMinutes.roundToInt()) },
                 modifier = Modifier.fillMaxWidth().testTag("sleep-timer-custom-start"),
             ) {
                 Text("Start custom timer")
@@ -201,7 +219,7 @@ fun SleepTimerControls(
         }
 
         Surface(
-            onClick = { onEndOfTrack(fade) },
+            onClick = onEndOfTrack,
             enabled = endOfTrackEnabled,
             modifier = Modifier.fillMaxWidth().testTag("sleep-timer-end-of-track"),
             shape = RoundedCornerShape(14.dp),
@@ -218,38 +236,12 @@ fun SleepTimerControls(
             )
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Short fade", style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium)
-                Text("Fade for the final 5 seconds",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant)
-            }
-            Switch(
-                checked = fade,
-                onCheckedChange = { fade = it },
-                modifier = Modifier.testTag("sleep-timer-fade"),
-            )
-        }
-
-        if (state.active) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+        if (state.active && state.mode == SleepTimerMode.DURATION) {
+            TextButton(
+                onClick = onExtend,
+                modifier = Modifier.align(Alignment.End).testTag("sleep-timer-extend"),
             ) {
-                if (state.mode == SleepTimerMode.DURATION) {
-                    TextButton(onClick = onExtend, modifier = Modifier.testTag("sleep-timer-extend")) {
-                        Text("+15 min")
-                    }
-                }
-                TextButton(onClick = onCancel, modifier = Modifier.testTag("sleep-timer-cancel")) {
-                    Text("Cancel timer", color = colors.error)
-                }
+                Text("+15 min")
             }
         }
     }
@@ -270,6 +262,11 @@ private fun SleepTimerPreset(minutes: Int, modifier: Modifier, onClick: () -> Un
                 color = colors.onSurface, fontWeight = FontWeight.Medium)
         }
     }
+}
+
+fun sleepTimerPresetLabel(mode: SleepTimerPresetMode, lastMinutes: Int): String = when (mode) {
+    SleepTimerPresetMode.DURATION -> "${lastMinutes.coerceIn(5, 180)} min"
+    SleepTimerPresetMode.END_OF_TRACK -> "End of current track"
 }
 
 fun sleepTimerStatusLabel(state: SleepTimerState): String = when (state.mode) {

@@ -95,7 +95,7 @@ import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
-import dev.behradhz.meowzix.ui.components.SleepTimerControls
+import dev.behradhz.meowzix.ui.components.SleepTimerGlassDialog
 import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -289,6 +289,14 @@ fun UnifiedSettingsScreen(
                             SettingsRowDivider()
                             SettingsActionRow("Sleep timer", sleepTimerStatusLabel(sleepTimer), Icons.Rounded.Bedtime, "Configure", { showSleepTimer = true })
                             SettingsRowDivider()
+                            SettingsToggleRow(
+                                "Sleep timer fade",
+                                "Fade playback over the final 5 seconds (enabled by default)",
+                                Icons.Rounded.Bedtime,
+                                state.playback.sleepTimerFadeEnabled,
+                                viewModel::setSleepTimerFadeEnabled,
+                            )
+                            SettingsRowDivider()
                             SettingsToggleRow("Loudness normalization",
                                 "ReplayGain first; readable local audio may use conservative RMS dBFS, not LUFS.",
                                 Icons.AutoMirrored.Rounded.VolumeUp, state.playback.loudnessNormalizationEnabled, viewModel::setLoudnessNormalization)
@@ -470,20 +478,16 @@ fun UnifiedSettingsScreen(
     }
 
     if (showSleepTimer) {
-        AlertDialog(
-            onDismissRequest = { showSleepTimer = false },
-            title = { Text("Sleep timer") },
-            text = {
-                SleepTimerControls(
-                    state = sleepTimer,
-                    endOfTrackEnabled = hasCurrentTrack,
-                    onSetMinutes = viewModel::setSleepTimerMinutes,
-                    onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
-                    onExtend = { viewModel.extendSleepTimer(15) },
-                    onCancel = viewModel::cancelSleepTimer,
-                )
-            },
-            confirmButton = { TextButton(onClick = { showSleepTimer = false }) { Text("Done") } },
+        SleepTimerGlassDialog(
+            state = sleepTimer,
+            endOfTrackEnabled = hasCurrentTrack,
+            lastMinutes = state.playback.sleepTimerLastMinutes,
+            lastMode = state.playback.sleepTimerLastMode,
+            onDismiss = { showSleepTimer = false },
+            onSetMinutes = viewModel::setSleepTimerMinutes,
+            onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
+            onExtend = { viewModel.extendSleepTimer(15) },
+            onSetEnabled = viewModel::setSleepTimerEnabled,
         )
     }
 

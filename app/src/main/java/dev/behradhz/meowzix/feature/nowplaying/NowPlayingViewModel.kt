@@ -15,6 +15,8 @@ import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.settings.AppearanceSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
+import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.playback.SleepTimerManager
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
@@ -34,6 +36,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -133,6 +136,8 @@ class NowPlayingViewModel @Inject constructor(
 
     val spectrum = audioVisualizerRepository.spectrum
     val sleepTimerState = sleepTimerManager.state
+    val sleepTimerPreferences = settingsRepository.playbackPreferenceSettings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlaybackPreferenceSettings())
     val appearanceSettings = settingsRepository.appearanceSettings
         .stateIn(
             viewModelScope,
@@ -198,23 +203,40 @@ class NowPlayingViewModel @Inject constructor(
 
     fun refreshVisualizer() = audioVisualizerRepository.refresh()
 
-    fun setSleepTimerMinutes(minutes: Int, fade: Boolean) = viewModelScope.launch {
-        sleepTimerManager.setDuration(
-            minutes.coerceIn(1, 24 * 60) * 60_000L,
-            if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L,
-        )
+    fun setSleepTimerMinutes(minutes: Int) = viewModelScope.launch {
+        val bounded = minutes.coerceIn(5, 180)
+        settingsRepository.saveSleepTimerPreset(SleepTimerPresetMode.DURATION, bounded)
+        val fade = settingsRepository.playbackPreferenceSettings.first().sleepTimerFadeEnabled
+        sleepTimerManager.setDuration(bounded * 60_000L, if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L)
     }
 
-    fun setSleepTimerEndOfTrack(fade: Boolean) = viewModelScope.launch {
+    fun setSleepTimerEndOfTrack() = viewModelScope.launch {
         val mediaId = state.value.currentTrack?.id?.toString() ?: return@launch
-        sleepTimerManager.stopAtEndOfTrack(
-            mediaId,
-            if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L,
-        )
+        settingsRepository.saveSleepTimerPreset(SleepTimerPresetMode.END_OF_TRACK, 30)
+        val fade = settingsRepository.playbackPreferenceSettings.first().sleepTimerFadeEnabled
+        sleepTimerManager.stopAtEndOfTrack(mediaId, if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L)
+    }
+
+    /** The toggle resumes the last saved mode/duration with a fresh deadline. */
+    fun setSleepTimerEnabled(enabled: Boolean) = viewModelScope.launch {
+        if (!enabled) {
+            sleepTimerManager.cancel()
+            return@launch
+        }
+        val prefs = settingsRepository.playbackPreferenceSettings.first()
+        val fadeMs = if (prefs.sleepTimerFadeEnabled) SleepTimerManager.DEFAULT_FADE_MS else 0L
+        when (prefs.sleepTimerLastMode) {
+            SleepTimerPresetMode.DURATION ->
+                sleepTimerManager.setDuration(prefs.sleepTimerLastMinutes.coerceIn(5, 180) * 60_000L, fadeMs)
+            SleepTimerPresetMode.END_OF_TRACK -> {
+                val mediaId = state.value.currentTrack?.id?.toString() ?: return@launch
+                sleepTimerManager.stopAtEndOfTrack(mediaId, fadeMs)
+            }
+        }
     }
 
     fun extendSleepTimer() = viewModelScope.launch { sleepTimerManager.extend(15 * 60_000L) }
-    fun cancelSleepTimer() = viewModelScope.launch { sleepTimerManager.cancel() }
+    fun cancelSleepTimer() = setSleepTimerEnabled(false)
 
     fun togglePlayPause() = playbackController.togglePlayPause()
 

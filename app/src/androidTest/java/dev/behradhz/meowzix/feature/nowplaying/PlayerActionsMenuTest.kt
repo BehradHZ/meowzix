@@ -133,6 +133,45 @@ class PlayerActionsMenuTest {
         compose.runOnIdle { assertEquals(1, vibeOpened); assertEquals(false, expanded) }
     }
 
+    @Test fun quickTimerSwitchTogglesWithoutOpeningTimerConfiguration() {
+        val trackId = UUID.randomUUID()
+        var expanded by mutableStateOf(true)
+        var requestedEnabled by mutableStateOf<Boolean?>(null)
+        var opened by mutableIntStateOf(0)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                Box {
+                    Button(onClick = { expanded = true }) { Text("Open menu") }
+                    PlayerActionsMenu(
+                        expanded = expanded,
+                        trackId = trackId,
+                        lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId)),
+                        lyricsExpanded = false,
+                        sleepTimerLabel = "Off · Last: 30 min",
+                        onDismiss = { expanded = false },
+                        onOpenSleepTimer = { opened++ },
+                        onWhyThisSong = {},
+                        onContinueVibe = {},
+                        onToggleLyrics = {},
+                        onImportLrc = {},
+                        onPasteLyrics = {},
+                        onAdjustDelay = {},
+                        onSelectVersion = {},
+                        onDeleteVersion = {},
+                        sleepTimerActive = false,
+                        onSleepTimerEnabledChange = { requestedEnabled = it },
+                    )
+                }
+            }
+        }
+        compose.onNodeWithTag("player-sleep-timer-switch").assertIsDisplayed()
+        compose.onNodeWithTag("player-sleep-timer-switch").performClick()
+        compose.runOnIdle {
+            assertEquals(true, requestedEnabled)
+            assertEquals(0, opened)
+        }
+    }
+
     @Test fun deletingLyricsRequiresConfirmationAndAllowsCancel() {
         val trackId = UUID.randomUUID()
         val version = version(trackId, "My lyrics", true)

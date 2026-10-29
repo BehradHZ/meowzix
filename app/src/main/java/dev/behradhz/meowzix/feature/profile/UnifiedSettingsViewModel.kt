@@ -23,6 +23,7 @@ import dev.behradhz.meowzix.domain.settings.AppearanceSettings
 import dev.behradhz.meowzix.domain.settings.ColorThemePreference
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
+import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -137,15 +139,37 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setLiveSongRightAction(value: LiveSongSideAction) = launch { settings.setLiveSongRightAction(value) }
     fun setLoudnessNormalization(value: Boolean) = launch { settings.setLoudnessNormalizationEnabled(value) }
     fun setCrossfadeSeconds(value: Int) = launch { settings.setCrossfadeDurationSeconds(value) }
-    fun setSleepTimerMinutes(minutes: Int, fade: Boolean) = launch {
-        sleepTimer.setDuration(minutes.coerceIn(1, 24 * 60) * 60_000L, if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L)
+    fun setSleepTimerFadeEnabled(value: Boolean) = launch { settings.setSleepTimerFadeEnabled(value) }
+    fun setSleepTimerMinutes(minutes: Int) = launch {
+        val bounded = minutes.coerceIn(5, 180)
+        settings.saveSleepTimerPreset(SleepTimerPresetMode.DURATION, bounded)
+        val fade = settings.playbackPreferenceSettings.first().sleepTimerFadeEnabled
+        sleepTimer.setDuration(bounded * 60_000L, if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L)
     }
-    fun setSleepTimerEndOfTrack(fade: Boolean) = launch {
+    fun setSleepTimerEndOfTrack() = launch {
         val mediaId = playbackController.state.value.currentTrack?.id?.toString() ?: return@launch
+        settings.saveSleepTimerPreset(SleepTimerPresetMode.END_OF_TRACK, 30)
+        val fade = settings.playbackPreferenceSettings.first().sleepTimerFadeEnabled
         sleepTimer.stopAtEndOfTrack(mediaId, if (fade) SleepTimerManager.DEFAULT_FADE_MS else 0L)
     }
+    fun setSleepTimerEnabled(enabled: Boolean) = launch {
+        if (!enabled) {
+            sleepTimer.cancel()
+            return@launch
+        }
+        val prefs = settings.playbackPreferenceSettings.first()
+        val fadeMs = if (prefs.sleepTimerFadeEnabled) SleepTimerManager.DEFAULT_FADE_MS else 0L
+        when (prefs.sleepTimerLastMode) {
+            SleepTimerPresetMode.DURATION ->
+                sleepTimer.setDuration(prefs.sleepTimerLastMinutes.coerceIn(5, 180) * 60_000L, fadeMs)
+            SleepTimerPresetMode.END_OF_TRACK -> {
+                val mediaId = playbackController.state.value.currentTrack?.id?.toString() ?: return@launch
+                sleepTimer.stopAtEndOfTrack(mediaId, fadeMs)
+            }
+        }
+    }
     fun extendSleepTimer(minutes: Int = 15) = launch { sleepTimer.extend(minutes.coerceAtLeast(1) * 60_000L) }
-    fun cancelSleepTimer() = launch { sleepTimer.cancel() }
+    fun cancelSleepTimer() = setSleepTimerEnabled(false)
     fun setSmart(value: Boolean) = launch { settings.setSmartRecommendationsEnabled(value) }
     fun setExploration(value: Int) = launch { settings.setExplorationPercent(value) }
     fun setAudioAnalysis(value: Boolean) = launch { settings.setAudioAnalysisEnabled(value) }

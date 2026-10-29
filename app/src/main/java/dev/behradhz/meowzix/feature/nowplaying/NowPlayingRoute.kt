@@ -94,6 +94,8 @@ import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.playback.SleepTimerState
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
+import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
+import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
 import dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs
 import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
@@ -139,6 +141,7 @@ fun NowPlayingRoute(
     val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
     val lyricsState by lyricsViewModel.state.collectAsStateWithLifecycle()
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
+    val sleepTimerPreferences by viewModel.sleepTimerPreferences.collectAsStateWithLifecycle()
     val appearance by viewModel.appearanceSettings.collectAsStateWithLifecycle()
     val recommendationActions: RecommendationActionsViewModel = hiltViewModel()
     var lyricsExpanded by remember { mutableStateOf(false) }
@@ -192,6 +195,8 @@ fun NowPlayingRoute(
         lyricsState = lyricsState,
         lyricsExpanded = lyricsExpanded,
         sleepTimer = sleepTimer,
+        sleepTimerPreferences = sleepTimerPreferences,
+        onSetSleepTimerEnabled = viewModel::setSleepTimerEnabled,
         reduceMotion = appearance.reduceMotion,
         seekBarStyle = appearance.playerSeekBarStyle,
         onBack = closeOrCollapse,
@@ -231,11 +236,13 @@ fun NowPlayingRoute(
             SleepTimerGlassDialog(
                 state = sleepTimer,
                 endOfTrackEnabled = state.currentTrack != null,
+                lastMinutes = sleepTimerPreferences.sleepTimerLastMinutes,
+                lastMode = sleepTimerPreferences.sleepTimerLastMode,
                 onDismiss = { sleepTimerOpen = false },
                 onSetMinutes = viewModel::setSleepTimerMinutes,
                 onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
                 onExtend = viewModel::extendSleepTimer,
-                onCancel = viewModel::cancelSleepTimer,
+                onSetEnabled = viewModel::setSleepTimerEnabled,
             )
         }
     }
@@ -281,6 +288,8 @@ private fun NowPlayingScreen(
     lyricsState: NowPlayingLyricsState,
     lyricsExpanded: Boolean,
     sleepTimer: SleepTimerState,
+    sleepTimerPreferences: PlaybackPreferenceSettings,
+    onSetSleepTimerEnabled: (Boolean) -> Unit,
     reduceMotion: Boolean,
     seekBarStyle: PlayerSeekBarStyle,
     onBack: () -> Unit,
@@ -372,6 +381,8 @@ private fun NowPlayingScreen(
                 hazeState = hazeState,
                 lyricsExpanded = lyricsExpanded,
                 sleepTimer = sleepTimer,
+                sleepTimerPreferences = sleepTimerPreferences,
+                onSetSleepTimerEnabled = onSetSleepTimerEnabled,
                 onBack = onBack,
                 onMoreActionsMenuExpandedChange = onMoreActionsMenuExpandedChange,
                 onMoreActionsButtonBoundsChanged = onMoreActionsButtonBoundsChanged,
@@ -592,6 +603,8 @@ private fun PlayerHeader(
     hazeState: HazeState,
     lyricsExpanded: Boolean,
     sleepTimer: SleepTimerState,
+    sleepTimerPreferences: PlaybackPreferenceSettings,
+    onSetSleepTimerEnabled: (Boolean) -> Unit,
     onBack: () -> Unit,
     onMoreActionsMenuExpandedChange: (Boolean) -> Unit,
     onMoreActionsButtonBoundsChanged: (Rect) -> Unit,
@@ -720,7 +733,16 @@ private fun PlayerHeader(
                     trackId = lyricsState.trackId,
                     lyricsState = lyricsState,
                     lyricsExpanded = lyricsExpanded,
-                    sleepTimerLabel = sleepTimerStatusLabel(sleepTimer),
+                    sleepTimerLabel = if (sleepTimer.active) sleepTimerStatusLabel(sleepTimer)
+                        else "Off · Last: " + dev.behradhz.meowzix.ui.components.sleepTimerPresetLabel(
+                            sleepTimerPreferences.sleepTimerLastMode,
+                            sleepTimerPreferences.sleepTimerLastMinutes,
+                        ),
+                    sleepTimerActive = sleepTimer.active,
+                    sleepTimerCanEnable = sleepTimer.active ||
+                        sleepTimerPreferences.sleepTimerLastMode != SleepTimerPresetMode.END_OF_TRACK ||
+                        lyricsState.trackId != null,
+                    onSleepTimerEnabledChange = onSetSleepTimerEnabled,
                     onDismiss = { menuExpanded = false },
                     onOpenSleepTimer = onOpenSleepTimer,
                     onWhyThisSong = onWhyThisSong,

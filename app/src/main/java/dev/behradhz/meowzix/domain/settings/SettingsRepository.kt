@@ -57,6 +57,9 @@ data class AppearanceSettings(
     val playerSeekBarStyle: PlayerSeekBarStyle = PlayerSeekBarStyle.WAVEFORM,
 )
 
+/** Remembers the user's last Sleep Timer mode independently from the running timer. */
+enum class SleepTimerPresetMode { DURATION, END_OF_TRACK }
+
 data class PlaybackPreferenceSettings(
     val defaultMode: PlaybackMode = PlaybackMode.ORDERED,
     val defaultRepeat: RepeatMode = RepeatMode.OFF,
@@ -68,6 +71,9 @@ data class PlaybackPreferenceSettings(
     val liveSongRightAction: LiveSongSideAction = LiveSongSideAction.NEXT,
     val loudnessNormalizationEnabled: Boolean = false,
     val crossfadeDurationSeconds: Int = 0,
+    val sleepTimerFadeEnabled: Boolean = true,
+    val sleepTimerLastMode: SleepTimerPresetMode = SleepTimerPresetMode.DURATION,
+    val sleepTimerLastMinutes: Int = 30,
 )
 
 data class RecommendationPreferenceSettings(
@@ -113,6 +119,8 @@ interface SettingsRepository {
     suspend fun setLiveSongRightAction(action: LiveSongSideAction)
     suspend fun setLoudnessNormalizationEnabled(enabled: Boolean)
     suspend fun setCrossfadeDurationSeconds(seconds: Int)
+    suspend fun setSleepTimerFadeEnabled(enabled: Boolean)
+    suspend fun saveSleepTimerPreset(mode: SleepTimerPresetMode, minutes: Int)
     suspend fun setSmartRecommendationsEnabled(enabled: Boolean)
     suspend fun setExplorationPercent(percent: Int)
     suspend fun setAudioAnalysisEnabled(enabled: Boolean)
