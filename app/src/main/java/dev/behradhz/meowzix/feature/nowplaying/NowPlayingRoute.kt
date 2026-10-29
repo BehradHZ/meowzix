@@ -67,7 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInScreen
+import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -644,7 +644,17 @@ private fun PlayerHeader(
                 IconButton(
                     onClick = { menuExpanded = true },
                     modifier = Modifier
-                        .onGloballyPositioned { triggerBounds = it.boundsInScreen() }
+                        .onGloballyPositioned { coords ->
+                            val topLeft = coords.positionOnScreen()
+                            if (topLeft != Offset.Unspecified) {
+                                triggerBounds = Rect(
+                                    topLeft.x,
+                                    topLeft.y,
+                                    topLeft.x + coords.size.width.toFloat(),
+                                    topLeft.y + coords.size.height.toFloat(),
+                                )
+                            }
+                        }
                         .pointerInput(lyricsState.trackId) {
                             detectVerticalDragGestures(
                                 onDragStart = {

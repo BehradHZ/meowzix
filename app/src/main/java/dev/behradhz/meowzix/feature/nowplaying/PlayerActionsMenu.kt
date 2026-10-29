@@ -53,7 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.boundsInScreen
+import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -415,7 +415,17 @@ private fun PlayerMenuOptionRow(
             .clip(RoundedCornerShape(13.dp))
             .background(if (highlighted) colors.primary.copy(alpha = 0.17f) else Color.Transparent)
             .onGloballyPositioned { coordinates ->
-                onBoundsChanged?.invoke(coordinates.boundsInScreen())
+                val topLeft = coordinates.positionOnScreen()
+                if (topLeft != Offset.Unspecified) {
+                    onBoundsChanged?.invoke(
+                        Rect(
+                            topLeft.x,
+                            topLeft.y,
+                            topLeft.x + coordinates.size.width.toFloat(),
+                            topLeft.y + coordinates.size.height.toFloat(),
+                        ),
+                    )
+                }
             }
             .clickable(role = Role.Button, onClick = onClick)
             .heightIn(min = 56.dp)
