@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Notification accent only. SystemUI controls the promoted chip's background. -->
+    <color name="live_song_accent">#FFB38A</color>
+</resources>
