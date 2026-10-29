@@ -48,7 +48,6 @@ import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -93,6 +92,7 @@ import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.SleepTimerControls
 import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
+import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
 import dev.behradhz.meowzix.ui.components.rememberArtworkAccentColor
 import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
 import dev.behradhz.meowzix.ui.components.TrackArtworkBackdrop
@@ -477,12 +477,13 @@ private fun NowPlayingScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
-                Slider(
+                CurlyMusicSlider(
                     value = shownPosition.toFloat().coerceIn(0f, duration.toFloat()),
                     onValueChange = onDragSeek,
                     onValueChangeFinished = finishSeek,
                     valueRange = 0f..duration.toFloat(),
                     enabled = state.durationMs > 0L && !isLoading,
+                    isPlaying = state.status == PlaybackStatus.PLAYING && !reduceMotion,
                     modifier = Modifier.fillMaxWidth().height(58.dp).semantics {
                         contentDescription = "Playback position"
                     },

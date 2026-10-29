@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.feature.profile
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -32,11 +34,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,7 +55,77 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.feature.library.PlaylistGlassPanel
+import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
+import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
+import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
 import dev.chrisbanes.haze.HazeState
+
+
+/**
+ * The two controls are actual implementations, not screenshots. The sample bands are
+ * illustrative and do not require RECORD_AUDIO; the full player uses real FFT data.
+ */
+@Composable
+internal fun SettingsSeekBarStylePicker(
+    selected: PlayerSeekBarStyle,
+    onSelect: (PlayerSeekBarStyle) -> Unit,
+) {
+    val previewBands = remember { FloatArray(24) { index -> 0.18f + ((index * 11) % 15) / 19f } }
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("Seekbar appearance", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        listOf(
+            Triple(PlayerSeekBarStyle.WAVEFORM, "Live equalizer", "Bars react to the actual music"),
+            Triple(PlayerSeekBarStyle.CLASSIC, "Android wave", "A smooth animated wave while playing"),
+        ).forEach { (style, title, description) ->
+            var previewPosition by remember(style) { mutableFloatStateOf(0.42f) }
+            val chosen = selected == style
+            Column(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .border(
+                        1.dp,
+                        if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                        RoundedCornerShape(16.dp),
+                    )
+                    .clickable(role = Role.RadioButton) { onSelect(style) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    RadioButton(selected = chosen, onClick = null)
+                    Column(Modifier.weight(1f)) {
+                        Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (style == PlayerSeekBarStyle.WAVEFORM) {
+                    SyntheticWaveformSeekBar(
+                        trackKey = "settings-preview",
+                        liveBands = previewBands,
+                        value = previewPosition,
+                        onValueChange = { previewPosition = it },
+                        valueRange = 0f..1f,
+                        isPlaying = false,
+                        barCount = 40,
+                        modifier = Modifier.fillMaxWidth(),
+                        accessibilityLabel = "Live equalizer preview",
+                    )
+                } else {
+                    CurlyMusicSlider(
+                        value = previewPosition,
+                        onValueChange = { previewPosition = it },
+                        valueRange = 0f..1f,
+                        isPlaying = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+}
 
 /**
  * Consistent hierarchy: section title 18sp; setting label 15sp; supporting text 12sp.
