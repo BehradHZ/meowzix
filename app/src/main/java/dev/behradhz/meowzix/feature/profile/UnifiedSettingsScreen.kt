@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Animation
-import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Bedtime
@@ -38,12 +38,12 @@ import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PrivacyTip
-import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Restore
@@ -54,8 +54,8 @@ import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.Undo
-import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Wifi
 import dev.behradhz.meowzix.feature.library.PlaylistGlassBackdrop
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
@@ -215,7 +215,7 @@ fun UnifiedSettingsScreen(
                     }
                     item(key = "playback") {
                         SettingsGlassSection(hazeState, "Playback & sound", "Fine-tune every listening session", Icons.Rounded.PlayCircle) {
-                            SettingsChoiceRow("Default playback mode", null, Icons.Rounded.QueueMusic,
+                            SettingsChoiceRow("Default playback mode", null, Icons.AutoMirrored.Rounded.QueueMusic,
                                 state.playback.defaultMode.name, PlaybackMode.entries.map { it.name }) { viewModel.setDefaultMode(PlaybackMode.valueOf(it)) }
                             SettingsRowDivider()
                             SettingsChoiceRow("Default repeat", null, Icons.Rounded.Repeat,
@@ -291,7 +291,7 @@ fun UnifiedSettingsScreen(
                             SettingsRowDivider()
                             SettingsToggleRow("Loudness normalization",
                                 "ReplayGain first; readable local audio may use conservative RMS dBFS, not LUFS.",
-                                Icons.Rounded.VolumeUp, state.playback.loudnessNormalizationEnabled, viewModel::setLoudnessNormalization)
+                                Icons.AutoMirrored.Rounded.VolumeUp, state.playback.loudnessNormalizationEnabled, viewModel::setLoudnessNormalization)
                             SettingsRowDivider()
                             SettingsSliderRow("Crossfade", "Overlap between supported local/readable tracks", Icons.Rounded.GraphicEq,
                                 if (state.playback.crossfadeDurationSeconds == 0) "Off" else "${state.playback.crossfadeDurationSeconds} s",
@@ -324,7 +324,7 @@ fun UnifiedSettingsScreen(
                                 feedbackRows.forEach { row ->
                                     SettingsRowDivider()
                                     SettingsActionRow(
-                                        row.title, feedbackActionLabel(row.action), Icons.Rounded.Undo, "Undo",
+                                        row.title, feedbackActionLabel(row.action), Icons.AutoMirrored.Rounded.Undo, "Undo",
                                         { viewModel.undoRecommendationFeedback(row.trackId, row.action) },
                                     )
                                 }
@@ -432,7 +432,7 @@ fun UnifiedSettingsScreen(
                             if (telegramConnected) {
                                 SettingsRowDivider()
                                 SettingsDangerRow("Disconnect Telegram", "Sign out of the connected account",
-                                    Icons.Rounded.Logout) { pendingDanger = SettingsDangerAction.DISCONNECT_TELEGRAM }
+                                    Icons.AutoMirrored.Rounded.Logout) { pendingDanger = SettingsDangerAction.DISCONNECT_TELEGRAM }
                             }
                         }
                     }
@@ -443,7 +443,7 @@ fun UnifiedSettingsScreen(
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            MeowzixHeaderAction("Back to Home", Icons.Rounded.ArrowBack, onBack)
+            MeowzixHeaderAction("Back to Home", Icons.AutoMirrored.Rounded.ArrowBack, onBack)
         }
         }
     }

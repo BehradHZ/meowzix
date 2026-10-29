@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import androidx.annotation.OptIn
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
@@ -30,7 +31,7 @@ internal object LiveSongSessionActions {
  * The receiver is non-exported and handles only explicit immutable PendingIntents.
  * Use the existing Media3 session, not an exposed custom action on the playback service.
  */
-@OptIn(UnstableApi::class)
+@OptIn(markerClass = [UnstableApi::class])
 class LiveSongControlsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val requested = intent?.action?.removePrefix("${context.packageName}.live_song.") ?: return

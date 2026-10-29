@@ -156,7 +156,7 @@ class PlaybackService : MediaLibraryService() {
     private val favoriteCommand = SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY)
 
     private val sessionCallback = object : MediaLibrarySession.Callback {
-        @Suppress("DEPRECATION")
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
         override fun onPlayerCommandRequest(
             session: MediaSession,
             controller: ControllerInfo,
