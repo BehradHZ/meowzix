@@ -390,17 +390,15 @@ class TdLibTelegramForwardRepository @Inject constructor(
         }
 
         if (!reachedEnd && orderedIds.size < FOLDER_MAX_VISIBLE_COUNT) {
-            reachedEnd = loadPage(FOLDER_MAX_VISIBLE_COUNT)
-            checkUpdatesAfterLoad(FOLDER_MAX_VISIBLE_COUNT)
+            // TDLib may load fewer chats than requested in each call. Retry a
+            // bounded number of pages; each newly resolved batch is emitted.
+            repeat(FOLDER_EXTRA_LOAD_PASSES) {
+                if (reachedEnd || orderedIds.size >= FOLDER_MAX_VISIBLE_COUNT) return@repeat
+                reachedEnd = loadPage(FOLDER_MAX_VISIBLE_COUNT)
+                checkUpdatesAfterLoad(FOLDER_MAX_VISIBLE_COUNT)
+            }
         } else {
             hydrateLocal(FOLDER_MAX_VISIBLE_COUNT)
-        }
-
-        // One additional pass can be necessary when TDLib returned fewer than
-        // requested and positions arrived in multiple asynchronous updates.
-        if (!reachedEnd && orderedIds.isEmpty()) {
-            reachedEnd = loadPage(FOLDER_MAX_VISIBLE_COUNT)
-            checkUpdatesAfterLoad(FOLDER_MAX_VISIBLE_COUNT)
         }
 
         if (TdLibClientAdapter.activeOrNull() !== client ||
@@ -413,19 +411,34 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
         val final = orderedIds.mapNotNull(resolved::get)
         if (final.isEmpty()) {
-            // Do NOT silently publish/cache an empty folder when GetChats returned
-            // zero before the list was fully loaded, or any lookup failed.
-            if (!reachedEnd || definitionResult.isFailure) {
-                error("This Telegram folder is still loading. Please retry.")
+            // A list that has known IDs but no resolved chats is NOT empty;
+            // neither is a list that never reached end-of-list (TDLib 404).
+            if (!isConfirmedEmptyForwardFolder(
+                    knownChatCount = orderedIds.size,
+                    resolvedChatCount = final.size,
+                    reachedEnd = reachedEnd,
+                    definitionLoaded = definitionResult.isSuccess,
+                )
+            ) {
+                error("This Telegram folder hasn't finished loading. Tap Retry loading folder.")
             }
             emit(emptyList())
             return@flow
         }
 
-        synchronized(folderRequestLock) {
-            folderChatCaches.getOrPut(folderId) { ForwardFolderMemoryCache() }.save(
-                accountId, client, revision, SystemClock.elapsedRealtime(), final,
+        // Cache only a complete, validated snapshot. A partial 100-chat page
+        // must not suppress future loads of other folder members.
+        if (shouldCacheForwardFolderChats(
+                resolvedChatCount = final.size,
+                reachedEnd = reachedEnd,
+                definitionLoaded = definitionResult.isSuccess,
             )
+        ) {
+            synchronized(folderRequestLock) {
+                folderChatCaches.getOrPut(folderId) { ForwardFolderMemoryCache() }.save(
+                    accountId, client, revision, SystemClock.elapsedRealtime(), final,
+                )
+            }
         }
         emit(final)
     }
@@ -868,6 +881,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
         const val FOLDER_FIRST_SCREEN_COUNT = 24
         const val FOLDER_CHAT_BATCH_SIZE = 6
         const val FOLDER_MAX_VISIBLE_COUNT = 100
+        const val FOLDER_EXTRA_LOAD_PASSES = 3
         const val FOLDER_LOAD_TIMEOUT_MS = 12_000L
         const val FOLDER_UPDATE_POLL_ATTEMPTS = 4
         const val FOLDER_UPDATE_POLL_DELAY_MS = 150L
