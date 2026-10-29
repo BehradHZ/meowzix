@@ -39,6 +39,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -56,21 +60,34 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.feature.library.PlaylistGlassPanel
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
+import dev.behradhz.meowzix.domain.playback.AudioSpectrumState
+import dev.behradhz.meowzix.domain.playback.PlaybackState
+import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
 import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
 import dev.chrisbanes.haze.HazeState
 
 
 /**
- * The two controls are actual implementations, not screenshots. The sample bands are
- * illustrative and do not require RECORD_AUDIO; the full player uses real FFT data.
+ * Both preview controls are interactive, but never issue playback commands.
+ * Live FFT is requested only while the waveform card is inside the viewport.
  */
 @Composable
 internal fun SettingsSeekBarStylePicker(
     selected: PlayerSeekBarStyle,
     onSelect: (PlayerSeekBarStyle) -> Unit,
+    playback: PlaybackState = PlaybackState(),
+    spectrum: AudioSpectrumState = AudioSpectrumState(),
+    reduceMotion: Boolean = false,
+    onPreviewCaptureChange: (Boolean) -> Unit = {},
 ) {
-    val previewBands = remember { FloatArray(24) { index -> 0.18f + ((index * 11) % 15) / 19f } }
+    val demoBands = remember { FloatArray(24) { index -> 0.18f + ((index * 11) % 15) / 19f } }
+    val playing = playback.status == PlaybackStatus.PLAYING && playback.currentTrack != null
+    val trackKey = if (playing) playback.currentTrack!!.id.toString() else "settings-demo"
+    val playbackFraction = if (playing && playback.durationMs > 0L) {
+        (playback.positionMs.toFloat() / playback.durationMs).coerceIn(0f, 1f)
+    } else 0.42f
+    val hasLiveCapture = playing && !spectrum.sourceUri.isNullOrBlank()
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -80,10 +97,24 @@ internal fun SettingsSeekBarStylePicker(
             Triple(PlayerSeekBarStyle.WAVEFORM, "Live equalizer", "Bars react to the actual music"),
             Triple(PlayerSeekBarStyle.CLASSIC, "Android wave", "A smooth animated wave while playing"),
         ).forEach { (style, title, description) ->
-            var previewPosition by remember(style) { mutableFloatStateOf(0.42f) }
+            // Track changes reset the demo scrub; user scrubbing never changes PlaybackController.
+            var scrubPosition by remember(style, trackKey) { mutableStateOf<Float?>(null) }
+            var cardVisible by remember(style) { mutableStateOf(false) }
             val chosen = selected == style
+            if (style == PlayerSeekBarStyle.WAVEFORM) {
+                LaunchedEffect(cardVisible, playing) {
+                    onPreviewCaptureChange(cardVisible && playing)
+                }
+                DisposableEffect(Unit) {
+                    onDispose { onPreviewCaptureChange(false) }
+                }
+            }
             Column(
                 Modifier.fillMaxWidth()
+                    .onGloballyPositioned { coordinates ->
+                        val clipped = coordinates.boundsInWindow()
+                        cardVisible = clipped.width > 0f && clipped.height > 0f
+                    }
                     .clip(RoundedCornerShape(16.dp))
                     .border(
                         1.dp,
@@ -101,24 +132,28 @@ internal fun SettingsSeekBarStylePicker(
                         Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+                val previewPosition = scrubPosition ?: playbackFraction
                 if (style == PlayerSeekBarStyle.WAVEFORM) {
                     SyntheticWaveformSeekBar(
-                        trackKey = "settings-preview",
-                        liveBands = previewBands,
+                        trackKey = trackKey,
+                        liveBands = if (playing) {
+                            if (hasLiveCapture) spectrum.bands else FloatArray(0)
+                        } else demoBands,
                         value = previewPosition,
-                        onValueChange = { previewPosition = it },
+                        onValueChange = { scrubPosition = it },
                         valueRange = 0f..1f,
-                        isPlaying = true,
+                        isPlaying = cardVisible && (playing || !reduceMotion),
                         barCount = 40,
                         modifier = Modifier.fillMaxWidth(),
+                        reduceMotion = reduceMotion,
                         accessibilityLabel = "Live equalizer preview",
                     )
                 } else {
                     CurlyMusicSlider(
                         value = previewPosition,
-                        onValueChange = { previewPosition = it },
+                        onValueChange = { scrubPosition = it },
                         valueRange = 0f..1f,
-                        isPlaying = true,
+                        isPlaying = cardVisible && (playing || !reduceMotion),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }

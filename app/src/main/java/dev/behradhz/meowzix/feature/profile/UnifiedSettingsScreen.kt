@@ -280,9 +280,15 @@ fun UnifiedSettingsScreen(
                                 }
                             }
                             SettingsRowDivider()
+                            val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()
+                            val previewSpectrum by viewModel.seekBarPreviewSpectrum.collectAsStateWithLifecycle()
                             SettingsSeekBarStylePicker(
                                 selected = state.appearance.playerSeekBarStyle,
                                 onSelect = viewModel::setPlayerSeekBarStyle,
+                                playback = previewPlayback,
+                                spectrum = previewSpectrum,
+                                reduceMotion = state.appearance.reduceMotion,
+                                onPreviewCaptureChange = viewModel::setSettingsPreviewCaptureEnabled,
                             )
                             SettingsRowDivider()
                             SettingsActionRow("Equalizer", "Device-aware audio controls", Icons.Rounded.Equalizer, "Open", onOpenEqualizer)

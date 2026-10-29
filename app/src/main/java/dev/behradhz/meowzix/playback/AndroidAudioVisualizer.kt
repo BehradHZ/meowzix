@@ -28,7 +28,10 @@ class AndroidAudioVisualizer @Inject constructor(
     override val spectrum: StateFlow<AudioSpectrumState> = _spectrum.asStateFlow()
 
     private var visualizer: Visualizer? = null
-    private var captureEnabled = false
+    // Independent screens may require the same FFT session at the same time.
+    // Releasing the Settings preview must never stop the expanded player capture.
+    private val captureClients = mutableSetOf<String>()
+    private val captureEnabled: Boolean get() = captureClients.isNotEmpty()
     private var audioSessionId: Int = NO_AUDIO_SESSION
     private var sourceUri: String? = null
     private val smoothedBands = FloatArray(AUDIO_SPECTRUM_BAND_COUNT)
@@ -91,11 +94,12 @@ class AndroidAudioVisualizer @Inject constructor(
         refresh()
     }
 
-    override fun setCaptureEnabled(enabled: Boolean) {
+    override fun setCaptureEnabled(enabled: Boolean, clientId: String) {
         synchronized(lock) {
-            if (captureEnabled == enabled) return
-            captureEnabled = enabled
-            if (!enabled) {
+            val wasEnabled = captureEnabled
+            if (enabled) captureClients.add(clientId) else captureClients.remove(clientId)
+            if (wasEnabled == captureEnabled) return
+            if (!captureEnabled) {
                 releaseVisualizerLocked()
                 smoothedBands.fill(0f)
                 _spectrum.value = AudioSpectrumState(sourceUri = sourceUri)
@@ -147,7 +151,7 @@ class AndroidAudioVisualizer @Inject constructor(
         synchronized(lock) {
             releaseVisualizerLocked()
             audioSessionId = NO_AUDIO_SESSION
-            captureEnabled = false
+            captureClients.clear()
             sourceUri = null
             smoothedBands.fill(0f)
             _spectrum.value = AudioSpectrumState()

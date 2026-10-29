@@ -14,6 +14,7 @@ import dev.behradhz.meowzix.domain.downloads.ManagedStorageUsage
 import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackController
+import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.playback.SleepTimerManager
@@ -74,6 +75,7 @@ class UnifiedSettingsViewModel @Inject constructor(
     private val downloads: DownloadRepository,
     private val managedStorage: ManagedStorageRepository,
     private val playbackController: PlaybackController,
+    private val audioVisualizerRepository: AudioVisualizerRepository,
     private val sleepTimer: SleepTimerManager,
     library: MusicLibraryRepository,
 ) : ViewModel() {
@@ -86,6 +88,13 @@ class UnifiedSettingsViewModel @Inject constructor(
     ) { appearance, playback, recommendations, network, storage ->
         UnifiedSettingsState(appearance, playback, recommendations, network, storage)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UnifiedSettingsState())
+
+    // Observed only while the lazy Playback settings section is composed.
+    val seekBarPreviewPlayback = playbackController.state
+    val seekBarPreviewSpectrum = audioVisualizerRepository.spectrum
+
+    fun setSettingsPreviewCaptureEnabled(enabled: Boolean) =
+        audioVisualizerRepository.setCaptureEnabled(enabled, clientId = "settings-preview")
 
     val sleepTimerState = sleepTimer.state
     val hasCurrentTrack = playbackController.state

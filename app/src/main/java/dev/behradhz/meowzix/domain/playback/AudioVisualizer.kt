@@ -21,7 +21,7 @@ interface AudioVisualizerRepository {
     fun attachToAudioSession(audioSessionId: Int)
 
     /** Captures FFT only when the expanded waveform seek bar is visible. */
-    fun setCaptureEnabled(enabled: Boolean)
+    fun setCaptureEnabled(enabled: Boolean, clientId: String = "player")
 
     /** Retries capture after an audio-session/output capability change. */
     fun refresh()
