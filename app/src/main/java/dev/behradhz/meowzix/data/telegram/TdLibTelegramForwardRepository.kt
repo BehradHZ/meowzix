@@ -277,9 +277,11 @@ class TdLibTelegramForwardRepository @Inject constructor(
         if (telegramRepository.authState.value.step !is TelegramAuthStep.Ready) return null
         val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
         return synchronized(folderRequestLock) {
+            // An empty value can be a TDLib list still synchronizing. Never treat
+            // a cached empty snapshot as proof that a folder has no destinations.
             folderChatCaches[folderId]?.snapshot(
                 accountId, client, client.chatFolderRevision, SystemClock.elapsedRealtime(),
-            )
+            )?.takeIf(List<TelegramChatSummary>::isNotEmpty)
         }
     }
 
@@ -306,6 +308,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
             emit(it)
             return@flow
         }
+
         val client = TdLibClientAdapter.activeOrNull()
             ?: error("Telegram is not connected yet.")
         if (telegramRepository.authState.value.step !is TelegramAuthStep.Ready) {
@@ -323,7 +326,6 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
         suspend fun hydrateAndEmit(ids: Collection<Long>) {
             orderedIds.addAll(ids)
-            // Resolve at most one screen's worth before publishing another update.
             for (batch in orderedIds.filterNot(resolved::containsKey).chunked(FOLDER_CHAT_BATCH_SIZE)) {
                 val found = resolveForwardChats(client, batch, userId, selectedIds)
                 found.forEach { resolved[it.chatId] = it }
@@ -332,61 +334,100 @@ class TdLibTelegramForwardRepository @Inject constructor(
             }
         }
 
-        // TDLib's already-known folder positions are inexpensive. Do this BEFORE the
-        // potentially network-bound GetChatFolder and LoadChats operations.
-        val firstIds = runCatching {
-            client.send(TdApi.GetChats(chatList, FOLDER_FIRST_SCREEN_COUNT)).chatIds.toList()
-        }.getOrDefault(emptyList())
-        hydrateAndEmit(firstIds)
-
-        // The rest of the *locally known* folder is also available without LoadChats.
-        val locallyKnownIds = runCatching {
-            client.send(TdApi.GetChats(chatList, FOLDER_MAX_VISIBLE_COUNT)).chatIds.toList()
-        }.getOrDefault(emptyList())
-        hydrateAndEmit(locallyKnownIds)
-
-        // Cold folder: no local chat positions exist yet. Request just one small
-        // page first rather than waiting for the original 100-chat LoadChats.
-        if (resolved.isEmpty()) {
-            runCatching { client.send(TdApi.LoadChats(chatList, FOLDER_FIRST_SCREEN_COUNT)) }
-            val firstLoadedIds = runCatching {
-                client.send(TdApi.GetChats(chatList, FOLDER_FIRST_SCREEN_COUNT)).chatIds.toList()
-            }.getOrDefault(emptyList())
-            hydrateAndEmit(firstLoadedIds)
+        // GetChats is a snapshot of already loaded chat-list positions, not a
+        // query for all members. Zero results at this point are not a final state.
+        suspend fun hydrateLocal(limit: Int) {
+            val ids = client.send(TdApi.GetChats(chatList, limit)).chatIds.toList()
+            hydrateAndEmit(ids)
         }
 
-        // Explicit inclusions (which may not yet have chat-list positions) are
-        // fetched after the cached positions are already visible.
-        val definition = runCatching { client.send(TdApi.GetChatFolder(folderId)) }.getOrNull()
-        val pinnedAndIncluded = LinkedHashSet<Long>()
-        definition?.pinnedChatIds?.let { pinnedAndIncluded.addAll(it.toList()) }
-        definition?.includedChatIds?.let { pinnedAndIncluded.addAll(it.toList()) }
+        suspend fun loadPage(limit: Int): Boolean {
+            return try {
+                withTimeout(FOLDER_LOAD_TIMEOUT_MS) {
+                    client.send(TdApi.LoadChats(chatList, limit))
+                }
+                false
+            } catch (error: TdLibException) {
+                // TDLib documents 404 as END OF LIST, not as a generic load failure.
+                if (error.errorCode == 404) true else throw error
+            }
+        }
+
+        suspend fun checkUpdatesAfterLoad(limit: Int) {
+            // TDLib publishes chat-list positions asynchronously after LoadChats.
+            // Allow those updates to reach GetChats before deciding that no rows exist.
+            var previousCount = orderedIds.size
+            repeat(FOLDER_UPDATE_POLL_ATTEMPTS) { attempt ->
+                hydrateLocal(limit)
+                if (orderedIds.size > previousCount) return
+                if (attempt < FOLDER_UPDATE_POLL_ATTEMPTS - 1) delay(FOLDER_UPDATE_POLL_DELAY_MS)
+                previousCount = orderedIds.size
+            }
+        }
+
+        hydrateLocal(FOLDER_FIRST_SCREEN_COUNT)
+
+        // Read the static definition separately. Explicit inclusions may have no
+        // chat-list position yet, so they should not disappear when GetChats is empty.
+        val definitionResult = runCatching {
+            withTimeout(FOLDER_LOAD_TIMEOUT_MS) { client.send(TdApi.GetChatFolder(folderId)) }
+        }
+        val definition = definitionResult.getOrNull()
+        val included = LinkedHashSet<Long>()
+        definition?.pinnedChatIds?.let { included.addAll(it.toList()) }
+        definition?.includedChatIds?.let { included.addAll(it.toList()) }
         val excluded = definition?.excludedChatIds?.toSet().orEmpty()
         orderedIds.removeAll(excluded)
         excluded.forEach(resolved::remove)
-        hydrateAndEmit(pinnedAndIncluded.filterNot(excluded::contains))
+        hydrateAndEmit(included.filterNot(excluded::contains))
 
-        // Load more TDLib folder positions only after publishing the locally available rows.
-        // This can be slow on a weak Telegram connection, but no longer blocks first paint.
-        runCatching { client.send(TdApi.LoadChats(chatList, FOLDER_MAX_VISIBLE_COUNT)) }
-        val expandedIds = runCatching {
-            client.send(TdApi.GetChats(chatList, FOLDER_MAX_VISIBLE_COUNT)).chatIds.toList()
-        }.getOrDefault(emptyList())
-        hydrateAndEmit(expandedIds.filterNot(excluded::contains))
+        // For a cold folder, load one small page first. Emit every group of
+        // resolved destinations immediately rather than waiting for a 100-chat pass.
+        var reachedEnd = false
+        if (resolved.isEmpty()) {
+            reachedEnd = loadPage(FOLDER_FIRST_SCREEN_COUNT)
+            checkUpdatesAfterLoad(FOLDER_FIRST_SCREEN_COUNT)
+        }
+
+        if (!reachedEnd && orderedIds.size < FOLDER_MAX_VISIBLE_COUNT) {
+            reachedEnd = loadPage(FOLDER_MAX_VISIBLE_COUNT)
+            checkUpdatesAfterLoad(FOLDER_MAX_VISIBLE_COUNT)
+        } else {
+            hydrateLocal(FOLDER_MAX_VISIBLE_COUNT)
+        }
+
+        // One additional pass can be necessary when TDLib returned fewer than
+        // requested and positions arrived in multiple asynchronous updates.
+        if (!reachedEnd && orderedIds.isEmpty()) {
+            reachedEnd = loadPage(FOLDER_MAX_VISIBLE_COUNT)
+            checkUpdatesAfterLoad(FOLDER_MAX_VISIBLE_COUNT)
+        }
+
+        if (TdLibClientAdapter.activeOrNull() !== client ||
+            telegramRepository.authState.value.step !is TelegramAuthStep.Ready ||
+            telegramRepository.musicSourceState.value.accountId != accountId ||
+            client.chatFolderRevision != revision
+        ) {
+            error("Telegram folders changed while loading. Please retry.")
+        }
 
         val final = orderedIds.mapNotNull(resolved::get)
-        if (TdLibClientAdapter.activeOrNull() === client &&
-            telegramRepository.authState.value.step is TelegramAuthStep.Ready &&
-            telegramRepository.musicSourceState.value.accountId == accountId &&
-            client.chatFolderRevision == revision
-        ) {
-            synchronized(folderRequestLock) {
-                folderChatCaches.getOrPut(folderId) { ForwardFolderMemoryCache() }.save(
-                    accountId, client, revision, SystemClock.elapsedRealtime(), final,
-                )
+        if (final.isEmpty()) {
+            // Do NOT silently publish/cache an empty folder when GetChats returned
+            // zero before the list was fully loaded, or any lookup failed.
+            if (!reachedEnd || definitionResult.isFailure) {
+                error("This Telegram folder is still loading. Please retry.")
             }
-            emit(final)
+            emit(emptyList())
+            return@flow
         }
+
+        synchronized(folderRequestLock) {
+            folderChatCaches.getOrPut(folderId) { ForwardFolderMemoryCache() }.save(
+                accountId, client, revision, SystemClock.elapsedRealtime(), final,
+            )
+        }
+        emit(final)
     }
 
     override suspend fun loadForwardFolderChats(folderId: Int): List<TelegramChatSummary> =
@@ -825,8 +866,11 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
     private companion object {
         const val FOLDER_FIRST_SCREEN_COUNT = 24
-        const val FOLDER_CHAT_BATCH_SIZE = 12
+        const val FOLDER_CHAT_BATCH_SIZE = 6
         const val FOLDER_MAX_VISIBLE_COUNT = 100
+        const val FOLDER_LOAD_TIMEOUT_MS = 12_000L
+        const val FOLDER_UPDATE_POLL_ATTEMPTS = 4
+        const val FOLDER_UPDATE_POLL_DELAY_MS = 150L
         const val MAX_AUTO_ATTEMPTS = 3
         const val SEND_CONFIRMATION_TIMEOUT_MS = 30L * 60L * 1_000L
         const val TELEGRAM_SEND_WORK_NAME = "telegram-send-queue"

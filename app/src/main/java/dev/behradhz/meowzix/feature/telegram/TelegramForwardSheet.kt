@@ -317,14 +317,20 @@ private fun ForwardPickerBody(
             TelegramForwardSheetEntryPoint::class.java,
         ).telegramForwardRepository()
     }
-    var loadedFolderChats by remember(trackId, selectedFolderId) {
-        mutableStateOf(selectedFolderId?.let(repository::cachedForwardFolderChats))
+    var folderRetryKey by remember(trackId, selectedFolderId) { mutableIntStateOf(0) }
+    var loadedFolderChats by remember(trackId, selectedFolderId, folderRetryKey) {
+        mutableStateOf(
+            if (folderRetryKey == 0) selectedFolderId?.let(repository::cachedForwardFolderChats)
+            else null
+        )
     }
-    var folderLoadError by remember(trackId, selectedFolderId) { mutableStateOf(false) }
-    var folderLoadComplete by remember(trackId, selectedFolderId) {
+    var folderLoadError by remember(trackId, selectedFolderId, folderRetryKey) {
+        mutableStateOf(false)
+    }
+    var folderLoadComplete by remember(trackId, selectedFolderId, folderRetryKey) {
         mutableStateOf(loadedFolderChats != null)
     }
-    LaunchedEffect(trackId, activeFolder?.id) {
+    LaunchedEffect(trackId, activeFolder?.id, folderRetryKey) {
         val folderId = activeFolder?.id ?: return@LaunchedEffect
         if (loadedFolderChats != null) return@LaunchedEffect
         try {
@@ -611,7 +617,8 @@ private fun ForwardPickerBody(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    if (folderLoadError) "Couldn't load this folder. Return to All chats and try again."
+                                    if (folderLoadError) "Couldn't load this folder yet."
+                                    else if (activeFolder != null && query.isBlank()) "This folder has no loaded chats."
                                     else if (activeFolder != null) "No matching chats in ${activeFolder.title}."
                                     else if (query.isBlank()) "No Telegram chats available."
                                     else "No chats match your search.",
@@ -639,6 +646,14 @@ private fun ForwardPickerBody(
                                     )
                                 },
                             )
+                        }
+                    }
+                    if (activeFolder != null && folderLoadError) {
+                        item(key = "folder-retry") {
+                            TextButton(onClick = { folderRetryKey++ }) {
+                                Icon(Icons.Rounded.Refresh, contentDescription = null)
+                                Text("Retry loading folder")
+                            }
                         }
                     }
                     if (activeFolder != null && loadedFolderChats?.isNotEmpty() == true &&
