@@ -76,7 +76,7 @@ internal class NowPlayingLiveCard(
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(content.title)
-            .setContentText("${content.artist} · ${if (isFavorite) "♥" else "♡"} · ${progress.label}")
+            .setContentText("${content.artist} · ${if (isFavorite) "♥ Liked" else "♡ Not liked"} · ${progress.label}")
             .setContentIntent(openPlayerIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
