@@ -70,7 +70,7 @@ internal fun SettingsBrandDialog(onDismiss: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Image(
-                painter = painterResource(R.drawable.meowzix_logo_transparent),
+                painter = painterResource(R.drawable.meowzix_launcher_art),
                 contentDescription = "Fullscreen Meowzix cat",
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 contentScale = ContentScale.Fit,

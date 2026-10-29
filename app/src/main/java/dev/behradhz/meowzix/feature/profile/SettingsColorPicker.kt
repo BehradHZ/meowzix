@@ -252,7 +252,7 @@ private fun CustomRgbPickerDialog(
                         contentAlignment = Alignment.Center,
                     ) {
                         Image(
-                            painter = painterResource(R.drawable.meowzix_logo_transparent),
+                            painter = painterResource(R.drawable.meowzix_launcher_art),
                             contentDescription = "Live Meowzix logo preview",
                             modifier = Modifier.size(80.dp),
                             contentScale = ContentScale.Fit,

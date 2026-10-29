@@ -204,7 +204,7 @@ internal fun SettingsGlassHero(
                     contentAlignment = Alignment.Center,
                 ) {
                     Image(
-                        painter = painterResource(R.drawable.meowzix_logo_transparent),
+                        painter = painterResource(R.drawable.meowzix_launcher_art),
                         contentDescription = "Open Meowzix cat fullscreen",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit,
