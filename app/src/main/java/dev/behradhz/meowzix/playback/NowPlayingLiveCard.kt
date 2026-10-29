@@ -77,9 +77,6 @@ internal class NowPlayingLiveCard(
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(content.title)
             .setContentText("${content.artist} · ${if (isFavorite) "♥" else "♡"} · ${progress.label}")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "${content.artist}\n${if (isFavorite) "♥ Liked" else "♡ Not liked"} · ${progress.label}"
-            ))
             .setContentIntent(openPlayerIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
@@ -87,10 +84,22 @@ internal class NowPlayingLiveCard(
             .setOngoing(true)
             .setShowWhen(false)
 
-        // A standard Android progress indicator is permitted in promoted Live Updates.
-        // It reflects the playback position, but cannot be dragged like the Media3 seekbar.
-        if (progress.durationMs != null) {
-            builder.setProgress(LIVE_PROGRESS_MAX, progress.progressValue, false)
+        // Android 16+ renders a real promoted ProgressStyle bar. Earlier Android
+        // versions use the standard notification progress indicator instead.
+        // Neither is draggable; scrubbing remains in Android's MediaSession player.
+        if (progress.durationMs != null && Build.VERSION.SDK_INT >= 36) {
+            builder.setStyle(
+                NotificationCompat.ProgressStyle()
+                    .addProgressSegment(NotificationCompat.ProgressStyle.Segment(LIVE_PROGRESS_MAX))
+                    .setProgress(progress.progressValue)
+            )
+        } else {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(
+                "${content.artist}\n${if (isFavorite) "♥ Liked" else "♡ Not liked"} · ${progress.label}"
+            ))
+            if (progress.durationMs != null) {
+                builder.setProgress(LIVE_PROGRESS_MAX, progress.progressValue, false)
+            }
         }
 
         actions.forEach { action ->
