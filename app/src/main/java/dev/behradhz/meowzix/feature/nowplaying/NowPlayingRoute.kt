@@ -17,6 +17,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -58,9 +59,16 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInScreen
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -91,7 +99,7 @@ import dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs
 import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import dev.behradhz.meowzix.ui.components.GlassSurface
-import dev.behradhz.meowzix.ui.components.SleepTimerControls
+import dev.behradhz.meowzix.ui.components.SleepTimerGlassDialog
 import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
 import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
 import dev.behradhz.meowzix.ui.components.rememberArtworkAccentColor
@@ -238,20 +246,14 @@ fun NowPlayingRoute(
     }
 
     if (sleepTimerOpen) {
-        AlertDialog(
-            onDismissRequest = { sleepTimerOpen = false },
-            title = { Text("Sleep timer") },
-            text = {
-                SleepTimerControls(
-                    state = sleepTimer,
-                    endOfTrackEnabled = state.currentTrack != null,
-                    onSetMinutes = viewModel::setSleepTimerMinutes,
-                    onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
-                    onExtend = viewModel::extendSleepTimer,
-                    onCancel = viewModel::cancelSleepTimer,
-                )
-            },
-            confirmButton = { TextButton(onClick = { sleepTimerOpen = false }) { Text("Done") } },
+        SleepTimerGlassDialog(
+            state = sleepTimer,
+            endOfTrackEnabled = state.currentTrack != null,
+            onDismiss = { sleepTimerOpen = false },
+            onSetMinutes = viewModel::setSleepTimerMinutes,
+            onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
+            onExtend = viewModel::extendSleepTimer,
+            onCancel = viewModel::cancelSleepTimer,
         )
     }
 
@@ -598,6 +600,11 @@ private fun PlayerHeader(
     onLyricsRestoreAutomatic: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    var dragInProgress by remember { mutableStateOf(false) }
+    var dragSelection by remember { mutableStateOf<Int?>(null) }
+    var draggedLyricsRequest by remember { mutableIntStateOf(0) }
+    var triggerBounds by remember { mutableStateOf(Rect.Zero) }
+    val actionBounds = remember { mutableStateMapOf<Int, Rect>() }
     var pasteDialog by remember(lyricsState.trackId) { mutableStateOf(false) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(onLyricsImport)
@@ -634,7 +641,51 @@ private fun PlayerHeader(
                 Icon(Icons.Rounded.QueueMusic, contentDescription = "Open queue", tint = PlayerPrimaryContent)
             }
             Box {
-                IconButton(onClick = { menuExpanded = true }) {
+                IconButton(
+                    onClick = { menuExpanded = true },
+                    modifier = Modifier
+                        .onGloballyPositioned { triggerBounds = it.boundsInScreen() }
+                        .pointerInput(lyricsState.trackId) {
+                            detectVerticalDragGestures(
+                                onDragStart = {
+                                    dragInProgress = true
+                                    dragSelection = null
+                                    actionBounds.clear()
+                                },
+                                onVerticalDrag = { change, dragY ->
+                                    // Only a downward drag opens the popup; horizontal swipes and
+                                    // normal taps are still handled by the surrounding controls.
+                                    if (dragY > 0f) menuExpanded = true
+                                    if (menuExpanded) {
+                                        dragSelection = draggedPlayerAction(
+                                            Offset(
+                                                triggerBounds.left + change.position.x,
+                                                triggerBounds.top + change.position.y,
+                                            ),
+                                            actionBounds,
+                                        )
+                                    }
+                                    change.consume()
+                                },
+                                onDragEnd = {
+                                    val selected = dragSelection
+                                    dragInProgress = false
+                                    dragSelection = null
+                                    when (selected) {
+                                        0 -> { menuExpanded = false; onOpenSleepTimer() }
+                                        1 -> { menuExpanded = false; onWhyThisSong() }
+                                        2 -> { menuExpanded = false; onContinueVibe() }
+                                        3 -> { draggedLyricsRequest++ }
+                                        // A short drag just opens the menu; user can tap to select.
+                                    }
+                                },
+                                onDragCancel = {
+                                    dragInProgress = false
+                                    dragSelection = null
+                                },
+                            )
+                        },
+                ) {
                     Icon(Icons.Rounded.MoreVert, contentDescription = "More track actions", tint = PlayerPrimaryContent)
                 }
                 PlayerActionsMenu(
@@ -655,6 +706,10 @@ private fun PlayerHeader(
                     onDeleteVersion = onLyricsDeleteVersion,
                     onRemoveAllLyrics = onLyricsRemoveAll,
                     onRestoreAutomaticLyrics = onLyricsRestoreAutomatic,
+                    dragInProgress = dragInProgress,
+                    draggedAction = dragSelection,
+                    draggedLyricsRequest = draggedLyricsRequest,
+                    onActionBoundsChanged = { index, bounds -> actionBounds[index] = bounds },
                 )
             }
         }

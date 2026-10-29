@@ -51,6 +51,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInScreen
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -62,10 +66,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties
 import dev.behradhz.meowzix.domain.lyrics.LyricsContentType
 import dev.behradhz.meowzix.domain.lyrics.LyricsSourceType
 import dev.behradhz.meowzix.domain.lyrics.LyricsVersion
 import java.util.UUID
+
+/** Cross-window hit testing for the anchored menu's press-drag-release gesture. */
+internal fun draggedPlayerAction(screenPoint: Offset, rowBounds: Map<Int, Rect>, horizontalTolerancePx: Float = 24f): Int? =
+    rowBounds.entries.firstOrNull { (_, rect) ->
+        screenPoint.y >= rect.top && screenPoint.y <= rect.bottom &&
+            screenPoint.x >= rect.left - horizontalTolerancePx &&
+            screenPoint.x <= rect.right + horizontalTolerancePx
+    }?.key
 
 internal enum class PlayerActionsPage { ACTIONS, LYRICS }
 
@@ -89,11 +102,18 @@ internal fun PlayerActionsMenu(
     onDeleteVersion: (UUID) -> Unit,
     onRemoveAllLyrics: () -> Unit = {},
     onRestoreAutomaticLyrics: () -> Unit = {},
+    dragInProgress: Boolean = false,
+    draggedAction: Int? = null,
+    draggedLyricsRequest: Int = 0,
+    onActionBoundsChanged: (Int, Rect) -> Unit = { _, _ -> },
 ) {
     var page by remember(trackId) { mutableStateOf(PlayerActionsPage.ACTIONS) }
     var pendingDelete by remember(trackId) { mutableStateOf<LyricsVersion?>(null) }
     var pendingRemoveAll by remember(trackId) { mutableStateOf(false) }
     LaunchedEffect(expanded) { if (!expanded) page = PlayerActionsPage.ACTIONS }
+    LaunchedEffect(draggedLyricsRequest) {
+        if (draggedLyricsRequest > 0) page = PlayerActionsPage.LYRICS
+    }
     val accent = MaterialTheme.colorScheme.primary
     val glass = MaterialTheme.colorScheme.surface
     val shape = RoundedCornerShape(18.dp)
@@ -107,6 +127,8 @@ internal fun PlayerActionsMenu(
         containerColor = Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
+        // The originating gesture must remain on the trigger until the finger is released.
+        properties = PopupProperties(focusable = !dragInProgress),
     ) {
         Box(
             Modifier.fillMaxWidth().clip(shape)
@@ -140,22 +162,30 @@ internal fun PlayerActionsMenu(
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.Schedule,
                             title = "Sleep timer",
+                            highlighted = draggedAction == 0,
+                            onBoundsChanged = { onActionBoundsChanged(0, it) },
                             subtitle = sleepTimerLabel,
                             onClick = { onDismiss(); onOpenSleepTimer() },
                         )
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.HelpOutline,
                             title = "Why this song?",
+                            highlighted = draggedAction == 1,
+                            onBoundsChanged = { onActionBoundsChanged(1, it) },
                             onClick = { onDismiss(); onWhyThisSong() },
                         )
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.AutoAwesome,
                             title = "Continue the vibe",
+                            highlighted = draggedAction == 2,
+                            onBoundsChanged = { onActionBoundsChanged(2, it) },
                             onClick = { onDismiss(); onContinueVibe() },
                         )
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.MusicNote,
                             title = "Lyrics",
+                            highlighted = draggedAction == 3,
+                            onBoundsChanged = { onActionBoundsChanged(3, it) },
                             subtitle = if (versions.isEmpty()) "Add lyrics" else
                                 versions.size.toString() + " version" + (if (versions.size == 1) "" else "s"),
                             onClick = { page = PlayerActionsPage.LYRICS },
@@ -375,12 +405,18 @@ private fun PlayerMenuOptionRow(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
+    highlighted: Boolean = false,
+    onBoundsChanged: ((Rect) -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
         modifier = Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(13.dp))
+            .background(if (highlighted) colors.primary.copy(alpha = 0.17f) else Color.Transparent)
+            .onGloballyPositioned { coordinates ->
+                onBoundsChanged?.invoke(coordinates.boundsInScreen())
+            }
             .clickable(role = Role.Button, onClick = onClick)
             .heightIn(min = 56.dp)
             .padding(horizontal = 10.dp, vertical = 7.dp)
