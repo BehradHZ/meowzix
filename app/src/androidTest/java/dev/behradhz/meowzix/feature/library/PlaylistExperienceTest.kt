@@ -298,8 +298,8 @@ class PlaylistExperienceTest {
                 )
             }
         }
-        val height = compose.onNodeWithTag("playlist-card:Playlist 1").getUnclippedBoundsInRoot().height
-        val adjacent = compose.onNodeWithTag("playlist-card:Playlist 2").getUnclippedBoundsInRoot().height
+        val height = compose.onNodeWithTag("playlist-card:Playlist 1").getUnclippedBoundsInRoot().let { it.bottom - it.top }
+        val adjacent = compose.onNodeWithTag("playlist-card:Playlist 2").getUnclippedBoundsInRoot().let { it.bottom - it.top }
         compose.runOnIdle {
             assertEquals(height, adjacent)
             assertTrue("Card should not have a large unused bottom area", height <= 260.dp)
