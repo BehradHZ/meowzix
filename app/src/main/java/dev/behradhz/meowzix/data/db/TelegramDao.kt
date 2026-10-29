@@ -15,6 +15,9 @@ interface TelegramDao {
     @Upsert
     suspend fun upsertSelectedSource(source: TelegramSelectedSourceEntity)
 
+    @Query("UPDATE telegram_selected_sources SET title = :title WHERE accountId = :accountId AND chatId = :chatId")
+    suspend fun updateSelectedSourceTitle(accountId: String, chatId: Long, title: String)
+
     @Query("DELETE FROM telegram_selected_sources WHERE accountId = :accountId AND chatId = :chatId")
     suspend fun deleteSelectedSource(accountId: String, chatId: Long)
 

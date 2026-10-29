@@ -222,6 +222,19 @@ class TdLibTelegramRepository @Inject constructor(
                 _musicSourceState.update {
                     it.copy(chats = loaded.summaries, previouslySelectedChatIds = loaded.previouslySelected, isLoadingChats = false)
                 }
+                // Reconcile chat renames on startup/manual refresh, not only when a TDLib
+                // UpdateChatTitle arrives while the process is alive.
+                scope.launch {
+                    val accountId = currentUserId?.toString() ?: return@launch
+                    loaded.rawChats.filter { it.id in _musicSourceState.value.selectedChatIds }.forEach { chat ->
+                        telegramDao.updateSelectedSourceTitle(accountId, chat.id, chat.title)
+                        playlistDao.syncTelegramTitle(
+                            telegramPlaylistId(accountId, chat.id).toString(),
+                            chat.title,
+                            Instant.now().toEpochMilli(),
+                        )
+                    }
+                }
                 // Avatars are cosmetic. They must never block Telegram chat discovery.
                 scope.launch {
                     loaded.rawChats.forEach { chat ->
@@ -349,6 +362,8 @@ class TdLibTelegramRepository @Inject constructor(
                 }
                 _authState.update { it.copy(connectionStatus = status) }
             }
+            is TdApi.UpdateChatTitle -> refreshSelectedChatMetadata(update.chatId)
+            is TdApi.UpdateChatPhoto -> refreshSelectedChatMetadata(update.chatId)
             is TdApi.UpdateNewMessage -> handleNewMessage(update.message)
             is TdApi.UpdateMessageContent -> handleMessageContentChanged(update.chatId, update.messageId)
             is TdApi.UpdateDeleteMessages -> handleDeletedMessages(update)
@@ -429,6 +444,37 @@ class TdLibTelegramRepository @Inject constructor(
         val selectedIds = telegramDao.selectedSources(accountId).mapTo(mutableSetOf()) { it.chatId }
         telegramDao.knownChatIds(accountId).filterNot(selectedIds::contains).forEach { chatId ->
             playlistDao.deletePlaylist(telegramPlaylistId(accountId, chatId).toString())
+        }
+    }
+
+    /**
+     * TDLib title/photo events are independent of music-message updates. Persist the canonical
+     * Telegram title, but only apply it to the playlist when its title has no user override.
+     */
+    private fun refreshSelectedChatMetadata(chatId: Long) {
+        val accountId = currentUserId?.toString() ?: return
+        val activeClient = client ?: return
+        scope.launch {
+            val selected = telegramDao.selectedSource(accountId, chatId) ?: return@launch
+            val chat = runCatching { activeClient.send(TdApi.GetChat(chatId)) }.getOrNull() ?: return@launch
+            telegramDao.updateSelectedSourceTitle(accountId, chatId, chat.title)
+            playlistDao.syncTelegramTitle(telegramPlaylistId(accountId, chatId).toString(), chat.title, Instant.now().toEpochMilli())
+            val photoRef = localChatPhotoRef(chat)
+            _musicSourceState.update { state ->
+                state.copy(chats = state.chats.map { row ->
+                    if (row.chatId == chatId) row.copy(title = chat.title, profilePhotoRef = photoRef) else row
+                })
+            }
+            if (photoRef == null && chat.photo != null) {
+                val downloaded = resolveChatPhotoRef(activeClient, chat)
+                if (downloaded != null) {
+                    _musicSourceState.update { state ->
+                        state.copy(chats = state.chats.map { row ->
+                            if (row.chatId == chatId) row.copy(profilePhotoRef = downloaded) else row
+                        })
+                    }
+                }
+            }
         }
     }
 
@@ -661,11 +707,13 @@ class TdLibTelegramRepository @Inject constructor(
     private suspend fun syncChatPlaylist(accountId: String, chatId: Long, title: String) = database.withTransaction {
         val playlistId = telegramPlaylistId(accountId, chatId).toString()
         // A sync started before deselection must not re-create the generated playlist.
-        if (telegramDao.selectedSource(accountId, chatId) == null) {
+        val selected = telegramDao.selectedSource(accountId, chatId)
+        if (selected == null) {
             playlistDao.deletePlaylist(playlistId)
             return@withTransaction
         }
-        ensureChatPlaylist(accountId, chatId, title)
+        // Read the latest title; an in-flight message sync may hold an older source snapshot.
+        ensureChatPlaylist(accountId, chatId, selected.title)
         val now = Instant.now().toEpochMilli()
         val trackIds = telegramDao.activeTrackIdsForChat(accountId, chatId)
         playlistDao.clearTracks(playlistId)

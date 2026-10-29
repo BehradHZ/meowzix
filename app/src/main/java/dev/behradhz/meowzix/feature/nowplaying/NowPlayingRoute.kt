@@ -145,7 +145,8 @@ fun NowPlayingRoute(
     ) { granted ->
         if (granted) viewModel.refreshVisualizer()
     }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(appearance.playerSeekBarStyle) {
+        if (appearance.playerSeekBarStyle != PlayerSeekBarStyle.WAVEFORM) return@LaunchedEffect
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
         ) {
