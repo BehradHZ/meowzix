@@ -408,8 +408,7 @@ class NowPlayingViewModel @Inject constructor(
         if (_forwardState.value.isSending) return
         val picker = _forwardState.value
         val targetTitle = picker.chats.firstOrNull { it.chatId == targetChatId }?.title
-            ?: picker.folders.asSequence().flatMap { it.chats.asSequence() }
-                .firstOrNull { it.chatId == targetChatId }?.title
+            ?: telegramForwardRepository.cachedForwardChat(targetChatId)?.title
         _forwardState.update { it.copy(errorMessage = null, isSending = true) }
         viewModelScope.launch {
             runCatching {

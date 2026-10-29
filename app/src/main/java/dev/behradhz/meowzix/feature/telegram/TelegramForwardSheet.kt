@@ -47,6 +47,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.CancellationException
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -309,7 +310,6 @@ private fun ForwardPickerBody(
 
     var selectedFolderId by rememberSaveable(trackId.toString()) { mutableStateOf<Int?>(null) }
     val activeFolder = folders.firstOrNull { it.id == selectedFolderId }
-    val visibleChats = visibleForwardChats(chats, activeFolder, query)
     val appContext = LocalContext.current.applicationContext
     val repository: TelegramForwardRepository = remember(appContext) {
         EntryPointAccessors.fromApplication(
@@ -317,6 +317,27 @@ private fun ForwardPickerBody(
             TelegramForwardSheetEntryPoint::class.java,
         ).telegramForwardRepository()
     }
+    var loadedFolderChats by remember(trackId, selectedFolderId) {
+        mutableStateOf(selectedFolderId?.let(repository::cachedForwardFolderChats))
+    }
+    var folderLoadError by remember(trackId, selectedFolderId) { mutableStateOf(false) }
+    LaunchedEffect(trackId, activeFolder?.id) {
+        val folderId = activeFolder?.id ?: return@LaunchedEffect
+        if (loadedFolderChats != null) return@LaunchedEffect
+        try {
+            loadedFolderChats = repository.loadForwardFolderChats(folderId)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            folderLoadError = true
+        }
+    }
+    val folderLoading = activeFolder != null && loadedFolderChats == null && !folderLoadError
+    val visibleChats = visibleForwardChats(
+        chats,
+        activeFolder?.copy(chats = loadedFolderChats.orEmpty()),
+        query,
+    )
     val sendJobs by repository.sendJobs.collectAsState(initial = emptyList())
     var sentVisibilityClockMs by remember(trackId) { mutableStateOf(System.currentTimeMillis()) }
 
@@ -568,7 +589,7 @@ private fun ForwardPickerBody(
                         }
                     }
                     when {
-                        isSearching && activeFolder == null && visibleChats.isEmpty() -> item(key = "loading") {
+                        (folderLoading || (isSearching && activeFolder == null)) && visibleChats.isEmpty() -> item(key = "loading") {
                             Box(
                                 modifier = Modifier.fillMaxWidth().height(150.dp),
                                 contentAlignment = Alignment.Center,
@@ -582,7 +603,8 @@ private fun ForwardPickerBody(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    if (activeFolder != null) "No matching chats in ${activeFolder.title}."
+                                    if (folderLoadError) "Couldn't load this folder. Return to All chats and try again."
+                                    else if (activeFolder != null) "No matching chats in ${activeFolder.title}."
                                     else if (query.isBlank()) "No Telegram chats available."
                                     else "No chats match your search.",
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),

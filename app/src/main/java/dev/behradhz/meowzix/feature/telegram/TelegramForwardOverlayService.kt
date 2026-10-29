@@ -306,8 +306,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
         val track = current.track ?: return
         if (current.isSending) return
         val title = current.chats.firstOrNull { it.chatId == chatId }?.title
-            ?: current.folders.asSequence().flatMap { it.chats.asSequence() }
-                .firstOrNull { it.chatId == chatId }?.title
+            ?: forward.cachedForwardChat(chatId)?.title
         _ui.update { it.copy(isSending = true, errorMessage = null) }
         scope.launch {
             try {

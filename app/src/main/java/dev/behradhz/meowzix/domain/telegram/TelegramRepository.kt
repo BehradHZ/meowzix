@@ -164,6 +164,15 @@ interface TelegramForwardRepository {
     /** Explicit user-initiated refresh bypasses the snapshot. */
     suspend fun refreshForwardFolders(): List<TelegramForwardFolder> = loadForwardFolders()
 
+    /** A folder's destinations are resolved on demand, never during the metadata fetch. */
+    suspend fun loadForwardFolderChats(folderId: Int): List<TelegramChatSummary> = emptyList()
+
+    /** No-I/O snapshot for revisiting an already opened folder. Null means not yet loaded. */
+    fun cachedForwardFolderChats(folderId: Int): List<TelegramChatSummary>? = null
+
+    /** Resolve a selected folder destination title without reloading the folder. */
+    fun cachedForwardChat(chatId: Long): TelegramChatSummary? = null
+
     suspend fun enqueueTrack(
         trackId: UUID,
         targetChatId: Long,
