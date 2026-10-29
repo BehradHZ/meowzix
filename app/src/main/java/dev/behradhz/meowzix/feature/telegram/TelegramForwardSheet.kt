@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -23,6 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -425,18 +427,9 @@ private fun ForwardPickerBody(
                     .fillMaxSize()
                     .background(TelegramGlassChrome.backdrop),
             ) {
-                // One lazy vertical scroller owns the ENTIRE panel, including its
-                // chat rows. This avoids the old nested Column/LazyColumn scroll
-                // conflict that clipped the last destinations at the bottom.
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().testTag("telegram-forward-list"),
-                    contentPadding = PaddingValues(
-                        start = 18.dp, end = 18.dp, top = 14.dp, bottom = 22.dp,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    item(key = "forward-controls") {
-                        Column {
+                ForwardPanelLayout(
+                    modifier = Modifier.fillMaxSize(),
+                    header = {
                 if (!floatingOverlay) {
                     Box(
                         modifier = Modifier
@@ -473,50 +466,6 @@ private fun ForwardPickerBody(
                         TextButton(onClick = dismissWithMotion) {
                             Icon(Icons.Rounded.Close, contentDescription = "Close sharing")
                         }
-                    }
-                }
-
-                if (trackJobs.isNotEmpty()) {
-                    Spacer(Modifier.height(14.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        trackJobs.forEach { job ->
-                            TelegramSendStatusCard(
-                                hazeState = hazeState,
-                                job = job,
-                                onRetry = {
-                                    scope.launch {
-                                        actionError = runCatching { repository.retrySend(job.id) }
-                                            .exceptionOrNull()?.message
-                                    }
-                                },
-                                onCancel = {
-                                    scope.launch {
-                                        actionError = runCatching { repository.cancelSend(job.id) }
-                                            .exceptionOrNull()?.message
-                                    }
-                                },
-                            )
-                        }
-                    }
-                }
-
-                val visibleMessage = actionError ?: errorMessage
-                if (!visibleMessage.isNullOrBlank()) {
-                    Spacer(Modifier.height(12.dp))
-                    val informational = visibleMessage.startsWith("Already", ignoreCase = true) ||
-                        visibleMessage.startsWith("Added", ignoreCase = true)
-                    Surface(
-                        shape = RoundedCornerShape(18.dp),
-                        color = if (informational) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                        else MaterialTheme.colorScheme.error.copy(alpha = 0.13f),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            visibleMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (informational) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        )
                     }
                 }
 
@@ -599,9 +548,55 @@ private fun ForwardPickerBody(
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-
+                    },
+                    listContent = {
+                        // Send status and transient errors scroll with destinations so they
+                        // cannot crowd the permanently visible sharing controls.
+                        if (trackJobs.isNotEmpty()) {
+                            item(key = "send-statuses") {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    trackJobs.forEach { job ->
+                                        TelegramSendStatusCard(
+                                            hazeState = hazeState,
+                                            job = job,
+                                            onRetry = {
+                                                scope.launch {
+                                                    actionError = runCatching { repository.retrySend(job.id) }
+                                                        .exceptionOrNull()?.message
+                                                }
+                                            },
+                                            onCancel = {
+                                                scope.launch {
+                                                    actionError = runCatching { repository.cancelSend(job.id) }
+                                                        .exceptionOrNull()?.message
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
                         }
-                    }
+
+                        val visibleMessage = actionError ?: errorMessage
+                        if (!visibleMessage.isNullOrBlank()) {
+                            item(key = "forward-message") {
+                                val informational = visibleMessage.startsWith("Already", ignoreCase = true) ||
+                                    visibleMessage.startsWith("Added", ignoreCase = true)
+                                Surface(
+                                    shape = RoundedCornerShape(18.dp),
+                                    color = if (informational) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                        else MaterialTheme.colorScheme.error.copy(alpha = 0.13f),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        visibleMessage,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (informational) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    )
+                                }
+                            }
+                        }
                     when {
                         (folderLoading || (isSearching && activeFolder == null)) && visibleChats.isEmpty() -> item(key = "loading") {
                             Box(
@@ -669,7 +664,8 @@ private fun ForwardPickerBody(
                         }
                     }
                     item(key = "bottom-clearance") { Spacer(Modifier.height(8.dp)) }
-                }
+                    },
+                )
             }
         }
     }
@@ -684,6 +680,33 @@ private fun ForwardPickerBody(
             dragHandle = null,
             shape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp),
         ) { body() }
+    }
+}
+
+/**
+ * One bounded destination scroller below a fixed header.
+ * Used by both the in-player sheet and the notification overlay.
+ */
+@Composable
+internal fun ForwardPanelLayout(
+    modifier: Modifier = Modifier,
+    header: @Composable ColumnScope.() -> Unit,
+    listContent: LazyListScope.() -> Unit,
+) {
+    Column(modifier) {
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .padding(start = 18.dp, end = 18.dp, top = 14.dp)
+                .testTag("telegram-forward-header"),
+        ) { header() }
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth()
+                .weight(1f)
+                .testTag("telegram-forward-list"),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            content = listContent,
+        )
     }
 }
 
