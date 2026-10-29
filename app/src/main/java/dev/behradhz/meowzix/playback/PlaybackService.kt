@@ -111,8 +111,8 @@ class PlaybackService : MediaLibraryService() {
             // Non-privileged apps may see anonymized configs; the local player is paused when
             // a permanent focus-loss resume is pending, so only active external media counts.
             val activeOtherMedia = configs.any { config ->
-                config.isActive &&
-                    config.audioAttributes.usage in setOf(
+                // Public API returns only active, anonymized external playback configurations.
+                config.audioAttributes.usage in setOf(
                         android.media.AudioAttributes.USAGE_MEDIA,
                         android.media.AudioAttributes.USAGE_GAME,
                     )
@@ -513,7 +513,7 @@ class PlaybackService : MediaLibraryService() {
                     wasPlayingBeforeAudioFocusLoss && resumeAfterExternalAudioEnabled && !isRestoring -> {
                     resumePendingExternalAudio = true
                     observedExternalPlayback = otherAppPlayingMedia ||
-                        audioManager.activePlaybackConfigurations.any { it.isActive &&
+                        audioManager.activePlaybackConfigurations.any {
                             it.audioAttributes.usage == android.media.AudioAttributes.USAGE_MEDIA
                         }
                     externalResumeJob?.cancel()
