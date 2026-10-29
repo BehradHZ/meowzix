@@ -136,8 +136,9 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
             foldersLoading = cachedFolders == null,
             foldersError = if (cachedFolders?.isEmpty() == true) "No Telegram folders found" else null,
         )
-        search("")
+        // Folder metadata comes first; chat discovery is a separate task.
         if (cachedFolders == null) loadFolders(forceRefresh = false)
+        search("")
         scope.launch {
             runCatching { settings.telegramForwardSettings.first() }
                 .onSuccess { defaults -> _ui.update { if (it.track?.id == snapshot.id) it.copy(defaults = defaults) else it } }

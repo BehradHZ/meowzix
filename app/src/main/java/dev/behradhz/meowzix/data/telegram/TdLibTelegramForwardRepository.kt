@@ -147,7 +147,6 @@ class TdLibTelegramForwardRepository @Inject constructor(
                         }.orEmpty()
                     }
                     val explicitUsername = async {
-                        if (!term.startsWith("@")) return@async null
                         term.telegramUsernameCandidate()?.let { username ->
                             withTimeoutOrNull(1_200L) {
                                 runCatching { client.send(TdApi.SearchPublicChat(username)) }.getOrNull()
@@ -334,7 +333,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
         definition?.includedChatIds?.let { ids.addAll(it.toList()) }
         runCatching { client.send(TdApi.GetChats(list, 100)) }.getOrNull()?.chatIds
             ?.let { ids.addAll(it.toList()) }
-        definition?.excludedChatIds?.toSet()?.let(ids::removeAll)
+        definition?.excludedChatIds?.toSet()?.let { excluded -> ids.removeAll(excluded) }
         val chats = resolveForwardChats(
             client, ids.toList(), userId, telegramRepository.musicSourceState.value.selectedChatIds,
         )

@@ -310,8 +310,9 @@ class NowPlayingViewModel @Inject constructor(
                 errorMessage = null,
             )
         }
-        searchForwardChats("")
+        // Publish folder navigation before starting the recent-chat query.
         if (cachedFolders == null) loadForwardFolders(forceRefresh = false)
+        searchForwardChats("")
     }
 
     /** Explicit Retry is the only action that bypasses a valid in-memory snapshot. */
