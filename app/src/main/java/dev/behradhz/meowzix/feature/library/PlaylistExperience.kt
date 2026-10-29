@@ -4,8 +4,6 @@ import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -106,7 +104,6 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlin.math.abs
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class PlaylistTrackSort(val label: String) {
@@ -242,23 +239,14 @@ private fun PlaylistMorphCardV3(
     telegram: Boolean = false,
     onClick: () -> Unit,
 ) {
-    var opening by remember { mutableStateOf(false) }
-    val artworkSize by animateDpAsState(if (opening) 164.dp else 92.dp, label = "playlist-card-artwork-morph")
-    LaunchedEffect(opening) {
-        if (opening) {
-            delay(260)
-            onClick()
-            opening = false
-        }
-    }
     PlaylistGlassPanel(
         hazeState = hazeState,
-        modifier = Modifier.fillMaxWidth().animateContentSize().clickable(enabled = !opening, role = Role.Button) { opening = true },
+        modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick),
         accented = favorite,
     ) {
-        if (favorite && !opening) {
+        if (favorite) {
             Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                PlaylistArtworkV3(artworkRef, title, true, artworkSize)
+                PlaylistArtworkV3(artworkRef, title, true, 92.dp)
                 Column(Modifier.weight(1f).padding(start = 18.dp)) {
                     Text("THE ONES YOU LOVE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     Text(title, modifier = Modifier.padding(top = 5.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -269,7 +257,7 @@ private fun PlaylistMorphCardV3(
         } else {
             Column(Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.Start) {
                 BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    val coverSize = minOf(maxWidth, if (opening) 180.dp else 148.dp)
+                    val coverSize = minOf(maxWidth, 148.dp)
                     PlaylistArtworkV3(artworkRef, title, favorite, coverSize)
                 }
                 Text(title, modifier = Modifier.padding(top = 14.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)

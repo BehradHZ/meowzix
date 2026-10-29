@@ -321,6 +321,7 @@ fun MeowzixApp(
                     },
                     requestedPlaylistId = pendingPlaylistId,
                     onPlaylistRequestConsumed = { pendingPlaylistId = null },
+                    reduceMotion = reduceMotion,
                 )
             }
             composable(QUEUE_ROUTE) {
