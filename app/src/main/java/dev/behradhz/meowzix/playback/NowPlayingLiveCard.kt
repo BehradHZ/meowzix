@@ -40,6 +40,7 @@ internal class NowPlayingLiveCard(
         left: LiveSongSideAction,
         right: LiveSongSideAction,
         isFavorite: Boolean,
+        forceRefresh: Boolean = false,
     ) {
         val metadata = player.currentMediaItem?.mediaMetadata
         val content = if (enabled) liveSongContent(
@@ -67,7 +68,7 @@ internal class NowPlayingLiveCard(
                 ?: metadata?.durationMs?.takeIf { it > 0L },
         )
         val snapshot = LiveSongCardSnapshot(player.currentMediaItem?.mediaId.orEmpty(), content, actions, isFavorite, progress)
-        if (lastState == snapshot) return
+        if (!shouldPublishLiveSongCard(lastState, snapshot, forceRefresh)) return
 
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Live song card", NotificationManager.IMPORTANCE_DEFAULT).apply {
@@ -217,6 +218,13 @@ internal fun liveSongContent(
     if (!playWhenReady || isEnded || title.isNullOrBlank()) return null
     return LiveSongContent(title.trim(), artist?.trim()?.takeIf { it.isNotEmpty() } ?: "Unknown artist")
 }
+
+/** Allow one deliberate re-post after a song transition, without disabling normal deduplication. */
+internal fun shouldPublishLiveSongCard(
+    previous: LiveSongCardSnapshot?,
+    next: LiveSongCardSnapshot,
+    forceRefresh: Boolean,
+): Boolean = forceRefresh || previous != next
 
 internal data class LiveSongCardSnapshot(
     // A different track can have identical title, artist, duration and position.

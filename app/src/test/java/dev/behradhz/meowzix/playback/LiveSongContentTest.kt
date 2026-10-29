@@ -94,6 +94,24 @@ class LiveSongContentTest {
         ))
     }
 
+    @Test fun oneShotRetryBypassesSnapshotDeduplication() {
+        val snapshot = LiveSongCardSnapshot(
+            "track-1",
+            LiveSongContent("Track", "Artist"),
+            emptyList(),
+            false,
+            liveSongProgress(5_000L, 100_000L),
+        )
+        assertEquals(true, shouldPublishLiveSongCard(null, snapshot, false))
+        assertEquals(false, shouldPublishLiveSongCard(snapshot, snapshot, false))
+        assertEquals(true, shouldPublishLiveSongCard(snapshot, snapshot, true))
+        assertEquals(true, shouldPublishLiveSongCard(
+            snapshot,
+            snapshot.copy(mediaId = "track-2"),
+            false,
+        ))
+    }
+
     @Test fun progressChangesEachSecondButNotForSubsecondTicks() {
         val first = liveSongProgress(9_100, 100_000)
         assertEquals(first, liveSongProgress(9_950, 100_000))

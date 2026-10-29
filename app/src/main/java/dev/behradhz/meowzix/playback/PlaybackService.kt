@@ -96,6 +96,19 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var libraryQueryRepository: LibraryQueryRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val liveSongTransitionRetry = LiveSongTransitionRetry(
+        scope = serviceScope,
+        retryDelayMs = LIVE_SONG_TRANSITION_RETRY_MS,
+    ) { expectedMediaId ->
+        // Only retry for the still-current track. Android may defer actual AOD rendering.
+        if (liveSongCardEnabled && player.playWhenReady &&
+            player.playbackState != Player.STATE_IDLE &&
+            player.playbackState != Player.STATE_ENDED &&
+            player.currentMediaItem?.mediaId == expectedMediaId
+        ) {
+            updateLiveSongCard(forceRefresh = true)
+        }
+    }
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaLibrarySession
     private lateinit var playbackAudioAttributes: AudioAttributes
@@ -429,8 +442,7 @@ class PlaybackService : MediaLibraryService() {
             if (activeCrossfade != null) cancelCrossfade("active media item changed")
             // Publish the new song before onEvents() runs its queue, audio-analysis,
             // favorite and persistence work. No polling delay on actual transitions.
-            currentFavorite = false
-            updateLiveSongCard()
+            publishLiveSongTransition()
         }
 
         override fun onPositionDiscontinuity(
@@ -597,6 +609,7 @@ class PlaybackService : MediaLibraryService() {
             settingsRepository.playbackPreferenceSettings.collect { preferences ->
                 if (liveSongCardEnabled != preferences.liveSongCardEnabled) {
                     liveSongCardEnabled = preferences.liveSongCardEnabled
+                    if (!liveSongCardEnabled) liveSongTransitionRetry.cancel()
                     updateLiveSongCard()
                 }
                 if (liveSongCardStyle != preferences.liveSongCardStyle ||
@@ -729,6 +742,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: ControllerInfo): MediaLibrarySession = mediaSession
 
     override fun onDestroy() {
+        liveSongTransitionRetry.cancel()
         liveSongCard?.cancel()
         if (resumeAfterExternalAudioEnabled) audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
         cancelExternalResume()
@@ -775,8 +789,21 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private fun updateLiveSongCard() {
-        liveSongCard?.update(player, liveSongCardEnabled, liveSongCardStyle, liveSongLeftAction, liveSongRightAction, currentFavorite)
+    private fun publishLiveSongTransition() {
+        currentFavorite = false
+        updateLiveSongCard()
+        // A second deliberate post after 10 seconds, cancelled/replaced on every track
+        // transition. Ordinary progress ticks continue to use snapshot deduplication.
+        liveSongTransitionRetry.schedule(
+            if (liveSongCardEnabled && player.playWhenReady) player.currentMediaItem?.mediaId else null
+        )
+    }
+
+    private fun updateLiveSongCard(forceRefresh: Boolean = false) {
+        liveSongCard?.update(
+            player, liveSongCardEnabled, liveSongCardStyle, liveSongLeftAction,
+            liveSongRightAction, currentFavorite, forceRefresh = forceRefresh,
+        )
     }
 
     private fun refreshPlaybackWidget() {
@@ -1336,9 +1363,8 @@ class PlaybackService : MediaLibraryService() {
         incoming.addListener(playerListener)
         runtime.identitySwitched = true
         // MediaSession.setPlayer() does not invoke onMediaItemTransition on our
-        // newly attached listener; notify immediately at the crossfade handoff.
-        currentFavorite = false
-        updateLiveSongCard()
+        // newly attached listener; publish and schedule the same one-shot retry.
+        publishLiveSongTransition()
         runtime.focusBridge = object : Player.Listener {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 if (activeCrossfade !== runtime) return
@@ -1884,6 +1910,7 @@ class PlaybackService : MediaLibraryService() {
         const val FORWARD_INCREMENT_MS = 15_000L
         const val PERSIST_DEBOUNCE_MS = 250L
         const val POSITION_SAVE_INTERVAL_MS = 1_000L
+        const val LIVE_SONG_TRANSITION_RETRY_MS = 10_000L
         const val SLEEP_TIMER_TICK_MS = 250L
         const val CROSSFADE_TICK_MS = 50L
     }
