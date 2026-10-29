@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -456,46 +457,61 @@ private fun NowPlayingScreen(
                 }
                 pendingSeek = null
             }
-            if (seekBarStyle == PlayerSeekBarStyle.WAVEFORM) {
-                SyntheticWaveformSeekBar(
-                    trackKey = track.id.toString(),
-                    liveBands = liveBands,
-                    value = shownPosition.toFloat(),
-                    onValueChange = onDragSeek,
-                    onValueChangeFinished = finishSeek,
-                    valueRange = 0f..duration.toFloat(),
-                    enabled = state.durationMs > 0L && !isLoading,
-                    isPlaying = state.status == PlaybackStatus.PLAYING,
-                    isLoading = isLoading,
-                    activeBarColor = MaterialTheme.colorScheme.primary,
-                    inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),
-                    pointerColor = PlayerPrimaryContent,
-                    loadingShimmerColor = PlayerLoadingShimmer,
-                    reduceMotion = reduceMotion,
-                    accessibilityLabel = "Playback position",
-                    accessibilityValue = "${formatDuration(shownPosition)} of ${formatDuration(duration)}",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else {
-                CurlyMusicSlider(
-                    value = shownPosition.toFloat().coerceIn(0f, duration.toFloat()),
-                    onValueChange = onDragSeek,
-                    onValueChangeFinished = finishSeek,
-                    valueRange = 0f..duration.toFloat(),
-                    enabled = state.durationMs > 0L && !isLoading,
-                    isPlaying = state.status == PlaybackStatus.PLAYING && !reduceMotion,
-                    modifier = Modifier.fillMaxWidth().height(58.dp).semantics {
-                        contentDescription = "Playback position"
-                    },
-                )
-            }
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(formatDuration(shownPosition), style = MaterialTheme.typography.labelMedium, color = PlayerSecondaryContent)
+            // Playback timestamps share a line with the seek bar instead of consuming
+            // another row beneath it. Preserve both seek-bar styles and their gestures.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 Text(
-                    "-${formatDuration((duration - shownPosition).coerceAtLeast(0L))}",
+                    formatDuration(shownPosition),
+                    modifier = Modifier.widthIn(min = 40.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = PlayerSecondaryContent,
+                    maxLines = 1,
+                )
+                Box(Modifier.weight(1f)) {
+                    if (seekBarStyle == PlayerSeekBarStyle.WAVEFORM) {
+                        SyntheticWaveformSeekBar(
+                            trackKey = track.id.toString(),
+                            liveBands = liveBands,
+                            value = shownPosition.toFloat(),
+                            onValueChange = onDragSeek,
+                            onValueChangeFinished = finishSeek,
+                            valueRange = 0f..duration.toFloat(),
+                            enabled = state.durationMs > 0L && !isLoading,
+                            isPlaying = state.status == PlaybackStatus.PLAYING,
+                            isLoading = isLoading,
+                            activeBarColor = MaterialTheme.colorScheme.primary,
+                            inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),
+                            pointerColor = PlayerPrimaryContent,
+                            loadingShimmerColor = PlayerLoadingShimmer,
+                            reduceMotion = reduceMotion,
+                            accessibilityLabel = "Playback position",
+                            accessibilityValue = "${formatDuration(shownPosition)} of ${formatDuration(duration)}",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        CurlyMusicSlider(
+                            value = shownPosition.toFloat().coerceIn(0f, duration.toFloat()),
+                            onValueChange = onDragSeek,
+                            onValueChangeFinished = finishSeek,
+                            valueRange = 0f..duration.toFloat(),
+                            enabled = state.durationMs > 0L && !isLoading,
+                            isPlaying = state.status == PlaybackStatus.PLAYING && !reduceMotion,
+                            modifier = Modifier.fillMaxWidth().height(58.dp).semantics {
+                                contentDescription = "Playback position"
+                            },
+                        )
+                    }
+                }
+                Text(
+                    "-${formatDuration((duration - shownPosition).coerceAtLeast(0L))}",
+                    modifier = Modifier.widthIn(min = 40.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = PlayerSecondaryContent,
+                    maxLines = 1,
                 )
             }
 
