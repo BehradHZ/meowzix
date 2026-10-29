@@ -61,7 +61,7 @@ internal class NowPlayingLiveCard(
             durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0L }
                 ?: metadata?.durationMs?.takeIf { it > 0L },
         )
-        val snapshot = LiveSongCardSnapshot(content, actions, isFavorite, progress)
+        val snapshot = LiveSongCardSnapshot(player.currentMediaItem?.mediaId.orEmpty(), content, actions, isFavorite, progress)
         if (lastState == snapshot) return
 
         manager.createNotificationChannel(
@@ -177,6 +177,8 @@ internal fun liveSongContent(
 }
 
 internal data class LiveSongCardSnapshot(
+    // A different track can have identical title, artist, duration and position.
+    val mediaId: String,
     val content: LiveSongContent,
     val actions: List<LiveSongAction>,
     val isFavorite: Boolean,
@@ -195,7 +197,7 @@ internal data class LiveSongProgress(val positionMs: Long, val durationMs: Long?
 internal fun liveSongProgress(positionMs: Long, durationMs: Long?): LiveSongProgress {
     val duration = durationMs?.takeIf { it > 0L }
     val clamped = positionMs.coerceAtLeast(0L).let { if (duration == null) it else it.coerceAtMost(duration) }
-    // Notification refreshes at a low frequency; updates between seconds have no useful visual effect.
+    // Keep sub-second position changes out of notification updates; the service refreshes once per second.
     return LiveSongProgress((clamped / 1_000L) * 1_000L, duration)
 }
 

@@ -496,6 +496,7 @@ class PlaybackService : MediaLibraryService() {
             if (events.containsAny(
                     Player.EVENT_MEDIA_ITEM_TRANSITION,
                     Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                    Player.EVENT_IS_PLAYING_CHANGED,
                     Player.EVENT_PLAYBACK_STATE_CHANGED,
                     Player.EVENT_MEDIA_METADATA_CHANGED,
                     Player.EVENT_POSITION_DISCONTINUITY,
@@ -707,17 +708,13 @@ class PlaybackService : MediaLibraryService() {
                 }
                 refreshFavoriteState()
                 refreshNormalizationGain()
-                var liveCardTicks = 0
                 while (isActive) {
                     delay(POSITION_SAVE_INTERVAL_MS)
                     if (player.isPlaying) {
                         persistPositionSafely()
-                        if (liveSongCardEnabled && ++liveCardTicks >= LIVE_CARD_REFRESH_INTERVAL_TICKS) {
-                            liveCardTicks = 0
-                            updateLiveSongCard()
-                        }
-                    } else {
-                        liveCardTicks = 0
+                        // The existing one-second position loop also advances the Live Update.
+                        // Player events still refresh it immediately on transitions and seeks.
+                        if (liveSongCardEnabled) updateLiveSongCard()
                     }
                 }
             } finally {
@@ -1374,6 +1371,9 @@ class PlaybackService : MediaLibraryService() {
         refreshFavoriteState()
         refreshMediaButtons()
         schedulePersist()
+        // setPlayer() changes the active Media3 player without an item transition
+        // callback on our newly attached listener; refresh the card at handoff.
+        updateLiveSongCard()
         return true
     }
 
@@ -1880,7 +1880,6 @@ class PlaybackService : MediaLibraryService() {
         const val FORWARD_INCREMENT_MS = 15_000L
         const val PERSIST_DEBOUNCE_MS = 250L
         const val POSITION_SAVE_INTERVAL_MS = 1_000L
-        const val LIVE_CARD_REFRESH_INTERVAL_TICKS = 3
         const val SLEEP_TIMER_TICK_MS = 250L
         const val CROSSFADE_TICK_MS = 50L
     }

@@ -65,9 +65,17 @@ class LiveSongContentTest {
     @Test fun favoriteAndProgressArePartOfTheNotificationSnapshot() {
         val track = LiveSongContent("Track", "Artist")
         val progress = liveSongProgress(9_000, 100_000)
-        val original = LiveSongCardSnapshot(track, emptyList(), false, progress)
+        val original = LiveSongCardSnapshot("track-1", track, emptyList(), false, progress)
         assertNotEquals(original, original.copy(isFavorite = true))
         assertNotEquals(original, original.copy(progress = liveSongProgress(12_000, 100_000)))
+        // Track transitions must notify even if visible metadata/progress are identical.
+        assertNotEquals(original, original.copy(mediaId = "track-2"))
+    }
+
+    @Test fun progressChangesEachSecondButNotForSubsecondTicks() {
+        val first = liveSongProgress(9_100, 100_000)
+        assertEquals(first, liveSongProgress(9_950, 100_000))
+        assertNotEquals(first, liveSongProgress(10_100, 100_000))
     }
 
     @Test fun timeIsInTheNotificationBodyWithTheArtist() {
