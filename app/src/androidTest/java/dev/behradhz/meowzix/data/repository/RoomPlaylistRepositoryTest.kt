@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.RulePlaylistEntity
+import dev.behradhz.meowzix.data.db.PlaylistEntity
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.TrackEntity
@@ -83,6 +84,26 @@ class RoomPlaylistRepositoryTest {
         assertEquals(listOf(retainedId), repository.observePlaylists().first().map { it.id })
         assertEquals(listOf(trackIds.first()), repository.observeTracks(retainedId).first().map { it.id })
         assertEquals(trackIds.toSet(), database.libraryDao().allTracks().map { UUID.fromString(it.id) }.toSet())
+    }
+
+    @Test
+    fun telegramResyncKeepsCustomPlaylistMetadata() = runTest {
+        val playlistId = UUID.randomUUID()
+        val initial = PlaylistEntity(
+            id = playlistId.toString(),
+            title = "My Telegram Channel",
+            createdAtEpochMs = 1L,
+            updatedAtEpochMs = 1L,
+        )
+        database.playlistDao().insertPlaylistIfAbsent(initial)
+        repository.updateMetadata(playlistId, "Night collection", "Custom notes", "content://cover")
+        database.playlistDao().insertPlaylistIfAbsent(initial.copy(title = "Renamed Telegram Chat"))
+
+        val saved = database.playlistDao().allPlaylists().single()
+        assertEquals("Night collection", saved.title)
+        assertEquals("Custom notes", saved.description)
+        assertEquals("content://cover", saved.artworkRef)
+        assertEquals(1L, saved.createdAtEpochMs)
     }
 
     @Test

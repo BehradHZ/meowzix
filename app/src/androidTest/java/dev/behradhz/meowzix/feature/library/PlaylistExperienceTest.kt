@@ -64,6 +64,7 @@ class PlaylistExperienceTest {
         calls: Calls = Calls(),
         songs: List<Track> = tracks,
         editable: Boolean = true,
+        canEditMetadata: Boolean = editable,
         favorites: Boolean = false,
         dark: Boolean = true,
         artworkRef: String? = null,
@@ -79,6 +80,7 @@ class PlaylistExperienceTest {
                         tracks = songs,
                         artworkRef = artworkRef,
                         editable = editable,
+                        canEditMetadata = canEditMetadata,
                         isFavorites = favorites,
                         currentTrackId = songs.firstOrNull()?.id,
                         availability = songs.associate { it.id to LibraryTrackAvailability.CLOUD },
@@ -185,14 +187,24 @@ class PlaylistExperienceTest {
         compose.runOnIdle { assertEquals(1, calls.deleted) }
     }
 
-    @Test fun managedPlaylistsKeepPlaybackAndTrackActionsWithoutEditing() {
-        val calls = showDetail(editable = false)
+    @Test fun managedPlaylistsKeepPlaybackAndTrackActionsWithoutMembershipEditing() {
+        val calls = showDetail(editable = false, canEditMetadata = true)
         compose.onNodeWithContentDescription("Delete playlist").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Edit playlist").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Edit playlist").assertIsDisplayed()
         firstTrackMenu()
         compose.onNodeWithText("Remove from playlist").assertDoesNotExist()
         compose.onNodeWithContentDescription("Favorite").performClick()
         compose.runOnIdle { assertEquals(1, calls.favorites) }
+    }
+
+    @Test fun managedPlaylistMetadataCanBeEditedWithoutDeletingTheSource() {
+        val calls = showDetail(editable = false, canEditMetadata = true)
+        compose.onNodeWithContentDescription("Edit playlist").performClick()
+        compose.onNodeWithTag("playlist-edit-list").performScrollToNode(hasText("Playlist name"))
+        compose.onNodeWithText("Playlist name").performTextReplacement("Music archive")
+        compose.onNodeWithContentDescription("Save playlist").performClick()
+        compose.runOnIdle { assertEquals("Music archive", calls.saved?.first) }
+        compose.onNodeWithContentDescription("Delete playlist").assertDoesNotExist()
     }
 
     @Test fun swipesDownloadRemovalAndAccessibleReorderStillWork() {
@@ -241,20 +253,19 @@ class PlaylistExperienceTest {
                     favoriteTracks = tracks,
                     onOpenFavorites = { favoritesOpened++ },
                     onOpenPlaylist = { opened = it },
-                    onEnsureArtwork = {},
                     onCreate = { created++ },
                     onSaveQueue = { savedQueue++ },
                 )
             }
         }
         capture("playlists-light")
-        compose.onNodeWithText("New playlist").performClick()
-        compose.onNodeWithText("Save queue").performClick()
+        compose.onNodeWithContentDescription("New playlist").performClick()
+        compose.onNodeWithContentDescription("Save queue").performClick()
         compose.onNodeWithText("Save current queue?").assertIsDisplayed()
         compose.runOnIdle { assertEquals(0, savedQueue) }
         compose.onNodeWithText("Cancel").performClick()
         compose.runOnIdle { assertEquals(0, savedQueue) }
-        compose.onNodeWithText("Save queue").performClick()
+        compose.onNodeWithContentDescription("Save queue").performClick()
         compose.onNodeWithText("Save as playlist").performClick()
         compose.runOnIdle { assertEquals(1, savedQueue) }
         compose.onNodeWithText("Favorites", substring = false).performClick()

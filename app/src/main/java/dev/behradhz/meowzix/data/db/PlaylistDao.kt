@@ -72,6 +72,7 @@ interface PlaylistDao {
     suspend fun browseTracks(playlistId: String, limit: Int, offset: Int): List<TrackEntity>
 
     @Upsert suspend fun upsertPlaylist(playlist: PlaylistEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertPlaylistIfAbsent(playlist: PlaylistEntity): Long
     @Query("UPDATE playlists SET title = :title, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
     suspend fun renamePlaylist(playlistId: String, title: String, updatedAt: Long)
     @Query("UPDATE playlists SET title = :title, description = :description, artworkRef = :artworkRef, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")

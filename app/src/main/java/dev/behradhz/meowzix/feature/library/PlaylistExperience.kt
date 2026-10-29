@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -35,13 +37,13 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.ArrowBack
@@ -82,11 +84,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -126,14 +131,9 @@ internal fun PlaylistsSectionV3(
     favoriteTracks: List<Track>,
     onOpenFavorites: () -> Unit,
     onOpenPlaylist: (UUID) -> Unit,
-    onEnsureArtwork: (Track) -> Unit,
     onCreate: (() -> Unit)? = null,
     onSaveQueue: (() -> Unit)? = null,
 ) {
-    favoriteTracks.firstOrNull()?.let { track ->
-        LaunchedEffect(track.id, track.artworkRef) { onEnsureArtwork(track) }
-    }
-
     var confirmSaveQueue by rememberSaveable { mutableStateOf(false) }
     if (confirmSaveQueue && onSaveQueue != null) {
         AlertDialog(
@@ -163,21 +163,46 @@ internal fun PlaylistsSectionV3(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item(key = "playlist-heading", span = { GridItemSpan(maxLineSpan) }) {
-                Column {
-                    Text("Your collections", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(
-                        "A place for every mood.",
-                        modifier = Modifier.padding(top = 4.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (onCreate != null || onSaveQueue != null) {
-                        Row(
-                            modifier = Modifier.padding(top = 16.dp).horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            onCreate?.let { PlaylistGlassAction(hazeState, "New playlist", Icons.Rounded.Add, it, accented = true) }
-                            onSaveQueue?.let { PlaylistGlassAction(hazeState, "Save queue", Icons.Rounded.QueueMusic, { confirmSaveQueue = true }) }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text("Your collections", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text(
+                            "A place for every mood.",
+                            modifier = Modifier.padding(top = 4.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        onCreate?.let { create ->
+                            PlaylistHeaderAction(hazeState, "New playlist", accented = true, onClick = create) {
+                                Icon(
+                                    Icons.Rounded.Add,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                        onSaveQueue?.let {
+                            PlaylistHeaderAction(hazeState, "Save queue", onClick = { confirmSaveQueue = true }) {
+                                Box(Modifier.size(29.dp)) {
+                                    Icon(
+                                        Icons.Rounded.QueueMusic,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(25.dp).align(Alignment.TopStart),
+                                    )
+                                    Icon(
+                                        Icons.Rounded.Add,
+                                        contentDescription = null,
+                                        modifier = Modifier.align(Alignment.BottomEnd).size(17.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surface)
+                                            .padding(1.dp),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -186,7 +211,7 @@ internal fun PlaylistsSectionV3(
                 PlaylistMorphCardV3(
                     hazeState = hazeState,
                     title = "Favorites",
-                    artworkRef = favoriteTracks.firstOrNull()?.artworkRef,
+                    artworkRef = null,
                     favorite = true,
                     trackCount = favoriteTracks.size,
                     onClick = onOpenFavorites,
@@ -205,7 +230,6 @@ internal fun PlaylistsSectionV3(
                     artworkRef = playlist.artworkRef ?: playlistArtwork[playlist.id],
                     favorite = false,
                     trackCount = playlist.trackCount,
-                    telegram = playlistArtwork.containsKey(playlist.id),
                     onClick = { onOpenPlaylist(playlist.id) },
                 )
             }
@@ -230,23 +254,44 @@ internal fun PlaylistsSectionV3(
 }
 
 @Composable
+private fun PlaylistHeaderAction(
+    hazeState: HazeState,
+    label: String,
+    accented: Boolean = false,
+    onClick: () -> Unit,
+    icon: @Composable BoxScope.() -> Unit,
+) {
+    PlaylistGlassPanel(
+        hazeState = hazeState,
+        modifier = Modifier.size(48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        radius = 16.dp,
+        accented = accented,
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center, content = icon)
+    }
+}
+
+@Composable
 private fun PlaylistMorphCardV3(
     hazeState: HazeState,
     title: String,
     artworkRef: String?,
     favorite: Boolean,
     trackCount: Int,
-    telegram: Boolean = false,
     onClick: () -> Unit,
 ) {
     PlaylistGlassPanel(
         hazeState = hazeState,
-        modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick),
+        modifier = Modifier.fillMaxWidth()
+            .then(if (favorite) Modifier else Modifier.height(288.dp))
+            .clickable(role = Role.Button, onClick = onClick),
         accented = favorite,
     ) {
         if (favorite) {
             Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                PlaylistArtworkV3(artworkRef, title, true, 92.dp)
+                PlaylistArtworkV3(null, title, true, 92.dp)
                 Column(Modifier.weight(1f).padding(start = 18.dp)) {
                     Text("THE ONES YOU LOVE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     Text(title, modifier = Modifier.padding(top = 5.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -255,24 +300,28 @@ private fun PlaylistMorphCardV3(
                 Icon(Icons.Rounded.ArrowForward, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
             }
         } else {
-            Column(Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.Start) {
+            Column(Modifier.fillMaxSize().padding(14.dp), horizontalAlignment = Alignment.Start) {
                 BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     val coverSize = minOf(maxWidth, 148.dp)
-                    PlaylistArtworkV3(artworkRef, title, favorite, coverSize)
+                    PlaylistArtworkV3(artworkRef, title, false, coverSize)
                 }
-                Text(title, modifier = Modifier.padding(top = 14.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Row(Modifier.padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (telegram) {
-                        Icon(Icons.Rounded.Send, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.size(5.dp))
-                    }
-                    Text(
-                        if (telegram) "Telegram · ${playlistTrackCount(trackCount)}" else playlistTrackCount(trackCount),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                    )
-                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    title,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    playlistTrackCount(trackCount),
+                    modifier = Modifier.padding(top = 5.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -309,10 +358,11 @@ internal fun PlaylistDetailScreenV3(
     onDelete: () -> Unit,
     deleting: Boolean = false,
     errorMessage: String? = null,
+    canEditMetadata: Boolean = editable,
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = editing) { editing = false }
-    if (editing && editable) {
+    if (editing && canEditMetadata) {
         PlaylistEditScreenV3(
             initialTitle = title,
             initialDescription = playlist?.description,
@@ -421,6 +471,8 @@ internal fun PlaylistDetailScreenV3(
                                 Icon(Icons.Rounded.DeleteOutline, contentDescription = "Delete playlist")
                             }
                         }
+                    }
+                    if (canEditMetadata) {
                         Spacer(Modifier.size(8.dp))
                         PlaylistGlassPanel(hazeState, radius = 18.dp) {
                             IconButton(enabled = !deleting, onClick = { editing = true }) {
@@ -843,18 +895,32 @@ private fun PlaylistArtworkV3(
         modifier = Modifier.size(size)
             .shadow(14.dp, shape, ambientColor = colors.primary.copy(alpha = 0.12f), spotColor = Color.Black.copy(alpha = 0.16f))
             .clip(shape)
-            .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.secondaryContainer)))
+            .background(
+                Brush.linearGradient(
+                    if (favorite) {
+                        val pink = Color(0xFFFF2D55)
+                        listOf(pink.copy(alpha = 0.22f).compositeOver(colors.surface), pink.copy(alpha = 0.08f).compositeOver(colors.surface))
+                    } else {
+                        listOf(colors.primaryContainer, colors.secondaryContainer)
+                    },
+                ),
+            )
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), shape),
         contentAlignment = Alignment.Center,
     ) {
-        if (artworkRef != null) {
+        if (favorite) {
+            Icon(
+                Icons.Rounded.Favorite,
+                contentDescription = null,
+                modifier = Modifier.size(size * 0.58f),
+                tint = Color(0xFFFF2D55),
+            )
+        } else if (artworkRef != null) {
             TrackArtwork(artworkRef = artworkRef, description = title, size = size)
         } else {
             Box(
                 Modifier.fillMaxSize().background(
-                    Brush.radialGradient(
-                        listOf(colors.primary.copy(alpha = if (favorite) 0.28f else 0.16f), Color.Transparent),
-                    ),
+                    Brush.radialGradient(listOf(colors.primary.copy(alpha = 0.16f), Color.Transparent)),
                 ),
             )
             Surface(
@@ -864,7 +930,7 @@ private fun PlaylistArtworkV3(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        if (favorite) Icons.Rounded.Favorite else Icons.Rounded.PlaylistPlay,
+                        Icons.Rounded.PlaylistPlay,
                         contentDescription = null,
                         modifier = Modifier.size(size * 0.28f),
                         tint = colors.primary,

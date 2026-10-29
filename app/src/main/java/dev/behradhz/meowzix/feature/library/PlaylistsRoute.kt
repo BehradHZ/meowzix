@@ -138,7 +138,6 @@ fun PlaylistsRoute(
                     showFavorites = false
                     selectedKey = id.toString()
                 },
-                onEnsureArtwork = viewModel::ensureArtwork,
                 onCreate = { viewModel.createPlaylist { id -> selectedKey = id.toString() } },
                 onSaveQueue = { viewModel.saveQueueToPlaylist { id -> selectedKey = id.toString() } },
             )
@@ -158,6 +157,7 @@ fun PlaylistsRoute(
                     ?: playlistId?.let(state.playlistArtwork::get)
                     ?: tracks.firstOrNull()?.artworkRef,
                 editable = !favorites && !telegramManaged,
+                canEditMetadata = !favorites,
                 isFavorites = favorites,
                 currentTrackId = state.playback.currentTrack?.id,
                 availability = state.availability,

@@ -645,7 +645,8 @@ class TdLibTelegramRepository @Inject constructor(
 
     private suspend fun ensureChatPlaylist(accountId: String, chatId: Long, title: String) {
         val now = Instant.now().toEpochMilli()
-        playlistDao.upsertPlaylist(
+        // Membership is source-managed; user-edited title, description and artwork are not.
+        playlistDao.insertPlaylistIfAbsent(
             PlaylistEntity(
                 id = telegramPlaylistId(accountId, chatId).toString(),
                 title = title.ifBlank { "Telegram" },
