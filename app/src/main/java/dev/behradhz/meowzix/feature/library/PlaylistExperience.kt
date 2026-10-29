@@ -166,7 +166,7 @@ internal fun PlaylistsSectionV3(
                     .hazeSource(hazeState).testTag("playlist-grid"),
                 contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 188.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
             item(key = "favorites-v3", span = { GridItemSpan(maxLineSpan) }) {
                 PlaylistMorphCardV3(
@@ -241,7 +241,7 @@ private fun PlaylistMorphCardV3(
     PlaylistGlassPanel(
         hazeState = hazeState,
         modifier = Modifier.fillMaxWidth()
-            .then(if (favorite) Modifier else Modifier.height(250.dp))
+            .then(if (favorite) Modifier else Modifier.height(232.dp))
             .testTag("playlist-card:$title")
             .clickable(role = Role.Button, onClick = onClick),
         accented = favorite,
@@ -259,7 +259,7 @@ private fun PlaylistMorphCardV3(
         } else {
             Column(Modifier.fillMaxSize().padding(14.dp), horizontalAlignment = Alignment.Start) {
                 BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    val coverSize = minOf(maxWidth, 148.dp)
+                    val coverSize = minOf(maxWidth, 124.dp)
                     PlaylistArtworkV3(artworkRef, title, false, coverSize)
                 }
                 Spacer(Modifier.weight(1f))
