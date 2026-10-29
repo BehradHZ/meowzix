@@ -7,7 +7,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Paint
 import android.os.Build
+import android.text.TextPaint
+import android.util.TypedValue
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.common.Player
@@ -15,6 +18,8 @@ import androidx.media3.common.C
 import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
+import java.text.BreakIterator
+import java.util.Locale
 
 /**
  * Optional, secondary now-playing status card. The Media3 MediaStyle notification remains
@@ -123,7 +128,7 @@ internal class NowPlayingLiveCard(
         // promotion instead; system eligibility and device UI remain outside our control.
         if (Build.VERSION.SDK_INT >= 36) {
             builder.setRequestPromotedOngoing(true)
-            builder.setShortCriticalText(liveSongChipLabel(content.title))
+            builder.setShortCriticalText(chipTitle(content.title))
         }
         try {
             manager.notify(NOTIFICATION_ID, builder.build())
@@ -140,12 +145,26 @@ internal class NowPlayingLiveCard(
         }
     }
 
+    private fun chipTitle(title: String): String {
+        // SystemUI owns the exact layout: 96dp total includes its icon and padding.
+        // Measure actual glyph widths instead of reserving a fixed number of letters.
+        val metrics = context.resources.displayMetrics
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, CHIP_TEXT_SIZE_SP, metrics)
+        }
+        return liveSongChipLabel(title, CHIP_TEXT_WIDTH_DP * metrics.density) { paint.measureText(it) }
+    }
+
     private fun hasNotificationPermission() =
         Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
                 PackageManager.PERMISSION_GRANTED
 
     private companion object {
+        // Approximate available text width after the status chip's icon and padding.
+        // SystemUI/OEMs can still shorten or hide text independently.
+        const val CHIP_TEXT_WIDTH_DP = 60f
+        const val CHIP_TEXT_SIZE_SP = 14f
         const val LIVE_PROGRESS_MAX = 1_000
         const val CHANNEL_ID = "meowzix_live_song"
         const val NOTIFICATION_ID = 4098
@@ -158,11 +177,32 @@ internal fun liveSongDetailLine(artist: String, progress: LiveSongProgress): Str
 
 internal data class LiveSongContent(val title: String, val artist: String)
 
-/** Android reserves at most 96dp for a live-update chip; keep a short, readable title. */
-internal fun liveSongChipLabel(title: String): String {
+/**
+ * Fit the longest prefix plus a single ellipsis in the estimated chip text area.
+ * BreakIterator avoids splitting surrogate pairs and combining-character sequences.
+ * The system still decides what is actually visible on a given Android/OEM build.
+ */
+internal fun liveSongChipLabel(
+    title: String,
+    maxTextWidth: Float,
+    measureText: (String) -> Float,
+): String {
     val clean = title.trim()
-    if (clean.length <= 7) return clean
-    return clean.take(6).trimEnd() + "…"
+    if (clean.isEmpty() || maxTextWidth <= 0f) return ""
+    if (measureText(clean) <= maxTextWidth) return clean
+
+    val ellipsis = "…"
+    if (measureText(ellipsis) > maxTextWidth) return ""
+    val boundaries = BreakIterator.getCharacterInstance(Locale.ROOT).apply { setText(clean) }
+    var lastFittingEnd = 0
+    var end = boundaries.next()
+    while (end != BreakIterator.DONE) {
+        val prefix = clean.substring(0, end).trimEnd()
+        if (measureText(prefix + ellipsis) > maxTextWidth) break
+        lastFittingEnd = prefix.length
+        end = boundaries.next()
+    }
+    return clean.substring(0, lastFittingEnd) + ellipsis
 }
 
 /** Avoid stale notifications after pause, stop, or disabling the preference. */

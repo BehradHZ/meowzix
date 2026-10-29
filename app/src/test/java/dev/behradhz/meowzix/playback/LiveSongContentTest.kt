@@ -15,10 +15,27 @@ class LiveSongContentTest {
         assertNull(liveSongContent(true, false, " ", "Artist"))
     }
 
-    @Test fun statusChipUsesSongTitleInsteadOfAnIconOnly() {
-        assertEquals("Numb", liveSongChipLabel(" Numb "))
-        assertEquals("Wonder…", liveSongChipLabel("Wonderful Life"))
-        assertEquals("Song", liveSongChipLabel("Song"))
+    @Test fun statusChipFitsAsMuchSongTitleAsTheAvailableWidthAllows() {
+        val width: (String) -> Float = { it.length.toFloat() }
+        assertEquals("Numb", liveSongChipLabel(" Numb ", 9f, width))
+        assertEquals("Wonderfu…", liveSongChipLabel("Wonderful Life", 9f, width))
+        assertEquals("Song", liveSongChipLabel("Song", 9f, width))
+        assertEquals("آرامش…", liveSongChipLabel("آرامش شب", 7f, width))
+    }
+
+    @Test fun statusChipCanFitMoreThanSixNarrowLetters() {
+        val result = liveSongChipLabel("iiiiiiWWW", 5f) { text ->
+            text.sumOf { when (it) { 'i' -> 0.25; 'W' -> 2.0; else -> 1.0 } }.toFloat()
+        }
+        assertEquals("iiiiiiW…", result)
+    }
+
+    @Test fun statusChipPreservesUnicodeCharactersAndHandlesTinyWidths() {
+        val codePointWidth: (String) -> Float = { it.codePointCount(0, it.length).toFloat() }
+        assertEquals("🎵…", liveSongChipLabel("🎵Song", 2f, codePointWidth))
+        assertEquals("e\u0301…", liveSongChipLabel("e\u0301clair", 3f, codePointWidth))
+        assertEquals("", liveSongChipLabel("  ", 6f, codePointWidth))
+        assertEquals("", liveSongChipLabel("Long title", 0f, codePointWidth))
     }
 
     @Test fun controlLayoutRespectsThreeActionLimitAndPlayerAvailability() {
