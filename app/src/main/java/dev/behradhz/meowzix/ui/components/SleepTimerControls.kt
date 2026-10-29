@@ -26,7 +26,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -116,14 +115,29 @@ fun SleepTimerGlassDialog(
                 lastMode = lastMode,
                 onSetMinutes = onSetMinutes,
                 onEndOfTrack = onEndOfTrack,
-                onExtend = onExtend,
                 onSetEnabled = onSetEnabled,
             )
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.align(Alignment.End).testTag("sleep-timer-done"),
+            // Both actions share the bottom-right glass footer; Done remains rightmost.
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    .testTag("sleep-timer-actions"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Done")
+                if (state.active && state.mode == SleepTimerMode.DURATION) {
+                    SleepTimerFooterAction(
+                        label = "+15 min",
+                        primary = false,
+                        onClick = onExtend,
+                        modifier = Modifier.testTag("sleep-timer-extend"),
+                    )
+                }
+                SleepTimerFooterAction(
+                    label = "Done",
+                    primary = true,
+                    onClick = onDismiss,
+                    modifier = Modifier.testTag("sleep-timer-done"),
+                )
             }
         }
     }
@@ -137,7 +151,6 @@ fun SleepTimerControls(
     lastMode: SleepTimerPresetMode,
     onSetMinutes: (Int) -> Unit,
     onEndOfTrack: () -> Unit,
-    onExtend: () -> Unit,
     onSetEnabled: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -272,13 +285,42 @@ fun SleepTimerControls(
             }
         }
 
-        if (state.active && state.mode == SleepTimerMode.DURATION) {
-            TextButton(
-                onClick = onExtend,
-                modifier = Modifier.align(Alignment.End).testTag("sleep-timer-extend"),
-            ) {
-                Text("+15 min")
-            }
+    }
+}
+
+/**
+ * Shared 48dp-tall glass pills keep footer actions visually related.
+ * Primary is filled for dismissal; secondary extends the timer without dismissing.
+ */
+@Composable
+private fun SleepTimerFooterAction(
+    label: String,
+    primary: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 48.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = if (primary) colors.primary else colors.primary.copy(alpha = 0.10f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (primary) colors.primary.copy(alpha = 0.70f)
+            else colors.primary.copy(alpha = 0.28f),
+        ),
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = if (primary) colors.onPrimary else colors.onSurface,
+            )
         }
     }
 }
