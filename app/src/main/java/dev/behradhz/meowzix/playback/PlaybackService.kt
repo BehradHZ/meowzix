@@ -427,6 +427,10 @@ class PlaybackService : MediaLibraryService() {
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
             if (activeCrossfade != null) cancelCrossfade("active media item changed")
+            // Publish the new song before onEvents() runs its queue, audio-analysis,
+            // favorite and persistence work. No polling delay on actual transitions.
+            currentFavorite = false
+            updateLiveSongCard()
         }
 
         override fun onPositionDiscontinuity(
@@ -711,10 +715,9 @@ class PlaybackService : MediaLibraryService() {
                 while (isActive) {
                     delay(POSITION_SAVE_INTERVAL_MS)
                     if (player.isPlaying) {
-                        persistPositionSafely()
-                        // The existing one-second position loop also advances the Live Update.
-                        // Player events still refresh it immediately on transitions and seeks.
+                        // Keep UI updates independent of possibly slow disk persistence.
                         if (liveSongCardEnabled) updateLiveSongCard()
+                        persistPositionSafely()
                     }
                 }
             } finally {
@@ -1332,6 +1335,10 @@ class PlaybackService : MediaLibraryService() {
         player = incoming
         incoming.addListener(playerListener)
         runtime.identitySwitched = true
+        // MediaSession.setPlayer() does not invoke onMediaItemTransition on our
+        // newly attached listener; notify immediately at the crossfade handoff.
+        currentFavorite = false
+        updateLiveSongCard()
         runtime.focusBridge = object : Player.Listener {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 if (activeCrossfade !== runtime) return
@@ -1371,9 +1378,6 @@ class PlaybackService : MediaLibraryService() {
         refreshFavoriteState()
         refreshMediaButtons()
         schedulePersist()
-        // setPlayer() changes the active Media3 player without an item transition
-        // callback on our newly attached listener; refresh the card at handoff.
-        updateLiveSongCard()
         return true
     }
 

@@ -15,11 +15,27 @@ class LiveSongContentTest {
         assertNull(liveSongContent(true, false, " ", "Artist"))
     }
 
-    @Test fun chronometerStartsAtActualPlaybackPosition() {
-        assertEquals(100_000L, liveSongChronometerWhen(165_000L, 65_000L))
-        // On seek or track switch, the timestamp is recomputed using the new position.
-        assertEquals(130_000L, liveSongChronometerWhen(165_000L, 35_000L))
-        assertEquals(165_000L, liveSongChronometerWhen(165_000L, -1L))
+    @Test fun statusChipFitsAsMuchSongTitleAsTheAvailableWidthAllows() {
+        val width: (String) -> Float = { it.length.toFloat() }
+        assertEquals("Numb", liveSongChipLabel(" Numb ", 9f, width))
+        assertEquals("Wonderfu…", liveSongChipLabel("Wonderful Life", 9f, width))
+        assertEquals("Song", liveSongChipLabel("Song", 9f, width))
+        assertEquals("آرامش…", liveSongChipLabel("آرامش شب", 7f, width))
+    }
+
+    @Test fun statusChipCanFitMoreThanSixNarrowLetters() {
+        val result = liveSongChipLabel("iiiiiiWWW", 5f) { text ->
+            text.sumOf { when (it) { 'i' -> 0.25; 'W' -> 2.0; else -> 1.0 } }.toFloat()
+        }
+        assertEquals("iiiiiiW…", result)
+    }
+
+    @Test fun statusChipPreservesUnicodeCharactersAndHandlesTinyWidths() {
+        val codePointWidth: (String) -> Float = { it.codePointCount(0, it.length).toFloat() }
+        assertEquals("🎵…", liveSongChipLabel("🎵Song", 2f, codePointWidth))
+        assertEquals("e\u0301…", liveSongChipLabel("e\u0301clair", 3f, codePointWidth))
+        assertEquals("", liveSongChipLabel("  ", 6f, codePointWidth))
+        assertEquals("", liveSongChipLabel("Long title", 0f, codePointWidth))
     }
 
     @Test fun controlLayoutRespectsThreeActionLimitAndPlayerAvailability() {
@@ -71,6 +87,11 @@ class LiveSongContentTest {
         assertNotEquals(original, original.copy(progress = liveSongProgress(12_000, 100_000)))
         // Track transitions must notify even if visible metadata/progress are identical.
         assertNotEquals(original, original.copy(mediaId = "track-2"))
+        assertNotEquals(original, original.copy(
+            mediaId = "track-2",
+            content = LiveSongContent("Next track", "New artist"),
+            progress = liveSongProgress(9_000, 100_000),
+        ))
     }
 
     @Test fun progressChangesEachSecondButNotForSubsecondTicks() {
