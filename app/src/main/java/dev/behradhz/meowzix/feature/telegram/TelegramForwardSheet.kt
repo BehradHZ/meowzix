@@ -325,7 +325,10 @@ private fun ForwardPickerBody(
         val folderId = activeFolder?.id ?: return@LaunchedEffect
         if (loadedFolderChats != null) return@LaunchedEffect
         try {
-            loadedFolderChats = repository.loadForwardFolderChats(folderId)
+            repository.streamForwardFolderChats(folderId).collect { batch ->
+                loadedFolderChats = batch
+                folderLoadError = false
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {

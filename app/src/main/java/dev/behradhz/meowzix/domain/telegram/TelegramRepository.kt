@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.domain.telegram
 
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.StateFlow
 
 sealed interface TelegramAuthStep {
@@ -166,6 +167,11 @@ interface TelegramForwardRepository {
 
     /** A folder's destinations are resolved on demand, never during the metadata fetch. */
     suspend fun loadForwardFolderChats(folderId: Int): List<TelegramChatSummary> = emptyList()
+
+    /** Returns visible destination batches as they become ready; never waits for the whole folder. */
+    fun streamForwardFolderChats(folderId: Int): Flow<List<TelegramChatSummary>> = flow {
+        emit(loadForwardFolderChats(folderId))
+    }
 
     /** No-I/O snapshot for revisiting an already opened folder. Null means not yet loaded. */
     fun cachedForwardFolderChats(folderId: Int): List<TelegramChatSummary>? = null
