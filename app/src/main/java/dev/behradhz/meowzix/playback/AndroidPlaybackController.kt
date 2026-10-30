@@ -534,66 +534,71 @@ class AndroidPlaybackController @Inject constructor(
         connected.play()
     }
 
-    override fun removeAt(index: Int) {
-        withController { connected ->
-            if (progressiveQueue.snapshot() != null) {
-                syncLogicalCurrentFromPlayer(connected)
-                val current = progressiveQueue.snapshot() ?: return@withController
-                val removal = planQueueRemoval(current, index) ?: return@withController
-                val removedTitle = current.tracks[index].title
-                if (!progressiveQueue.removeAt(index)) return@withController
-
-                when (removal) {
-                    QueueRemovalPlan.Current -> {
-                        if (progressiveQueue.snapshot() == null) {
-                            connected.clearMediaItems()
-                            updateState(connected)
-                        } else {
-                            // Switching away from the playing occurrence is the only removal
-                            // that needs a new selected MediaItem.
-                            rebuildProgressiveWindow(connected, preservePosition = false)
-                        }
-                    }
-                    is QueueRemovalPlan.Materialized -> {
-                        // Remove only the affected entry from Media3. Replacing the timeline
-                        // with setMediaItems()/prepare() interrupts the audio currently playing.
-                        val playerIndex = removal.mediaItemIndex
-                        if (playerIndex in 0 until connected.mediaItemCount &&
-                            playerIndex != connected.currentMediaItemIndex &&
-                            connected.getMediaItemAt(playerIndex).mediaId == current.tracks[index].id.toString()
-                        ) {
-                            connected.removeMediaItem(playerIndex)
-                        } else {
-                            // Stale Media3 window indexes must never delete the playing
-                            // item or the wrong generated occurrence.
-                            syncProgressiveWindowInPlace(connected)
-                        }
-                        refillAfterQueueRemoval(connected)
-                    }
-                    QueueRemovalPlan.LogicalOnly -> refillAfterQueueRemoval(connected)
-                }
-                queueActionFeedbackBus.emit(QueueActionKind.REMOVED, removedTitle)
-            } else if (index in 0 until connected.mediaItemCount) {
-                val removedTitle = connected.getMediaItemAt(index).mediaMetadata.title?.toString()
-                    ?: "Track"
-                connected.removeMediaItem(index)
-                updateState(connected)
-                queueActionFeedbackBus.emit(QueueActionKind.REMOVED, removedTitle)
-            }
+    override fun removeOccurrence(occurrenceId: UUID) = withController { connected ->
+        if (progressiveQueue.snapshot() != null) {
+            // Read the authoritative, freshly synchronized queue only AFTER the
+            // controller is available. The old Compose row index may be stale.
+            if (!syncLogicalCurrentFromPlayer(connected)) return@withController
+            val current = progressiveQueue.snapshot() ?: return@withController
+            val index = current.occurrenceIds.indexOf(occurrenceId)
+            if (index < 0) return@withController
+            removeResolvedOccurrence(connected, current, index)
+        } else {
+            // A legacy Media3 timeline does not carry occurrence IDs. Remove only
+            // when the canonical media ID identifies exactly ONE MediaItem; two
+            // copies of the same track are ambiguous and must not be guessed.
+            val matching = (0 until connected.mediaItemCount)
+                .filter { connected.getMediaItemAt(it).mediaId == occurrenceId.toString() }
+            if (matching.size != 1) return@withController
+            removeLegacyAt(connected, matching.single())
         }
     }
 
-    private fun refillAfterQueueRemoval(connected: MediaController) {
-        // An off-window removal requires no Media3 command unless the future window is
-        // genuinely running low. Publish the logical queue immediately even in that case.
-        val forward = progressiveQueue.takeForwardBatchIfNeeded()
-        if (forward.isNotEmpty()) {
-            val snapshot = progressiveQueue.snapshot() ?: return
-            connected.addMediaItems(
-                forward.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) },
-            )
+    override fun removeAt(index: Int) = withController { connected ->
+        if (progressiveQueue.snapshot() != null) {
+            if (!syncLogicalCurrentFromPlayer(connected)) return@withController
+            val current = progressiveQueue.snapshot() ?: return@withController
+            if (index !in current.tracks.indices) return@withController
+            removeResolvedOccurrence(connected, current, index)
+        } else if (index in 0 until connected.mediaItemCount) {
+            removeLegacyAt(connected, index)
         }
+    }
+
+    private fun removeResolvedOccurrence(
+        connected: MediaController,
+        current: ProgressiveQueueSnapshot,
+        index: Int,
+    ) {
+        val removal = planQueueRemoval(current, index) ?: return
+        val removedTitle = current.tracks[index].title
+        if (!progressiveQueue.removeAt(index)) return
+
+        if (removal == QueueRemovalPlan.Current) {
+            if (progressiveQueue.snapshot() == null) {
+                connected.clearMediaItems()
+                updateState(connected)
+            } else {
+                // Removing the active occurrence is the sole case that changes
+                // the playing MediaItem.
+                rebuildProgressiveWindow(connected, preservePosition = false)
+            }
+        } else {
+            // Never remove by a captured Media3 index. Window trimming, track
+            // changes, and duplicate media IDs can make that index refer to a
+            // different occurrence. Reconcile only non-current ranges using the
+            // fresh authoritative queue; keep the playing song untouched.
+            syncProgressiveWindowInPlace(connected)
+        }
+        queueActionFeedbackBus.emit(QueueActionKind.REMOVED, removedTitle)
+    }
+
+    private fun removeLegacyAt(connected: MediaController, index: Int) {
+        val removedTitle = connected.getMediaItemAt(index).mediaMetadata.title?.toString()
+            ?: "Track"
+        connected.removeMediaItem(index)
         updateState(connected)
+        queueActionFeedbackBus.emit(QueueActionKind.REMOVED, removedTitle)
     }
 
     override fun move(fromIndex: Int, toIndex: Int) {
