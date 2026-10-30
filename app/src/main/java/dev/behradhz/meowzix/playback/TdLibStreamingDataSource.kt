@@ -50,7 +50,9 @@ private class RoutingDataSource(
     override fun open(dataSpec: DataSpec): Long {
         check(active == null) { "DataSource is already open" }
 
-        val completedLocalCopy = if (dataSpec.uri.scheme == TDLIB_SCHEME) {
+        val completedLocalCopy = if (dataSpec.uri.scheme == TDLIB_SCHEME &&
+            dataSpec.uri.getQueryParameter("ignoreCache") != "1"
+        ) {
             findCompletedLocalCopy(context, dataSpec.uri)
         } else {
             null
@@ -70,7 +72,25 @@ private class RoutingDataSource(
 
         listeners.forEach(source::addTransferListener)
         active = source
-        return source.open(routedSpec)
+        try {
+            return source.open(routedSpec)
+        } catch (failure: IOException) {
+            runCatching { source.close() }
+            active = null
+            // A cached file can disappear between choosing it and opening it.
+            // Try the TDLib bytes before declaring the track unplayable.
+            if (completedLocalCopy == null) throw failure
+            val fallback = TdLibStreamingDataSource()
+            listeners.forEach(fallback::addTransferListener)
+            active = fallback
+            try {
+                return fallback.open(dataSpec)
+            } catch (fallbackFailure: Throwable) {
+                runCatching { fallback.close() }
+                active = null
+                throw fallbackFailure
+            }
+        }
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
@@ -103,7 +123,7 @@ private fun findCompletedLocalCopy(context: Context, streamUri: Uri): File? {
         .filter(File::isDirectory)
         .flatMap { root -> root.listFiles().orEmpty().asSequence() }
         .firstOrNull { file ->
-            file.isFile && file.length() > 0L &&
+            file.isFile && file.canRead() && file.length() > 0L &&
                 (file.name == prefix || file.name.startsWith("$prefix.")) &&
                 !file.name.endsWith(".part")
         }
