@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.playback.QueueGroupKind
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.playback.RepeatMode
@@ -161,6 +162,16 @@ class ResolvingPlaybackController @Inject constructor(
     override fun playNext(trackId: UUID) = delegate.playNext(trackId)
 
     override fun addToQueue(trackId: UUID) = delegate.addToQueue(trackId)
+
+    override fun playNextGroup(trackIds: List<UUID>, kind: QueueGroupKind, title: String) =
+        delegate.playNextGroup(trackIds, kind, title)
+
+    override fun addGroupToQueue(trackIds: List<UUID>, kind: QueueGroupKind, title: String) =
+        delegate.addGroupToQueue(trackIds, kind, title)
+
+    override fun removeGroup(groupId: UUID) = delegate.removeGroup(groupId)
+
+    override fun moveGroup(groupId: UUID, toIndex: Int) = delegate.moveGroup(groupId, toIndex)
 
     override fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode) {
         val start = trackIds.firstOrNull()

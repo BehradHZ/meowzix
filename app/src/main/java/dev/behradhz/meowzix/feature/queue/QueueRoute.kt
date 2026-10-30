@@ -491,7 +491,6 @@ private fun QueueScreen(
                             onGoToArtist = { artist -> onGoToArtist(artist) },
                         )
                         }
-                        }
                     }
                 }
             }
