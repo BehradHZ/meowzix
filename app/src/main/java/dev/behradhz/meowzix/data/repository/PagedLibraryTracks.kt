@@ -133,8 +133,21 @@ class PagedLibraryTracks @Inject constructor(
                 add(token)
             }
         }
+        // In the Offline filter, recent = last completed download, not import date.
+        val offlineRecencySort = """
+            COALESCE(
+                (SELECT MAX(d.updatedAtEpochMs) FROM download_records d
+                 WHERE d.trackId = t.id AND d.status = 'COMPLETED' AND d.localPath IS NOT NULL),
+                (SELECT MAX(s.createdAtEpochMs) FROM track_sources s
+                 WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL'
+                   AND s.type IN ('APP_OFFLINE_COPY', 'TDLIB_LOCAL')),
+                t.createdAtEpochMs
+            ) DESC, t.id ASC
+        """.trimIndent()
         val baseSort = when (sortMode) {
-            LibrarySortMode.RECENTLY_ADDED -> "t.createdAtEpochMs DESC, t.id ASC"
+            LibrarySortMode.RECENTLY_ADDED ->
+                if (availability == LibraryAvailabilityFilter.OFFLINE) offlineRecencySort
+                else "t.createdAtEpochMs DESC, t.id ASC"
             LibrarySortMode.OLDEST_ADDED -> "t.createdAtEpochMs ASC, t.id ASC"
             LibrarySortMode.TITLE_ASC -> "t.normalizedTitle ASC, t.id ASC"
             LibrarySortMode.TITLE_DESC -> "t.normalizedTitle DESC, t.id ASC"
