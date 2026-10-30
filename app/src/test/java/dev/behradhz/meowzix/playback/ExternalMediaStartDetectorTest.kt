@@ -55,6 +55,29 @@ class ExternalMediaStartDetectorTest {
     }
 
     @Test
+    fun ownAudioTrackShuttingDownIsNotMistakenForAnExternalClip() {
+        val detector = ExternalMediaStartDetector()
+        detector.baseline(activeMediaPlayers = 1, audibleLocalPlayers = 1)
+        // Our player has paused, but its AudioTrack still appears in
+        // Android's configuration list for one callback.
+        assertFalse(detector.observe(1, 0, playbackRequested = false))
+        assertEquals(0, detector.externalCount)
+        assertFalse(detector.observe(0, 0, playbackRequested = false))
+        assertEquals(0, detector.externalCount)
+    }
+
+    @Test
+    fun realExternalClipStillCountsAfterOurOwnAudioTrackStops() {
+        val detector = ExternalMediaStartDetector()
+        detector.baseline(1, 1)
+        assertTrue(detector.observe(2, 1, playbackRequested = true))
+        assertFalse(detector.observe(1, 0, playbackRequested = false))
+        assertEquals(1, detector.externalCount)
+        assertFalse(detector.observe(0, 0, playbackRequested = false))
+        assertEquals(0, detector.externalCount)
+    }
+
+    @Test
     fun countsAreClampedIfDeviceProvidesInconsistentSnapshots() {
         val detector = ExternalMediaStartDetector()
         detector.baseline(0, 2)
