@@ -240,6 +240,12 @@ class NowPlayingViewModel @Inject constructor(
     fun extendSleepTimer() = viewModelScope.launch { sleepTimerManager.extend(15 * 60_000L) }
     fun cancelSleepTimer() = setSleepTimerEnabled(false)
 
+    fun setPlaybackSpeed(speed: Float) {
+        val bounded = speed.coerceIn(0.5f, 5f)
+        playbackController.setPlaybackSpeed(bounded)
+        viewModelScope.launch { settingsRepository.setPlaybackSpeed(bounded) }
+    }
+
     fun togglePlayPause() = playbackController.togglePlayPause()
 
     fun seekTo(positionMs: Long) = playbackController.seekTo(positionMs)
