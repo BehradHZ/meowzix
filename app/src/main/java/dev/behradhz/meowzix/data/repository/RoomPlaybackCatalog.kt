@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.data.repository
 
 import dev.behradhz.meowzix.core.model.SourceAvailability
+import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrity
 import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.LibraryBrowseDao
 import dev.behradhz.meowzix.data.db.LibraryDao
@@ -61,8 +62,10 @@ class RoomPlaybackCatalog @Inject constructor(
     override suspend fun isTrackLocallyPlayable(trackId: UUID): Boolean = withContext(Dispatchers.Default) {
         val track = libraryDao.trackById(trackId.toString()) ?: return@withContext false
         if (track.hidden) return@withContext false
-        libraryDao.sourcesForTrack(trackId.toString()).any { source ->
-            source.availability == SourceAvailability.AVAILABLE_LOCAL && source.isReadableForPlayback()
+        val sources = libraryDao.sourcesForTrack(trackId.toString())
+        sources.any { source ->
+            source.availability == SourceAvailability.AVAILABLE_LOCAL &&
+                source.isReadableForPlayback() && source.matchesTelegramLength(sources)
         }
     }
 
@@ -269,7 +272,7 @@ class RoomPlaybackCatalog @Inject constructor(
             .asSequence()
             .filter {
                 it.availability == SourceAvailability.AVAILABLE_LOCAL &&
-                    it.isReadableForPlayback()
+                    it.isReadableForPlayback() && it.matchesTelegramLength(sources)
             }
             .minByOrNull(::localSourcePriority)
 
@@ -325,4 +328,18 @@ internal fun TrackSourceEntity.isReadableForPlayback(): Boolean {
     val file = File(path)
     if (!file.isFile || !file.canRead() || file.length() <= 0L) return false
     return fileSizeBytes?.takeIf { it > 0L }?.let { file.length() >= it } ?: true
+}
+
+/**
+ * Old releases stored the length of a truncated local copy as its "verified" size.
+ * For managed Telegram copies compare against the original message's size instead.
+ * This is intentionally length-only: a SHA scan for every item in a large queue
+ * would block queue construction; deep hashing occurs in cache reconciliation.
+ */
+private fun TrackSourceEntity.matchesTelegramLength(sources: List<TrackSourceEntity>): Boolean {
+    if (type != TrackSourceType.APP_OFFLINE_COPY && type != TrackSourceType.TDLIB_LOCAL) return true
+    val expectedBytes = sources.firstOrNull {
+        it.type == TrackSourceType.TELEGRAM_REMOTE && (it.fileSizeBytes ?: 0L) > 0L
+    }?.fileSizeBytes
+    return ManagedAudioIntegrity.isValid(localPath?.let(::File), expectedBytes)
 }
