@@ -123,17 +123,29 @@ class PlaybackService : MediaLibraryService() {
     private var earlyExternalPausePending = false
     private var pauseOnMicrophoneRecordingEnabled = false
     private var microphoneWasRecording = false
+    private var resumeAfterMicrophoneStops = false
     private val microphoneObserver = object : AudioManager.AudioRecordingCallback() {
         override fun onRecordingConfigChanged(configs: List<AudioRecordingConfiguration>) {
             val recording = configs.isNotEmpty()
             val started = recording && !microphoneWasRecording
+            val stopped = !recording && microphoneWasRecording
             microphoneWasRecording = recording
             if (pauseOnMicrophoneRecordingEnabled && started && player.playWhenReady) {
-                // One-shot pause at the rising edge: manual Play is always allowed while
-                // the microphone remains active. Never schedule an automatic resume.
+                // Only remember a pause that WE initiated. A user-initiated pause or
+                // a later explicit Play must not trigger an unsolicited restart.
+                resumeAfterMicrophoneStops = true
                 cancelExternalResume()
                 cancelCrossfade("microphone recording started")
                 player.pause()
+            } else if (pauseOnMicrophoneRecordingEnabled && stopped) {
+                val shouldResume = resumeAfterMicrophoneStops &&
+                    !player.playWhenReady &&
+                    !otherAppPlayingMedia &&
+                    player.currentMediaItem != null &&
+                    player.playbackState != Player.STATE_ENDED &&
+                    sleepTimer.state.value.mode == SleepTimerMode.OFF
+                resumeAfterMicrophoneStops = false
+                if (shouldResume) player.play()
             }
         }
     }
@@ -600,12 +612,14 @@ class PlaybackService : MediaLibraryService() {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             when {
                 playWhenReady -> {
+                    resumeAfterMicrophoneStops = false
                     earlyExternalPausePending = false
                     cancelExternalResume()
                     baselineExternalMedia()
                     wasPlayingBeforeAudioFocusLoss = true
                 }
                 earlyExternalPausePending -> {
+                    resumeAfterMicrophoneStops = false
                     earlyExternalPausePending = false
                     wasPlayingBeforeAudioFocusLoss = false
                     cancelExternalResume()
@@ -614,6 +628,12 @@ class PlaybackService : MediaLibraryService() {
                         observedExternalPlayback = true
                         otherAppPlayingMedia = true
                     }
+                }
+                resumeAfterMicrophoneStops -> {
+                    // This false transition is our own microphone-triggered pause.
+                    // Keep the restoration token until recording actually ends.
+                    cancelExternalResume()
+                    wasPlayingBeforeAudioFocusLoss = false
                 }
                 reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS &&
                     wasPlayingBeforeAudioFocusLoss && resumeAfterExternalAudioEnabled && !isRestoring -> {
@@ -626,6 +646,7 @@ class PlaybackService : MediaLibraryService() {
                 }
                 else -> {
                     // The user, controller, timer or end of queue stopped playback.
+                    resumeAfterMicrophoneStops = false
                     cancelExternalResume()
                     wasPlayingBeforeAudioFocusLoss = false
                 }
@@ -721,6 +742,7 @@ class PlaybackService : MediaLibraryService() {
                     } else {
                         audioManager.unregisterAudioRecordingCallback(microphoneObserver)
                         microphoneWasRecording = false
+                        resumeAfterMicrophoneStops = false
                     }
                 }
                 val nextNormalization = preferences.loudnessNormalizationEnabled
@@ -842,6 +864,7 @@ class PlaybackService : MediaLibraryService() {
         liveSongCard?.cancel()
         audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
         if (pauseOnMicrophoneRecordingEnabled) audioManager.unregisterAudioRecordingCallback(microphoneObserver)
+        resumeAfterMicrophoneStops = false
         cancelExternalResume()
         clearPlaybackRetry()
         cancelCrossfade("service destroyed")
