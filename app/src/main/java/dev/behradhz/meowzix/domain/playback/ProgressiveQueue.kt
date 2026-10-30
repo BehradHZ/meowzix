@@ -534,6 +534,10 @@ class ProgressiveQueue @Inject constructor() {
         pendingIds: List<UUID>? = null,
     ) {
         if (tracks.isEmpty() || currentIndex < 0) return
+        // A listening cycle commits the visible order of Next. A background
+        // suggestion refresh must not rebuild it simply because the current
+        // song advanced. Changing playback mode is the explicit reordering action.
+        if (mode == playbackMode) return
         val fixedTracks = tracks.take(currentIndex + 1)
         val fixedOrigins = origins.take(currentIndex + 1)
         val currentAndHistoryOccurrences = occurrenceIds.take(currentIndex + 1)
@@ -578,7 +582,18 @@ class ProgressiveQueue @Inject constructor() {
         bumpRevision()
     }
 
+    /**
+     * Once a Next order is visible it is immutable for the listening cycle.
+     * Smart Shuffle may rank the candidates when building a NEW cycle via
+     * start()/an explicit mode switch, but listening to the next song must not
+     * reorder the rest of the already queued occurrences.
+     *
+     * Keep this interface for older recommendation callbacks: their delayed
+     * results are harmlessly ignored. In particular, neither the occurrence
+     * IDs nor the Smart Shuffle queue revision changes here.
+     */
     @Synchronized
+    @Suppress("UNUSED_PARAMETER")
     fun rerankGeneratedFuture(
         rankedTrackIds: List<UUID>,
         expectedRevision: Long,
@@ -586,33 +601,7 @@ class ProgressiveQueue @Inject constructor() {
     ): SmartFutureRevisionResult {
         if (playbackMode != PlaybackMode.SMART_SHUFFLE) return SmartFutureRevisionResult.NOT_SMART
         if (revision != expectedRevision) return SmartFutureRevisionResult.STALE
-        if (currentIndex !in tracks.indices || windowLimit <= 0) return SmartFutureRevisionResult.NO_CHANGE
-
-        val generatedPositions = (currentIndex + 1 until tracks.size)
-            .filter { origins[it] == QueueItemOrigin.GENERATED }
-            .take(windowLimit)
-        if (generatedPositions.size <= 1) return SmartFutureRevisionResult.NO_CHANGE
-
-        val currentGenerated = generatedPositions.map { tracks[it] }
-        val byId = currentGenerated.associateBy(PlayableTrack::id)
-        val ranked = buildList(currentGenerated.size) {
-            rankedTrackIds.distinct().forEach { id -> byId[id]?.let { add(it) } }
-            val selected = mapTo(hashSetOf(), PlayableTrack::id)
-            currentGenerated.forEach { if (it.id !in selected) add(it) }
-        }
-        if (ranked.map(PlayableTrack::id) == currentGenerated.map(PlayableTrack::id)) {
-            return SmartFutureRevisionResult.NO_CHANGE
-        }
-
-        val occurrencesById = generatedPositions.associate { position ->
-            tracks[position].id to occurrenceIds[position]
-        }
-        generatedPositions.forEachIndexed { index, position ->
-            tracks[position] = ranked[index]
-            occurrenceIds[position] = occurrencesById.getValue(ranked[index].id)
-        }
-        bumpRevision()
-        return SmartFutureRevisionResult.APPLIED
+        return SmartFutureRevisionResult.NO_CHANGE
     }
 
     @Synchronized
