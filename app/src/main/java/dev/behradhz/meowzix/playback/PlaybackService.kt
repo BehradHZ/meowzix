@@ -994,15 +994,17 @@ class PlaybackService : MediaLibraryService() {
 
     private fun syncLogicalCurrentFromPlayer(): Boolean {
         if (progressiveQueue.snapshot() == null) return false
-        return progressiveQueue.updateCurrentFromWindowIndex(player.currentMediaItemIndex) ||
-            progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)
+        return progressiveQueue.updateCurrentFromWindowIndex(
+            player.currentMediaItemIndex, player.currentMediaItem?.mediaId
+        ) || progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)
     }
 
     private fun expandProgressiveWindow() {
         if (isExpandingWindow || player.mediaItemCount == 0) return
         val snapshot = progressiveQueue.snapshot() ?: return
         if (!syncLogicalCurrentFromPlayer()) {
-            progressiveQueue.clear()
+            // A transient Media3 timeline mismatch must never discard the logical queue.
+            Log.w(TAG, "Media3 window/current item mismatch; preserving the queue")
             return
         }
         isExpandingWindow = true
