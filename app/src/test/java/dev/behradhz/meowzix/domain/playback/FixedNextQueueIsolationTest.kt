@@ -181,9 +181,9 @@ class FixedNextQueueIsolationTest {
         val queue = ProgressiveQueue()
         queue.start(songs, 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
             seed = 42L, sourceIds = songs.map { it.id })
-        queue.insertNext(songs[1])
-        queue.append(songs[4])
-        queue.append(songs[6])
+        queue.insertNext(songs[20])
+        queue.append(songs[21])
+        queue.append(songs[22])
         val before = requireNotNull(queue.snapshot())
         val fixedBefore = before.tracks.indices.filter(queue::isFixedOccurrence)
             .map { before.occurrenceIds[it] to before.tracks[it].id }
