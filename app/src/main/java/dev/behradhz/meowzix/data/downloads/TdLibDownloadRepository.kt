@@ -357,11 +357,11 @@ class TdLibDownloadRepository @Inject constructor(
             it.type == TrackSourceType.APP_OFFLINE_COPY && it.localPath == existing?.localPath
         }
         if (existing?.status == DownloadStatus.COMPLETED.name && existingFile != null &&
-            !ManagedAudioIntegrity.isValid(
+            (persistedCopy == null || !ManagedAudioIntegrity.isValid(
                 existingFile,
                 ManagedAudioIntegrity.expectedBytes(telegramBytes, existing.totalBytes, persistedCopy?.fileSizeBytes),
-                persistedCopy?.contentHashSha256,
-            )
+                persistedCopy.contentHashSha256,
+            ))
         ) {
             invalidateManagedCopy(trackId, existing.localPath)
         } else if (existing?.status == DownloadStatus.COMPLETED.name && existingFile != null) {
