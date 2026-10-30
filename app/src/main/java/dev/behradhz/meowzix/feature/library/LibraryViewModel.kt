@@ -288,6 +288,11 @@ class LibraryViewModel @Inject constructor(
 
     fun pinOffline(track: Track) = downloadRepository.pinOffline(track.id)
 
+    fun removeOfflineCopy(track: Track) = viewModelScope.launch {
+        runCatching { downloadRepository.removeOfflineCopy(track.id) }
+            .onFailure { reportLoadError(it, "Unable to remove offline copy") }
+    }
+
     fun setFavorite(track: Track) = viewModelScope.launch {
         runCatching { repository.setFavorite(track.id, !track.favorite) }
             .onFailure { reportLoadError(it, "Unable to update favorite") }
