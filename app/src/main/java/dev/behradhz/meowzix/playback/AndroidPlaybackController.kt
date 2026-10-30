@@ -540,7 +540,15 @@ class AndroidPlaybackController @Inject constructor(
         val hasLogicalQueue = progressiveQueue.snapshot() != null
         if (hasLogicalQueue) {
             syncLogicalCurrentFromPlayer(connected)
-            if (!progressiveQueue.retainCurrentOnly()) progressiveQueue.clear()
+            val snapshot = progressiveQueue.snapshot() ?: return@withController
+            val explicitIndices = (snapshot.currentIndex + 1 until snapshot.tracks.size)
+                .filter(progressiveQueue::isFixedOccurrence)
+            if (explicitIndices.isNotEmpty()) {
+                explicitIndices.asReversed().forEach(progressiveQueue::removeAt)
+                // Clearing fixed Queue never wipes the independent generated Next list.
+                syncProgressiveWindowInPlace(connected)
+            }
+            return@withController
         }
 
         if (playerCurrentIndex + 1 < connected.mediaItemCount) {
