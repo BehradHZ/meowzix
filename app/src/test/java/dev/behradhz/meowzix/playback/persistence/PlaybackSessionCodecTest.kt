@@ -96,6 +96,30 @@ class PlaybackSessionCodecTest {
     }
 
     @Test
+    fun `v5 round trip keeps group membership and generation cursor`() {
+        val group = java.util.UUID.randomUUID().toString()
+        val occurrences = List(3) { java.util.UUID.randomUUID().toString() }
+        val session = PersistedPlaybackSession(
+            items = listOf(PersistedPlaybackItem("one", "content://one", "One", null, null, 100)),
+            currentIndex = 0,
+            positionMs = 10,
+            playbackMode = PlaybackMode.SMART_SHUFFLE,
+            repeatMode = RepeatMode.ALL,
+            logicalMediaIds = listOf("one", "two", "three"),
+            logicalOrigins = listOf(QueueItemOrigin.MANUAL, QueueItemOrigin.MANUAL, QueueItemOrigin.MANUAL),
+            logicalOccurrenceIds = occurrences,
+            logicalGroupIds = listOf(null, group, group),
+            logicalGroups = listOf(PersistedQueueGroup(group, "ALBUM", "Album name")),
+            logicalCurrentIndex = 0,
+            sourceMediaIds = listOf("one", "two", "three", "four"),
+            pendingMediaIds = listOf("four"),
+            generatedStarted = 90,
+            nextGenerationAt = 90,
+        )
+        assertEquals(session, PlaybackSessionCodec.decode(PlaybackSessionCodec.encode(session)))
+    }
+
+    @Test
     fun `legacy v1 sessions upgrade to a logical queue`() {
         val legacy = """
             v1|1|250|ORDERED|OFF

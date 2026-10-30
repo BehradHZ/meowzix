@@ -1263,6 +1263,19 @@ Never delete user-owned MediaStore files as part of cache cleanup.
 
 The queue is a first-class domain concept.
 
+## 15.1 Priority queue and bounded generated future (2026-10-30)
+
+- NOW PLAYING is separate from the upcoming segments.
+- The manual **Queue** segment takes priority over **Next in the queue**, the mode-generated segment.
+- Play Next adds/promotes an occurrence at the start of the manual segment; Add to Queue adds/promotes at its end. The current track is never interrupted for a simple enqueue.
+- An Artist or Album can be queued atomically as a named group. Group-wide drag/removal acts on its remaining contiguous member occurrences, while members can be independently moved or removed.
+- Every appearance of a track has a stable occurrence identity; canonical Track IDs are not UI list keys.
+- A Library selection materializes at most 100 generated future tracks. On starting the 90th generated song, the next 100 candidates are reserved and appended. Manual songs do not count towards this threshold. The Media3 playback window remains a separate, smaller sliding window.
+- The full eligible selection remains a lightweight candidate pool for ordered, Pure Shuffle and Smart Shuffle generation. Pure Shuffle is an unbiased no-repeat cycle across the candidate pool; Smart uses local personalization.
+- Switching modes preserves current playback and the manual queue/groups, replacing only the generated future.
+- Playback state persistence stores provenance, occurrence/group identity, candidate IDs and generation progress, and decodes older session formats.
+
+
 Operations:
 
 - play now;

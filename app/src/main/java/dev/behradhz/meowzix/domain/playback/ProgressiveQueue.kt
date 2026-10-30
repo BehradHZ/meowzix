@@ -50,6 +50,7 @@ class ProgressiveQueue @Inject constructor() {
     private var generatedStarted = 0
     private var nextGenerationAt = 90
     private var generationEpoch = 0L
+    private var generatedRefillInFlight: GeneratedQueueBatch? = null
     private var generationEnabled = false
     private var revision = 0L
 
@@ -80,6 +81,7 @@ class ProgressiveQueue @Inject constructor() {
         generatedStarted = 0
         nextGenerationAt = 90
         generationEpoch++
+        generatedRefillInFlight = null
         val generated = generationEnabled || mode == PlaybackMode.SMART_SHUFFLE
         origins.addAll(List(orderedTracks.size) { if (generated) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL })
         trackIds.clear()
@@ -154,6 +156,7 @@ class ProgressiveQueue @Inject constructor() {
         generatedStarted = generatedStartedCount.coerceAtLeast(0)
         nextGenerationAt = nextGenerationThreshold.coerceAtLeast(90)
         generationEpoch++
+        generatedRefillInFlight = null
         bumpRevision()
         return true
     }
@@ -445,6 +448,7 @@ class ProgressiveQueue @Inject constructor() {
         sourceTrackIds = emptyList()
         pendingGeneratedIds = emptyList()
         generationEpoch++
+        generatedRefillInFlight = null
         generatedStarted = 0
         nextGenerationAt = 90
         bumpRevision()
@@ -499,6 +503,7 @@ class ProgressiveQueue @Inject constructor() {
         }
         if (pendingIds != null) pendingGeneratedIds = pendingIds.toList()
         generationEpoch++
+        generatedRefillInFlight = null
         generatedStarted = 0
         nextGenerationAt = 90
         materializedStartIndex = materializedStartIndex.coerceIn(0, currentIndex)
@@ -571,17 +576,22 @@ class ProgressiveQueue @Inject constructor() {
 
     @Synchronized
     fun claimGeneratedRefill(): GeneratedQueueBatch? {
-        if (!generationEnabled || generatedStarted < nextGenerationAt || pendingGeneratedIds.isEmpty()) return null
-        val selected = pendingGeneratedIds.take(GENERATED_BATCH_SIZE)
-        pendingGeneratedIds = pendingGeneratedIds.drop(selected.size)
-        nextGenerationAt += GENERATED_BATCH_SIZE
-        invalidateSnapshot()
-        return GeneratedQueueBatch(generationEpoch, selected)
+        if (!generationEnabled || generatedRefillInFlight != null ||
+            generatedStarted < nextGenerationAt || pendingGeneratedIds.isEmpty()) return null
+        return GeneratedQueueBatch(
+            generationEpoch,
+            pendingGeneratedIds.take(GENERATED_BATCH_SIZE),
+        ).also { generatedRefillInFlight = it }
     }
 
     @Synchronized
     fun appendGeneratedBatch(batch: GeneratedQueueBatch, resolved: List<PlayableTrack>): Boolean {
-        if (batch.epoch != generationEpoch || !generationEnabled) return false
+        if (batch.epoch != generationEpoch || !generationEnabled ||
+            generatedRefillInFlight != batch) return false
+        generatedRefillInFlight = null
+        val selected = batch.ids.toSet()
+        pendingGeneratedIds = pendingGeneratedIds.filterNot { it in selected }
+        nextGenerationAt += GENERATED_BATCH_SIZE
         val byId = resolved.associateBy { it.id }
         val existing = tracks.mapTo(hashSetOf()) { it.id }
         val accepted = batch.ids.mapNotNull(byId::get).filter { existing.add(it.id) }
@@ -591,6 +601,9 @@ class ProgressiveQueue @Inject constructor() {
             occurrenceIds.addAll(List(accepted.size) { UUID.randomUUID() })
             groupIds.addAll(List(accepted.size) { null })
             trackIds.addAll(accepted.map { it.id })
+            bumpRevision()
+        } else {
+            // Persist the claimed cursor even when the entire batch became unavailable.
             bumpRevision()
         }
         return true
@@ -735,6 +748,7 @@ class ProgressiveQueue @Inject constructor() {
         sourceTrackIds = emptyList()
         pendingGeneratedIds = emptyList()
         generationEpoch++
+        generatedRefillInFlight = null
         generatedStarted = 0
         nextGenerationAt = 90
         QueueProvenanceRestoreHints.clear()
