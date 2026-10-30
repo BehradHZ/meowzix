@@ -421,10 +421,14 @@ class ProgressiveQueueTest {
             sourceIds = songs.map { it.id }, pendingIds = songs.drop(11).map { it.id })
         val group = requireNotNull(queue.insertGroup(songs.subList(15, 19), QueueGroupKind.ARTIST, "Artist", false))
         assertEquals(List(4) { group }, requireNotNull(queue.snapshot()).groupIds.drop(1).take(4))
-        assertTrue(queue.moveGroup(group, 9))
+        // Move the album past a separate manually prioritized song, not past generated items.
+        queue.append(songs[20])
+        assertTrue(queue.moveGroup(group, 6))
         val moved = requireNotNull(queue.snapshot())
         val positions = moved.groupIds.indices.filter { moved.groupIds[it] == group }
         assertEquals(4, positions.last() - positions.first() + 1)
+        assertEquals(songs[20].id, moved.tracks[1].id)
+        assertEquals(2, positions.first())
         assertTrue(queue.move(positions.first(), 1))
         assertEquals(null, requireNotNull(queue.snapshot()).groupIds[1])
         assertEquals(3, requireNotNull(queue.snapshot()).groupIds.count { it == group })
