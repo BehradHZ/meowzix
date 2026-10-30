@@ -489,8 +489,15 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
 
     private fun isAtEnd(state: TdApi.File, position: Long): Boolean {
         if (!state.local.isDownloadingCompleted) return false
+        // A "completed" TDLib flag with a missing/empty local path is NOT a zero-length
+        // song. Treat it as unreadable and let the bounded retry path report I/O failure
+        // instead of reporting EOF to ExoPlayer and silently advancing the playlist.
+        val physicalSize = state.local.path.takeIf(String::isNotBlank)
+            ?.let { File(it).takeIf(File::isFile)?.length() }
+            ?.takeIf { it > 0L } ?: return false
         val knownSize = state.size.toLong().takeIf { it > 0L }
-        return knownSize?.let { position >= it } ?: (state.readableEndAt(position) <= position)
+        if (knownSize != null && physicalSize < knownSize) return false
+        return position >= (knownSize ?: physicalSize)
     }
 
     private data class ReadableWindow(
