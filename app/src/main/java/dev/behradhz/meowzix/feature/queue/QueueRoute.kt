@@ -164,7 +164,7 @@ fun QueueRoute(
             searchQuery = searchQuery,
             onPlay = viewModel::play,
             onMove = viewModel::move,
-            onRemove = viewModel::remove,
+            onRemove = viewModel::removeOccurrence,
             onMoveGroup = viewModel::moveGroup,
             onRemoveGroup = viewModel::removeGroup,
             onClear = viewModel::clear,
@@ -194,7 +194,7 @@ private fun QueueScreen(
     searchQuery: String,
     onPlay: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
-    onRemove: (Int) -> Unit,
+    onRemove: (UUID) -> Unit,
     onMoveGroup: (UUID, Int) -> Unit,
     onRemoveGroup: (UUID) -> Unit,
     onClear: () -> Unit,
@@ -592,11 +592,10 @@ private fun QueueScreen(
                                 displayItems = filteredItems
                                 finishDrag(commit = false)
                             },
-                            onRemove = {
-                                if (state.items.getOrNull(queueIndex) == item) {
-                                    onRemove(queueIndex)
-                                }
-                            },
+                            // A gesture can finish after playback advanced or a queue
+                            // mutation shifted this row's old index. Its occurrence
+                            // identity is stable, even for duplicate copies of a song.
+                            onRemove = { onRemove(item.occurrenceId) },
                             onPlayNext = { onPlayNext(item.id) },
                             onAddToQueue = { onAddToQueue(item.id) },
                             onPinOffline = { onPinOffline(item.id) },
