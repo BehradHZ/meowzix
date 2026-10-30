@@ -415,7 +415,11 @@ internal fun MorphingPlayerOverlay(
             if (compactAlpha > 0.01f) {
                 CompactMiniPlayerContent(
                     state = state,
+                    queueState = queueState,
                     onTogglePlayPause = viewModel::togglePlayPause,
+                    onNext = viewModel::next,
+                    onPlayQueueItemAt = viewModel::playQueueItemAt,
+                    reduceMotion = reduceMotion,
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .height(compactHeight)
                         .graphicsLayer {
@@ -521,51 +525,62 @@ private fun QueueActionFeedbackPill(
 @Composable
 private fun CompactMiniPlayerContent(
     state: PlaybackState,
+    queueState: QueueState,
     onTogglePlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onPlayQueueItemAt: (Int) -> Unit,
+    reduceMotion: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val track = state.currentTrack ?: return
     val progress = if (state.durationMs > 0L) {
         (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
     } else 0f
+    val activeIndex = remember(
+        track.id, state.queueIndex, queueState.currentIndex, queueState.items,
+    ) { resolveMiniActiveIndex(state, queueState) }
 
     Box(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxSize().padding(start = 6.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // A single clipped square removes the dark circular matte that can
-            // show around small source thumbnails; artwork slightly overscans
-            // the frame, so black edge pixels do not become a visible ring.
-            Box(
-                modifier = Modifier.size(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                TrackArtwork(
-                    artworkRef = track.artworkRef,
-                    description = track.title,
-                    size = 42.dp,
-                    modifier = Modifier.requiredSize(42.dp),
-                )
+            // Reuse the exact swipe pager from the regular mini-player. The
+            // compact dock is smaller, but left/right navigation (including
+            // history, gesture threshold, and haptics) must behave identically.
+            BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                if (activeIndex !in queueState.items.indices) {
+                    MiniPlayerTrackSummary(
+                        track = track.toMiniCard(),
+                        reduceMotion = reduceMotion,
+                        compact = true,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    InteractiveMiniTrackPager(
+                        state = state,
+                        queueState = queueState,
+                        activeIndex = activeIndex,
+                        onNext = onNext,
+                        onPlayQueueItemAt = onPlayQueueItemAt,
+                        reduceMotion = reduceMotion,
+                        compact = true,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
-            Text(
-                text = track.title,
-                modifier = Modifier.weight(1f).padding(start = 6.dp),
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
             IconButton(onClick = onTogglePlayPause, modifier = Modifier.size(40.dp)) {
                 Icon(
-                    if (state.status == PlaybackStatus.PLAYING) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    if (state.status == PlaybackStatus.PLAYING) Icons.Rounded.Pause
+                    else Icons.Rounded.PlayArrow,
                     contentDescription = if (state.status == PlaybackStatus.PLAYING) "Pause" else "Play",
                 )
             }
         }
-        MiniPlayerProgressBar(progress = progress, modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth())
+        MiniPlayerProgressBar(
+            progress = progress,
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+        )
     }
 }
 
@@ -670,6 +685,7 @@ private fun InteractiveMiniTrackPager(
     onNext: () -> Unit,
     onPlayQueueItemAt: (Int) -> Unit,
     reduceMotion: Boolean = false,
+    compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberMeowzixHaptics()
@@ -863,6 +879,7 @@ private fun InteractiveMiniTrackPager(
             MiniPlayerTrackSummary(
                 track = currentCard,
                 reduceMotion = reduceMotion,
+                compact = compact,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -879,6 +896,7 @@ private fun InteractiveMiniTrackPager(
                     MiniPlayerTrackSummary(
                         track = underlayCard,
                         reduceMotion = reduceMotion,
+                        compact = compact,
                         modifier = Modifier.fillMaxSize(),
                     )
                 },
@@ -886,6 +904,7 @@ private fun InteractiveMiniTrackPager(
                     MiniPlayerTrackSummary(
                         track = movingCard,
                         reduceMotion = reduceMotion,
+                        compact = compact,
                         modifier = Modifier.fillMaxSize(),
                     )
                 },
@@ -898,35 +917,61 @@ private fun InteractiveMiniTrackPager(
 private fun MiniPlayerTrackSummary(
     track: MiniTrackCard,
     reduceMotion: Boolean = false,
+    compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier.padding(vertical = 7.dp),
+        modifier = modifier.padding(vertical = if (compact) 2.dp else 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TrackArtwork(
-            artworkRef = track.artworkRef,
-            description = track.title,
-            size = 50.dp,
-        )
-        Spacer(Modifier.size(12.dp))
-        Column(Modifier.weight(1f)) {
-            dev.behradhz.meowzix.ui.components.DirectionalMarqueeTitle(
-                text = track.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                reduceMotion = reduceMotion,
+        if (compact) {
+            Box(
+                modifier = Modifier.size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                TrackArtwork(
+                    artworkRef = track.artworkRef,
+                    description = track.title,
+                    size = 42.dp,
+                    modifier = Modifier.requiredSize(42.dp),
+                )
+            }
+        } else {
+            TrackArtwork(
+                artworkRef = track.artworkRef,
+                description = track.title,
+                size = 50.dp,
             )
+        }
+        Spacer(Modifier.width(if (compact) 6.dp else 12.dp))
+        if (compact) {
             Text(
-                text = track.artist ?: "Unknown artist",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                text = track.title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        } else {
+            Column(Modifier.weight(1f)) {
+                dev.behradhz.meowzix.ui.components.DirectionalMarqueeTitle(
+                    text = track.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    reduceMotion = reduceMotion,
+                )
+                Text(
+                    text = track.artist ?: "Unknown artist",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-
-
     }
 }
 
