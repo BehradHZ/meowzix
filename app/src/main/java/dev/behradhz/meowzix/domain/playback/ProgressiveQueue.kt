@@ -151,6 +151,7 @@ class ProgressiveQueue @Inject constructor() {
         tracks.addAll(restored.map { it.track })
         origins.clear()
         origins.addAll(restored.map { it.origin })
+        fixedOccurrences.clear()
         occurrenceIds.clear()
         occurrenceIds.addAll(restored.map { it.occurrenceId })
         groupIds.clear()
@@ -160,6 +161,9 @@ class ProgressiveQueue @Inject constructor() {
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
         currentIndex = requestedCurrentIndex.coerceIn(tracks.indices)
+        for (index in currentIndex + 1 until tracks.size) {
+            if (origins[index] == QueueItemOrigin.MANUAL) fixedOccurrences += occurrenceIds[index]
+        }
         origins[currentIndex] = QueueItemOrigin.MANUAL
         materializedStartIndex = requestedMaterializedStartIndex.coerceIn(0, currentIndex)
         materializedEndExclusive = requestedMaterializedEndExclusive
@@ -299,7 +303,7 @@ class ProgressiveQueue @Inject constructor() {
         if (tracks.isEmpty()) {
             tracks += track
             origins += QueueItemOrigin.MANUAL
-            occurrenceIds += UUID.randomUUID()
+            occurrenceIds += UUID.randomUUID().also(fixedOccurrences::add)
             groupIds += null
             trackIds += track.id
             currentIndex = 0
@@ -314,7 +318,7 @@ class ProgressiveQueue @Inject constructor() {
         if (duplicateRequested) {
             tracks.add(insertionIndex.coerceAtMost(tracks.size), track)
             origins.add(insertionIndex.coerceAtMost(origins.size), QueueItemOrigin.MANUAL)
-            occurrenceIds.add(insertionIndex.coerceAtMost(occurrenceIds.size), UUID.randomUUID())
+            occurrenceIds.add(insertionIndex.coerceAtMost(occurrenceIds.size), UUID.randomUUID().also(fixedOccurrences::add))
             groupIds.add(insertionIndex.coerceAtMost(groupIds.size), null)
             trackIds += track.id
             bumpRevision()
@@ -337,6 +341,7 @@ class ProgressiveQueue @Inject constructor() {
         tracks.add(destination, item)
         origins.add(destination, QueueItemOrigin.MANUAL)
         occurrenceIds.add(destination, occurrence)
+        fixedOccurrences += occurrence
         groupIds.add(destination, null)
         pruneGroups()
         if (generationEnabled) pendingGeneratedIds = pendingGeneratedIds.filterNot { it == track.id }
@@ -390,7 +395,7 @@ class ProgressiveQueue @Inject constructor() {
         val removingCurrent = index == currentIndex
         val removed = tracks.removeAt(index)
         origins.removeAt(index)
-        occurrenceIds.removeAt(index)
+        fixedOccurrences.remove(occurrenceIds.removeAt(index))
         groupIds.removeAt(index)
         pruneGroups()
         if (tracks.none { it.id == removed.id }) trackIds.remove(removed.id)
@@ -471,6 +476,7 @@ class ProgressiveQueue @Inject constructor() {
         groupIds.clear()
         groupIds += null
         groups.clear()
+        fixedOccurrences.clear()
         trackIds.clear()
         trackIds += current.id
         currentIndex = 0
@@ -596,9 +602,7 @@ class ProgressiveQueue @Inject constructor() {
         if (playbackMode != mode || shuffleSeed != seed) {
             playbackMode = mode
             shuffleSeed = seed
-            if (!generationEnabled && mode != PlaybackMode.SMART_SHUFFLE) {
-                for (index in origins.indices) origins[index] = QueueItemOrigin.MANUAL
-            }
+            // Changing the playback mode must not promote automatic Next items into Queue.
             bumpRevision()
         }
     }
@@ -664,7 +668,7 @@ class ProgressiveQueue @Inject constructor() {
         groups[id] = QueueGroup(id, kind, title)
         tracks.addAll(destination, selected)
         origins.addAll(destination, List(selected.size) { QueueItemOrigin.MANUAL })
-        occurrenceIds.addAll(destination, List(selected.size) { UUID.randomUUID() })
+        occurrenceIds.addAll(destination, List(selected.size) { UUID.randomUUID().also(fixedOccurrences::add) })
         groupIds.addAll(destination, List(selected.size) { id })
         trackIds.addAll(selected.map { it.id })
         bumpRevision()
