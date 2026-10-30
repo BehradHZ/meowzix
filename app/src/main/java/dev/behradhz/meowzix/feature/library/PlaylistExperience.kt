@@ -306,7 +306,7 @@ internal fun PlaylistDetailScreenV3(
     onPlayNext: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
     onPinOffline: (Track) -> Unit,
-    onRemoveOfflineCopy: (Track) -> Unit,
+    onRemoveOfflineCopy: (Track) -> Unit = {},
     onFavorite: (Track) -> Unit,
     onAddToPlaylist: (Track, UUID) -> Unit,
     onGoToArtist: (Track) -> Unit,
