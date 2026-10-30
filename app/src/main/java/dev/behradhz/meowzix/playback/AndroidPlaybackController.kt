@@ -741,25 +741,40 @@ class AndroidPlaybackController @Inject constructor(
         updateState(connected)
     }
 
-    /** Reconciles a reordered progressive window without resetting the active MediaItem. */
+    /**
+     * Reconcile a bounded logical queue without EVER moving/replacing the playing occurrence.
+     * Matching future media IDs by canonical track is unsafe when an explicit Queue occurrence
+     * and an automatic Next occurrence both refer to the same song. Replacing only the
+     * disjoint history/future ranges also prevents Media3 from emitting a spurious track skip.
+     */
     private fun syncProgressiveWindowInPlace(connected: MediaController) {
         val plan = progressiveQueue.resetWindow()
         val snapshot = progressiveQueue.snapshot() ?: return
-        plan.tracks.forEachIndexed { targetIndex, track ->
-            val desiredId = track.id.toString()
-            if (targetIndex < connected.mediaItemCount && connected.getMediaItemAt(targetIndex).mediaId == desiredId) {
-                return@forEachIndexed
-            }
-            val existingIndex = (targetIndex + 1 until connected.mediaItemCount)
-                .firstOrNull { index -> connected.getMediaItemAt(index).mediaId == desiredId }
-            if (existingIndex != null) {
-                connected.moveMediaItem(existingIndex, targetIndex)
-            } else {
-                connected.addMediaItem(targetIndex, track.toMediaItem(snapshot.playbackMode, snapshot.repeatMode))
-            }
+        val currentPlayerIndex = connected.currentMediaItemIndex
+        val currentTrack = plan.tracks.getOrNull(plan.startIndexInWindow) ?: return
+        if (currentPlayerIndex !in 0 until connected.mediaItemCount ||
+            connected.currentMediaItem?.mediaId != currentTrack.id.toString()
+        ) {
+            // A delayed controller timeline callback can transiently disagree with the
+            // logical window. Never reconcile by touching the active MediaItem.
+            return
         }
-        while (connected.mediaItemCount > plan.tracks.size) {
-            connected.removeMediaItem(connected.mediaItemCount - 1)
+        val desiredHistory = plan.tracks.take(plan.startIndexInWindow)
+            .map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) }
+        val actualHistory = (0 until currentPlayerIndex)
+            .map { connected.getMediaItemAt(it).mediaId }
+        if (actualHistory != desiredHistory.map { it.mediaId }) {
+            connected.replaceMediaItems(0, currentPlayerIndex, desiredHistory)
+        }
+        val playerIndexAfterHistory = connected.currentMediaItemIndex
+        val desiredFuture = plan.tracks.drop(plan.startIndexInWindow + 1)
+            .map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) }
+        val actualFuture = (playerIndexAfterHistory + 1 until connected.mediaItemCount)
+            .map { connected.getMediaItemAt(it).mediaId }
+        if (actualFuture != desiredFuture.map { it.mediaId }) {
+            connected.replaceMediaItems(
+                playerIndexAfterHistory + 1, connected.mediaItemCount, desiredFuture,
+            )
         }
         connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
         updateState(connected)
