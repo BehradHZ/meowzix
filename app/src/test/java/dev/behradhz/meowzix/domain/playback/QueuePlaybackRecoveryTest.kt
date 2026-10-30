@@ -156,4 +156,40 @@ class QueuePlaybackRecoveryTest {
         assertTrue(queue.isFixedOccurrence(requireNotNull(queue.snapshot()).occurrenceIds.indexOf(pending)))
         assertEquals(pending, requireNotNull(queue.snapshot()).occurrenceIds[2])
     }
+
+    @Test fun ordinaryPlaybackAndPreviousNeverPromoteNextIntoManualQueue() {
+        val songs = (0..5).map(::song)
+        val queue = ProgressiveQueue()
+        queue.start(songs, 0, PlaybackMode.ORDERED, RepeatMode.OFF)
+        assertEquals(QueueItemOrigin.GENERATED, requireNotNull(queue.snapshot()).origins[0])
+
+        requireNotNull(queue.jumpTo(2))
+        val afterAdvance = requireNotNull(queue.snapshot())
+        assertTrue(afterAdvance.origins.all { it == QueueItemOrigin.GENERATED })
+        assertFalse(queue.hasFixedFuture())
+
+        requireNotNull(queue.jumpTo(1))
+        val afterPrevious = requireNotNull(queue.snapshot())
+        assertEquals(QueueItemOrigin.GENERATED, afterPrevious.origins[2])
+        assertFalse(queue.hasFixedFuture())
+    }
+
+    @Test fun legacySessionWithoutProvenanceRestoresAutomaticNextNotFakeManualQueue() {
+        val songs = (0..7).map(::song)
+        val queue = ProgressiveQueue()
+        assertTrue(queue.restore(
+            orderedTrackIds = songs.map { it.id },
+            availableTracks = songs.associateBy { it.id },
+            requestedCurrentIndex = 3,
+            requestedMaterializedStartIndex = 0,
+            requestedMaterializedEndExclusive = 8,
+            mode = PlaybackMode.ORDERED,
+            repeat = RepeatMode.OFF,
+            seed = null,
+        ))
+
+        val restored = requireNotNull(queue.snapshot())
+        assertTrue(restored.origins.all { it == QueueItemOrigin.GENERATED })
+        assertFalse(queue.hasFixedFuture())
+    }
 }
