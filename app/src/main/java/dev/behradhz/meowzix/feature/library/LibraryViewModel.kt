@@ -13,6 +13,7 @@ import dev.behradhz.meowzix.data.settings.PlaybackContextKeys
 import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
+import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
@@ -36,6 +37,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
@@ -112,13 +114,28 @@ class LibraryViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
-            downloadRepository.observeDownloads()
-                .catch { error -> reportLoadError(error, "Unable to load offline downloads") }
-                .collect { downloads ->
-                    _state.update {
-                        it.copy(downloads = downloads.associateBy(OfflineDownload::trackId))
+            combine(
+                downloadRepository.observeDownloads(),
+                queryRepository.managedOfflineTrackIds(),
+            ) { downloads, managedIds ->
+                val records = downloads.associateBy(OfflineDownload::trackId).toMutableMap()
+                managedIds.forEach { id ->
+                    val existing = records[id]
+                    if (existing != null) {
+                        records[id] = existing.copy(hasManagedCopy = true)
+                    } else {
+                        // Automatic playback caches are removable offline copies too.
+                        records[id] = OfflineDownload(
+                            trackId = id, status = DownloadStatus.COMPLETED,
+                            downloadedBytes = 0L, totalBytes = null, pinned = false,
+                            failureReason = null, hasManagedCopy = true,
+                        )
                     }
                 }
+                records
+            }
+                .catch { error -> reportLoadError(error, "Unable to load offline downloads") }
+                .collect { records -> _state.update { it.copy(downloads = records) } }
         }
         viewModelScope.launch {
             telegramRepository.musicSourceState.collect { telegram ->
