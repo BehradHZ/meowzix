@@ -3,6 +3,9 @@ package dev.behradhz.meowzix.feature.queue
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -26,6 +29,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Favorite
@@ -55,6 +60,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,6 +92,9 @@ import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueItem
+import dev.behradhz.meowzix.domain.playback.QueueItemOrigin
+import dev.behradhz.meowzix.domain.playback.QueueGroup
+import dev.behradhz.meowzix.domain.playback.QueueGroupKind
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
 import dev.behradhz.meowzix.ui.components.GlassSurface
@@ -98,6 +107,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import java.util.UUID
 import kotlin.math.abs
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 
 @Composable
 fun QueueRoute(
@@ -133,6 +143,8 @@ fun QueueRoute(
             onPlay = viewModel::play,
             onMove = viewModel::move,
             onRemove = viewModel::remove,
+            onMoveGroup = viewModel::moveGroup,
+            onRemoveGroup = viewModel::removeGroup,
             onClear = viewModel::clear,
             onToggleShuffle = viewModel::toggleShuffle,
             onPlayNext = viewModel::playNext,
@@ -161,6 +173,8 @@ private fun QueueScreen(
     onPlay: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onRemove: (Int) -> Unit,
+    onMoveGroup: (UUID, Int) -> Unit,
+    onRemoveGroup: (UUID) -> Unit,
     onClear: () -> Unit,
     onToggleShuffle: () -> Unit,
     onPlayNext: (UUID) -> Unit,
@@ -180,7 +194,7 @@ private fun QueueScreen(
             ?.filter(String::isNotBlank)
             .orEmpty()
     }
-    val filteredItems = remember(state.items, searchTokens) {
+    val filteredItems = remember(state.items, state.currentIndex, searchTokens) {
         indexedQueueItems(state.items) { item ->
             if (searchTokens.isEmpty()) {
                 true
@@ -192,26 +206,44 @@ private fun QueueScreen(
                 }
                 searchTokens.all(haystack::contains)
             }
-        }
+        }.filter { it.index >= state.currentIndex.coerceAtLeast(0) }
     }
     val searchActive = searchTokens.isNotEmpty()
 
     var displayItems by remember { mutableStateOf(filteredItems) }
     var draggedQueueIndex by remember { mutableStateOf<Int?>(null) }
     var draggedDistance by remember { mutableStateOf(0f) }
+    var draggedGroupId by remember { mutableStateOf<UUID?>(null) }
+    var draggedGroupDistance by remember { mutableFloatStateOf(0f) }
+    var draggedGroupTarget by remember { mutableStateOf<Int?>(null) }
+    var dragCenterY by remember { mutableFloatStateOf(Float.NaN) }
+    val density = LocalDensity.current
+    val groupCounts = remember(state.items) {
+        state.items.mapNotNull { it.groupId }.groupingBy { it }.eachCount()
+    }
     var hasFocusedCurrent by remember { mutableStateOf(false) }
     // Use the authoritative queue immediately outside a drag. A cached display list can
     // otherwise show removed items until a deferred LaunchedEffect catches up.
-    val visibleItems = if (draggedQueueIndex == null) filteredItems else displayItems
+    val queueItems = if (draggedQueueIndex == null) filteredItems else displayItems
+    val firstGroupPositions = remember(state.items, state.currentIndex) {
+        val first = mutableMapOf<UUID, Int>()
+        state.items.forEachIndexed { index, item ->
+            if (index > state.currentIndex) item.groupId?.let { first.putIfAbsent(it, index) }
+        }
+        first
+    }
+    val visibleItems = if (draggedGroupId == null) queueItems else queueItems.filter { entry ->
+        entry.value.groupId != draggedGroupId || firstGroupPositions[draggedGroupId] == entry.index
+    }
 
     LaunchedEffect(filteredItems) {
-        draggedQueueIndex = null
-        displayItems = filteredItems
+        if (draggedQueueIndex != null) draggedQueueIndex = null
+        if (draggedGroupId == null) displayItems = filteredItems
     }
     LaunchedEffect(state.currentIndex, state.items.size, searchActive) {
         if (!searchActive && !hasFocusedCurrent && state.currentIndex in state.items.indices) {
             hasFocusedCurrent = true
-            listState.scrollToItem(state.currentIndex + 1)
+            listState.scrollToItem(1)
         }
     }
 
@@ -225,6 +257,73 @@ private fun QueueScreen(
         }
         draggedQueueIndex = null
         draggedDistance = 0f
+        dragCenterY = Float.NaN
+    }
+
+    fun reorderAt(center: Float) {
+        val draggedIndex = draggedQueueIndex ?: return
+        val from = displayItems.indexOfFirst { it.index == draggedIndex }
+        if (from < 0) return
+        val positions = listState.layoutInfo.visibleItemsInfo
+        val source = positions.firstOrNull { it.index == from + 1 } ?: return
+        val target = positions.asSequence()
+            .filter { it.index > 0 && it.index != from + 1 }
+            .minByOrNull { abs((it.offset + it.size / 2f) - center) } ?: return
+        val targetPosition = target.index - 1
+        if (targetPosition !in displayItems.indices || targetPosition == from) return
+        val targetCenter = target.offset + target.size / 2f
+        if ((targetPosition > from && center >= targetCenter) ||
+            (targetPosition < from && center <= targetCenter)) {
+            val ordered = displayItems.toMutableList()
+            val moved = ordered.removeAt(from)
+            ordered.add(targetPosition, moved)
+            displayItems = ordered
+            draggedDistance += source.offset - target.offset
+        }
+    }
+
+    // One frame-clock loop for both group and track drags: no coroutine per pointer event.
+    LaunchedEffect(draggedQueueIndex, draggedGroupId) {
+        var previousFrame = 0L
+        while (isActive && (draggedQueueIndex != null || draggedGroupId != null)) {
+            val frame = withFrameNanos { it }
+            val dt = if (previousFrame == 0L) 0f else
+                ((frame - previousFrame).coerceAtMost(50_000_000L) / 1_000_000_000f)
+            previousFrame = frame
+            val y = dragCenterY
+            if (!y.isFinite() || dt == 0f) continue
+            val layout = listState.layoutInfo
+            val top = layout.viewportStartOffset + layout.beforeContentPadding
+            val bottom = layout.viewportEndOffset
+            val slowZone = with(density) { 140.dp.toPx() }
+            val fastZone = with(density) { 65.dp.toPx() }
+            val slowSpeed = with(density) { 360.dp.toPx() }
+            val fastSpeed = with(density) { 1150.dp.toPx() }
+            fun speed(distance: Float): Float {
+                if (distance >= slowZone) return 0f
+                if (distance <= fastZone) {
+                    return slowSpeed + (fastSpeed - slowSpeed) *
+                        ((fastZone - distance).coerceAtLeast(0f) / fastZone).coerceIn(0f, 1f)
+                }
+                return 140f * density.density +
+                    (slowSpeed - 140f * density.density) *
+                    ((slowZone - distance) / (slowZone - fastZone))
+            }
+            val velocity = when {
+                y < top + slowZone -> -speed(y - top)
+                y > bottom - slowZone -> speed(bottom - y)
+                else -> 0f
+            }
+            if (velocity != 0f) {
+                val moved = listState.scrollBy(velocity * dt)
+                if (draggedQueueIndex != null) {
+                    draggedDistance += moved
+                    reorderAt(y)
+                } else {
+                    draggedGroupDistance += moved
+                }
+            }
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -237,7 +336,7 @@ private fun QueueScreen(
             // Preserve item index 0 for drag/reorder computations.
             item(key = "queue-header-spacer") { Spacer(Modifier.size(0.dp)) }
 
-            if (displayItems.isEmpty()) {
+            if (visibleItems.isEmpty()) {
                 item {
                     if (searchActive) {
                         EmptyQueueSearch(searchQuery)
@@ -246,26 +345,95 @@ private fun QueueScreen(
                     }
                 }
             } else {
-                itemsIndexed(visibleItems, key = { _, entry -> "${entry.value.id}-${entry.index}" }) { _, entry ->
+                itemsIndexed(visibleItems, key = { _, entry -> entry.value.occurrenceId.toString() }) { _, entry ->
                     val item = entry.value
                     val queueIndex = entry.index
                     val isDragging = draggedQueueIndex == queueIndex
+                    val groupId = item.groupId
+                    val group = groupId?.let(state.groups::get)
+                    val isGroupHeader = !searchActive && group != null &&
+                        firstGroupPositions[groupId] == queueIndex
+                    val isGroupDragging = groupId != null && groupId == draggedGroupId
+                    val previous = state.items.getOrNull(queueIndex - 1)
+                    val newManualSection = !searchActive && queueIndex > state.currentIndex &&
+                        item.origin == QueueItemOrigin.MANUAL &&
+                        (previous?.origin != QueueItemOrigin.MANUAL || queueIndex == state.currentIndex + 1)
+                    val newGeneratedSection = !searchActive && queueIndex > state.currentIndex &&
+                        item.origin == QueueItemOrigin.GENERATED &&
+                        (previous?.origin != QueueItemOrigin.GENERATED || queueIndex == state.currentIndex + 1)
                     Box(
                         modifier = Modifier.animateItem(
                             fadeInSpec = tween(durationMillis = 180),
-                            placementSpec = tween(durationMillis = 220),
-                            fadeOutSpec = tween(durationMillis = 180),
+                            placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                            fadeOutSpec = tween(durationMillis = 230),
                         ),
                     ) {
-                        SwipeableQueueItem(
+                        Column(Modifier.animateContentSize()) {
+                        if (newManualSection) {
+                            Text("Queue", modifier = Modifier.padding(start = 8.dp, top = 14.dp, bottom = 10.dp),
+                                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        if (newGeneratedSection) {
+                            Text("Next in the queue", modifier = Modifier.padding(start = 8.dp, top = 14.dp, bottom = 10.dp),
+                                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        if (isGroupHeader && group != null) {
+                            GroupQueueHeader(
+                                group = group,
+                                count = groupCounts[group.id] ?: 0,
+                                compact = isGroupDragging,
+                                offsetY = if (isGroupDragging) draggedGroupDistance else 0f,
+                                reorderEnabled = !searchActive && draggedQueueIndex == null,
+                                onStart = {
+                                    draggedGroupId = group.id
+                                    draggedGroupDistance = 0f
+                                    draggedGroupTarget = queueIndex
+                                    dragCenterY = Float.NaN
+                                },
+                                onDrag = { delta ->
+                                    draggedGroupDistance += delta
+                                    val info = listState.layoutInfo.visibleItemsInfo
+                                        .firstOrNull { it.key == item.occurrenceId.toString() }
+                                    if (info != null) {
+                                        val center = info.offset + info.size / 2f + draggedGroupDistance
+                                        dragCenterY = center
+                                        val nearest = listState.layoutInfo.visibleItemsInfo
+                                            .filter { it.index > 0 }
+                                            .minByOrNull { abs(it.offset + it.size / 2f - center) }
+                                        nearest?.let { target ->
+                                            visibleItems.getOrNull(target.index - 1)?.index?.let {
+                                                draggedGroupTarget = it
+                                            }
+                                        }
+                                    }
+                                },
+                                onStop = { commit ->
+                                    val target = draggedGroupTarget
+                                    draggedGroupId = null
+                                    draggedGroupDistance = 0f
+                                    dragCenterY = Float.NaN
+                                    draggedGroupTarget = null
+                                    if (commit && target != null && target != queueIndex) onMoveGroup(group.id, target)
+                                },
+                                onRemove = { onRemoveGroup(group.id) },
+                                onMoveToFront = { onMoveGroup(group.id, state.currentIndex + 1) },
+                                onMoveToEnd = {
+                                    val firstGenerated = state.items.indices.firstOrNull { index ->
+                                        index > state.currentIndex && state.items[index].origin == QueueItemOrigin.GENERATED
+                                    } ?: state.items.size
+                                    onMoveGroup(group.id, firstGenerated)
+                                },
+                            )
+                        }
+                        if (!isGroupDragging) SwipeableQueueItem(
                             item = item,
                             isCurrent = queueIndex == state.currentIndex,
                             isDragging = isDragging,
                             dragOffsetY = if (isDragging) draggedDistance else 0f,
-                            reorderEnabled = !searchActive,
+                            reorderEnabled = !searchActive && draggedGroupId == null,
                             onPlay = { if (state.items.getOrNull(queueIndex) == item) onPlay(queueIndex) },
                             onDragStart = {
-                                if (!searchActive) {
+                                if (!searchActive && draggedGroupId == null) {
                                     displayItems = filteredItems
                                     draggedQueueIndex = queueIndex
                                     draggedDistance = 0f
@@ -273,54 +441,13 @@ private fun QueueScreen(
                             },
                             onDrag = { deltaY ->
                                 if (searchActive) return@SwipeableQueueItem
-                                val draggedIndex = draggedQueueIndex ?: return@SwipeableQueueItem
-                                val currentIndex = displayItems.indexOfFirst { it.index == draggedIndex }
-                                if (currentIndex < 0) return@SwipeableQueueItem
-                                draggedDistance += deltaY
-
-                                val currentInfo = listState.layoutInfo.visibleItemsInfo
-                                    .firstOrNull { it.index == currentIndex + 1 }
+                                val dragged = draggedQueueIndex ?: return@SwipeableQueueItem
+                                val from = displayItems.indexOfFirst { it.index == dragged }
+                                val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == from + 1 }
                                     ?: return@SwipeableQueueItem
-                                val draggedCenter = currentInfo.offset + currentInfo.size / 2f + draggedDistance
-                                val targetInfo = listState.layoutInfo.visibleItemsInfo
-                                    .asSequence()
-                                    .filter { it.index > 0 && it.index != currentIndex + 1 }
-                                    .minByOrNull { info -> abs((info.offset + info.size / 2f) - draggedCenter) }
-                                val targetIndex = targetInfo?.index?.minus(1)
-
-                                if (targetInfo != null && targetIndex != null && targetIndex in displayItems.indices && targetIndex != currentIndex) {
-                                    val targetCenter = targetInfo.offset + targetInfo.size / 2f
-                                    val crossedTarget = if (targetIndex > currentIndex) {
-                                        draggedCenter >= targetCenter
-                                    } else {
-                                        draggedCenter <= targetCenter
-                                    }
-                                    if (crossedTarget) {
-                                        val oldOffset = currentInfo.offset
-                                        val reordered = displayItems.toMutableList()
-                                        val moved = reordered.removeAt(currentIndex)
-                                        reordered.add(targetIndex, moved)
-                                        displayItems = reordered
-                                        draggedDistance += oldOffset - targetInfo.offset
-                                    }
-                                }
-
-                                val layout = listState.layoutInfo
-                                val draggedTop = currentInfo.offset + draggedDistance
-                                val draggedBottom = draggedTop + currentInfo.size
-                                val overscroll = when {
-                                    deltaY > 0f && draggedBottom > layout.viewportEndOffset ->
-                                        (draggedBottom - layout.viewportEndOffset).coerceAtMost(currentInfo.size.toFloat())
-                                    deltaY < 0f && draggedTop < layout.viewportStartOffset ->
-                                        (draggedTop - layout.viewportStartOffset).coerceAtLeast(-currentInfo.size.toFloat())
-                                    else -> 0f
-                                }
-                                if (overscroll != 0f) {
-                                    scope.launch {
-                                        val consumed = listState.scrollBy(overscroll)
-                                        draggedDistance += consumed
-                                    }
-                                }
+                                draggedDistance += deltaY
+                                dragCenterY = info.offset + info.size / 2f + draggedDistance
+                                reorderAt(dragCenterY)
                             },
                             onDragEnd = { finishDrag(commit = true) },
                             onDragCancel = {
@@ -347,6 +474,8 @@ private fun QueueScreen(
                             onAddToPlaylist = { playlistId -> onAddToPlaylist(item.id, playlistId) },
                             onGoToArtist = { artist -> onGoToArtist(artist) },
                         )
+                        }
+                        }
                     }
                 }
             }
@@ -405,6 +534,99 @@ private fun QueueScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GroupQueueHeader(
+    group: QueueGroup,
+    count: Int,
+    compact: Boolean,
+    offsetY: Float,
+    reorderEnabled: Boolean,
+    onStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onStop: (Boolean) -> Unit,
+    onRemove: () -> Unit,
+    onMoveToFront: () -> Unit,
+    onMoveToEnd: () -> Unit,
+) {
+    var menuExpanded by remember(group.id) { mutableStateOf(false) }
+    var swipeX by remember(group.id) { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    val threshold = with(density) { 90.dp.toPx() }
+    val haptics = rememberMeowzixHaptics()
+    Surface(
+        modifier = Modifier.fillMaxWidth()
+            .graphicsLayer { translationY = offsetY; translationX = swipeX }
+            .pointerInput(group.id) {
+                detectHorizontalDragGestures(
+                    onHorizontalDrag = { change, delta ->
+                        change.consume()
+                        swipeX = (swipeX + delta).coerceIn(-threshold * 1.5f, threshold * 1.5f)
+                    },
+                    onDragEnd = {
+                        when {
+                            swipeX >= threshold -> onMoveToFront()
+                            swipeX <= -threshold -> onMoveToEnd()
+                        }
+                        swipeX = 0f
+                    },
+                    onDragCancel = { swipeX = 0f },
+                )
+            },
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 2.dp,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = if (compact) 8.dp else 12.dp)
+                .animateContentSize(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (group.kind == QueueGroupKind.ALBUM) Icons.Rounded.Album else Icons.Rounded.Person,
+                contentDescription = null, tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(group.title, style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${group.kind.name.lowercase().replaceFirstChar { it.uppercase() }} · $count tracks",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "Group actions")
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(text = { Text("Play Next") }, onClick = {
+                        menuExpanded = false; onMoveToFront()
+                    })
+                    DropdownMenuItem(text = { Text("Add to Queue") }, onClick = {
+                        menuExpanded = false; onMoveToEnd()
+                    })
+                    DropdownMenuItem(text = { Text("Remove group") }, onClick = {
+                        menuExpanded = false; onRemove()
+                    })
+                }
+            }
+            Box(
+                modifier = Modifier.size(42.dp).pointerInput(group.id, reorderEnabled) {
+                    if (reorderEnabled) detectDragGesturesAfterLongPress(
+                        onDragStart = { haptics.perform(MeowzixHapticCue.Threshold); onStart() },
+                        onDrag = { change, delta -> change.consume(); onDrag(delta.y) },
+                        onDragEnd = { onStop(true); haptics.perform(MeowzixHapticCue.Threshold) },
+                        onDragCancel = { onStop(false) },
+                    )
+                },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.DragHandle, contentDescription = "Drag entire group",
+                    tint = MaterialTheme.colorScheme.onSurface)
             }
         }
     }
@@ -558,7 +780,8 @@ private fun SwipeableQueueItem(
                                 val releasedOffset = swipeOffsetX
                                 horizontalDragActive = false
                                 swipeStage = 0
-                                swipeOffsetX = 0f
+                                // Preserve the swipe translation while the row animates out.
+                                if (abs(releasedOffset) < removeThreshold) swipeOffsetX = 0f
                                 when {
                                     abs(releasedOffset) >= removeThreshold -> onRemove()
                                     abs(releasedOffset) >= actionThreshold && releasedOffset > 0f -> onPlayNext()
