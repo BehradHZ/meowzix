@@ -10,10 +10,14 @@ package dev.behradhz.meowzix.playback
  */
 internal class ExternalMediaStartDetector {
     private var initialized = false
+    private var previousTotalPlayers = 0
+    private var previousLocalPlayers = 0
     var externalCount: Int = 0
         private set
 
     fun baseline(activeMediaPlayers: Int, audibleLocalPlayers: Int) {
+        previousTotalPlayers = activeMediaPlayers.coerceAtLeast(0)
+        previousLocalPlayers = audibleLocalPlayers.coerceAtLeast(0)
         externalCount = estimatedExternalCount(activeMediaPlayers, audibleLocalPlayers)
         initialized = true
     }
@@ -23,9 +27,21 @@ internal class ExternalMediaStartDetector {
         audibleLocalPlayers: Int,
         playbackRequested: Boolean,
     ): Boolean {
-        val currentExternalCount = estimatedExternalCount(activeMediaPlayers, audibleLocalPlayers)
+        val total = activeMediaPlayers.coerceAtLeast(0)
+        val local = audibleLocalPlayers.coerceAtLeast(0)
+        val estimated = estimatedExternalCount(total, local)
+        // Our own AudioTrack can remain in Android's active list for a callback
+        // after ExoPlayer has been paused. That temporary mismatch must not be
+        // interpreted as a NEW external player (or block a microphone resume).
+        val onlyOurPlayerStopping = initialized &&
+            local < previousLocalPlayers && total <= previousTotalPlayers
+        val currentExternalCount =
+            if (onlyOurPlayerStopping && estimated > externalCount) externalCount
+            else estimated
         val newExternalPlayback = initialized && currentExternalCount > externalCount
         externalCount = currentExternalCount
+        previousTotalPlayers = total
+        previousLocalPlayers = local
         initialized = true
         return playbackRequested && newExternalPlayback
     }
