@@ -411,12 +411,12 @@ class AndroidPlaybackController @Inject constructor(
                 active.sourceTrackIds.size == trackIds.size &&
                 active.sourceTrackIds.toSet() == trackIds.toSet()
             ) {
-                if (existingIndex > active.currentIndex &&
+                if (existingIndex <= active.currentIndex ||
                     active.origins[existingIndex] ==
                         dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
                 ) {
-                    // Even with a pending manual Queue, this is a selection from
-                    // the current Next list: preserve navigation history.
+                    // Current/previous/Next selections within this collection all
+                    // navigate the SAME session. History and manual Queue survive.
                     playAt(existingIndex)
                 } else if (progressiveQueue.hasFixedFuture()) {
                     withConnectedController { connected ->
