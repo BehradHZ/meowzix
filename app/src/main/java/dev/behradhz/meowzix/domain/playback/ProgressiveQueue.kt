@@ -327,6 +327,60 @@ class ProgressiveQueue @Inject constructor() {
         return resetWindowLocked()
     }
 
+    /**
+     * Seek forward within the current listening session without discarding its
+     * navigation history. Example: [A] B C D E, select C -> A B [C] D E.
+     *
+     * Skipped GENERATED occurrences become history, not future playback. Pending
+     * fixed MANUAL Queue occurrences remain ahead of C in their original order:
+     * [A] Q1 Q2 B C D -> A B [C] Q1 Q2 D.
+     *
+     * Preserve occurrence identities, shuffle permutation, candidate pool,
+     * future refill cursor, and every track already in this session.
+     */
+    @Synchronized
+    fun selectUpcomingNext(index: Int): QueueWindowPlan? {
+        if (currentIndex !in tracks.indices ||
+            index <= currentIndex ||
+            index !in tracks.indices ||
+            origins[index] != QueueItemOrigin.GENERATED
+        ) return null
+
+        val oldCurrent = currentIndex
+        val historyIndices = (0..oldCurrent).toList()
+        val skippedNext = (oldCurrent + 1 until index)
+            .filter { origins[it] == QueueItemOrigin.GENERATED }
+        val manualFuture = (oldCurrent + 1 until tracks.size)
+            .filter { origins[it] == QueueItemOrigin.MANUAL }
+        val remainingNext = (index + 1 until tracks.size)
+            .filter { origins[it] == QueueItemOrigin.GENERATED }
+        val arrangement = historyIndices + skippedNext + index + manualFuture + remainingNext
+        check(arrangement.size == tracks.size) {
+            "Next selection must preserve every track and occurrence in the session"
+        }
+
+        // Count traversed generated tracks before changing the logical indexes.
+        noteGeneratedTransition(index)
+
+        val reorderedTracks = arrangement.map(tracks::get)
+        val reorderedOrigins = arrangement.map(origins::get)
+        val reorderedOccurrences = arrangement.map(occurrenceIds::get)
+        val reorderedGroups = arrangement.map(groupIds::get)
+
+        tracks.clear()
+        tracks.addAll(reorderedTracks)
+        origins.clear()
+        origins.addAll(reorderedOrigins)
+        occurrenceIds.clear()
+        occurrenceIds.addAll(reorderedOccurrences)
+        groupIds.clear()
+        groupIds.addAll(reorderedGroups)
+
+        currentIndex = historyIndices.size + skippedNext.size
+        bumpRevision()
+        return resetWindowLocked()
+    }
+
     @Synchronized
     fun insertNext(track: PlayableTrack): Boolean {
         if (tracks.isEmpty()) {
