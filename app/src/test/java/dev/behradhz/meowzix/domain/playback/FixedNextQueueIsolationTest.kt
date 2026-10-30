@@ -240,6 +240,47 @@ class FixedNextQueueIsolationTest {
         assertEquals(songs[1].id, requireNotNull(queue.snapshot()).tracks[1].id)
     }
 
+    @Test fun sessionHistoryAndOccurrenceIdsSurviveProcessRestoration() {
+        val songs = (0..25).map(::song)
+        val queue = ProgressiveQueue()
+        queue.start(songs, 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
+            seed = 12L, sourceIds = songs.map { it.id })
+        queue.insertNext(songs[23])
+        val selectC = requireNotNull(queue.snapshot()).tracks.indices.first {
+            queue.snapshot()!!.tracks[it].id == songs[2].id &&
+                queue.snapshot()!!.origins[it] == QueueItemOrigin.GENERATED
+        }
+        requireNotNull(queue.selectUpcomingNext(selectC))
+        val persisted = requireNotNull(queue.snapshot())
+
+        val restored = ProgressiveQueue()
+        assertTrue(restored.restore(
+            orderedTrackIds = persisted.tracks.map { it.id },
+            availableTracks = songs.associateBy { it.id },
+            requestedCurrentIndex = persisted.currentIndex,
+            requestedMaterializedStartIndex = persisted.materializedStartIndex,
+            requestedMaterializedEndExclusive = persisted.materializedEndExclusive,
+            mode = persisted.playbackMode,
+            repeat = persisted.repeatMode,
+            seed = persisted.shuffleSeed,
+            requestedOrigins = persisted.origins,
+            sourceIds = persisted.sourceTrackIds,
+            pendingIds = persisted.pendingGeneratedIds,
+            requestedOccurrenceIds = persisted.occurrenceIds,
+            requestedGroupIds = persisted.groupIds,
+            requestedGroups = persisted.groups.values.toList(),
+        ))
+        val after = requireNotNull(restored.snapshot())
+        assertEquals(persisted.tracks.map { it.id }, after.tracks.map { it.id })
+        assertEquals(persisted.occurrenceIds, after.occurrenceIds)
+        assertEquals(persisted.currentIndex, after.currentIndex)
+        assertTrue(restored.hasPrevious())
+        requireNotNull(restored.jumpTo(1))
+        assertEquals(songs[1].id, requireNotNull(restored.snapshot()).tracks[1].id)
+        requireNotNull(restored.jumpTo(0))
+        assertEquals(songs[0].id, requireNotNull(restored.snapshot()).tracks[0].id)
+    }
+
     @Test fun selectingManualQueueEntryDoesNotSkipEarlierGeneratedNextOccurrences() {
         val songs = (0..7).map(::song)
         val queue = ProgressiveQueue()
