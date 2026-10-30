@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 enum class QueueActionKind {
     PLAY_NEXT,
     ADD_TO_END,
+    REMOVED,
+    CLEARED,
 }
 
 data class QueueActionFeedback(
