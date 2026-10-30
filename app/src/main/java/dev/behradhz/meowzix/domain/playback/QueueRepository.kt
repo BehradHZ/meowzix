@@ -35,6 +35,8 @@ interface QueueRepository {
     fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode)
     fun replaceAndPlay(trackIds: List<UUID>, startTrackId: UUID, mode: PlaybackMode)
     fun removeAt(index: Int)
+    /** Remove the exact displayed occurrence, even if playback shifts queue indexes first. */
+    fun removeOccurrence(occurrenceId: UUID)
     fun move(fromIndex: Int, toIndex: Int)
     fun clear()
     fun setPlaybackMode(mode: PlaybackMode)
