@@ -177,6 +177,16 @@ class AndroidPlaybackController @Inject constructor(
                     replaceAndPlayInternal(ids, active.tracks[index].id, active.playbackMode)
                     return@withController
                 }
+                // Playing a later explicit Queue occurrence must not push earlier fixed
+                // entries into history. Move this occurrence to the front and leave
+                // the other fixed entries pending in their original relative order.
+                if (progressiveQueue.isFixedOccurrence(index) && index > active.currentIndex + 1) {
+                    if (progressiveQueue.move(index, active.currentIndex + 1)) {
+                        progressiveQueue.jumpTo(active.currentIndex + 1)
+                        rebuildProgressiveWindow(connected, preservePosition = false)
+                    }
+                    return@withController
+                }
                 val plan = progressiveQueue.jumpTo(index) ?: return@withController
                 val snapshot = progressiveQueue.snapshot() ?: return@withController
                 connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
