@@ -62,6 +62,7 @@ class QueueViewModel @Inject constructor(
     fun play(index: Int) = queueRepository.playAt(index)
     fun move(fromIndex: Int, toIndex: Int) = queueRepository.move(fromIndex, toIndex)
     fun remove(index: Int) = queueRepository.removeAt(index)
+    fun removeOccurrence(occurrenceId: UUID) = queueRepository.removeOccurrence(occurrenceId)
     fun clear() = queueRepository.clear()
     fun removeGroup(id: UUID) = queueRepository.removeGroup(id)
     fun moveGroup(id: UUID, toIndex: Int) = queueRepository.moveGroup(id, toIndex)
