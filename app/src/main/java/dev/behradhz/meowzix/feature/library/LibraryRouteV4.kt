@@ -18,8 +18,6 @@ import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import kotlinx.coroutines.flow.collect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
@@ -129,15 +127,6 @@ internal fun LibraryRouteV4(
     displayViewModel: LibraryDisplayViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
-    val queueSnackbar = remember { SnackbarHostState() }
-    LaunchedEffect(tracksViewModel) {
-        tracksViewModel.queueFeedback.collect { event ->
-            queueSnackbar.showSnackbar(
-                if (event.kind == dev.behradhz.meowzix.domain.playback.QueueActionKind.PLAY_NEXT)
-                    "Play next · ${event.trackTitle}" else "Added to queue · ${event.trackTitle}"
-            )
-        }
-    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val displaySettings by tracksViewModel.displaySettings.collectAsStateWithLifecycle()
@@ -388,10 +377,6 @@ internal fun LibraryRouteV4(
         }
     }
         }
-        SnackbarHost(
-            hostState = queueSnackbar,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 168.dp),
-        )
         MeowzixStickyHeader(
             title = "Library",
             subtitle = "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
