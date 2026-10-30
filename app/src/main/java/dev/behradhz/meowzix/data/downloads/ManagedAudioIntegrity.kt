@@ -16,7 +16,8 @@ internal object ManagedAudioIntegrity {
         if (expectedBytes != null && expectedBytes > 0L && length != expectedBytes) return false
         if (!expectedSha256.isNullOrBlank()) {
             if (!expectedSha256.matches(Regex("[0-9a-fA-F]{64}"))) return false
-            if (!sha256(file).equals(expectedSha256, ignoreCase = true)) return false
+            val actualHash = runCatching { sha256(file) }.getOrNull() ?: return false
+            if (!actualHash.equals(expectedSha256, ignoreCase = true)) return false
         }
         return true
     }
