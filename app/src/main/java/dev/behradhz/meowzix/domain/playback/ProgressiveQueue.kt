@@ -486,6 +486,17 @@ class ProgressiveQueue @Inject constructor() {
         return true
     }
 
+    /**
+     * Remove exactly one occurrence. This lookup and the mutation share the
+     * same lock so a concurrent queue revision cannot redirect a swipe to
+     * another track (including duplicate copies of the same canonical ID).
+     */
+    @Synchronized
+    fun removeOccurrence(occurrenceId: UUID): Boolean {
+        val index = occurrenceIds.indexOf(occurrenceId)
+        return index >= 0 && removeAt(index)
+    }
+
     @Synchronized
     fun removeAt(index: Int): Boolean {
         if (index !in tracks.indices) return false
