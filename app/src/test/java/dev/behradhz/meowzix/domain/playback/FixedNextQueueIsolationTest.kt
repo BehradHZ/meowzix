@@ -93,4 +93,56 @@ class FixedNextQueueIsolationTest {
         assertTrue(queue.isFixedOccurrence(1))
         assertEquals(QueueItemOrigin.GENERATED, state.origins[2])
     }
+
+    @Test fun removingANextOccurrenceDoesNotReshuffleOrAdvancePlayback() {
+        val songs = (0..15).map(::song)
+        val queue = ProgressiveQueue()
+        queue.start(
+            songs.take(12), 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
+            seed = 1234L, sourceIds = songs.map { it.id },
+        )
+        queue.insertNext(songs[15])
+        val before = requireNotNull(queue.snapshot())
+        val currentOccurrence = before.occurrenceIds[before.currentIndex]
+        val generatedBefore = before.tracks.indices
+            .filter { before.origins[it] == QueueItemOrigin.GENERATED && it > before.currentIndex }
+            .map { before.occurrenceIds[it] to before.tracks[it].id }
+        val toRemove = before.tracks.indexOfFirst { it.id == songs[5].id }
+        val removedOccurrence = before.occurrenceIds[toRemove]
+
+        assertTrue(queue.removeAt(toRemove))
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(currentOccurrence, after.occurrenceIds[after.currentIndex])
+        assertEquals(PlaybackMode.PURE_SHUFFLE, after.playbackMode)
+        assertEquals(1234L, after.shuffleSeed)
+        val generatedAfter = after.tracks.indices
+            .filter { after.origins[it] == QueueItemOrigin.GENERATED && it > after.currentIndex }
+            .map { after.occurrenceIds[it] to after.tracks[it].id }
+        assertEquals(generatedBefore.filterNot { it.first == removedOccurrence }, generatedAfter)
+
+        assertTrue(queue.updateCurrentFromWindowIndex(1, songs[15].id.toString()))
+        val advanced = requireNotNull(queue.snapshot())
+        assertEquals(generatedAfter, advanced.tracks.indices
+            .filter { advanced.origins[it] == QueueItemOrigin.GENERATED && it > advanced.currentIndex }
+            .map { advanced.occurrenceIds[it] to advanced.tracks[it].id })
+    }
+
+    @Test fun deletingDuplicateGeneratedOccurrenceLeavesFixedQueueInstanceIntact() {
+        val songs = (0..5).map(::song)
+        val queue = ProgressiveQueue()
+        queue.start(songs, 0, PlaybackMode.ORDERED, RepeatMode.OFF,
+            sourceIds = songs.map { it.id })
+        queue.insertNext(songs[1])
+        val before = requireNotNull(queue.snapshot())
+        val fixedOccurrence = before.occurrenceIds[1]
+        val duplicateGeneratedIndex = (2 until before.tracks.size).first {
+            before.tracks[it].id == songs[1].id && before.origins[it] == QueueItemOrigin.GENERATED
+        }
+
+        assertTrue(queue.removeAt(duplicateGeneratedIndex))
+        val after = requireNotNull(queue.snapshot())
+        assertTrue(after.occurrenceIds.contains(fixedOccurrence))
+        assertTrue(queue.isFixedOccurrence(after.occurrenceIds.indexOf(fixedOccurrence)))
+        assertEquals(0, after.currentIndex)
+    }
 }
