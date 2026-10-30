@@ -81,13 +81,12 @@ class TdLibDownloadRepository @Inject constructor(
             val managed = sources.firstOrNull {
                 it.type == TrackSourceType.APP_OFFLINE_COPY && it.localPath == record.localPath
             }
-            val expected = ManagedAudioIntegrity.expectedBytes(
-                sources.firstOrNull { it.type == TrackSourceType.TELEGRAM_REMOTE }?.fileSizeBytes,
-                record.totalBytes,
-                managed?.fileSizeBytes,
-            )
-            if (ManagedAudioIntegrity.isValid(
-                    File(record.localPath), expected, managed?.contentHashSha256,
+            val remoteSizes = sources.filter { it.type == TrackSourceType.TELEGRAM_REMOTE }
+                .map { it.fileSizeBytes }
+            if (ManagedAudioIntegrity.isValidForAnyRemoteSize(
+                    File(record.localPath), remoteSizes,
+                    ManagedAudioIntegrity.expectedBytes(record.totalBytes, managed?.fileSizeBytes),
+                    managed?.contentHashSha256,
                 )
             ) continue
             invalidateManagedCopy(trackId, record.localPath)
@@ -349,17 +348,17 @@ class TdLibDownloadRepository @Inject constructor(
     private suspend fun reuseExistingLocalCopy(trackId: UUID): Boolean {
         val existing = downloadDao.byTrackId(trackId.toString())
         val allSources = libraryDao.sourcesForTrack(trackId.toString())
-        val telegramBytes = allSources.firstOrNull {
+        val telegramSizes = allSources.filter {
             it.type == TrackSourceType.TELEGRAM_REMOTE
-        }?.fileSizeBytes
+        }.map { it.fileSizeBytes }
         val existingFile = existing?.localPath?.let(::File)
         val persistedCopy = allSources.firstOrNull {
             it.type == TrackSourceType.APP_OFFLINE_COPY && it.localPath == existing?.localPath
         }
         if (existing?.status == DownloadStatus.COMPLETED.name && existingFile != null &&
-            (persistedCopy == null || !ManagedAudioIntegrity.isValid(
-                existingFile,
-                ManagedAudioIntegrity.expectedBytes(telegramBytes, existing.totalBytes, persistedCopy?.fileSizeBytes),
+            (persistedCopy == null || !ManagedAudioIntegrity.isValidForAnyRemoteSize(
+                existingFile, telegramSizes,
+                ManagedAudioIntegrity.expectedBytes(existing.totalBytes, persistedCopy.fileSizeBytes),
                 persistedCopy.contentHashSha256,
             ))
         ) {
@@ -387,9 +386,8 @@ class TdLibDownloadRepository @Inject constructor(
             when {
                 source.type == TrackSourceType.APP_OFFLINE_COPY && !source.localPath.isNullOrBlank() -> {
                     val file = source.localPath?.let(::File)
-                    if (!ManagedAudioIntegrity.isValid(
-                        file, ManagedAudioIntegrity.expectedBytes(telegramBytes, source.fileSizeBytes),
-                        source.contentHashSha256,
+                    if (!ManagedAudioIntegrity.isValidForAnyRemoteSize(
+                        file, telegramSizes, source.fileSizeBytes, source.contentHashSha256,
                     )) {
                         invalidateManagedCopy(trackId, source.localPath)
                         continue
@@ -399,9 +397,8 @@ class TdLibDownloadRepository @Inject constructor(
                 }
                 source.type == TrackSourceType.TDLIB_LOCAL && !source.localPath.isNullOrBlank() -> {
                     val file = source.localPath?.let(::File)
-                    if (!ManagedAudioIntegrity.isValid(
-                        file, ManagedAudioIntegrity.expectedBytes(telegramBytes, source.fileSizeBytes),
-                        source.contentHashSha256,
+                    if (!ManagedAudioIntegrity.isValidForAnyRemoteSize(
+                        file, telegramSizes, source.fileSizeBytes, source.contentHashSha256,
                     )) {
                         invalidateManagedCopy(trackId, source.localPath)
                         continue
