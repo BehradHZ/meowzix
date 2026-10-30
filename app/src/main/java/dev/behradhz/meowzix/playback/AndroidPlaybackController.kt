@@ -542,9 +542,13 @@ class AndroidPlaybackController @Inject constructor(
                         // with setMediaItems()/prepare() interrupts the audio currently playing.
                         val playerIndex = removal.mediaItemIndex
                         if (playerIndex in 0 until connected.mediaItemCount &&
-                            playerIndex != connected.currentMediaItemIndex) {
+                            playerIndex != connected.currentMediaItemIndex &&
+                            connected.getMediaItemAt(playerIndex).mediaId == current.tracks[index].id.toString()
+                        ) {
                             connected.removeMediaItem(playerIndex)
                         } else {
+                            // Stale Media3 window indexes must never delete the playing
+                            // item or the wrong generated occurrence.
                             syncProgressiveWindowInPlace(connected)
                         }
                         refillAfterQueueRemoval(connected)
