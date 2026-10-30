@@ -160,6 +160,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             if (!verified) {
                 if (source.type == TrackSourceType.APP_OFFLINE_COPY || source.type == TrackSourceType.TDLIB_LOCAL) {
                     libraryDao.updateAvailability(source.id, SourceAvailability.MISSING, now)
+                    deleteBrokenManagedAudio(source.localPath, source.type)
                 }
                 continue
             }
@@ -183,6 +184,21 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
      * been indexed yet or TDLib rejects the persisted id, removing a metadata round-trip from the
      * normal play path.
      */
+    private fun deleteBrokenManagedAudio(path: String?, type: TrackSourceType) {
+        if (path.isNullOrBlank()) return
+        val rootName = when (type) {
+            TrackSourceType.APP_OFFLINE_COPY -> "offline"
+            TrackSourceType.TDLIB_LOCAL -> "playback-cache"
+            else -> return
+        }
+        // Only owned copies are eligible; never remove the user's MediaStore music or TDLib data.
+        runCatching {
+            val root = File(context.filesDir, rootName).canonicalFile
+            val file = File(path).canonicalFile
+            if (file.parentFile == root && file.isFile) file.delete()
+        }
+    }
+
     private suspend fun resolveSource(trackId: UUID): ResolvedTelegramSource? {
         val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
         val telegramSource = telegramDao.telegramSourceForTrack(accountId, trackId.toString()) ?: return null
