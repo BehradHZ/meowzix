@@ -284,8 +284,23 @@ class TdLibDownloadRepository @Inject constructor(
 
     private suspend fun reuseExistingLocalCopy(trackId: UUID): Boolean {
         val existing = downloadDao.byTrackId(trackId.toString())
-        val existingFile = existing?.localPath?.let(::File)?.takeIf(File::isFile)
-        if (existing?.status == DownloadStatus.COMPLETED.name && existingFile != null) {
+        val allSources = libraryDao.sourcesForTrack(trackId.toString())
+        val telegramBytes = allSources.firstOrNull {
+            it.type == TrackSourceType.TELEGRAM_REMOTE
+        }?.fileSizeBytes
+        val existingFile = existing?.localPath?.let(::File)
+        val persistedCopy = allSources.firstOrNull {
+            it.type == TrackSourceType.APP_OFFLINE_COPY && it.localPath == existing?.localPath
+        }
+        if (existing?.status == DownloadStatus.COMPLETED.name && existingFile != null &&
+            !ManagedAudioIntegrity.isValid(
+                existingFile,
+                ManagedAudioIntegrity.expectedBytes(telegramBytes, existing.totalBytes, persistedCopy?.fileSizeBytes),
+                persistedCopy?.contentHashSha256,
+            )
+        ) {
+            invalidateManagedCopy(trackId, existing.localPath)
+        } else if (existing?.status == DownloadStatus.COMPLETED.name && existingFile != null) {
             if (!existing.pinned || existing.failureReason != null) {
                 downloadDao.upsert(
                     existing.copy(
@@ -307,13 +322,27 @@ class TdLibDownloadRepository @Inject constructor(
         for (source in localSources) {
             when {
                 source.type == TrackSourceType.APP_OFFLINE_COPY && !source.localPath.isNullOrBlank() -> {
-                    val file = source.localPath?.let(::File)?.takeIf(File::isFile) ?: continue
-                    markExistingSourceCompleted(trackId, source, file, existing)
+                    val file = source.localPath?.let(::File)
+                    if (!ManagedAudioIntegrity.isValid(
+                        file, ManagedAudioIntegrity.expectedBytes(telegramBytes, source.fileSizeBytes),
+                        source.contentHashSha256,
+                    )) {
+                        invalidateManagedCopy(trackId, source.localPath)
+                        continue
+                    }
+                    markExistingSourceCompleted(trackId, source, requireNotNull(file), existing)
                     return true
                 }
                 source.type == TrackSourceType.TDLIB_LOCAL && !source.localPath.isNullOrBlank() -> {
-                    val file = source.localPath?.let(::File)?.takeIf(File::isFile) ?: continue
-                    val localCopy = copyIntoOfflineDirectory(trackId, file, file.name)
+                    val file = source.localPath?.let(::File)
+                    if (!ManagedAudioIntegrity.isValid(
+                        file, ManagedAudioIntegrity.expectedBytes(telegramBytes, source.fileSizeBytes),
+                        source.contentHashSha256,
+                    )) {
+                        invalidateManagedCopy(trackId, source.localPath)
+                        continue
+                    }
+                    val localCopy = copyIntoOfflineDirectory(trackId, requireNotNull(file), file.name)
                     val now = Instant.now().toEpochMilli()
                     val previousOfflineSource = libraryDao.sourceById(offlineSourceId(trackId))
                     database.withTransaction {
@@ -371,6 +400,9 @@ class TdLibDownloadRepository @Inject constructor(
         existing: DownloadRecordEntity?,
     ) {
         val now = Instant.now().toEpochMilli()
+        if (source.contentHashSha256.isNullOrBlank()) {
+            libraryDao.updateContentHash(source.id, ManagedAudioIntegrity.sha256(file))
+        }
         downloadDao.upsert(completedRecord(trackId, source.id, file, existing, now))
     }
 
