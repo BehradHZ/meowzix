@@ -85,14 +85,29 @@ class ManagedStorageManager @Inject constructor(
 
     private suspend fun reconcileSources() {
         val now = Instant.now().toEpochMilli()
-        libraryDao.allSources()
-            .filter { source ->
-                source.type == TrackSourceType.TDLIB_LOCAL || source.type == TrackSourceType.APP_OFFLINE_COPY
-            }
-            .filter { source -> !source.localPath.isNullOrBlank() }
-            .filter { source -> !File(requireNotNull(source.localPath)).isFile }
-            .forEach { missing ->
-                libraryDao.updateAvailability(missing.id, SourceAvailability.MISSING, now)
+        val sources = libraryDao.allSources()
+        val remoteSizes = sources
+            .filter { it.type == TrackSourceType.TELEGRAM_REMOTE && (it.fileSizeBytes ?: 0L) > 0L }
+            .associate { it.trackId to requireNotNull(it.fileSizeBytes) }
+        sources
+            .filter { it.type == TrackSourceType.TDLIB_LOCAL || it.type == TrackSourceType.APP_OFFLINE_COPY }
+            .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
+            .forEach { managed ->
+                val file = managed.localPath?.let(::File)
+                val expected = ManagedAudioIntegrity.expectedBytes(
+                    remoteSizes[managed.trackId], managed.fileSizeBytes,
+                )
+                if (ManagedAudioIntegrity.isValid(file, expected, managed.contentHashSha256)) return@forEach
+                libraryDao.updateAvailability(managed.id, SourceAvailability.MISSING, now)
+                // Never remove user-owned MediaStore files or files currently leased by a transfer.
+                if (file != null && !leases.isProtected(file.absolutePath)) {
+                    when (managed.type) {
+                        TrackSourceType.TDLIB_LOCAL -> deleteTemporaryFile(file)
+                        TrackSourceType.APP_OFFLINE_COPY ->
+                            if (isOwnedBy(file, offlineRoot)) file.delete()
+                        else -> Unit
+                    }
+                }
             }
     }
 
