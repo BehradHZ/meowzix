@@ -115,6 +115,7 @@ internal fun TrackActionsMenu(
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
+    onRemoveOfflineCopy: (() -> Unit)? = null,
     onViewInChat: (() -> Unit)? = null,
 ) {
     var page by remember(title, artist, isQueue) { mutableStateOf(TrackActionsPage.ACTIONS) }
@@ -255,6 +256,11 @@ internal fun TrackActionsMenu(
                     }
                     ActionLine(Icons.Rounded.ContentCopy, "Manage duplicates") {
                         onDismiss(); onManageDuplicates()
+                    }
+                    onRemoveOfflineCopy?.let { remove ->
+                        ActionLine(Icons.Rounded.DeleteOutline, "Remove offline download") {
+                            onDismiss(); remove()
+                        }
                     }
                     }
                     // Keep playlist-only management operations while retaining Why as the last row.
