@@ -48,11 +48,13 @@ class LibraryTracksViewModel @Inject constructor(
     private val queryRepository: LibraryQueryRepository,
     private val settingsRepository: SettingsRepository,
     private val queueRepository: QueueRepository,
+    private val queueFeedbackBus: dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus,
     private val playbackContextPolicyStore: PlaybackContextPolicyStore,
 ) : ViewModel() {
     private val availability = MutableStateFlow(LibraryAvailabilityFilter.ALL)
     private val aggregateSelection = MutableStateFlow<LibraryAggregateSelection?>(null)
     private val searchQuery = MutableStateFlow("")
+    val queueFeedback = queueFeedbackBus.events
 
     val displaySettings: StateFlow<LibraryDisplaySettings> = settingsRepository.libraryDisplaySettings
         .distinctUntilChanged()

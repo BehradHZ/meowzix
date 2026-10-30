@@ -47,6 +47,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -116,7 +118,19 @@ internal fun SwipeableLibraryTrackRow(
     Box(modifier = Modifier.fillMaxWidth()) {
         if (swipeMagnitude > 0.5f) {
             Surface(
-                modifier = Modifier.fillMaxWidth().height(66.dp),
+                modifier = Modifier.fillMaxWidth().height(66.dp)
+                    // Only the uncovered swipe gutter may show the action. Transparent
+                    // glass cards must never expose the backdrop through their foreground.
+                    .drawWithContent {
+                        val edge = visualOffsetX.coerceIn(-size.width, size.width)
+                        if (edge > 0f) {
+                            clipRect(left = 0f, right = edge) { this@drawWithContent.drawContent() }
+                        } else if (edge < 0f) {
+                            clipRect(left = size.width + edge, right = size.width) {
+                                this@drawWithContent.drawContent()
+                            }
+                        }
+                    },
                 shape = RoundedCornerShape(16.dp),
                 color = if (swipingRight) {
                     MaterialTheme.colorScheme.primaryContainer

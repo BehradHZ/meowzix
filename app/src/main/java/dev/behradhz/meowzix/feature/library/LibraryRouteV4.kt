@@ -9,6 +9,18 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import kotlinx.coroutines.flow.collect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.rounded.MoreVert
@@ -117,6 +129,15 @@ internal fun LibraryRouteV4(
     displayViewModel: LibraryDisplayViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val queueSnackbar = remember { SnackbarHostState() }
+    LaunchedEffect(tracksViewModel) {
+        tracksViewModel.queueFeedback.collect { event ->
+            queueSnackbar.showSnackbar(
+                if (event.kind == dev.behradhz.meowzix.domain.playback.QueueActionKind.PLAY_NEXT)
+                    "Play next · ${event.trackTitle}" else "Added to queue · ${event.trackTitle}"
+            )
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val displaySettings by tracksViewModel.displaySettings.collectAsStateWithLifecycle()
@@ -366,6 +387,10 @@ internal fun LibraryRouteV4(
         }
     }
         }
+        SnackbarHost(
+            hostState = queueSnackbar,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 168.dp),
+        )
         MeowzixStickyHeader(
             title = "Library",
             subtitle = "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
@@ -585,66 +610,120 @@ private fun SummaryRowV4(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var offsetX by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val threshold = with(density) { 85.dp.toPx() }
-    Surface(
-        modifier = Modifier.fillMaxWidth()
-            .pointerInput(onPlayNext, onAddToQueue) {
-                if (onPlayNext != null && onAddToQueue != null) {
-                    detectHorizontalDragGestures(
-                        onHorizontalDrag = { change, amount ->
-                            change.consume()
-                            offsetX = (offsetX + amount).coerceIn(-threshold * 1.5f, threshold * 1.5f)
-                        },
-                        onDragEnd = {
-                            when {
-                                offsetX >= threshold -> onPlayNext()
-                                offsetX <= -threshold -> onAddToQueue()
-                            }
-                            offsetX = 0f
-                        },
-                        onDragCancel = { offsetX = 0f },
-                    )
-                }
-            },
-        shape = RoundedCornerShape(16.dp),
-        color = Color(0x4D252329),
-        contentColor = Color.White,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
-                .graphicsLayer { translationX = offsetX }
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-        Surface(
-            modifier = Modifier.size(48.dp),
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-            contentColor = MaterialTheme.colorScheme.primary,
-        ) { Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = null) } }
-        Spacer(Modifier.size(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.70f))
-        }
-        if (onPlayNext != null && onAddToQueue != null) {
-            Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Rounded.MoreVert, contentDescription = "Queue actions")
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("Play Next") }, onClick = {
-                        menuOpen = false; onPlayNext()
-                    })
-                    DropdownMenuItem(text = { Text("Add to Queue") }, onClick = {
-                        menuOpen = false; onAddToQueue()
-                    })
+    val haptic = LocalHapticFeedback.current
+    val threshold = with(density) { 75.dp.toPx() }
+    val visualOffset by animateFloatAsState(
+        targetValue = offsetX,
+        animationSpec = if (dragging) snap() else tween(190),
+        label = "aggregate-library-swipe",
+    )
+    val swipeRight = visualOffset > 0f
+    Box(modifier = Modifier.fillMaxWidth()) {
+        if (onPlayNext != null && onAddToQueue != null && kotlin.math.abs(visualOffset) > 0.5f) {
+            Surface(
+                modifier = Modifier.matchParentSize().drawWithContent {
+                    val edge = visualOffset.coerceIn(-size.width, size.width)
+                    if (edge > 0f) clipRect(left = 0f, right = edge) {
+                        this@drawWithContent.drawContent()
+                    } else if (edge < 0f) clipRect(left = size.width + edge, right = size.width) {
+                        this@drawWithContent.drawContent()
+                    }
+                },
+                shape = RoundedCornerShape(16.dp),
+                color = if (swipeRight) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.tertiaryContainer,
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                    horizontalArrangement = if (swipeRight) Arrangement.Start else Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (swipeRight) {
+                        Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
+                        Spacer(Modifier.size(8.dp))
+                    }
+                    Text(if (swipeRight) "Play next" else "Add to queue",
+                        fontWeight = FontWeight.SemiBold)
+                    if (!swipeRight) {
+                        Spacer(Modifier.size(8.dp))
+                        Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
+                    }
                 }
             }
         }
+        Surface(
+            modifier = Modifier.fillMaxWidth()
+                .graphicsLayer { translationX = visualOffset }
+                .pointerInput(title, onPlayNext, onAddToQueue) {
+                    if (onPlayNext != null && onAddToQueue != null) {
+                        detectHorizontalDragGestures(
+                            onDragStart = { dragging = true },
+                            onHorizontalDrag = { change, delta ->
+                                change.consume()
+                                val old = kotlin.math.abs(offsetX)
+                                offsetX = (offsetX + delta).coerceIn(-threshold * 3, threshold * 3)
+                                if (old < threshold && kotlin.math.abs(offsetX) >= threshold)
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            },
+                            onDragEnd = {
+                                val released = offsetX
+                                dragging = false
+                                offsetX = 0f
+                                when {
+                                    released >= threshold -> onPlayNext()
+                                    released <= -threshold -> onAddToQueue()
+                                }
+                            },
+                            onDragCancel = { dragging = false; offsetX = 0f },
+                        )
+                    }
+                },
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0x4D252329),
+            contentColor = Color.White,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    contentColor = MaterialTheme.colorScheme.primary,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(icon, contentDescription = null)
+                    }
+                }
+                Spacer(Modifier.size(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.70f))
+                }
+                if (onPlayNext != null && onAddToQueue != null) {
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(Icons.Rounded.MoreVert, contentDescription = "Queue actions")
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(text = { Text("Play next") }, onClick = {
+                                menuOpen = false; onPlayNext()
+                            })
+                            DropdownMenuItem(text = { Text("Add to queue") }, onClick = {
+                                menuOpen = false; onAddToQueue()
+                            })
+                        }
+                    }
+                }
+            }
         }
     }
 }
