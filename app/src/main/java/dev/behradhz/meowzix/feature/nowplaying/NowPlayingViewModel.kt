@@ -240,10 +240,18 @@ class NowPlayingViewModel @Inject constructor(
     fun extendSleepTimer() = viewModelScope.launch { sleepTimerManager.extend(15 * 60_000L) }
     fun cancelSleepTimer() = setSleepTimerEnabled(false)
 
+    private var savePlaybackSpeedJob: Job? = null
+
     fun setPlaybackSpeed(speed: Float) {
         val bounded = speed.coerceIn(0.5f, 5f)
         playbackController.setPlaybackSpeed(bounded)
-        viewModelScope.launch { settingsRepository.setPlaybackSpeed(bounded) }
+        // The UI and Media3 update immediately. Coalesce rapid dial movements to
+        // avoid hundreds of persistent DataStore writes per gesture.
+        savePlaybackSpeedJob?.cancel()
+        savePlaybackSpeedJob = viewModelScope.launch {
+            delay(200L)
+            settingsRepository.setPlaybackSpeed(bounded)
+        }
     }
 
     fun togglePlayPause() = playbackController.togglePlayPause()
