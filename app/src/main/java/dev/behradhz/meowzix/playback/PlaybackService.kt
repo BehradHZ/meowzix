@@ -118,6 +118,9 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var playbackAudioAttributes: AudioAttributes
     private lateinit var audioManager: AudioManager
     private var resumeAfterExternalAudioEnabled = false
+    private val externalMediaStartDetector = ExternalMediaStartDetector()
+    // Distinguishes an immediate, app-initiated interruption from an explicit user pause.
+    private var earlyExternalPausePending = false
     private var pauseOnMicrophoneRecordingEnabled = false
     private var microphoneWasRecording = false
     private val microphoneObserver = object : AudioManager.AudioRecordingCallback() {
@@ -146,24 +149,45 @@ class PlaybackService : MediaLibraryService() {
     private var externalResumeJob: Job? = null
     private val externalAudioObserver = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: List<AudioPlaybackConfiguration>) {
-            // Non-privileged apps may see anonymized configs; the local player is paused when
-            // a permanent focus-loss resume is pending, so only active external media counts.
-            val activeOtherMedia = configs.any { config ->
-                // Public API returns only active, anonymized external playback configurations.
-                config.audioAttributes.usage in setOf(
-                        android.media.AudioAttributes.USAGE_MEDIA,
-                        android.media.AudioAttributes.USAGE_GAME,
-                    )
+            // Android's public API anonymizes other apps' players. Detect a NEW external
+            // MEDIA/GAME player using count changes; never pause for our own player or
+            // the additional player used temporarily by crossfade.
+            val shouldPause = externalMediaStartDetector.observe(
+                activeMediaPlayers = mediaPlaybackCount(configs),
+                audibleLocalPlayers = audibleMeowzixPlayerCount(),
+                playbackRequested = player.playWhenReady,
+            )
+            otherAppPlayingMedia = externalMediaStartDetector.externalCount > 0
+            if (shouldPause && player.playWhenReady) {
+                // Do not wait for Android 12+'s system fade-out/focus-loss callback.
+                // This is a direct pause, not a volume ramp, and retains queue/position.
+                earlyExternalPausePending = true
+                cancelCrossfade("external media started")
+                player.pause()
             }
-            otherAppPlayingMedia = activeOtherMedia
             if (!resumePendingExternalAudio) return
-            if (activeOtherMedia) {
+            if (otherAppPlayingMedia) {
                 observedExternalPlayback = true
                 externalResumeJob?.cancel()
             } else if (observedExternalPlayback) {
                 scheduleExternalAudioResume()
             }
         }
+    }
+
+    private fun mediaPlaybackCount(configs: List<AudioPlaybackConfiguration>): Int =
+        configs.count { it.audioAttributes.usage == android.media.AudioAttributes.USAGE_MEDIA ||
+            it.audioAttributes.usage == android.media.AudioAttributes.USAGE_GAME }
+
+    private fun audibleMeowzixPlayerCount(): Int =
+        listOfNotNull(player, activeCrossfade?.outgoing, activeCrossfade?.incoming)
+            .distinct().count { it.isPlaying }
+
+    private fun baselineExternalMedia() {
+        externalMediaStartDetector.baseline(
+            mediaPlaybackCount(audioManager.activePlaybackConfigurations),
+            audibleMeowzixPlayerCount(),
+        )
     }
     private var persistJob: Job? = null
     private var widgetRefreshJob: Job? = null
@@ -568,8 +592,20 @@ class PlaybackService : MediaLibraryService() {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             when {
                 playWhenReady -> {
+                    earlyExternalPausePending = false
                     cancelExternalResume()
+                    baselineExternalMedia()
                     wasPlayingBeforeAudioFocusLoss = true
+                }
+                earlyExternalPausePending -> {
+                    earlyExternalPausePending = false
+                    wasPlayingBeforeAudioFocusLoss = false
+                    cancelExternalResume()
+                    if (resumeAfterExternalAudioEnabled && !isRestoring) {
+                        resumePendingExternalAudio = true
+                        observedExternalPlayback = true
+                        otherAppPlayingMedia = true
+                    }
                 }
                 reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS &&
                     wasPlayingBeforeAudioFocusLoss && resumeAfterExternalAudioEnabled && !isRestoring -> {
@@ -633,6 +669,13 @@ class PlaybackService : MediaLibraryService() {
             .setMediaButtonPreferences(mediaButtons())
             .build()
 
+        // Always monitor for the first frame of another app's MEDIA/GAME playback.
+        // Automatic restart remains opt-in, but the early pause is unconditional.
+        baselineExternalMedia()
+        audioManager.registerAudioPlaybackCallback(
+            externalAudioObserver, Handler(Looper.getMainLooper())
+        )
+
         // Observe the lightweight favorite-count invalidation so in-app likes update
         // the Live Update and Media3 favorite button immediately, not only on track changes.
         serviceScope.launch {
@@ -675,13 +718,7 @@ class PlaybackService : MediaLibraryService() {
                 val nextNormalization = preferences.loudnessNormalizationEnabled
                 if (resumeAfterExternalAudioEnabled != preferences.resumeAfterExternalAudio) {
                     resumeAfterExternalAudioEnabled = preferences.resumeAfterExternalAudio
-                    if (resumeAfterExternalAudioEnabled) {
-                        audioManager.registerAudioPlaybackCallback(externalAudioObserver, Handler(Looper.getMainLooper()))
-                        externalAudioObserver.onPlaybackConfigChanged(audioManager.activePlaybackConfigurations)
-                    } else {
-                        audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
-                        cancelExternalResume()
-                    }
+                    if (!resumeAfterExternalAudioEnabled) cancelExternalResume()
                 }
                 val nextCrossfadeSeconds = CrossfadePolicy.sanitizeSeconds(preferences.crossfadeDurationSeconds)
                 if (
@@ -795,7 +832,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onDestroy() {
         liveSongTransitionRetry.cancel()
         liveSongCard?.cancel()
-        if (resumeAfterExternalAudioEnabled) audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
+        audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
         if (pauseOnMicrophoneRecordingEnabled) audioManager.unregisterAudioRecordingCallback(microphoneObserver)
         cancelExternalResume()
         clearPlaybackRetry()
