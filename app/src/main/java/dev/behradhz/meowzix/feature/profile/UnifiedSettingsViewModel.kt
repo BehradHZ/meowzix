@@ -142,6 +142,7 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setDefaultRepeat(value: RepeatMode) = launch { settings.setDefaultRepeatMode(value) }
     fun setResume(value: Boolean) = launch { settings.setResumeOnLaunch(value) }
     fun setResumeAfterExternalAudio(value: Boolean) = launch { settings.setResumeAfterExternalAudio(value) }
+    fun setPauseOnMicrophoneRecording(value: Boolean) = launch { settings.setPauseOnMicrophoneRecording(value) }
     fun setLiveSongCardEnabled(value: Boolean) = launch { settings.setLiveSongCardEnabled(value) }
     fun setLiveSongCardStyle(value: LiveSongCardStyle) = launch { settings.setLiveSongCardStyle(value) }
     fun setLiveSongLeftAction(value: LiveSongSideAction) = launch { settings.setLiveSongLeftAction(value) }
