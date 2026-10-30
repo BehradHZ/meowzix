@@ -71,9 +71,10 @@ class ProgressiveQueue @Inject constructor() {
         // An explicit queued occurrence survives starting any other Library/Next song.
         val fixed = tracks.indices.filter { occurrenceIds[it] in fixedOccurrences }
             .map { RetainedFixed(tracks[it], occurrenceIds[it], groupIds[it]) }
-        val fixedIds = fixed.mapTo(hashSetOf()) { it.track.id }
         val before = orderedTracks.take(requestedStartIndex.coerceIn(orderedTracks.indices) + 1)
-        val after = orderedTracks.drop(before.size).filterNot { it.id in fixedIds }
+        // An identical track ID in Next and explicit Queue denotes two independent
+        // occurrences. Never remove one because the other exists.
+        val after = orderedTracks.drop(before.size)
         val savedGroups = groups.filterKeys { id -> fixed.any { it.groupId == id } }
         tracks.clear()
         tracks.addAll(before)
@@ -97,7 +98,7 @@ class ProgressiveQueue @Inject constructor() {
         origins.addAll(List(after.size) { QueueItemOrigin.GENERATED })
         generationEnabled = sourceIds.isNotEmpty()
         sourceTrackIds = sourceIds.toList()
-        pendingGeneratedIds = pendingIds.filterNot { it in fixedIds }
+        pendingGeneratedIds = pendingIds.toList()
         generatedStarted = 0
         nextGenerationAt = 90
         generationEpoch++
@@ -529,7 +530,7 @@ class ProgressiveQueue @Inject constructor() {
         tracks.clear()
         tracks.addAll(fixedTracks)
         tracks.addAll(manualFuture)
-        tracks.addAll(future.filterNot { item -> manualFuture.any { it.id == item.id } })
+        tracks.addAll(future)
         origins.clear()
         origins.addAll(fixedOrigins)
         occurrenceIds.clear()
@@ -644,8 +645,11 @@ class ProgressiveQueue @Inject constructor() {
         pendingGeneratedIds = pendingGeneratedIds.filterNot { it in selected }
         nextGenerationAt += GENERATED_BATCH_SIZE
         val byId = resolved.associateBy { it.id }
-        val existing = tracks.mapTo(hashSetOf()) { it.id }
-        val accepted = batch.ids.mapNotNull(byId::get).filter { existing.add(it.id) }
+        // Fixed Queue and generated Next may each contain an occurrence of the
+        // same track. Deduplicate only the generated portion of this context.
+        val generatedIds = tracks.indices.filter { origins[it] == QueueItemOrigin.GENERATED }
+            .mapTo(hashSetOf()) { tracks[it].id }
+        val accepted = batch.ids.mapNotNull(byId::get).filter { generatedIds.add(it.id) }
         if (accepted.isNotEmpty()) {
             tracks.addAll(accepted)
             origins.addAll(List(accepted.size) { QueueItemOrigin.GENERATED })
