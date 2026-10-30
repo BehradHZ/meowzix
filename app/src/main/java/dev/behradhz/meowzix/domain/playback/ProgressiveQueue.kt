@@ -382,6 +382,7 @@ class ProgressiveQueue @Inject constructor() {
         tracks.add(destination, item)
         origins.add(destination, QueueItemOrigin.MANUAL)
         occurrenceIds.add(destination, occurrence)
+        fixedOccurrences += occurrence
         groupIds.add(destination, null)
         pruneGroups()
         if (generationEnabled) pendingGeneratedIds = pendingGeneratedIds.filterNot { it == track.id }
@@ -424,41 +425,27 @@ class ProgressiveQueue @Inject constructor() {
 
     @Synchronized
     fun move(fromIndex: Int, toIndex: Int): Boolean {
-        if (fromIndex !in tracks.indices || toIndex !in tracks.indices || fromIndex == toIndex) return false
-        val movingCurrent = fromIndex == currentIndex
-        // A moved future occurrence is user-prioritized. Never strand it below generated entries.
-        val initialGeneratedBoundary = (currentIndex + 1 until origins.size)
-            .firstOrNull { origins[it] == QueueItemOrigin.GENERATED } ?: tracks.size
-        val manualTarget = if (generationEnabled && !movingCurrent) {
-            toIndex.coerceAtMost(initialGeneratedBoundary)
-        } else toIndex
-        val item = tracks.removeAt(fromIndex)
+        if (fromIndex <= currentIndex || toIndex <= currentIndex ||
+            fromIndex !in tracks.indices || toIndex !in tracks.indices ||
+            fromIndex == toIndex
+        ) return false
+        // Reordering *inside* Next must not convert it to Queue. Changing sections is an
+        // explicit transfer of this one occurrence; track identity is not ownership.
+        val destinationOrigin = origins[toIndex]
+        val moved = tracks.removeAt(fromIndex)
         origins.removeAt(fromIndex)
         val occurrence = occurrenceIds.removeAt(fromIndex)
-        val originalGroup = groupIds.removeAt(fromIndex)
-        val desired = manualTarget.coerceIn(0, tracks.size)
-        val targetGroup = groupIds.getOrNull(desired)
-        val destination = if (targetGroup != null && targetGroup != originalGroup) {
-            if (desired < fromIndex) groupIds.indexOfFirst { it == targetGroup }
-            else groupIds.indexOfLast { it == targetGroup } + 1
-        } else desired
-        val to = destination.coerceIn(0, tracks.size)
-        tracks.add(to, item)
-        origins.add(to, QueueItemOrigin.MANUAL)
-        occurrenceIds.add(to, occurrence)
-        val stillGrouped = originalGroup != null &&
-            (groupIds.getOrNull(to - 1) == originalGroup || groupIds.getOrNull(to) == originalGroup)
-        groupIds.add(to, originalGroup.takeIf { stillGrouped })
+        val oldGroup = groupIds.removeAt(fromIndex)
+        val target = toIndex.coerceIn(currentIndex + 1, tracks.size)
+        val newGroup = oldGroup.takeIf { destinationOrigin == QueueItemOrigin.MANUAL &&
+            (groupIds.getOrNull(target - 1) == it || groupIds.getOrNull(target) == it) }
+        tracks.add(target, moved)
+        origins.add(target, destinationOrigin)
+        occurrenceIds.add(target, occurrence)
+        groupIds.add(target, newGroup)
+        if (destinationOrigin == QueueItemOrigin.MANUAL) fixedOccurrences += occurrence
+        else fixedOccurrences.remove(occurrence)
         pruneGroups()
-        currentIndex = if (movingCurrent) {
-            to
-        } else {
-            var adjusted = currentIndex
-            if (fromIndex < adjusted) adjusted -= 1
-            if (to <= adjusted) adjusted += 1
-            adjusted
-        }
-        if (!generationEnabled) origins[currentIndex] = QueueItemOrigin.MANUAL
         bumpRevision()
         return true
     }
@@ -509,31 +496,29 @@ class ProgressiveQueue @Inject constructor() {
         val fixedOrigins = origins.take(currentIndex + 1)
         val fixedOccurrences = occurrenceIds.take(currentIndex + 1)
         val fixedGroups = groupIds.take(currentIndex + 1)
-        val manualFuture = if (generationEnabled) {
-            (currentIndex + 1 until tracks.size).filter { origins[it] == QueueItemOrigin.MANUAL }.map { tracks[it] }
-        } else emptyList()
-        val manualPositions = if (generationEnabled) (currentIndex + 1 until tracks.size)
-            .filter { origins[it] == QueueItemOrigin.MANUAL } else emptyList()
+        val manualPositions = (currentIndex + 1 until tracks.size)
+            .filter { occurrenceIds[it] in fixedOccurrences }
+        val manualFuture = manualPositions.map { tracks[it] }
         val manualOccurrences = manualPositions.map { occurrenceIds[it] }
         val manualGroups = manualPositions.map { groupIds[it] }
         tracks.clear()
         tracks.addAll(fixedTracks)
         tracks.addAll(manualFuture)
-        tracks.addAll(future)
+        tracks.addAll(future.filterNot { item -> manualFuture.any { it.id == item.id } })
         origins.clear()
         origins.addAll(fixedOrigins)
         occurrenceIds.clear()
         occurrenceIds.addAll(fixedOccurrences)
         occurrenceIds.addAll(manualOccurrences)
-        occurrenceIds.addAll(List(future.size) { UUID.randomUUID() })
+        occurrenceIds.addAll(List(tracks.size - fixedTracks.size - manualFuture.size) { UUID.randomUUID() })
         groupIds.clear()
         groupIds.addAll(fixedGroups)
         groupIds.addAll(manualGroups)
-        groupIds.addAll(List(future.size) { null })
+        groupIds.addAll(List(tracks.size - fixedTracks.size - manualFuture.size) { null })
         pruneGroups()
         origins.addAll(List(manualFuture.size) { QueueItemOrigin.MANUAL })
         val futureOrigin = if (generationEnabled || mode == PlaybackMode.SMART_SHUFFLE) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL
-        origins.addAll(List(future.size) { futureOrigin })
+        origins.addAll(List(tracks.size - fixedTracks.size - manualFuture.size) { QueueItemOrigin.GENERATED })
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
         playbackMode = mode
