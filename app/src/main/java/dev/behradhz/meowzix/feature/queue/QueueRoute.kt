@@ -59,8 +59,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,7 +69,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -118,7 +115,6 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import java.util.UUID
 import kotlin.math.abs
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 
 @Composable
@@ -211,8 +207,6 @@ private fun QueueScreen(
     onGoToArtist: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
     val feedbackHazeState = rememberHazeState()
     val searchTokens = remember(searchQuery) {
         TextNormalizer.normalize(searchQuery)
@@ -601,10 +595,6 @@ private fun QueueScreen(
                             onRemove = {
                                 if (state.items.getOrNull(queueIndex) == item) {
                                     onRemove(queueIndex)
-                                    scope.launch {
-                                        snackbarHostState.currentSnackbarData?.dismiss()
-                                        snackbarHostState.showSnackbar("Removed from queue · ${item.title}")
-                                    }
                                 }
                             },
                             onPlayNext = { onPlayNext(item.id) },
@@ -648,40 +638,7 @@ private fun QueueScreen(
             }
         }
 
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(start = 30.dp, end = 30.dp, bottom = 166.dp),
-        ) { data ->
-            GlassSurface(
-                hazeState = feedbackHazeState,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "✓",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = data.visuals.message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
+
     }
 }
 
