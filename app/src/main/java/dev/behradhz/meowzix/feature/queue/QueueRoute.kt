@@ -244,6 +244,7 @@ private fun QueueScreen(
     var draggedGroupDistance by remember { mutableFloatStateOf(0f) }
     var draggedGroupTarget by remember { mutableStateOf<Int?>(null) }
     var awaitingGroupCommit by remember { mutableStateOf(false) }
+    var awaitingTrackCommit by remember { mutableStateOf(false) }
     var dragCenterY by remember { mutableFloatStateOf(Float.NaN) }
     val density = LocalDensity.current
     val groupCounts = remember(state.items, state.currentIndex) {
@@ -254,7 +255,7 @@ private fun QueueScreen(
     // Use the authoritative queue immediately outside a drag. A cached display list can
     // otherwise show removed items until a deferred LaunchedEffect catches up.
     val queueItems = if (draggedQueueIndex == null && draggedGroupId == null &&
-        !awaitingGroupCommit) filteredItems else displayItems
+        !awaitingGroupCommit && !awaitingTrackCommit) filteredItems else displayItems
     val firstGroupPositions = remember(state.items, state.currentIndex) {
         val first = mutableMapOf<UUID, Int>()
         state.items.forEachIndexed { index, item ->
@@ -270,6 +271,7 @@ private fun QueueScreen(
         if (draggedQueueIndex == null && draggedGroupId == null) {
             displayItems = filteredItems
             awaitingGroupCommit = false
+            awaitingTrackCommit = false
         }
     }
     // A rejected/unchanged move must not leave a stale visual preview pinned forever.
@@ -278,6 +280,15 @@ private fun QueueScreen(
             kotlinx.coroutines.delay(1_000L)
             if (awaitingGroupCommit) {
                 awaitingGroupCommit = false
+                displayItems = filteredItems
+            }
+        }
+    }
+    LaunchedEffect(awaitingTrackCommit) {
+        if (awaitingTrackCommit) {
+            kotlinx.coroutines.delay(1_000L)
+            if (awaitingTrackCommit) {
+                awaitingTrackCommit = false
                 displayItems = filteredItems
             }
         }
@@ -295,9 +306,10 @@ private fun QueueScreen(
             val destinationSlot = displayItems.indexOfFirst { it.index == fromIndex }
             val toIndex = filteredItems.getOrNull(destinationSlot)?.index ?: -1
             if (toIndex >= 0 && fromIndex != toIndex) {
+                awaitingTrackCommit = true
                 onMove(fromIndex, toIndex)
-            }
-        }
+            } else displayItems = filteredItems
+        } else displayItems = filteredItems
         draggedQueueIndex = null
         draggedDistance = 0f
         dragCenterY = Float.NaN
