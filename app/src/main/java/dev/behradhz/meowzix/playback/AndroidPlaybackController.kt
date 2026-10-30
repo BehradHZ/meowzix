@@ -202,7 +202,7 @@ class AndroidPlaybackController @Inject constructor(
                         progressiveQueue.jumpTo(active.currentIndex + 1)
                         rebuildProgressiveWindow(connected, preservePosition = false)
                     }
-                    return@withController
+                    return
                 }
                 val plan = if (
                     index > active.currentIndex &&
@@ -213,8 +213,8 @@ class AndroidPlaybackController @Inject constructor(
                     progressiveQueue.selectUpcomingNext(index)
                 } else {
                     progressiveQueue.jumpTo(index)
-                } ?: return@withController
-                val snapshot = progressiveQueue.snapshot() ?: return@withController
+                } ?: return
+                val snapshot = progressiveQueue.snapshot() ?: return
                 connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
                 connected.setMediaItems(
                     plan.tracks.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) },
