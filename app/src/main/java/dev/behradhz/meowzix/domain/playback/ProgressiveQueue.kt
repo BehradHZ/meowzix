@@ -314,7 +314,8 @@ class ProgressiveQueue @Inject constructor() {
         if (tracks.isEmpty()) {
             tracks += track
             origins += QueueItemOrigin.MANUAL
-            occurrenceIds += UUID.randomUUID().also(fixedOccurrences::add)
+            // The first item is Now Playing, not a pending fixed Queue occurrence.
+            occurrenceIds += UUID.randomUUID()
             groupIds += null
             trackIds += track.id
             currentIndex = 0
