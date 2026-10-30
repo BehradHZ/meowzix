@@ -81,7 +81,7 @@ internal class NowPlayingLiveCard(
         )
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             // Keep the Meowzix symbol instead of the system play triangle.
-            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setSmallIcon(R.drawable.meowzix_launcher_mono_art)
             .setColor(ContextCompat.getColor(context, R.color.live_song_accent))
             .setContentTitle(content.title)
             // Standard ProgressStyle controls the bar position; content text is the nearest
