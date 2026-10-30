@@ -634,7 +634,11 @@ class ProgressiveQueue @Inject constructor() {
     @Synchronized
     fun claimGeneratedRefill(): GeneratedQueueBatch? {
         if (!generationEnabled || generatedRefillInFlight != null ||
-            generatedStarted < nextGenerationAt || pendingGeneratedIds.isEmpty()) return null
+            pendingGeneratedIds.isEmpty()) return null
+        // When removals/failed sources exhaust the materialized logical tail
+        // early, load the next batch instead of allowing Media3 to start a
+        // freshly shuffled cycle while unplayed candidates still exist.
+        if (generatedStarted < nextGenerationAt && currentIndex < tracks.lastIndex) return null
         return GeneratedQueueBatch(
             generationEpoch,
             pendingGeneratedIds.take(GENERATED_BATCH_SIZE),
@@ -867,6 +871,16 @@ internal fun ProgressiveQueueSnapshot.generatedIndicesAfterSelection(selectedInd
             else tracks[index].id != selectedTrack.id
     }
 }
+
+/**
+ * Media3 may report STATE_ENDED for its small materialized window even when the
+ * logical queue still has tracks. Repeating/shuffling is only legal when the
+ * entire logical queue AND its not-yet-materialized generated tail are exhausted.
+ */
+internal fun ProgressiveQueueSnapshot.mayBeginAnotherCycle(): Boolean =
+    repeatMode == RepeatMode.ALL &&
+        currentIndex == tracks.lastIndex &&
+        pendingGeneratedIds.isEmpty()
 
 data class GeneratedQueueBatch(val epoch: Long, val ids: List<UUID>)
 
