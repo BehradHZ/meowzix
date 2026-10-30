@@ -11,14 +11,14 @@ class MicrophoneResumePolicyTest {
         otherMediaPlaying: Boolean = false,
         hasTrack: Boolean = true,
         playbackEnded: Boolean = false,
-        sleepTimerActive: Boolean = false,
+        sleepTimerExpired: Boolean = false,
     ) = shouldResumeAfterMicrophoneStops(
         pausedByMicrophone,
         playbackRequested,
         otherMediaPlaying,
         hasTrack,
         playbackEnded,
-        sleepTimerActive,
+        sleepTimerExpired,
     )
 
     @Test fun recordingStopResumesOnlyMusicPausedByMicrophone() {
@@ -37,6 +37,6 @@ class MicrophoneResumePolicyTest {
     @Test fun neverReviveCompletedOrInactiveSessions() {
         assertFalse(canResume(hasTrack = false))
         assertFalse(canResume(playbackEnded = true))
-        assertFalse(canResume(sleepTimerActive = true))
+        assertFalse(canResume(sleepTimerExpired = true))
     }
 }
