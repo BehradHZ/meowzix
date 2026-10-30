@@ -163,18 +163,13 @@ class AndroidPlaybackController @Inject constructor(
             playbackOccurrenceId = UUID.randomUUID()
             val active = progressiveQueue.snapshot()
             if (active != null) {
-                // Selecting an automatically generated Next item is a new listening context:
-                // fixed Queue occurrences must remain ahead, not be skipped over.
-                if (index in active.tracks.indices &&
-                    active.origins[index] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED &&
-                    progressiveQueue.hasFixedFuture()
+                // Selecting a Next occurrence is NOT a request to reshuffle the collection.
+                // Keep every remaining Next occurrence in its current order and preserve
+                // explicit Queue occurrences even when the chosen song also exists there.
+                if (index > active.currentIndex && index in active.tracks.indices &&
+                    active.origins[index] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
                 ) {
-                    val ids = active.sourceTrackIds.ifEmpty {
-                        active.tracks.indices.filter { i ->
-                            active.origins[i] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
-                        }.map { i -> active.tracks[i].id }
-                    }
-                    replaceAndPlayInternal(ids, active.tracks[index].id, active.playbackMode)
+                    playIndependentTrackPreservingNext(connected, active, active.tracks[index])
                     return@withController
                 }
                 // Playing a later explicit Queue occurrence must not push earlier fixed
@@ -398,10 +393,17 @@ class AndroidPlaybackController @Inject constructor(
                 active.playbackMode == mode &&
                 active.sourceTrackIds.isNotEmpty() &&
                 active.sourceTrackIds.size == trackIds.size &&
-                active.sourceTrackIds.toSet() == trackIds.toSet() &&
-                !progressiveQueue.hasFixedFuture()
+                active.sourceTrackIds.toSet() == trackIds.toSet()
             ) {
-                playAt(existingIndex)
+                if (progressiveQueue.hasFixedFuture()) {
+                    withConnectedController { connected ->
+                        playIndependentTrackPreservingNext(
+                            connected, active, active.tracks[existingIndex],
+                        )
+                    }
+                } else {
+                    playAt(existingIndex)
+                }
                 return@launch
             }
 
@@ -471,6 +473,44 @@ class AndroidPlaybackController @Inject constructor(
                 connected.play()
             }
         }
+    }
+
+    /**
+     * Start the selected track as a new listening instance, without regenerating
+     * Pure/Smart Shuffle or consuming a matching fixed Queue occurrence.
+     * Next retains its existing relative order (except the selected occurrence).
+     */
+    private fun playIndependentTrackPreservingNext(
+        connected: MediaController,
+        active: dev.behradhz.meowzix.domain.playback.ProgressiveQueueSnapshot,
+        selected: PlayableTrack,
+    ) {
+        val generated = active.tracks.indices
+            .filter { i ->
+                i > active.currentIndex &&
+                    active.origins[i] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED &&
+                    active.tracks[i].id != selected.id
+            }
+            .map(active.tracks::get)
+        val window = progressiveQueue.start(
+            orderedTracks = listOf(selected) + generated,
+            requestedStartIndex = 0,
+            mode = active.playbackMode,
+            repeat = active.repeatMode,
+            seed = active.shuffleSeed,
+            sourceIds = active.sourceTrackIds,
+            pendingIds = active.pendingGeneratedIds,
+        )
+        playbackOccurrenceId = UUID.randomUUID()
+        userSelectedOccurrence = true
+        connected.setMediaItems(
+            window.tracks.map { it.toMediaItem(active.playbackMode, active.repeatMode) },
+            window.startIndexInWindow,
+            0L,
+        )
+        connected.repeatMode = active.repeatMode.toPlayerRepeatMode(progressive = true)
+        connected.prepare()
+        connected.play()
     }
 
     override fun removeAt(index: Int) {
