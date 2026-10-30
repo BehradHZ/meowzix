@@ -22,6 +22,21 @@ internal object ManagedAudioIntegrity {
         return true
     }
 
+    /**
+     * A logical track can have several Telegram sources with different encodings/sizes.
+     * A managed copy is acceptable if its length matches any known remote source.
+     */
+    fun isValidForAnyRemoteSize(
+        file: File?,
+        remoteSizes: Iterable<Long?>,
+        storedBytes: Long? = null,
+        expectedSha256: String? = null,
+    ): Boolean {
+        val knownSizes = remoteSizes.mapNotNull { it?.takeIf { size -> size > 0L } }.toSet()
+        if (knownSizes.isNotEmpty() && file?.length() !in knownSizes) return false
+        return isValid(file, if (knownSizes.isEmpty()) storedBytes else null, expectedSha256)
+    }
+
     fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().buffered().use { input ->
