@@ -372,6 +372,47 @@ class ProgressiveQueueTest {
         assertEquals(newTrack.id, changedSnapshot.tracks[requestedIndex + 1].id)
     }
 
+    @Test
+    fun `manual entries precede generated entries and 100-song refills happen only at ninety`() {
+        val songs = tracks(260)
+        val queue = ProgressiveQueue()
+        queue.start(songs.take(101), 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
+            sourceIds = songs.map { it.id }, pendingIds = songs.drop(101).map { it.id })
+        queue.append(songs[250])
+        queue.insertNext(songs[249])
+        val first = requireNotNull(queue.snapshot())
+        assertEquals(listOf(songs[249].id, songs[250].id), first.tracks.drop(1).take(2).map { it.id })
+        assertEquals(List(2) { QueueItemOrigin.MANUAL }, first.origins.drop(1).take(2))
+        queue.updateCurrentFromWindowIndex(1)
+        queue.updateCurrentFromWindowIndex(2)
+        assertEquals(0, requireNotNull(queue.snapshot()).generatedStarted)
+        for (song in songs.subList(1, 90)) {
+            queue.updateCurrent(song.id.toString())
+            assertEquals(null, queue.claimGeneratedRefill())
+        }
+        queue.updateCurrent(songs[90].id.toString())
+        val batch = requireNotNull(queue.claimGeneratedRefill())
+        assertEquals(100, batch.ids.size)
+        assertEquals(null, queue.claimGeneratedRefill())
+        assertTrue(queue.appendGeneratedBatch(batch, songs.drop(101).take(100)))
+        assertEquals(203, requireNotNull(queue.snapshot()).tracks.size)
+    }
+
+    @Test
+    fun `mode regeneration preserves priority entries`() {
+        val songs = tracks(220)
+        val queue = ProgressiveQueue()
+        queue.start(songs.take(101), 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
+            sourceIds = songs.map { it.id }, pendingIds = songs.drop(101).map { it.id })
+        queue.insertNext(songs[210])
+        queue.append(songs[211])
+        queue.replaceFuture(songs.drop(1).take(100), PlaybackMode.SMART_SHUFFLE,
+            sourceIds = songs.map { it.id }, pendingIds = songs.drop(101).map { it.id })
+        val state = requireNotNull(queue.snapshot())
+        assertEquals(listOf(songs[210].id, songs[211].id), state.tracks.drop(1).take(2).map { it.id })
+        assertEquals(List(2) { QueueItemOrigin.MANUAL }, state.origins.drop(1).take(2))
+    }
+
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
         PlayableTrack(
             id = UUID.nameUUIDFromBytes("track-$index".toByteArray()),

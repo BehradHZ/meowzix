@@ -25,6 +25,10 @@ data class PersistedPlaybackSession(
     val materializedStartIndex: Int = 0,
     val materializedEndExclusive: Int = 0,
     val shuffleSeed: Long? = null,
+    val sourceMediaIds: List<String> = emptyList(),
+    val pendingMediaIds: List<String> = emptyList(),
+    val generatedStarted: Int = 0,
+    val nextGenerationAt: Int = 90,
 ) {
     companion object {
         val Empty = PersistedPlaybackSession(

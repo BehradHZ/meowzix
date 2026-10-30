@@ -1012,6 +1012,16 @@ class PlaybackService : MediaLibraryService() {
                 player.removeMediaItems(0, removeCount)
             }
 
+            progressiveQueue.claimGeneratedRefill()?.let { batch ->
+                serviceScope.launch {
+                    val loaded = runCatching { playbackCatalog.availableTracks(batch.ids) }.getOrDefault(emptyList())
+                    val byId = loaded.associateBy { it.id }
+                    if (progressiveQueue.appendGeneratedBatch(batch, batch.ids.mapNotNull(byId::get))) {
+                        expandProgressiveWindow()
+                        schedulePersist()
+                    }
+                }
+            }
             val forward = progressiveQueue.takeForwardBatchIfNeeded()
             if (forward.isNotEmpty()) {
                 val policy = progressiveQueue.snapshot() ?: snapshot
@@ -1500,8 +1510,14 @@ class PlaybackService : MediaLibraryService() {
             } else {
                 PlaybackMode.PURE_SHUFFLE
             }
-            val future = refreshed.tracks.drop(refreshed.currentIndex + 1)
             serviceScope.launch {
+                val sourceIds = refreshed.sourceTrackIds.ifEmpty { refreshed.tracks.map { it.id } }
+                val loaded = runCatching { playbackCatalog.availableTracks(sourceIds) }.getOrDefault(emptyList())
+                val excluded = refreshed.tracks.indices
+                    .filter { it > refreshed.currentIndex && refreshed.origins[it] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL }
+                    .mapTo(hashSetOf()) { refreshed.tracks[it].id }
+                excluded += refreshed.tracks[refreshed.currentIndex].id
+                val future = loaded.filterNot { it.id in excluded }
                 var seed: Long? = null
                 val desiredFuture = if (nextMode == PlaybackMode.PURE_SHUFFLE) {
                     PureShuffleEngine.newCycle(future.indices.toList()).let { cycle ->
@@ -1513,7 +1529,11 @@ class PlaybackService : MediaLibraryService() {
                     val rank = order.withIndex().associate { it.value to it.index }
                     future.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
                 }
-                progressiveQueue.replaceFuture(desiredFuture, nextMode, seed)
+                progressiveQueue.replaceFuture(
+                    desiredFuture.take(ProgressiveQueue.GENERATED_BATCH_SIZE), nextMode, seed,
+                    sourceIds = sourceIds,
+                    pendingIds = desiredFuture.drop(ProgressiveQueue.GENERATED_BATCH_SIZE).map { it.id },
+                )
                 syncProgressiveFutureInPlace()
                 refreshMediaButtons()
             }
@@ -1660,6 +1680,11 @@ class PlaybackService : MediaLibraryService() {
                 mode = saved.playbackMode,
                 repeat = saved.repeatMode,
                 seed = saved.shuffleSeed,
+                requestedOrigins = saved.logicalOrigins,
+                sourceIds = saved.sourceMediaIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() },
+                pendingIds = saved.pendingMediaIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() },
+                generatedStartedCount = saved.generatedStarted,
+                nextGenerationThreshold = saved.nextGenerationAt,
             )
         } else {
             false
@@ -1735,6 +1760,11 @@ class PlaybackService : MediaLibraryService() {
                 materializedStartIndex = logical?.materializedStartIndex ?: 0,
                 materializedEndExclusive = logical?.materializedEndExclusive ?: items.size,
                 shuffleSeed = logical?.shuffleSeed,
+                logicalOrigins = logical?.origins.orEmpty(),
+                sourceMediaIds = logical?.sourceTrackIds?.map(UUID::toString).orEmpty(),
+                pendingMediaIds = logical?.pendingGeneratedIds?.map(UUID::toString).orEmpty(),
+                generatedStarted = logical?.generatedStarted ?: 0,
+                nextGenerationAt = logical?.nextGenerationAt ?: 90,
             ),
         )
     }

@@ -344,16 +344,22 @@ class AndroidPlaybackController @Inject constructor(
                 mode == PlaybackMode.ORDERED -> tracks.indexOfFirst { it.id == startTrackId }.coerceAtLeast(0)
                 else -> 0
             }
+            tracks = tracks.drop(startIndex) + tracks.take(startIndex)
+            val sourceIds = requested.map { it.id }
+            val initial = tracks.take(ProgressiveQueue.GENERATED_BATCH_SIZE + 1)
+            val pending = tracks.drop(initial.size).map { it.id }
 
             withConnectedController { connected ->
                 playbackOccurrenceId = UUID.randomUUID()
                 userSelectedOccurrence = true
                 val window = progressiveQueue.start(
-                    orderedTracks = tracks,
-                    requestedStartIndex = startIndex,
+                    orderedTracks = initial,
+                    requestedStartIndex = 0,
                     mode = mode,
                     repeat = RepeatMode.OFF,
                     seed = shuffleSeed,
+                    sourceIds = sourceIds,
+                    pendingIds = pending,
                 )
                 connected.setMediaItems(
                     window.tracks.map { it.toMediaItem(mode, RepeatMode.OFF) },
@@ -472,7 +478,13 @@ class AndroidPlaybackController @Inject constructor(
             val active = progressiveQueue.snapshot() ?: return@launch
             if (active.tracks.isEmpty()) return@launch
             val currentTrack = active.tracks[active.currentIndex]
-            val future = active.tracks.drop(active.currentIndex + 1)
+            val candidateIds = active.sourceTrackIds.ifEmpty { active.tracks.map { it.id } }
+            val candidates = runCatching { catalog.availableTracks(candidateIds) }.getOrDefault(emptyList())
+            val excluded = active.tracks.indices
+                .filter { it > active.currentIndex && active.origins[it] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL }
+                .mapTo(hashSetOf()) { active.tracks[it].id }
+            excluded += currentTrack.id
+            val future = candidates.filterNot { it.id in excluded }
             var seed: Long? = null
             val desiredFuture = when (mode) {
                 PlaybackMode.ORDERED -> {
@@ -500,7 +512,11 @@ class AndroidPlaybackController @Inject constructor(
                         .map { it.value }
                 }
             }
-            progressiveQueue.replaceFuture(desiredFuture, mode, seed)
+            progressiveQueue.replaceFuture(
+                desiredFuture.take(ProgressiveQueue.GENERATED_BATCH_SIZE), mode, seed,
+                sourceIds = candidateIds,
+                pendingIds = desiredFuture.drop(ProgressiveQueue.GENERATED_BATCH_SIZE).map { it.id },
+            )
             syncProgressiveFutureInPlace(connected)
         }
     }

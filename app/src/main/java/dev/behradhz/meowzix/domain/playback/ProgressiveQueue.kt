@@ -37,6 +37,13 @@ class ProgressiveQueue @Inject constructor() {
     private var playbackMode = PlaybackMode.ORDERED
     private var repeatMode = RepeatMode.OFF
     private var shuffleSeed: Long? = null
+    // Candidate pool is lightweight; Media3 receives its own, smaller materialization window.
+    private var sourceTrackIds: List<UUID> = emptyList()
+    private var pendingGeneratedIds: List<UUID> = emptyList()
+    private var generatedStarted = 0
+    private var nextGenerationAt = 90
+    private var generationEpoch = 0L
+    private var generationEnabled = false
     private var revision = 0L
 
     private var cachedSnapshot: ProgressiveQueueSnapshot? = null
@@ -48,12 +55,20 @@ class ProgressiveQueue @Inject constructor() {
         mode: PlaybackMode,
         repeat: RepeatMode,
         seed: Long? = null,
+        sourceIds: List<UUID> = emptyList(),
+        pendingIds: List<UUID> = emptyList(),
     ): QueueWindowPlan {
         require(orderedTracks.isNotEmpty()) { "Progressive queue requires at least one track" }
         tracks.clear()
         tracks.addAll(orderedTracks)
         origins.clear()
-        val generated = mode == PlaybackMode.SMART_SHUFFLE
+        generationEnabled = sourceIds.isNotEmpty()
+        sourceTrackIds = sourceIds.toList()
+        pendingGeneratedIds = pendingIds.toList()
+        generatedStarted = 0
+        nextGenerationAt = 90
+        generationEpoch++
+        val generated = generationEnabled || mode == PlaybackMode.SMART_SHUFFLE
         origins.addAll(List(orderedTracks.size) { if (generated) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL })
         trackIds.clear()
         trackIds.addAll(orderedTracks.map(PlayableTrack::id))
@@ -77,6 +92,10 @@ class ProgressiveQueue @Inject constructor() {
         repeat: RepeatMode,
         seed: Long?,
         requestedOrigins: List<QueueItemOrigin>? = null,
+        sourceIds: List<UUID> = emptyList(),
+        pendingIds: List<UUID> = emptyList(),
+        generatedStartedCount: Int = 0,
+        nextGenerationThreshold: Int = 90,
     ): Boolean {
         val restoredOrigins = requestedOrigins ?: QueueProvenanceRestoreHints.consume(orderedTrackIds)
         val fallbackOrigin = if (mode == PlaybackMode.SMART_SHUFFLE) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL
@@ -101,6 +120,12 @@ class ProgressiveQueue @Inject constructor() {
         playbackMode = mode
         repeatMode = repeat
         shuffleSeed = seed
+        generationEnabled = sourceIds.isNotEmpty()
+        sourceTrackIds = sourceIds.toList()
+        pendingGeneratedIds = pendingIds.toList()
+        generatedStarted = generatedStartedCount.coerceAtLeast(0)
+        nextGenerationAt = nextGenerationThreshold.coerceAtLeast(90)
+        generationEpoch++
         bumpRevision()
         return true
     }
@@ -121,8 +146,9 @@ class ProgressiveQueue @Inject constructor() {
         val backwardIndex = (currentIndex - 1 downTo 0).firstOrNull { tracks[it].id == id }
         val index = forwardIndex ?: backwardIndex ?: return false
         if (index != currentIndex) {
+            noteGeneratedTransition(index)
             currentIndex = index
-            origins[currentIndex] = QueueItemOrigin.MANUAL
+            if (!generationEnabled) origins[currentIndex] = QueueItemOrigin.MANUAL
             bumpRevision()
         }
         return true
@@ -134,8 +160,9 @@ class ProgressiveQueue @Inject constructor() {
         val logicalIndex = materializedStartIndex + windowIndex
         if (logicalIndex !in tracks.indices || logicalIndex >= materializedEndExclusive) return false
         if (logicalIndex != currentIndex) {
+            noteGeneratedTransition(logicalIndex)
             currentIndex = logicalIndex
-            origins[currentIndex] = QueueItemOrigin.MANUAL
+            if (!generationEnabled) origins[currentIndex] = QueueItemOrigin.MANUAL
             bumpRevision()
         }
         return true
@@ -186,8 +213,9 @@ class ProgressiveQueue @Inject constructor() {
     fun jumpTo(index: Int): QueueWindowPlan? {
         if (index !in tracks.indices) return null
         if (currentIndex != index) {
+            noteGeneratedTransition(index)
             currentIndex = index
-            origins[currentIndex] = QueueItemOrigin.MANUAL
+            if (!generationEnabled) origins[currentIndex] = QueueItemOrigin.MANUAL
             bumpRevision()
         }
         return resetWindowLocked()
@@ -229,6 +257,7 @@ class ProgressiveQueue @Inject constructor() {
         val destination = (currentIndex + 1).coerceAtMost(tracks.size)
         tracks.add(destination, item)
         origins.add(destination, QueueItemOrigin.MANUAL)
+        if (generationEnabled) pendingGeneratedIds = pendingGeneratedIds.filterNot { it == track.id }
         bumpRevision()
         return true
     }
@@ -255,8 +284,13 @@ class ProgressiveQueue @Inject constructor() {
             trackIds += track.id
             track
         }
-        tracks += item
-        origins += QueueItemOrigin.MANUAL
+        val destination = if (generationEnabled) {
+            (currentIndex + 1 until origins.size).firstOrNull { origins[it] == QueueItemOrigin.GENERATED }
+                ?: tracks.size
+        } else tracks.size
+        tracks.add(destination, item)
+        origins.add(destination, QueueItemOrigin.MANUAL)
+        if (generationEnabled) pendingGeneratedIds = pendingGeneratedIds.filterNot { it == track.id }
         bumpRevision()
         return true
     }
@@ -286,7 +320,7 @@ class ProgressiveQueue @Inject constructor() {
             index < currentIndex -> currentIndex - 1
             else -> currentIndex
         }
-        origins[currentIndex] = QueueItemOrigin.MANUAL
+        if (!generationEnabled) origins[currentIndex] = QueueItemOrigin.MANUAL
         bumpRevision()
         return true
     }
@@ -307,7 +341,7 @@ class ProgressiveQueue @Inject constructor() {
             if (toIndex <= adjusted) adjusted += 1
             adjusted
         }
-        origins[currentIndex] = QueueItemOrigin.MANUAL
+        if (!generationEnabled) origins[currentIndex] = QueueItemOrigin.MANUAL
         bumpRevision()
         return true
     }
@@ -327,6 +361,12 @@ class ProgressiveQueue @Inject constructor() {
         playbackMode = PlaybackMode.ORDERED
         repeatMode = RepeatMode.OFF
         shuffleSeed = null
+        generationEnabled = false
+        sourceTrackIds = emptyList()
+        pendingGeneratedIds = emptyList()
+        generationEpoch++
+        generatedStarted = 0
+        nextGenerationAt = 90
         bumpRevision()
         return true
     }
@@ -336,21 +376,36 @@ class ProgressiveQueue @Inject constructor() {
         future: List<PlayableTrack>,
         mode: PlaybackMode,
         seed: Long? = null,
+        sourceIds: List<UUID>? = null,
+        pendingIds: List<UUID>? = null,
     ) {
         if (tracks.isEmpty() || currentIndex < 0) return
         val fixedTracks = tracks.take(currentIndex + 1)
         val fixedOrigins = origins.take(currentIndex + 1)
+        val manualFuture = if (generationEnabled) {
+            (currentIndex + 1 until tracks.size).filter { origins[it] == QueueItemOrigin.MANUAL }.map { tracks[it] }
+        } else emptyList()
         tracks.clear()
         tracks.addAll(fixedTracks)
+        tracks.addAll(manualFuture)
         tracks.addAll(future)
         origins.clear()
         origins.addAll(fixedOrigins)
-        val futureOrigin = if (mode == PlaybackMode.SMART_SHUFFLE) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL
+        origins.addAll(List(manualFuture.size) { QueueItemOrigin.MANUAL })
+        val futureOrigin = if (generationEnabled || mode == PlaybackMode.SMART_SHUFFLE) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL
         origins.addAll(List(future.size) { futureOrigin })
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
         playbackMode = mode
         shuffleSeed = seed
+        if (sourceIds != null) {
+            sourceTrackIds = sourceIds.toList()
+            generationEnabled = sourceIds.isNotEmpty()
+        }
+        if (pendingIds != null) pendingGeneratedIds = pendingIds.toList()
+        generationEpoch++
+        generatedStarted = 0
+        nextGenerationAt = 90
         materializedStartIndex = materializedStartIndex.coerceIn(0, currentIndex)
         materializedEndExclusive = (currentIndex + 1 + INITIAL_FORWARD_COUNT).coerceAtMost(tracks.size)
         bumpRevision()
@@ -400,11 +455,42 @@ class ProgressiveQueue @Inject constructor() {
         if (playbackMode != mode || shuffleSeed != seed) {
             playbackMode = mode
             shuffleSeed = seed
-            if (mode != PlaybackMode.SMART_SHUFFLE) {
+            if (!generationEnabled && mode != PlaybackMode.SMART_SHUFFLE) {
                 for (index in origins.indices) origins[index] = QueueItemOrigin.MANUAL
             }
             bumpRevision()
         }
+    }
+
+    private fun noteGeneratedTransition(destination: Int) {
+        if (generationEnabled && destination > currentIndex && origins[destination] == QueueItemOrigin.GENERATED) {
+            generatedStarted++
+        }
+    }
+
+    @Synchronized
+    fun claimGeneratedRefill(): GeneratedQueueBatch? {
+        if (!generationEnabled || generatedStarted < nextGenerationAt || pendingGeneratedIds.isEmpty()) return null
+        val selected = pendingGeneratedIds.take(GENERATED_BATCH_SIZE)
+        pendingGeneratedIds = pendingGeneratedIds.drop(selected.size)
+        nextGenerationAt += GENERATED_BATCH_SIZE
+        invalidateSnapshot()
+        return GeneratedQueueBatch(generationEpoch, selected)
+    }
+
+    @Synchronized
+    fun appendGeneratedBatch(batch: GeneratedQueueBatch, resolved: List<PlayableTrack>): Boolean {
+        if (batch.epoch != generationEpoch || !generationEnabled) return false
+        val byId = resolved.associateBy { it.id }
+        val existing = tracks.mapTo(hashSetOf()) { it.id }
+        val accepted = batch.ids.mapNotNull(byId::get).filter { existing.add(it.id) }
+        if (accepted.isNotEmpty()) {
+            tracks.addAll(accepted)
+            origins.addAll(List(accepted.size) { QueueItemOrigin.GENERATED })
+            trackIds.addAll(accepted.map { it.id })
+            bumpRevision()
+        }
+        return true
     }
 
     @Synchronized
@@ -441,6 +527,10 @@ class ProgressiveQueue @Inject constructor() {
             playbackMode = playbackMode,
             repeatMode = repeatMode,
             shuffleSeed = shuffleSeed,
+            sourceTrackIds = sourceTrackIds,
+            pendingGeneratedIds = pendingGeneratedIds,
+            generatedStarted = generatedStarted,
+            nextGenerationAt = nextGenerationAt,
             revision = revision,
         )
     }
@@ -456,6 +546,12 @@ class ProgressiveQueue @Inject constructor() {
         playbackMode = PlaybackMode.ORDERED
         repeatMode = RepeatMode.OFF
         shuffleSeed = null
+        generationEnabled = false
+        sourceTrackIds = emptyList()
+        pendingGeneratedIds = emptyList()
+        generationEpoch++
+        generatedStarted = 0
+        nextGenerationAt = 90
         QueueProvenanceRestoreHints.clear()
         if (hadState) bumpRevision() else invalidateSnapshot()
     }
@@ -476,8 +572,11 @@ class ProgressiveQueue @Inject constructor() {
         const val PREVIOUS_WINDOW_SIZE = 3
         const val BACKWARD_REFILL_THRESHOLD = 1
         const val SMART_RERANK_WINDOW = 20
+        const val GENERATED_BATCH_SIZE = 100
     }
 }
+
+data class GeneratedQueueBatch(val epoch: Long, val ids: List<UUID>)
 
 data class QueueWindowPlan(
     val tracks: List<PlayableTrack>,
@@ -493,5 +592,9 @@ data class ProgressiveQueueSnapshot(
     val playbackMode: PlaybackMode,
     val repeatMode: RepeatMode,
     val shuffleSeed: Long?,
+    val sourceTrackIds: List<UUID> = emptyList(),
+    val pendingGeneratedIds: List<UUID> = emptyList(),
+    val generatedStarted: Int = 0,
+    val nextGenerationAt: Int = 90,
     val revision: Long,
 )
