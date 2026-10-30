@@ -167,9 +167,11 @@ class FixedNextQueueIsolationTest {
         // B and A were skipped, but are still reachable through Previous.
         assertTrue(queue.hasPrevious())
         requireNotNull(queue.jumpTo(1))
-        assertEquals(songs[1].id, queue.snapshot()?.tracks?.get(queue.snapshot()!!.currentIndex)?.id)
+        val atB = requireNotNull(queue.snapshot())
+        assertEquals(songs[1].id, atB.tracks[atB.currentIndex].id)
         requireNotNull(queue.jumpTo(0))
-        assertEquals(songs[0].id, queue.snapshot()?.tracks?.get(queue.snapshot()!!.currentIndex)?.id)
+        val atA = requireNotNull(queue.snapshot())
+        assertEquals(songs[0].id, atA.tracks[atA.currentIndex].id)
         // Returning to C does not bring A/B into its future.
         requireNotNull(queue.selectUpcomingNext(2))
         assertEquals(songs.drop(3).map { it.id },
@@ -246,9 +248,10 @@ class FixedNextQueueIsolationTest {
         queue.start(songs, 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
             seed = 12L, sourceIds = songs.map { it.id })
         queue.insertNext(songs[23])
-        val selectC = requireNotNull(queue.snapshot()).tracks.indices.first {
-            queue.snapshot()!!.tracks[it].id == songs[2].id &&
-                queue.snapshot()!!.origins[it] == QueueItemOrigin.GENERATED
+        val prepared = requireNotNull(queue.snapshot())
+        val selectC = prepared.tracks.indices.first {
+            prepared.tracks[it].id == songs[2].id &&
+                prepared.origins[it] == QueueItemOrigin.GENERATED
         }
         requireNotNull(queue.selectUpcomingNext(selectC))
         val persisted = requireNotNull(queue.snapshot())
