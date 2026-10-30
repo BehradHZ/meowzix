@@ -288,7 +288,14 @@ interface LibraryBrowseDao {
                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
               )
           )
-        ORDER BY t.normalizedTitle ASC, t.id ASC
+        ORDER BY COALESCE(
+            (SELECT MAX(d.updatedAtEpochMs) FROM download_records d
+             WHERE d.trackId = t.id AND d.status = 'COMPLETED' AND d.localPath IS NOT NULL),
+            (SELECT MAX(s.createdAtEpochMs) FROM track_sources s
+             WHERE s.trackId = t.id AND s.availability = 'AVAILABLE_LOCAL'
+               AND s.type IN ('APP_OFFLINE_COPY', 'TDLIB_LOCAL')),
+            t.createdAtEpochMs
+        ) DESC, t.id ASC
         LIMIT :limit OFFSET :offset
         """,
     )
