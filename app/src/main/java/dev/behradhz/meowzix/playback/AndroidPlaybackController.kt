@@ -364,7 +364,11 @@ class AndroidPlaybackController @Inject constructor(
     }
 
     override fun removeGroup(groupId: UUID) = withController { connected ->
-        if (progressiveQueue.removeGroup(groupId)) syncProgressiveWindowInPlace(connected)
+        val title = progressiveQueue.snapshot()?.groups?.get(groupId)?.title
+        if (progressiveQueue.removeGroup(groupId)) {
+            syncProgressiveWindowInPlace(connected)
+            queueActionFeedbackBus.emit(QueueActionKind.REMOVED, title ?: "Group")
+        }
     }
 
     override fun moveGroup(groupId: UUID, toIndex: Int) = withController { connected ->
@@ -519,6 +523,7 @@ class AndroidPlaybackController @Inject constructor(
                 syncLogicalCurrentFromPlayer(connected)
                 val current = progressiveQueue.snapshot() ?: return@withController
                 val removal = planQueueRemoval(current, index) ?: return@withController
+                val removedTitle = current.tracks[index].title
                 if (!progressiveQueue.removeAt(index)) return@withController
 
                 when (removal) {
@@ -546,9 +551,13 @@ class AndroidPlaybackController @Inject constructor(
                     }
                     QueueRemovalPlan.LogicalOnly -> refillAfterQueueRemoval(connected)
                 }
+                queueActionFeedbackBus.emit(QueueActionKind.REMOVED, removedTitle)
             } else if (index in 0 until connected.mediaItemCount) {
+                val removedTitle = connected.getMediaItemAt(index).mediaMetadata.title?.toString()
+                    ?: "Track"
                 connected.removeMediaItem(index)
                 updateState(connected)
+                queueActionFeedbackBus.emit(QueueActionKind.REMOVED, removedTitle)
             }
         }
     }
@@ -597,6 +606,7 @@ class AndroidPlaybackController @Inject constructor(
                 explicitIndices.asReversed().forEach(progressiveQueue::removeAt)
                 // Clearing fixed Queue never wipes the independent generated Next list.
                 syncProgressiveWindowInPlace(connected)
+                queueActionFeedbackBus.emit(QueueActionKind.CLEARED, "")
             }
             return@withController
         }
