@@ -39,6 +39,11 @@ class LibraryQueryRepository @Inject constructor(
     private val libraryDao: LibraryDao,
     private val searchIndexer: EffectiveTrackSearchIndexer,
 ) {
+    fun managedOfflineTrackIds(): Flow<Set<UUID>> =
+        libraryDao.observeManagedOfflineTrackIds().map { ids ->
+            ids.mapTo(hashSetOf(), UUID::fromString)
+        }
+
     suspend fun search(query: String, limit: Int = 80): List<Track> {
         val normalized = TextNormalizer.normalize(query) ?: return emptyList()
         searchIndexer.ensureReady()
