@@ -56,6 +56,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackGainCoordinator
 import dev.behradhz.meowzix.domain.playback.PlaybackGainState
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
+import dev.behradhz.meowzix.domain.playback.mayBeginAnotherCycle
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
@@ -1146,7 +1147,11 @@ class PlaybackService : MediaLibraryService() {
                     val loaded = runCatching { playbackCatalog.availableTracks(batch.ids) }.getOrDefault(emptyList())
                     val byId = loaded.associateBy { it.id }
                     if (progressiveQueue.appendGeneratedBatch(batch, batch.ids.mapNotNull(byId::get))) {
-                        expandProgressiveWindow()
+                        if (player.playbackState == Player.STATE_ENDED) {
+                            resumeLogicalNextAfterWindowEnd()
+                        } else {
+                            expandProgressiveWindow()
+                        }
                         schedulePersist()
                     }
                 }
@@ -2029,13 +2034,46 @@ class PlaybackService : MediaLibraryService() {
         schedulePersist()
     }
 
+    /**
+     * The Media3 player contains only a sliding subset of the logical queue. If
+     * it reaches ENDED before the logical list is exhausted, continue at exactly
+     * the next pre-committed occurrence instead of manufacturing another shuffle.
+     */
+    private fun resumeLogicalNextAfterWindowEnd() {
+        if (player.playbackState != Player.STATE_ENDED) return
+        val state = progressiveQueue.snapshot() ?: return
+        val nextIndex = state.currentIndex + 1
+        if (nextIndex !in state.tracks.indices) return
+
+        val playWhenReady = player.playWhenReady
+        val plan = progressiveQueue.jumpTo(nextIndex) ?: return
+        player.repeatMode = state.repeatMode.toPlayerRepeatMode(progressive = true)
+        player.setMediaItems(
+            plan.tracks.map { it.toMediaItem(state.playbackMode, state.repeatMode) },
+            plan.startIndexInWindow,
+            0L,
+        )
+        player.prepare()
+        if (playWhenReady) player.play()
+        schedulePersist()
+    }
+
     private fun startNextQueueCycle() {
         if (isChangingQueueCycle || player.mediaItemCount == 0) return
         val progressive = progressiveQueue.snapshot()
         if (progressive != null) {
-            // A new permutation is allowed only when repeat-all explicitly starts a NEW
-            // cycle. Ending Pure Shuffle with Repeat OFF must not silently reshuffle Next.
-            if (progressive.repeatMode != RepeatMode.ALL) return
+            // STATE_ENDED can mean the bounded Media3 window ended, NOT that the
+            // full Next list ended. Keep its existing order and successor.
+            if (progressive.currentIndex < progressive.tracks.lastIndex) {
+                resumeLogicalNextAfterWindowEnd()
+                return
+            }
+            if (progressive.pendingGeneratedIds.isNotEmpty()) {
+                expandProgressiveWindow()
+                return
+            }
+            // A fresh shuffle is allowed only after a full repeat-all cycle.
+            if (!progressive.mayBeginAnotherCycle()) return
             isChangingQueueCycle = true
             serviceScope.launch {
                 try {
