@@ -430,19 +430,23 @@ class AndroidPlaybackController @Inject constructor(
             ) {
                 if (prepared != null) progressiveQueue.replacePlayableSource(prepared.id, prepared)
                 val refreshed = progressiveQueue.snapshot() ?: return@launch
-                if (existingIndex <= refreshed.currentIndex ||
-                    refreshed.origins[existingIndex] ==
-                        dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
-                ) {
-                    // Current/previous/Next selections within this collection all
-                    // navigate the SAME session. History and manual Queue survive.
-                    playAt(existingIndex)
-                } else if (progressiveQueue.hasFixedFuture()) {
-                    withConnectedController { connected ->
-                        playIndependentTrackPreservingNext(connected, refreshed, existingIndex)
+                val selectedOccurrence = refreshed.occurrenceIds[existingIndex]
+                withConnectedController { connected ->
+                    val latest = progressiveQueue.snapshot() ?: return@withConnectedController
+                    val selectedIndex = latest.occurrenceIds.indexOf(selectedOccurrence)
+                    if (selectedIndex < 0) return@withConnectedController
+                    if (selectedIndex <= latest.currentIndex ||
+                        latest.origins[selectedIndex] ==
+                            dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED ||
+                        !progressiveQueue.hasFixedFuture()
+                    ) {
+                        // Same session: resolve the occurrence again on the
+                        // connected player so an intervening queue edit cannot
+                        // make this index point at a different song.
+                        playAtOnController(connected, selectedIndex)
+                    } else {
+                        playIndependentTrackPreservingNext(connected, latest, selectedIndex)
                     }
-                } else {
-                    playAt(existingIndex)
                 }
                 return@launch
             }
