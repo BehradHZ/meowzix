@@ -22,6 +22,7 @@ data class PlaybackState(
     val queueIndex: Int = -1,
     val queueSize: Int = 0,
     val positionMs: Long = 0,
+    val playbackSpeed: Float = 1f,
     val durationMs: Long = 0,
     val playbackMode: PlaybackMode = PlaybackMode.ORDERED,
     val repeatMode: RepeatMode = RepeatMode.OFF,
@@ -43,6 +44,7 @@ interface PlaybackController {
     fun pause()
     fun togglePlayPause()
     fun seekTo(positionMs: Long)
+    fun setPlaybackSpeed(speed: Float) {}
     fun skipToPrevious()
     fun skipToNext()
 }
