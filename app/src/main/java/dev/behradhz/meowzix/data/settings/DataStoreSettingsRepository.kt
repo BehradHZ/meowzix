@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.data.settings
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -96,6 +97,8 @@ class DataStoreSettingsRepository @Inject constructor(
             defaultRepeat = values[DEFAULT_REPEAT_MODE].enumOrDefault(RepeatMode.OFF),
             resumeOnLaunch = values[RESUME_ON_LAUNCH] ?: true,
             resumeAfterExternalAudio = values[RESUME_AFTER_EXTERNAL_AUDIO] ?: false,
+            pauseOnMicrophoneRecording = values[PAUSE_ON_MICROPHONE_RECORDING] ?: false,
+            playbackSpeed = (values[PLAYBACK_SPEED] ?: 1f).coerceIn(0.5f, 5f),
             liveSongCardEnabled = values[LIVE_SONG_CARD_ENABLED] ?: false,
             liveSongCardStyle = values[LIVE_SONG_CARD_STYLE].enumOrDefault(LiveSongCardStyle.MINIMAL),
             liveSongLeftAction = values[LIVE_SONG_LEFT_ACTION].enumOrDefault(LiveSongSideAction.PREVIOUS),
@@ -127,6 +130,11 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle) = setEnum(PLAYER_SEEKBAR_STYLE, style)
     override suspend fun setResumeOnLaunch(enabled: Boolean) = set(RESUME_ON_LAUNCH, enabled)
     override suspend fun setResumeAfterExternalAudio(enabled: Boolean) = set(RESUME_AFTER_EXTERNAL_AUDIO, enabled)
+    override suspend fun setPauseOnMicrophoneRecording(enabled: Boolean) = set(PAUSE_ON_MICROPHONE_RECORDING, enabled)
+    override suspend fun setPlaybackSpeed(speed: Float) {
+        if (!speed.isFinite()) return
+        context.settingsDataStore.edit { it[PLAYBACK_SPEED] = speed.coerceIn(0.5f, 5f) }
+    }
     override suspend fun setLiveSongCardEnabled(enabled: Boolean) = set(LIVE_SONG_CARD_ENABLED, enabled)
     override suspend fun setLiveSongCardStyle(style: LiveSongCardStyle) = setEnum(LIVE_SONG_CARD_STYLE, style)
     override suspend fun setLiveSongLeftAction(action: LiveSongSideAction) = setEnum(LIVE_SONG_LEFT_ACTION, action)
@@ -208,6 +216,8 @@ class DataStoreSettingsRepository @Inject constructor(
         val DEFAULT_REPEAT_MODE = stringPreferencesKey("default_repeat_mode")
         val RESUME_ON_LAUNCH = booleanPreferencesKey("resume_on_launch")
         val RESUME_AFTER_EXTERNAL_AUDIO = booleanPreferencesKey("resume_after_external_audio")
+        val PAUSE_ON_MICROPHONE_RECORDING = booleanPreferencesKey("pause_on_microphone_recording")
+        val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
         val LIVE_SONG_CARD_ENABLED = booleanPreferencesKey("live_song_card_enabled")
         val LIVE_SONG_CARD_STYLE = stringPreferencesKey("live_song_card_style")
         val LIVE_SONG_LEFT_ACTION = stringPreferencesKey("live_song_left_action")
