@@ -193,7 +193,14 @@ interface LibraryDao {
     ): List<TrackHashMatchRow>
 
     @Query("SELECT * FROM track_sources WHERE availability != 'MISSING'")
-    fun observeActiveSources(): Flow<List<TrackSourceEntity>>
+    fun observeActiveSources()
+
+    @Query("""
+        SELECT DISTINCT trackId FROM track_sources
+        WHERE type IN ('APP_OFFLINE_COPY', 'TDLIB_LOCAL')
+          AND availability = 'AVAILABLE_LOCAL'
+    """)
+    fun observeManagedOfflineTrackIds(): Flow<List<String>>: Flow<List<TrackSourceEntity>>
 
     @Query("""
         SELECT t.id, t.title, t.artist, t.album, t.durationMs, t.artworkRef, CASE WHEN s.contentUri IS NOT NULL THEN s.contentUri ELSE 'file://' || s.localPath END AS contentUri FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.availability = 'AVAILABLE_LOCAL' AND (s.contentUri IS NOT NULL OR s.localPath IS NOT NULL) AND t.hidden = 0 AND (
