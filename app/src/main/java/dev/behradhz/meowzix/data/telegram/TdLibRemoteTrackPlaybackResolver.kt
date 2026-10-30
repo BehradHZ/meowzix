@@ -12,6 +12,7 @@ import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.network.NetworkPolicy
 import dev.behradhz.meowzix.data.network.NetworkUse
+import dev.behradhz.meowzix.data.repository.isReadableForPlayback
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
@@ -47,8 +48,14 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     private val playbackDirectory = File(context.filesDir, "playback-cache")
     private val artworkDirectory = File(context.filesDir, "artwork")
 
-    override suspend fun prepareForPlayback(trackId: UUID): PlayableTrack? {
-        cachedLocalTrack(trackId)?.let { return it }
+    override suspend fun prepareForPlayback(trackId: UUID): PlayableTrack? =
+        prepare(trackId, bypassLocalCache = false)
+
+    override suspend fun prepareRemoteForPlayback(trackId: UUID): PlayableTrack? =
+        prepare(trackId, bypassLocalCache = true)
+
+    private suspend fun prepare(trackId: UUID, bypassLocalCache: Boolean): PlayableTrack? {
+        if (!bypassLocalCache) cachedLocalTrack(trackId)?.let { return it }
 
         val settings = settingsRepository.networkPlaybackSettings.first()
         networkPolicy.blockReason(settings, NetworkUse.USER_REQUEST)?.let(::error)
@@ -84,7 +91,8 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             album = track.album,
             durationMs = track.durationMs,
             artworkRef = track.artworkRef,
-            contentUri = streamUri(source.candidate.fileId, trackId),
+            contentUri = streamUri(source.candidate.fileId, trackId) +
+                if (bypassLocalCache) "&ignoreCache=1" else "",
         )
     }
 
@@ -135,21 +143,13 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             .sortedBy(::localSourcePriority)
 
         for (source in sources) {
-            val contentUri = when {
-                !source.contentUri.isNullOrBlank() -> source.contentUri
-                !source.localPath.isNullOrBlank() -> {
-                    val path = source.localPath ?: continue
-                    if (File(path).isFile) {
-                        "file://$path"
-                    } else {
-                        if (source.type == TrackSourceType.APP_OFFLINE_COPY || source.type == TrackSourceType.TDLIB_LOCAL) {
-                            libraryDao.updateAvailability(source.id, SourceAvailability.MISSING, now)
-                        }
-                        null
-                    }
+            if (!source.isReadableForPlayback()) {
+                if (source.type == TrackSourceType.APP_OFFLINE_COPY || source.type == TrackSourceType.TDLIB_LOCAL) {
+                    libraryDao.updateAvailability(source.id, SourceAvailability.MISSING, now)
                 }
-                else -> null
-            } ?: continue
+                continue
+            }
+            val contentUri = source.contentUri ?: source.localPath?.let { "file://$it" } ?: continue
 
             return PlayableTrack(
                 id = trackId,
@@ -371,7 +371,8 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             playbackDirectory,
             trackId.toString() + extension?.let { ".$it" }.orEmpty(),
         )
-        if (destination.isFile && destination.length() == source.length()) return destination
+        if (destination.isFile && destination.length() == source.length() &&
+            java.security.MessageDigest.isEqual(fileDigest(destination), fileDigest(source))) return destination
         val partial = File(playbackDirectory, destination.name + ".part")
         source.inputStream().buffered().use { input ->
             partial.outputStream().buffered().use(input::copyTo)
@@ -379,6 +380,19 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         if (destination.exists() && !destination.delete()) error("Unable to replace playback cache")
         if (!partial.renameTo(destination)) error("Unable to finalize playback cache")
         return destination
+    }
+
+    private fun fileDigest(file: File): ByteArray {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val length = input.read(buffer)
+                if (length <= 0) break
+                digest.update(buffer, 0, length)
+            }
+        }
+        return digest.digest()
     }
 
     private fun extractFullArtwork(trackId: UUID, audioFile: File): String? {
