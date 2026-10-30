@@ -144,7 +144,9 @@ class PlaybackService : MediaLibraryService() {
                     otherMediaPlaying = otherAppPlayingMedia,
                     hasTrack = player.currentMediaItem != null,
                     playbackEnded = player.playbackState == Player.STATE_ENDED,
-                    sleepTimerActive = sleepTimer.state.value.mode != SleepTimerMode.OFF,
+                    sleepTimerExpired = sleepTimer.state.value.let { timer ->
+                        timer.mode == SleepTimerMode.DURATION && timer.remainingMs <= 0L
+                    },
                 )
                 resumeAfterMicrophoneStops = false
                 if (shouldResume) player.play()
@@ -1320,6 +1322,9 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private suspend fun completeSleepTimer(reason: SleepTimerTerminationReason) {
+        // The timer is an independent, user-requested stop: never undo it when a
+        // microphone that happened to be active later closes.
+        resumeAfterMicrophoneStops = false
         if (activeCrossfade != null) cancelCrossfade("sleep timer completed")
         val mediaId = player.currentMediaItem?.mediaId
         val position = player.currentPosition.coerceAtLeast(0L)
