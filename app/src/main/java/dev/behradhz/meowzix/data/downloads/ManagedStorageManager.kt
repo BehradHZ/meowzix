@@ -87,17 +87,18 @@ class ManagedStorageManager @Inject constructor(
         val now = Instant.now().toEpochMilli()
         val sources = libraryDao.allSources()
         val remoteSizes = sources
-            .filter { it.type == TrackSourceType.TELEGRAM_REMOTE && (it.fileSizeBytes ?: 0L) > 0L }
-            .associate { it.trackId to requireNotNull(it.fileSizeBytes) }
+            .filter { it.type == TrackSourceType.TELEGRAM_REMOTE }
+            .groupBy({ it.trackId }, { it.fileSizeBytes })
         sources
             .filter { it.type == TrackSourceType.TDLIB_LOCAL || it.type == TrackSourceType.APP_OFFLINE_COPY }
             .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
             .forEach { managed ->
                 val file = managed.localPath?.let(::File)
-                val expected = ManagedAudioIntegrity.expectedBytes(
-                    remoteSizes[managed.trackId], managed.fileSizeBytes,
-                )
-                if (ManagedAudioIntegrity.isValid(file, expected, managed.contentHashSha256)) return@forEach
+                if (ManagedAudioIntegrity.isValidForAnyRemoteSize(
+                        file, remoteSizes[managed.trackId].orEmpty(),
+                        managed.fileSizeBytes, managed.contentHashSha256,
+                    )
+                ) return@forEach
                 libraryDao.updateAvailability(managed.id, SourceAvailability.MISSING, now)
                 // Never remove user-owned MediaStore files or files currently leased by a transfer.
                 if (file != null && !leases.isProtected(file.absolutePath)) {
