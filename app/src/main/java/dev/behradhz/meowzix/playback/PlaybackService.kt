@@ -125,7 +125,7 @@ class PlaybackService : MediaLibraryService() {
             val recording = configs.isNotEmpty()
             val started = recording && !microphoneWasRecording
             microphoneWasRecording = recording
-            if (pauseOnMicrophoneRecordingEnabled && started && player.isPlaying) {
+            if (pauseOnMicrophoneRecordingEnabled && started && player.playWhenReady) {
                 // One-shot pause at the rising edge: manual Play is always allowed while
                 // the microphone remains active. Never schedule an automatic resume.
                 cancelExternalResume()
