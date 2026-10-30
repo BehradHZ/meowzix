@@ -465,7 +465,9 @@ class PlaybackService : MediaLibraryService() {
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
             // Only a genuine automatic end consumes an explicit Queue occurrence.
             // Library selection/replacement must never consume the fixed list.
-            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+            ) {
                 progressiveQueue.consumeFixedOccurrence(lastTransitionOccurrenceId)
             }
             syncLogicalCurrentFromPlayer()
