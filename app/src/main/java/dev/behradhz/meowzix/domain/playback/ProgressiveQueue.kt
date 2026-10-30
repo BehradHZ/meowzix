@@ -193,6 +193,17 @@ class ProgressiveQueue @Inject constructor() {
     }
 
     @Synchronized
+    fun consumeFixedOccurrence(occurrenceId: UUID?): Boolean {
+        if (occurrenceId == null || !fixedOccurrences.remove(occurrenceId)) return false
+        bumpRevision()
+        return true
+    }
+
+    @Synchronized
+    fun isFixedOccurrence(index: Int): Boolean =
+        occurrenceIds.getOrNull(index)?.let { it in fixedOccurrences } == true
+
+    @Synchronized
     fun hasFixedFuture(): Boolean = tracks.indices.any {
         it >= currentIndex && occurrenceIds[it] in fixedOccurrences
     }
@@ -494,7 +505,7 @@ class ProgressiveQueue @Inject constructor() {
         if (tracks.isEmpty() || currentIndex < 0) return
         val fixedTracks = tracks.take(currentIndex + 1)
         val fixedOrigins = origins.take(currentIndex + 1)
-        val fixedOccurrences = occurrenceIds.take(currentIndex + 1)
+        val currentAndHistoryOccurrences = occurrenceIds.take(currentIndex + 1)
         val fixedGroups = groupIds.take(currentIndex + 1)
         val manualPositions = (currentIndex + 1 until tracks.size)
             .filter { occurrenceIds[it] in fixedOccurrences }
@@ -508,7 +519,7 @@ class ProgressiveQueue @Inject constructor() {
         origins.clear()
         origins.addAll(fixedOrigins)
         occurrenceIds.clear()
-        occurrenceIds.addAll(fixedOccurrences)
+        occurrenceIds.addAll(currentAndHistoryOccurrences)
         occurrenceIds.addAll(manualOccurrences)
         occurrenceIds.addAll(List(tracks.size - fixedTracks.size - manualFuture.size) { UUID.randomUUID() })
         groupIds.clear()
@@ -517,7 +528,6 @@ class ProgressiveQueue @Inject constructor() {
         groupIds.addAll(List(tracks.size - fixedTracks.size - manualFuture.size) { null })
         pruneGroups()
         origins.addAll(List(manualFuture.size) { QueueItemOrigin.MANUAL })
-        val futureOrigin = if (generationEnabled || mode == PlaybackMode.SMART_SHUFFLE) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL
         origins.addAll(List(tracks.size - fixedTracks.size - manualFuture.size) { QueueItemOrigin.GENERATED })
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
