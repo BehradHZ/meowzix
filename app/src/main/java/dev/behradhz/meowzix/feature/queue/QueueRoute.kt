@@ -1,5 +1,11 @@
 package dev.behradhz.meowzix.feature.queue
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import dev.behradhz.meowzix.feature.library.LocalTrackChatLinkActions
+import dev.behradhz.meowzix.feature.library.TrackChatLinkActions
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -118,6 +124,7 @@ fun QueueRoute(
     libraryTools: LibraryToolsViewModel = hiltViewModel(),
     forwardViewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val aux by viewModel.aux.collectAsStateWithLifecycle()
     var forwardSelection by remember { mutableStateOf<TrackForwardSelection?>(null) }
@@ -130,6 +137,19 @@ fun QueueRoute(
         LocalLibraryTrackToolsActions provides LibraryTrackToolsActions(
             editMetadata = libraryTools::openMetadata,
             manageDuplicates = libraryTools::openDuplicates,
+        ),
+        LocalTrackChatLinkActions provides TrackChatLinkActions(
+            lookup = libraryTools::telegramMessageLink,
+            open = { link ->
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link))
+                    .addCategory(Intent.CATEGORY_BROWSABLE)
+                runCatching {
+                    context.startActivity(Intent(intent).setPackage("org.telegram.messenger"))
+                }.recoverCatching { context.startActivity(intent) }
+                    .onFailure {
+                        Toast.makeText(context, "Unable to open Telegram message", Toast.LENGTH_LONG).show()
+                    }
+            },
         ),
         LocalTrackForwardAction provides { selection ->
             forwardSelection = selection
@@ -675,15 +695,28 @@ private fun SwipeableQueueItem(
     val recommendationActions = LocalLibraryRecommendationActions.current
     val trackToolsActions = LocalLibraryTrackToolsActions.current
     val forwardAction = LocalTrackForwardAction.current
+    val chatActions = LocalTrackChatLinkActions.current
     var menuExpanded by remember { mutableStateOf(false) }
+    var chatLink by remember(item.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(menuExpanded, item.id) {
+        if (menuExpanded) {
+            chatLink = try {
+                chatActions?.lookup?.invoke(item.id)
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
     val density = LocalDensity.current
     val haptics = rememberMeowzixHaptics()
     val actionThreshold = with(density) { 75.dp.toPx() }
     val removeThreshold = with(density) { 150.dp.toPx() }
     val maximumSwipe = with(density) { 300.dp.toPx() }
-    var swipeOffsetX by remember(item.id) { mutableFloatStateOf(0f) }
-    var swipeStage by remember(item.id) { mutableIntStateOf(0) }
-    var horizontalDragActive by remember(item.id) { mutableStateOf(false) }
+    var swipeOffsetX by remember(item.occurrenceId) { mutableFloatStateOf(0f) }
+    var swipeStage by remember(item.occurrenceId) { mutableIntStateOf(0) }
+    var horizontalDragActive by remember(item.occurrenceId) { mutableStateOf(false) }
     val visualOffsetX by animateFloatAsState(
         targetValue = swipeOffsetX,
         animationSpec = if (horizontalDragActive) snap() else tween(190),
@@ -764,7 +797,7 @@ private fun SwipeableQueueItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .graphicsLayer { translationX = visualOffsetX }
-                .pointerInput(item.id, isDragging, actionThreshold, removeThreshold) {
+                .pointerInput(item.occurrenceId, isDragging, actionThreshold, removeThreshold) {
                     if (!isDragging) {
                         detectHorizontalDragGestures(
                             onDragStart = {
@@ -844,7 +877,7 @@ private fun SwipeableQueueItem(
                 Box(
                     modifier = Modifier
                         .size(42.dp)
-                        .pointerInput(item.id, reorderEnabled) {
+                        .pointerInput(item.occurrenceId, reorderEnabled) {
                             if (reorderEnabled) {
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = { onDragStart() },
@@ -882,6 +915,7 @@ private fun SwipeableQueueItem(
                             onAddToQueue = onAddToQueue,
                             onFavorite = onFavorite,
                             onForward = { forwardAction(TrackForwardSelection(item.id, item.title, item.artist)) },
+                            onViewInChat = chatLink?.let { link -> { chatActions?.open?.invoke(link) } },
                             onGoToArtist = { item.artist?.let(onGoToArtist) },
                             onAddToPlaylist = onAddToPlaylist,
                             onContinueVibe = { recommendationActions?.continueVibe?.invoke(item.id) },

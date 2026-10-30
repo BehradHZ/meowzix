@@ -7,6 +7,14 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -211,7 +219,7 @@ internal fun TrackActionsMenu(
                         ActionIcon(Icons.Rounded.QueueMusic, "Add to queue") { onDismiss(); onAddToQueue() }
                         ActionIcon(
                             if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                            if (favorite) "Remove favorite" else "Favorite",
+                            if (favorite) "Unlike" else "Like",
                             highlighted = favorite,
                         ) { onDismiss(); onFavorite() }
                         ActionIcon(Icons.Rounded.Send, "Forward") { onDismiss(); onForward() }
@@ -277,6 +285,7 @@ internal fun TrackActionsMenu(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ActionIcon(
     icon: ImageVector,
@@ -285,22 +294,60 @@ private fun ActionIcon(
     danger: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val color = when {
-        danger -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.primary
+    val color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    var showLabel by remember(label) { mutableStateOf(false) }
+    LaunchedEffect(showLabel) {
+        if (showLabel) {
+            delay(1_700)
+            showLabel = false
+        }
     }
-    Surface(
-        modifier = Modifier.size(44.dp).testTag("track-action-${label.lowercase().replace(' ', '-')}"),
-        shape = CircleShape,
-        color = color.copy(alpha = if (highlighted) 0.22f else 0.11f),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (highlighted) color.copy(alpha = 0.72f) else Color.White.copy(alpha = 0.17f),
-        ),
-        onClick = onClick,
+    Box(
+        modifier = Modifier.size(44.dp)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = { showLabel = true },
+                onClickLabel = label,
+                onLongClickLabel = "Show $label",
+            )
+            .testTag("track-action-${label.lowercase().replace(' ', '-')}"),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(20.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth().height(44.dp),
+            shape = CircleShape,
+            color = color.copy(alpha = if (highlighted) 0.22f else 0.11f),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                if (highlighted) color.copy(alpha = 0.72f) else Color.White.copy(alpha = 0.17f),
+            ),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(20.dp))
+            }
+        }
+        if (showLabel) {
+            Popup(
+                alignment = Alignment.TopCenter,
+                offset = IntOffset(0, -90),
+                onDismissRequest = { showLabel = false },
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp, Color.White.copy(alpha = 0.18f)
+                    ),
+                    shadowElevation = 6.dp,
+                ) {
+                    Text(
+                        text = label,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
         }
     }
 }
