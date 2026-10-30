@@ -138,12 +138,14 @@ class PlaybackService : MediaLibraryService() {
                 cancelCrossfade("microphone recording started")
                 player.pause()
             } else if (pauseOnMicrophoneRecordingEnabled && stopped) {
-                val shouldResume = resumeAfterMicrophoneStops &&
-                    !player.playWhenReady &&
-                    !otherAppPlayingMedia &&
-                    player.currentMediaItem != null &&
-                    player.playbackState != Player.STATE_ENDED &&
-                    sleepTimer.state.value.mode == SleepTimerMode.OFF
+                val shouldResume = shouldResumeAfterMicrophoneStops(
+                    pausedByMicrophone = resumeAfterMicrophoneStops,
+                    playbackRequested = player.playWhenReady,
+                    otherMediaPlaying = otherAppPlayingMedia,
+                    hasTrack = player.currentMediaItem != null,
+                    playbackEnded = player.playbackState == Player.STATE_ENDED,
+                    sleepTimerActive = sleepTimer.state.value.mode != SleepTimerMode.OFF,
+                )
                 resumeAfterMicrophoneStops = false
                 if (shouldResume) player.play()
             }
