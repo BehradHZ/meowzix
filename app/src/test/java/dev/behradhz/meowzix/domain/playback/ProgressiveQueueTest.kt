@@ -432,6 +432,23 @@ class ProgressiveQueueTest {
         assertTrue(requireNotNull(queue.snapshot()).groupIds.none { it == group })
     }
 
+    @Test
+    fun `group cannot be reordered beneath generated section`() {
+        val songs = tracks(35)
+        val queue = ProgressiveQueue()
+        queue.start(songs.take(20), 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
+            sourceIds = songs.map { it.id }, pendingIds = songs.drop(20).map { it.id })
+        val id = requireNotNull(queue.insertGroup(songs.subList(24, 28), QueueGroupKind.ALBUM, "Album", false))
+        assertTrue(queue.moveGroup(id, 19))
+        val snapshot = requireNotNull(queue.snapshot())
+        val lastGroup = snapshot.groupIds.indexOfLast { it == id }
+        val firstGenerated = (snapshot.currentIndex + 1 until snapshot.tracks.size)
+            .first { snapshot.origins[it] == QueueItemOrigin.GENERATED }
+        assertEquals(firstGenerated - 1, lastGroup)
+        assertTrue(snapshot.groupIds.indices.filter { snapshot.groupIds[it] == id }
+            .all { snapshot.origins[it] == QueueItemOrigin.MANUAL })
+    }
+
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
         PlayableTrack(
             id = UUID.nameUUIDFromBytes("track-$index".toByteArray()),

@@ -218,8 +218,9 @@ private fun QueueScreen(
     var draggedGroupTarget by remember { mutableStateOf<Int?>(null) }
     var dragCenterY by remember { mutableFloatStateOf(Float.NaN) }
     val density = LocalDensity.current
-    val groupCounts = remember(state.items) {
-        state.items.mapNotNull { it.groupId }.groupingBy { it }.eachCount()
+    val groupCounts = remember(state.items, state.currentIndex) {
+        state.items.drop((state.currentIndex + 1).coerceAtLeast(0))
+            .mapNotNull { it.groupId }.groupingBy { it }.eachCount()
     }
     var hasFocusedCurrent by remember { mutableStateOf(false) }
     // Use the authoritative queue immediately outside a drag. A cached display list can
@@ -250,7 +251,8 @@ private fun QueueScreen(
     fun finishDrag(commit: Boolean) {
         val fromIndex = draggedQueueIndex
         if (!searchActive && commit && fromIndex != null) {
-            val toIndex = displayItems.indexOfFirst { it.index == fromIndex }
+            val destinationSlot = displayItems.indexOfFirst { it.index == fromIndex }
+            val toIndex = filteredItems.getOrNull(destinationSlot)?.index ?: -1
             if (toIndex >= 0 && fromIndex != toIndex) {
                 onMove(fromIndex, toIndex)
             }
@@ -321,6 +323,14 @@ private fun QueueScreen(
                     reorderAt(y)
                 } else {
                     draggedGroupDistance += moved
+                    val nearest = listState.layoutInfo.visibleItemsInfo
+                        .filter { it.index > 0 }
+                        .minByOrNull { abs(it.offset + it.size / 2f - y) }
+                    nearest?.let { target ->
+                        visibleItems.getOrNull(target.index - 1)?.index?.let {
+                            draggedGroupTarget = it
+                        }
+                    }
                 }
             }
         }
@@ -355,6 +365,7 @@ private fun QueueScreen(
                         firstGroupPositions[groupId] == queueIndex
                     val isGroupDragging = groupId != null && groupId == draggedGroupId
                     val previous = state.items.getOrNull(queueIndex - 1)
+                    val nowPlayingSection = !searchActive && queueIndex == state.currentIndex
                     val newManualSection = !searchActive && queueIndex > state.currentIndex &&
                         item.origin == QueueItemOrigin.MANUAL &&
                         (previous?.origin != QueueItemOrigin.MANUAL || queueIndex == state.currentIndex + 1)
@@ -369,6 +380,10 @@ private fun QueueScreen(
                         ),
                     ) {
                         Column(Modifier.animateContentSize()) {
+                        if (nowPlayingSection) {
+                            Text("Now Playing", modifier = Modifier.padding(start = 8.dp, top = 10.dp, bottom = 10.dp),
+                                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        }
                         if (newManualSection) {
                             Text("Queue", modifier = Modifier.padding(start = 8.dp, top = 14.dp, bottom = 10.dp),
                                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -430,7 +445,8 @@ private fun QueueScreen(
                             isCurrent = queueIndex == state.currentIndex,
                             isDragging = isDragging,
                             dragOffsetY = if (isDragging) draggedDistance else 0f,
-                            reorderEnabled = !searchActive && draggedGroupId == null,
+                            reorderEnabled = !searchActive && draggedGroupId == null &&
+                                queueIndex != state.currentIndex,
                             onPlay = { if (state.items.getOrNull(queueIndex) == item) onPlay(queueIndex) },
                             onDragStart = {
                                 if (!searchActive && draggedGroupId == null) {

@@ -1850,36 +1850,45 @@ class PlaybackService : MediaLibraryService() {
                 try {
                     val shouldContinue = progressive.repeatMode == RepeatMode.ALL && player.playWhenReady
                     val previousLast = progressive.tracks.getOrNull(progressive.currentIndex)
+                    val candidateIds = progressive.sourceTrackIds
+                    val candidates = if (candidateIds.isNotEmpty()) {
+                        runCatching { playbackCatalog.availableTracks(candidateIds) }.getOrDefault(emptyList())
+                    } else progressive.tracks
+                    if (candidates.isEmpty()) return@launch
                     var seed: Long? = progressive.shuffleSeed
                     val nextOrder = when (progressive.playbackMode) {
                         PlaybackMode.PURE_SHUFFLE -> {
-                            PureShuffleEngine.newCycle(progressive.tracks.indices.toList()).let { cycle ->
+                            PureShuffleEngine.newCycle(candidates.indices.toList()).let { cycle ->
                                 seed = cycle.seed
                                 val order = cycle.order.toMutableList()
-                                if (previousLast != null && order.size > 1) {
-                                    val firstTrack = progressive.tracks[order.first()]
-                                    if (firstTrack.id == previousLast.id) {
-                                        val swapAt = (1 until order.size).firstOrNull { index ->
-                                            progressive.tracks[order[index]].id != previousLast.id
-                                        }
-                                        if (swapAt != null) {
-                                            val first = order[0]
-                                            order[0] = order[swapAt]
-                                            order[swapAt] = first
-                                        }
+                                if (previousLast != null && order.size > 1 &&
+                                    candidates[order.first()].id == previousLast.id) {
+                                    val swapAt = (1 until order.size).firstOrNull {
+                                        candidates[order[it]].id != previousLast.id
+                                    }
+                                    if (swapAt != null) {
+                                        val first = order[0]
+                                        order[0] = order[swapAt]
+                                        order[swapAt] = first
                                     }
                                 }
-                                order.map(progressive.tracks::get)
+                                order.map(candidates::get)
                             }
                         }
-                        PlaybackMode.ORDERED, PlaybackMode.SMART_SHUFFLE -> progressive.tracks
+                        PlaybackMode.ORDERED, PlaybackMode.SMART_SHUFFLE -> candidates
                     }
+                    val initial = if (candidateIds.isNotEmpty()) {
+                        nextOrder.take(ProgressiveQueue.GENERATED_BATCH_SIZE + 1)
+                    } else nextOrder
                     val plan = progressiveQueue.start(
-                        orderedTracks = nextOrder,
+                        orderedTracks = initial,
                         requestedStartIndex = 0,
                         mode = progressive.playbackMode,
                         repeat = progressive.repeatMode,
                         seed = seed,
+                        sourceIds = candidateIds,
+                        pendingIds = if (candidateIds.isNotEmpty()) nextOrder.drop(initial.size).map { it.id }
+                            else emptyList(),
                     )
                     player.repeatMode = Player.REPEAT_MODE_OFF
                     player.setMediaItems(

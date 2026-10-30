@@ -441,7 +441,9 @@ class LibraryViewModel @Inject constructor(
             queueRepository.queueState
                 .drop(1)
                 .first { queue ->
-                    queue.items.isNotEmpty() && queue.items.map { it.id }.toSet() == expectedTrackIds
+                    // The generated queue is bounded to 100 items; the source candidate set
+                    // can be much larger than the visible logical queue.
+                    queue.items.isNotEmpty() && queue.items.all { it.id in expectedTrackIds }
                 }
             queueRepository.setRepeatMode(repeatMode)
         }
