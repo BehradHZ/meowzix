@@ -198,6 +198,7 @@ class ProgressiveQueue @Inject constructor() {
         nextGenerationAt = nextGenerationThreshold.coerceAtLeast(90)
         generationEpoch++
         generatedRefillInFlight = null
+        normalizePendingQueueLocked()
         bumpRevision()
         return true
     }
@@ -419,7 +420,11 @@ class ProgressiveQueue @Inject constructor() {
             return true
         }
 
-        val existingIndex = tracks.indexOfFirst { it.id == track.id }
+        // Never move an already-listened occurrence out of session history when
+        // the user manually queues the same song again. Future copies may be
+        // promoted to Queue; past copies remain independently navigable.
+        val existingIndex = (currentIndex + 1 until tracks.size)
+            .firstOrNull { tracks[it].id == track.id } ?: -1
         val occurrence = if (existingIndex >= 0) occurrenceIds.removeAt(existingIndex) else UUID.randomUUID()
         val item = if (existingIndex >= 0) {
             origins.removeAt(existingIndex)
@@ -469,7 +474,8 @@ class ProgressiveQueue @Inject constructor() {
             return true
         }
 
-        val existingIndex = tracks.indexOfFirst { it.id == track.id }
+        val existingIndex = (currentIndex + 1 until tracks.size)
+            .firstOrNull { tracks[it].id == track.id } ?: -1
         val occurrence = if (existingIndex >= 0) occurrenceIds.removeAt(existingIndex) else UUID.randomUUID()
         val item = if (existingIndex >= 0) {
             origins.removeAt(existingIndex)
@@ -563,6 +569,7 @@ class ProgressiveQueue @Inject constructor() {
         if (destinationOrigin == QueueItemOrigin.MANUAL) fixedOccurrences += occurrence
         else fixedOccurrences.remove(occurrence)
         pruneGroups()
+        normalizePendingQueueLocked()
         bumpRevision()
         return true
     }
@@ -817,6 +824,41 @@ class ProgressiveQueue @Inject constructor() {
         groupIds.addAll(at, groupsBlock)
         bumpRevision()
         return true
+    }
+
+    /**
+     * Restore a single contiguous pending manual Queue followed by generated
+     * Next. Older saved sessions could contain GENERATED -> MANUAL -> GENERATED,
+     * which rendered duplicate "Next in the queue" headings and wrong priority.
+     * Only FUTURE entries are rearranged; current/history and every occurrence
+     * identity remain untouched. Explicit Queue order and generated order stay
+     * stable within their respective lanes.
+     */
+    private fun normalizePendingQueueLocked() {
+        if (currentIndex !in tracks.indices || currentIndex >= tracks.lastIndex) return
+        val future = (currentIndex + 1 until tracks.size).toList()
+        val pendingManual = future.filter { occurrenceIds[it] in fixedOccurrences }
+        val otherFuture = future.filterNot { occurrenceIds[it] in fixedOccurrences }
+        val order = pendingManual + otherFuture
+        if (order == future) return
+
+        val reorderedTracks = order.map(tracks::get)
+        val reorderedOrigins = order.map { index ->
+            if (occurrenceIds[index] in fixedOccurrences) QueueItemOrigin.MANUAL
+            else QueueItemOrigin.GENERATED
+        }
+        val reorderedOccurrences = order.map(occurrenceIds::get)
+        val reorderedGroups = order.map(groupIds::get)
+        for ((offset, target) in future.withIndex()) {
+            tracks[target] = reorderedTracks[offset]
+            origins[target] = reorderedOrigins[offset]
+            occurrenceIds[target] = reorderedOccurrences[offset]
+            groupIds[target] = reorderedGroups[offset]
+        }
+        // Window indexes after a mutation refer to the canonical queue again.
+        materializedEndExclusive = (currentIndex + 1 + INITIAL_FORWARD_COUNT)
+            .coerceAtMost(tracks.size)
+        pruneGroups()
     }
 
     private fun pruneGroups() {
