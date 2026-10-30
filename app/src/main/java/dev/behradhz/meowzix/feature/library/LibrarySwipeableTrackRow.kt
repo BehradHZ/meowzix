@@ -90,6 +90,7 @@ internal fun SwipeableLibraryTrackRow(
     onAddToPlaylist: (UUID) -> Unit,
     onGoToArtist: () -> Unit,
     onEnsureArtwork: () -> Unit,
+    onRemoveOfflineCopy: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
@@ -208,6 +209,7 @@ internal fun SwipeableLibraryTrackRow(
                 onAddToPlaylist = onAddToPlaylist,
                 onGoToArtist = onGoToArtist,
                 onRemoveFromPlaylist = onRemoveFromPlaylist,
+                onRemoveOfflineCopy = onRemoveOfflineCopy,
                 onMoveUp = onMoveUp,
                 onMoveDown = onMoveDown,
                 containerColor = containerColor,
@@ -233,6 +235,7 @@ private fun LibraryTrackRowContent(
     onAddToPlaylist: (UUID) -> Unit,
     onGoToArtist: () -> Unit,
     onRemoveFromPlaylist: (() -> Unit)?,
+    onRemoveOfflineCopy: (() -> Unit)?,
     onMoveUp: (() -> Unit)?,
     onMoveDown: (() -> Unit)?,
     containerColor: Color?,
@@ -357,6 +360,9 @@ private fun LibraryTrackRowContent(
                         onMoveUp = onMoveUp,
                         onMoveDown = onMoveDown,
                         onRemoveFromPlaylist = onRemoveFromPlaylist,
+                        onRemoveOfflineCopy = if (download?.hasManagedCopy == true &&
+                            download.status == dev.behradhz.meowzix.domain.downloads.DownloadStatus.COMPLETED
+                        ) onRemoveOfflineCopy else null,
                     )
                 }
             }
