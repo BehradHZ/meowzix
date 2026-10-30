@@ -62,11 +62,7 @@ class RoomPlaybackCatalog @Inject constructor(
         val track = libraryDao.trackById(trackId.toString()) ?: return@withContext false
         if (track.hidden) return@withContext false
         libraryDao.sourcesForTrack(trackId.toString()).any { source ->
-            source.availability == SourceAvailability.AVAILABLE_LOCAL && when {
-                !source.contentUri.isNullOrBlank() -> true
-                !source.localPath.isNullOrBlank() -> source.localPath?.let { File(it).isFile } == true
-                else -> false
-            }
+            source.availability == SourceAvailability.AVAILABLE_LOCAL && source.isReadableForPlayback()
         }
     }
 
@@ -273,7 +269,7 @@ class RoomPlaybackCatalog @Inject constructor(
             .asSequence()
             .filter {
                 it.availability == SourceAvailability.AVAILABLE_LOCAL &&
-                    (!it.contentUri.isNullOrBlank() || !it.localPath.isNullOrBlank())
+                    it.isReadableForPlayback()
             }
             .minByOrNull(::localSourcePriority)
 
@@ -320,4 +316,13 @@ private fun localSourcePriority(source: TrackSourceEntity): Int = when (source.t
     TrackSourceType.APP_OFFLINE_COPY -> 1
     TrackSourceType.TDLIB_LOCAL -> 2
     else -> 3
+}
+
+/** A database "AVAILABLE_LOCAL" flag is not proof that the copy still has valid bytes. */
+internal fun TrackSourceEntity.isReadableForPlayback(): Boolean {
+    if (!contentUri.isNullOrBlank()) return true // MediaStore/content permission is checked by Media3.
+    val path = localPath?.takeIf(String::isNotBlank) ?: return false
+    val file = File(path)
+    if (!file.isFile || !file.canRead() || file.length() <= 0L) return false
+    return fileSizeBytes?.takeIf { it > 0L }?.let { file.length() >= it } ?: true
 }
