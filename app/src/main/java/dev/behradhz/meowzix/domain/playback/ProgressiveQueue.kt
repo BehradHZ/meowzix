@@ -71,6 +71,13 @@ class ProgressiveQueue @Inject constructor() {
         // An explicit queued occurrence survives starting any other Library/Next song.
         val fixed = tracks.indices.filter { occurrenceIds[it] in fixedOccurrences }
             .map { RetainedFixed(tracks[it], occurrenceIds[it], groupIds[it]) }
+        // Keep the identity of each unchanged Next entry across a listening-context
+        // selection. Regenerating UUIDs for every row made the UI animate the entire
+        // list as though its order had changed, even when the order was identical.
+        val previousNextOccurrences = tracks.indices
+            .filter { origins[it] == QueueItemOrigin.GENERATED }
+            .groupBy({ tracks[it].id }, { occurrenceIds[it] })
+            .mapValues { (_, ids) -> ids.toMutableList() }
         val before = orderedTracks.take(requestedStartIndex.coerceIn(orderedTracks.indices) + 1)
         // An identical track ID in Next and explicit Queue denotes two independent
         // occurrences. Never remove one because the other exists.
@@ -83,7 +90,10 @@ class ProgressiveQueue @Inject constructor() {
         occurrenceIds.clear()
         occurrenceIds.addAll(List(before.size) { UUID.randomUUID() })
         occurrenceIds.addAll(fixed.map { it.occurrenceId })
-        occurrenceIds.addAll(List(after.size) { UUID.randomUUID() })
+        occurrenceIds.addAll(after.map { track ->
+            val old = previousNextOccurrences[track.id]
+            if (old.isNullOrEmpty()) UUID.randomUUID() else old.removeAt(0)
+        })
         groupIds.clear()
         groupIds.addAll(List(before.size) { null })
         groupIds.addAll(fixed.map { it.groupId })
