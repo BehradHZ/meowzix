@@ -2026,9 +2026,9 @@ class PlaybackService : MediaLibraryService() {
         if (isChangingQueueCycle || player.mediaItemCount == 0) return
         val progressive = progressiveQueue.snapshot()
         if (progressive != null) {
-            val shouldPrepareNext = progressive.repeatMode == RepeatMode.ALL ||
-                (progressive.playbackMode == PlaybackMode.PURE_SHUFFLE && progressive.repeatMode == RepeatMode.OFF)
-            if (!shouldPrepareNext) return
+            // A new permutation is allowed only when repeat-all explicitly starts a NEW
+            // cycle. Ending Pure Shuffle with Repeat OFF must not silently reshuffle Next.
+            if (progressive.repeatMode != RepeatMode.ALL) return
             isChangingQueueCycle = true
             serviceScope.launch {
                 try {
