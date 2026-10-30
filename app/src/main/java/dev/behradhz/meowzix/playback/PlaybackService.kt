@@ -1148,7 +1148,15 @@ class PlaybackService : MediaLibraryService() {
                     val byId = loaded.associateBy { it.id }
                     if (progressiveQueue.appendGeneratedBatch(batch, batch.ids.mapNotNull(byId::get))) {
                         if (player.playbackState == Player.STATE_ENDED) {
-                            resumeLogicalNextAfterWindowEnd()
+                            val remaining = progressiveQueue.snapshot()
+                            when {
+                                remaining == null -> Unit
+                                remaining.currentIndex < remaining.tracks.lastIndex ->
+                                    resumeLogicalNextAfterWindowEnd()
+                                remaining.pendingGeneratedIds.isNotEmpty() ->
+                                    expandProgressiveWindow()
+                                else -> startNextQueueCycle()
+                            }
                         } else {
                             expandProgressiveWindow()
                         }
