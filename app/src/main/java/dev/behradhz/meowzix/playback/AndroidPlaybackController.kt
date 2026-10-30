@@ -624,6 +624,13 @@ class AndroidPlaybackController @Inject constructor(
         }
     }
 
+    override fun setPlaybackSpeed(speed: Float) = withController { connected ->
+        if (speed.isFinite() && Player.COMMAND_SET_SPEED_AND_PITCH in connected.availableCommands) {
+            connected.setPlaybackSpeed(speed.coerceIn(0.5f, 5f))
+            updateState(connected)
+        }
+    }
+
     override fun seekTo(positionMs: Long) = withController { connected ->
         val upperBound = connected.duration.takeIf { it != C.TIME_UNSET && it >= 0 } ?: Long.MAX_VALUE
         connected.seekTo(positionMs.coerceIn(0, upperBound))
@@ -819,6 +826,7 @@ class AndroidPlaybackController @Inject constructor(
             queueIndex = logical?.currentIndex ?: player.currentMediaItemIndex,
             queueSize = logical?.tracks?.size ?: player.mediaItemCount,
             positionMs = player.currentPosition.coerceAtLeast(0),
+            playbackSpeed = player.playbackParameters.speed,
             durationMs = duration,
             playbackMode = playbackMode,
             repeatMode = repeatMode,
