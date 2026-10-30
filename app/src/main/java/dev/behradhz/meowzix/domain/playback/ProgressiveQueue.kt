@@ -193,10 +193,13 @@ class ProgressiveQueue @Inject constructor() {
     }
 
     @Synchronized
-    fun updateCurrentFromWindowIndex(windowIndex: Int): Boolean {
+    fun updateCurrentFromWindowIndex(windowIndex: Int, expectedMediaId: String? = null): Boolean {
         if (windowIndex < 0) return false
         val logicalIndex = materializedStartIndex + windowIndex
         if (logicalIndex !in tracks.indices || logicalIndex >= materializedEndExclusive) return false
+        // A Media3 timeline mutation can move a window index before our logical snapshot
+        // catches up. Never silently assign a different track's index to the current song.
+        if (expectedMediaId != null && tracks[logicalIndex].id.toString() != expectedMediaId) return false
         if (logicalIndex != currentIndex) {
             noteGeneratedTransition(logicalIndex)
             currentIndex = logicalIndex
@@ -686,6 +689,20 @@ class ProgressiveQueue @Inject constructor() {
     private fun pruneGroups() {
         val alive = groupIds.filterNotNull().toSet()
         groups.keys.retainAll(alive)
+    }
+
+    @Synchronized
+    fun replacePlayableSource(trackId: UUID, replacement: PlayableTrack): Boolean {
+        if (trackId != replacement.id) return false
+        var changed = false
+        tracks.indices.forEach { index ->
+            if (tracks[index].id == trackId && tracks[index] != replacement) {
+                tracks[index] = replacement
+                changed = true
+            }
+        }
+        if (changed) bumpRevision()
+        return changed
     }
 
     @Synchronized
