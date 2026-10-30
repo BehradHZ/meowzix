@@ -372,7 +372,19 @@ class ProgressiveQueue @Inject constructor() {
             bumpRevision()
             return true
         }
-        if (currentIndex !in tracks.indices || tracks[currentIndex].id == track.id) return false
+        if (currentIndex !in tracks.indices) return false
+        if (tracks[currentIndex].id == track.id) {
+            // Add to queue on the playing song queues a DIFFERENT occurrence, without
+            // moving or consuming the current listening context.
+            val destination = (currentIndex + 1 until origins.size)
+                .firstOrNull { origins[it] == QueueItemOrigin.GENERATED } ?: tracks.size
+            tracks.add(destination, track)
+            origins.add(destination, QueueItemOrigin.MANUAL)
+            occurrenceIds.add(destination, UUID.randomUUID().also(fixedOccurrences::add))
+            groupIds.add(destination, null)
+            bumpRevision()
+            return true
+        }
 
         val existingIndex = tracks.indexOfFirst { it.id == track.id }
         val occurrence = if (existingIndex >= 0) occurrenceIds.removeAt(existingIndex) else UUID.randomUUID()
