@@ -1131,7 +1131,14 @@ class PlaybackService : MediaLibraryService() {
 
     private fun syncLogicalCurrentFromPlayer(): Boolean {
         if (progressiveQueue.snapshot() == null) return false
-        val mediaId = player.currentMediaItem?.mediaId
+        val mediaItem = player.currentMediaItem
+        val mediaId = mediaItem?.mediaId
+        val expectedOccurrence = mediaItem?.queueOccurrenceId()
+        if (expectedOccurrence != null) {
+            val snapshot = progressiveQueue.snapshot() ?: return false
+            val index = snapshot.materializedStartIndex + player.currentMediaItemIndex
+            if (snapshot.occurrenceIds.getOrNull(index) != expectedOccurrence) return false
+        }
         if (progressiveQueue.updateCurrentFromWindowIndex(player.currentMediaItemIndex, mediaId)) {
             return true
         }
@@ -1181,13 +1188,15 @@ class PlaybackService : MediaLibraryService() {
             val forward = progressiveQueue.takeForwardBatchIfNeeded()
             if (forward.isNotEmpty()) {
                 val policy = progressiveQueue.snapshot() ?: snapshot
-                player.addMediaItems(forward.map { it.toMediaItem(policy.playbackMode, policy.repeatMode) })
+                val end = policy.materializedEndExclusive
+                player.addMediaItems(policy.mediaItems(end - forward.size, end))
             }
 
             val backward = progressiveQueue.takeBackwardBatchIfNeeded()
             if (backward.isNotEmpty()) {
                 val policy = progressiveQueue.snapshot() ?: snapshot
-                player.addMediaItems(0, backward.map { it.toMediaItem(policy.playbackMode, policy.repeatMode) })
+                val start = policy.materializedStartIndex
+                player.addMediaItems(0, policy.mediaItems(start, start + backward.size))
             }
         } finally {
             isExpandingWindow = false
@@ -1223,7 +1232,10 @@ class PlaybackService : MediaLibraryService() {
                     progressiveQueue.replacePlayableSource(remote.id, remote)
                     player.replaceMediaItem(
                         player.currentMediaItemIndex,
-                        remote.toMediaItem(currentPlaybackMode(), currentRepeatMode()),
+                        remote.toMediaItem(
+                            currentPlaybackMode(), currentRepeatMode(),
+                            player.currentMediaItem?.queueOccurrenceId(),
+                        ),
                     )
                     player.prepare()
                     if (shouldResume) player.play()
@@ -1273,7 +1285,10 @@ class PlaybackService : MediaLibraryService() {
                         progressiveQueue.replacePlayableSource(refreshed.id, refreshed)
                         player.replaceMediaItem(
                             player.currentMediaItemIndex,
-                            refreshed.toMediaItem(currentPlaybackMode(), currentRepeatMode()),
+                            refreshed.toMediaItem(
+                                currentPlaybackMode(), currentRepeatMode(),
+                                player.currentMediaItem?.queueOccurrenceId(),
+                            ),
                         )
                     }
                     // If the URI is still the same, the TDLib data source will
@@ -1539,7 +1554,7 @@ class PlaybackService : MediaLibraryService() {
             incomingMediaId = incomingItem.mediaId,
             incomingTrackId = runCatching { UUID.fromString(incomingItem.mediaId) }.getOrNull(),
             incomingDurationMs = incomingDuration,
-            queueMediaIds = queueItems.map { it.mediaId },
+            queueMediaIds = queueItems.map { it.queueOccurrenceId()?.toString() ?: it.mediaId },
             outgoingNormalizationGainDb = normalizationGainDb,
         )
         activeCrossfade = runtime
@@ -1723,7 +1738,9 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun queueMediaIds(target: ExoPlayer): List<String> =
-        (0 until target.mediaItemCount).map { target.getMediaItemAt(it).mediaId }
+        (0 until target.mediaItemCount).map { index ->
+            target.getMediaItemAt(index).let { it.queueOccurrenceId()?.toString() ?: it.mediaId }
+        }
 
     private fun isCrossfadeLocal(item: androidx.media3.common.MediaItem): Boolean = when (
         item.localConfiguration?.uri?.scheme?.lowercase()
@@ -1954,7 +1971,7 @@ class PlaybackService : MediaLibraryService() {
             val plan = progressiveQueue.resetWindow()
             player.repeatMode = saved.repeatMode.toPlayerRepeatMode(progressive = true)
             player.setMediaItems(
-                plan.tracks.map { it.toMediaItem(saved.playbackMode, saved.repeatMode) },
+                requireNotNull(progressiveQueue.snapshot()).mediaItems(),
                 plan.startIndexInWindow,
                 saved.positionMs,
             )
@@ -2046,9 +2063,7 @@ class PlaybackService : MediaLibraryService() {
         val logicalFutureStart = snapshot.currentIndex + 1
         val logicalFutureEnd = snapshot.materializedEndExclusive
             .coerceIn(logicalFutureStart, snapshot.tracks.size)
-        val desiredFuture = snapshot.tracks
-            .subList(logicalFutureStart, logicalFutureEnd)
-            .map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) }
+        val desiredFuture = snapshot.mediaItems(logicalFutureStart, logicalFutureEnd)
         val playerFutureStart = playerCurrentIndex + 1
 
         if (playerFutureStart < player.mediaItemCount) {
@@ -2071,7 +2086,7 @@ class PlaybackService : MediaLibraryService() {
         val refreshed = progressiveQueue.snapshot() ?: snapshot
         player.repeatMode = refreshed.repeatMode.toPlayerRepeatMode(progressive = true)
         player.setMediaItems(
-            plan.tracks.map { it.toMediaItem(refreshed.playbackMode, refreshed.repeatMode) },
+            refreshed.mediaItems(),
             plan.startIndexInWindow,
             position,
         )
@@ -2095,7 +2110,7 @@ class PlaybackService : MediaLibraryService() {
         val plan = progressiveQueue.jumpTo(nextIndex) ?: return
         player.repeatMode = state.repeatMode.toPlayerRepeatMode(progressive = true)
         player.setMediaItems(
-            plan.tracks.map { it.toMediaItem(state.playbackMode, state.repeatMode) },
+            requireNotNull(progressiveQueue.snapshot()).mediaItems(),
             plan.startIndexInWindow,
             0L,
         )
@@ -2167,7 +2182,7 @@ class PlaybackService : MediaLibraryService() {
                     )
                     player.repeatMode = Player.REPEAT_MODE_OFF
                     player.setMediaItems(
-                        plan.tracks.map { it.toMediaItem(progressive.playbackMode, progressive.repeatMode) },
+                        requireNotNull(progressiveQueue.snapshot()).mediaItems(),
                         plan.startIndexInWindow,
                         0,
                     )
