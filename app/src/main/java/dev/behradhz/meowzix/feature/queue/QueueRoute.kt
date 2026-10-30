@@ -243,6 +243,7 @@ private fun QueueScreen(
     var draggedGroupId by remember { mutableStateOf<UUID?>(null) }
     var draggedGroupDistance by remember { mutableFloatStateOf(0f) }
     var draggedGroupTarget by remember { mutableStateOf<Int?>(null) }
+    var awaitingGroupCommit by remember { mutableStateOf(false) }
     var dragCenterY by remember { mutableFloatStateOf(Float.NaN) }
     val density = LocalDensity.current
     val groupCounts = remember(state.items, state.currentIndex) {
@@ -252,7 +253,8 @@ private fun QueueScreen(
     var hasFocusedCurrent by remember { mutableStateOf(false) }
     // Use the authoritative queue immediately outside a drag. A cached display list can
     // otherwise show removed items until a deferred LaunchedEffect catches up.
-    val queueItems = if (draggedQueueIndex == null && draggedGroupId == null) filteredItems else displayItems
+    val queueItems = if (draggedQueueIndex == null && draggedGroupId == null &&
+        !awaitingGroupCommit) filteredItems else displayItems
     val firstGroupPositions = remember(state.items, state.currentIndex) {
         val first = mutableMapOf<UUID, Int>()
         state.items.forEachIndexed { index, item ->
@@ -265,7 +267,20 @@ private fun QueueScreen(
     }
 
     LaunchedEffect(filteredItems) {
-        if (draggedQueueIndex == null && draggedGroupId == null) displayItems = filteredItems
+        if (draggedQueueIndex == null && draggedGroupId == null) {
+            displayItems = filteredItems
+            awaitingGroupCommit = false
+        }
+    }
+    // A rejected/unchanged move must not leave a stale visual preview pinned forever.
+    LaunchedEffect(awaitingGroupCommit) {
+        if (awaitingGroupCommit) {
+            kotlinx.coroutines.delay(1_000L)
+            if (awaitingGroupCommit) {
+                awaitingGroupCommit = false
+                displayItems = filteredItems
+            }
+        }
     }
     LaunchedEffect(state.currentIndex, state.items.size, searchActive) {
         if (!searchActive && !hasFocusedCurrent && state.currentIndex in state.items.indices) {
@@ -345,12 +360,16 @@ private fun QueueScreen(
         val lastGroup = displayItems.indexOfLast { it.value.groupId == id }
         val nextItem = displayItems.getOrNull(lastGroup + 1)
         val target = nextItem?.index ?: state.items.size
+        val changed = displayItems.indexOfFirst { it.value.groupId == id } !=
+            filteredItems.indexOfFirst { it.value.groupId == id }
         draggedGroupId = null
         draggedGroupDistance = 0f
         dragCenterY = Float.NaN
         draggedGroupTarget = null
-        if (commit) onMoveGroup(id, target)
-        displayItems = filteredItems
+        if (commit && changed) {
+            awaitingGroupCommit = true
+            onMoveGroup(id, target)
+        } else displayItems = filteredItems
     }
 
     // One frame-clock loop for both group and track drags: no coroutine per pointer event.
@@ -428,7 +447,7 @@ private fun QueueScreen(
                         firstGroupPositions[groupId] == queueIndex
                     val isGroupDragging = groupId != null && groupId == draggedGroupId
                     val lastGroupMember = groupId != null &&
-                        state.items.getOrNull(queueIndex + 1)?.groupId != groupId
+                        (isGroupDragging || state.items.getOrNull(queueIndex + 1)?.groupId != groupId)
                     val previous = state.items.getOrNull(queueIndex - 1)
                     val nowPlayingSection = !searchActive && queueIndex == state.currentIndex
                     val newManualSection = !searchActive && queueIndex > state.currentIndex &&

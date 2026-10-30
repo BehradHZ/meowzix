@@ -1878,7 +1878,7 @@ class PlaybackService : MediaLibraryService() {
                         PlaybackMode.ORDERED, PlaybackMode.SMART_SHUFFLE -> candidates
                     }
                     val initial = if (candidateIds.isNotEmpty()) {
-                        nextOrder.take(ProgressiveQueue.GENERATED_BATCH_SIZE + 1)
+                        nextOrder.take(ProgressiveQueue.GENERATED_BATCH_SIZE)
                     } else nextOrder
                     val plan = progressiveQueue.start(
                         orderedTracks = initial,
