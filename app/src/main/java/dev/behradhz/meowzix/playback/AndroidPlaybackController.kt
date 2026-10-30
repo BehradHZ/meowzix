@@ -664,9 +664,14 @@ class AndroidPlaybackController @Inject constructor(
 
     private fun syncLogicalCurrentFromPlayer(player: Player): Boolean {
         if (progressiveQueue.snapshot() == null) return false
-        return progressiveQueue.updateCurrentFromWindowIndex(
-            player.currentMediaItemIndex, player.currentMediaItem?.mediaId
-        ) || progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)
+        val mediaId = player.currentMediaItem?.mediaId
+        if (progressiveQueue.updateCurrentFromWindowIndex(player.currentMediaItemIndex, mediaId)) {
+            return true
+        }
+        // An ID-only fallback cannot distinguish multiple occurrences of the same song.
+        // Preserve the logical index rather than attaching the player to the wrong occurrence.
+        val occurrences = progressiveQueue.snapshot()?.tracks?.count { it.id.toString() == mediaId } ?: 0
+        return occurrences == 1 && progressiveQueue.updateCurrent(mediaId)
     }
 
     /**
