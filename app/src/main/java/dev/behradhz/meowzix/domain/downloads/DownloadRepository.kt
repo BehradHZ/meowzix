@@ -20,6 +20,7 @@ data class OfflineDownload(
     val pinned: Boolean,
     val failureReason: String?,
     val updatedAtEpochMs: Long = 0L,
+    val hasManagedCopy: Boolean = false,
 )
 
 interface DownloadRepository {
