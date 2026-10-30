@@ -65,6 +65,8 @@ data class PlaybackPreferenceSettings(
     val defaultRepeat: RepeatMode = RepeatMode.OFF,
     val resumeOnLaunch: Boolean = true,
     val resumeAfterExternalAudio: Boolean = false,
+    val pauseOnMicrophoneRecording: Boolean = false,
+    val playbackSpeed: Float = 1f,
     val liveSongCardEnabled: Boolean = false,
     val liveSongCardStyle: LiveSongCardStyle = LiveSongCardStyle.MINIMAL,
     val liveSongLeftAction: LiveSongSideAction = LiveSongSideAction.PREVIOUS,
@@ -113,6 +115,8 @@ interface SettingsRepository {
     suspend fun setDefaultRepeatMode(mode: RepeatMode)
     suspend fun setResumeOnLaunch(enabled: Boolean)
     suspend fun setResumeAfterExternalAudio(enabled: Boolean)
+    suspend fun setPauseOnMicrophoneRecording(enabled: Boolean)
+    suspend fun setPlaybackSpeed(speed: Float)
     suspend fun setLiveSongCardEnabled(enabled: Boolean)
     suspend fun setLiveSongCardStyle(style: LiveSongCardStyle)
     suspend fun setLiveSongLeftAction(action: LiveSongSideAction)
