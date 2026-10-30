@@ -370,8 +370,8 @@ class AndroidPlaybackController @Inject constructor(
             // permutation or discard manually queued items. Jump within the existing cycle.
             val active = progressiveQueue.snapshot()
             val existingIndex = active?.tracks?.indexOfFirst { it.id == startTrackId } ?: -1
-            if (startTrackId != null && existingIndex >= 0 &&
-                active?.playbackMode == mode &&
+            if (startTrackId != null && existingIndex >= 0 && active != null &&
+                active.playbackMode == mode &&
                 active.sourceTrackIds.isNotEmpty() &&
                 active.sourceTrackIds.size == trackIds.size &&
                 active.sourceTrackIds.toSet() == trackIds.toSet()
