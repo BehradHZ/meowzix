@@ -1251,10 +1251,33 @@ class PlaybackService : MediaLibraryService() {
                     "Telegram playback failed for $mediaId; retrying attempt $attempt/$MAX_REMOTE_PLAYBACK_RETRIES",
                     error,
                 )
+                val failedUri = uri
                 playbackRetryJob = serviceScope.launch {
                     delay(REMOTE_PLAYBACK_RETRY_BASE_DELAY_MS * attempt)
-                    if (player.currentMediaItem?.mediaId != mediaId) return@launch
+                    // A new user selection wins over any delayed recovery.
+                    if (player.currentMediaItem?.mediaId != mediaId ||
+                        player.currentMediaItem?.localConfiguration?.uri != failedUri
+                    ) return@launch
                     val stillWantsPlayback = player.playWhenReady
+                    val trackId = runCatching { UUID.fromString(mediaId) }.getOrNull()
+                    val refreshed = trackId?.let { id ->
+                        runCatching { remotePlaybackResolver.prepareForPlayback(id) }
+                            .onFailure { Log.w(TAG, "Unable to refresh Telegram playback source", it) }
+                            .getOrNull()
+                    }
+                    if (refreshed != null &&
+                        refreshed.contentUri != failedUri?.toString()
+                    ) {
+                        // A completed download or refreshed Telegram file ID can
+                        // have a different URI than the one cached in Media3.
+                        progressiveQueue.replacePlayableSource(refreshed.id, refreshed)
+                        player.replaceMediaItem(
+                            player.currentMediaItemIndex,
+                            refreshed.toMediaItem(currentPlaybackMode(), currentRepeatMode()),
+                        )
+                    }
+                    // If the URI is still the same, the TDLib data source will
+                    // continue waiting for a readable prefix instead of skipping.
                     player.prepare()
                     if (shouldResume && stillWantsPlayback) player.play()
                 }
