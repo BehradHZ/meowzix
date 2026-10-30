@@ -19,6 +19,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueueSnapshot
+import dev.behradhz.meowzix.domain.playback.generatedIndicesAfterSelection
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueActionKind
@@ -169,7 +170,7 @@ class AndroidPlaybackController @Inject constructor(
                 if (index > active.currentIndex && index in active.tracks.indices &&
                     active.origins[index] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
                 ) {
-                    playIndependentTrackPreservingNext(connected, active, active.tracks[index])
+                    playIndependentTrackPreservingNext(connected, active, index)
                     return@withController
                 }
                 // Playing a later explicit Queue occurrence must not push earlier fixed
@@ -402,7 +403,7 @@ class AndroidPlaybackController @Inject constructor(
                 if (progressiveQueue.hasFixedFuture()) {
                     withConnectedController { connected ->
                         playIndependentTrackPreservingNext(
-                            connected, active, active.tracks[existingIndex],
+                            connected, active, existingIndex,
                         )
                     }
                 } else {
@@ -480,22 +481,21 @@ class AndroidPlaybackController @Inject constructor(
     }
 
     /**
-     * Start the selected track as a new listening instance, without regenerating
-     * Pure/Smart Shuffle or consuming a matching fixed Queue occurrence.
-     * Next retains its existing relative order (except the selected occurrence).
+     * Starting a future Next occurrence is a forward seek: only its generated
+     * successors remain. Tracks BEFORE it must not be put back at the end.
+     * Explicit Queue occurrences survive as a separate, immutable priority lane.
+     *
+     * For a track selected independently from Library/manual Queue, preserve
+     * the original generated listening context rather than consuming Queue.
      */
     private fun playIndependentTrackPreservingNext(
         connected: MediaController,
-        active: dev.behradhz.meowzix.domain.playback.ProgressiveQueueSnapshot,
-        selected: PlayableTrack,
+        active: ProgressiveQueueSnapshot,
+        selectedIndex: Int,
     ) {
-        val generated = active.tracks.indices
-            .filter { i ->
-                i > active.currentIndex &&
-                    active.origins[i] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED &&
-                    active.tracks[i].id != selected.id
-            }
-            .map(active.tracks::get)
+        val selected = active.tracks.getOrNull(selectedIndex) ?: return
+        val retainedNextIndices = active.generatedIndicesAfterSelection(selectedIndex)
+        val generated = retainedNextIndices.map(active.tracks::get)
         val window = progressiveQueue.start(
             orderedTracks = listOf(selected) + generated,
             requestedStartIndex = 0,
@@ -504,6 +504,7 @@ class AndroidPlaybackController @Inject constructor(
             seed = active.shuffleSeed,
             sourceIds = active.sourceTrackIds,
             pendingIds = active.pendingGeneratedIds,
+            futureOccurrenceIds = retainedNextIndices.map(active.occurrenceIds::get),
         )
         playbackOccurrenceId = UUID.randomUUID()
         userSelectedOccurrence = true
