@@ -872,8 +872,11 @@ class AndroidPlaybackController @Inject constructor(
         val snapshot = progressiveQueue.snapshot() ?: return
         val currentPlayerIndex = connected.currentMediaItemIndex
         val currentTrack = plan.tracks.getOrNull(plan.startIndexInWindow) ?: return
+        val currentOccurrence = connected.currentMediaItem?.queueOccurrenceId()
         if (currentPlayerIndex !in 0 until connected.mediaItemCount ||
-            connected.currentMediaItem?.mediaId != currentTrack.id.toString()
+            connected.currentMediaItem?.mediaId != currentTrack.id.toString() ||
+            (currentOccurrence != null &&
+                currentOccurrence != snapshot.occurrenceIds[snapshot.currentIndex])
         ) {
             // A delayed controller timeline callback can transiently disagree with the
             // logical window. Never reconcile by touching the active MediaItem.
