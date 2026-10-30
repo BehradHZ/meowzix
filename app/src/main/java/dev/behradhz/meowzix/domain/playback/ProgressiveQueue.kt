@@ -415,6 +415,7 @@ class ProgressiveQueue @Inject constructor() {
             occurrenceIds.add(insertionIndex.coerceAtMost(occurrenceIds.size), UUID.randomUUID().also(fixedOccurrences::add))
             groupIds.add(insertionIndex.coerceAtMost(groupIds.size), null)
             trackIds += track.id
+            normalizePendingQueueLocked()
             bumpRevision()
             return true
         }
@@ -443,6 +444,7 @@ class ProgressiveQueue @Inject constructor() {
         groupIds.add(destination, null)
         pruneGroups()
         if (generationEnabled) pendingGeneratedIds = pendingGeneratedIds.filterNot { it == track.id }
+        normalizePendingQueueLocked()
         bumpRevision()
         return true
     }
@@ -469,6 +471,7 @@ class ProgressiveQueue @Inject constructor() {
             origins.add(destination, QueueItemOrigin.MANUAL)
             occurrenceIds.add(destination, UUID.randomUUID().also(fixedOccurrences::add))
             groupIds.add(destination, null)
+            normalizePendingQueueLocked()
             bumpRevision()
             return true
         }
@@ -497,6 +500,7 @@ class ProgressiveQueue @Inject constructor() {
         groupIds.add(destination, null)
         pruneGroups()
         if (generationEnabled) pendingGeneratedIds = pendingGeneratedIds.filterNot { it == track.id }
+        normalizePendingQueueLocked()
         bumpRevision()
         return true
     }
@@ -773,6 +777,7 @@ class ProgressiveQueue @Inject constructor() {
         occurrenceIds.addAll(destination, List(selected.size) { UUID.randomUUID().also(fixedOccurrences::add) })
         groupIds.addAll(destination, List(selected.size) { id })
         trackIds.addAll(selected.map { it.id })
+        normalizePendingQueueLocked()
         bumpRevision()
         return id
     }
