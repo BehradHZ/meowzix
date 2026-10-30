@@ -57,6 +57,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.playback.SleepTimerMode
 import dev.behradhz.meowzix.domain.playback.SleepTimerPolicy
 import dev.behradhz.meowzix.domain.playback.SleepTimerTerminationReason
@@ -68,6 +69,7 @@ import dev.behradhz.meowzix.widget.PlaybackWidgetProvider
 import dev.behradhz.meowzix.widget.PlaybackWidgetState
 import dev.behradhz.meowzix.widget.VinylWidgetProvider
 import java.util.UUID
+import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -85,6 +87,7 @@ import kotlinx.coroutines.launch
 class PlaybackService : MediaLibraryService() {
     @Inject lateinit var stateStore: PlaybackStateStore
     @Inject lateinit var playbackCatalog: PlaybackCatalog
+    @Inject lateinit var remotePlaybackResolver: RemoteTrackPlaybackResolver
     @Inject lateinit var audioVisualizer: AudioVisualizerRepository
     @Inject lateinit var libraryRepository: MusicLibraryRepository
     @Inject lateinit var progressiveQueue: ProgressiveQueue
@@ -149,6 +152,7 @@ class PlaybackService : MediaLibraryService() {
     private var widgetRefreshJob: Job? = null
     private var playbackRetryJob: Job? = null
     private var retryMediaId: String? = null
+    private var remoteFallbackMediaId: String? = null
     private var retryCount = 0
     private var isRestoring = true
     private var isChangingQueueCycle = false
@@ -441,6 +445,7 @@ class PlaybackService : MediaLibraryService() {
 
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            if (remoteFallbackMediaId != mediaItem?.mediaId) remoteFallbackMediaId = null
             if (activeCrossfade != null) cancelCrossfade("active media item changed")
             // Publish the new song before onEvents() runs its queue, audio-analysis,
             // favorite and persistence work. No polling delay on actual transitions.
@@ -1044,7 +1049,43 @@ class PlaybackService : MediaLibraryService() {
         if (activeCrossfade != null) cancelCrossfade("active player error")
         val currentItem = player.currentMediaItem
         val mediaId = currentItem?.mediaId
-        val isTelegramStream = currentItem?.localConfiguration?.uri?.scheme == TDLIB_SCHEME
+        val uri = currentItem?.localConfiguration?.uri
+        val isTelegramStream = uri?.scheme == TDLIB_SCHEME
+
+        if (mediaId != null && uri != null && isOwnedPlaybackFile(uri) &&
+            remoteFallbackMediaId != mediaId
+        ) {
+            remoteFallbackMediaId = mediaId
+            val shouldResume = player.playWhenReady
+            val failedUri = uri
+            playbackRetryJob?.cancel()
+            playbackRetryJob = serviceScope.launch {
+                val trackId = runCatching { UUID.fromString(mediaId) }.getOrNull()
+                val remote = trackId?.let {
+                    runCatching { remotePlaybackResolver.prepareRemoteForPlayback(it) }
+                        .onFailure { Log.w(TAG, "Failed to recover a local copy via Telegram", it) }
+                        .getOrNull()
+                }
+                if (player.currentMediaItem?.mediaId != mediaId ||
+                    player.currentMediaItem?.localConfiguration?.uri != failedUri
+                ) return@launch
+                if (remote != null) {
+                    Log.w(TAG, "Replacing failed managed local source with Telegram streaming: $mediaId", error)
+                    progressiveQueue.replacePlayableSource(remote.id, remote)
+                    player.replaceMediaItem(
+                        player.currentMediaItemIndex,
+                        remote.toMediaItem(currentPlaybackMode(), currentRepeatMode()),
+                    )
+                    player.prepare()
+                    if (shouldResume) player.play()
+                } else {
+                    Log.w(TAG, "Unable to recover failed local audio; preserving the queue", error)
+                    player.pause()
+                }
+                schedulePersist()
+            }
+            return
+        }
 
         if (isTelegramStream && mediaId != null) {
             if (retryMediaId != mediaId) {
@@ -1080,6 +1121,16 @@ class PlaybackService : MediaLibraryService() {
             serviceScope.launch { completeSleepTimer(SleepTimerTerminationReason.END_OF_TRACK_PLAYBACK_ERROR) }
         }
         schedulePersist()
+    }
+
+    private fun isOwnedPlaybackFile(uri: android.net.Uri): Boolean {
+        if (uri.scheme != "file") return false
+        val path = uri.path ?: return false
+        return runCatching {
+            val parent = File(path).canonicalFile.parentFile
+            parent == File(filesDir, "offline").canonicalFile ||
+                parent == File(filesDir, "playback-cache").canonicalFile
+        }.getOrDefault(false)
     }
 
     private fun clearPlaybackRetry() {
