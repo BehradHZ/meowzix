@@ -37,6 +37,7 @@ class ProgressiveQueue @Inject constructor() {
     private val occurrenceIds = mutableListOf<UUID>()
     private val groupIds = mutableListOf<UUID?>()
     private val groups = linkedMapOf<UUID, QueueGroup>()
+    private val fixedOccurrences = linkedSetOf<UUID>()
     private val trackIds = hashSetOf<UUID>()
     private var currentIndex = -1
     private var materializedStartIndex = 0
@@ -64,29 +65,45 @@ class ProgressiveQueue @Inject constructor() {
         repeat: RepeatMode,
         seed: Long? = null,
         sourceIds: List<UUID> = emptyList(),
-        pendingIds: List<UUID> = emptyList(),
-    ): QueueWindowPlan {
-        require(orderedTracks.isNotEmpty()) { "Progressive queue requires at least one track" }
+        pendingI        require(orderedTracks.isNotEmpty()) { "Progressive queue requires at least one track" }
+        // An explicit queued occurrence survives starting any other Library/Next song.
+        val fixed = tracks.indices.filter { occurrenceIds[it] in fixedOccurrences }
+            .map { RetainedFixed(tracks[it], occurrenceIds[it], groupIds[it]) }
+        val fixedIds = fixed.mapTo(hashSetOf()) { it.track.id }
+        val before = orderedTracks.take(requestedStartIndex.coerceIn(orderedTracks.indices) + 1)
+        val after = orderedTracks.drop(before.size).filterNot { it.id in fixedIds }
+        val savedGroups = groups.filterKeys { id -> fixed.any { it.groupId == id } }
         tracks.clear()
-        tracks.addAll(orderedTracks)
+        tracks.addAll(before)
+        tracks.addAll(fixed.map { it.track })
+        tracks.addAll(after)
         occurrenceIds.clear()
-        occurrenceIds.addAll(List(orderedTracks.size) { UUID.randomUUID() })
+        occurrenceIds.addAll(List(before.size) { UUID.randomUUID() })
+        occurrenceIds.addAll(fixed.map { it.occurrenceId })
+        occurrenceIds.addAll(List(after.size) { UUID.randomUUID() })
         groupIds.clear()
-        groupIds.addAll(List(orderedTracks.size) { null })
+        groupIds.addAll(List(before.size) { null })
+        groupIds.addAll(fixed.map { it.groupId })
+        groupIds.addAll(List(after.size) { null })
         groups.clear()
+        groups.putAll(savedGroups)
+        fixedOccurrences.clear()
+        fixedOccurrences.addAll(fixed.map { it.occurrenceId })
         origins.clear()
+        origins.addAll(List(before.size) { QueueItemOrigin.GENERATED })
+        origins.addAll(List(fixed.size) { QueueItemOrigin.MANUAL })
+        origins.addAll(List(after.size) { QueueItemOrigin.GENERATED })
         generationEnabled = sourceIds.isNotEmpty()
         sourceTrackIds = sourceIds.toList()
-        pendingGeneratedIds = pendingIds.toList()
+        pendingGeneratedIds = pendingIds.filterNot { it in fixedIds }
         generatedStarted = 0
         nextGenerationAt = 90
         generationEpoch++
         generatedRefillInFlight = null
-        val generated = generationEnabled || mode == PlaybackMode.SMART_SHUFFLE
-        origins.addAll(List(orderedTracks.size) { if (generated) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL })
         trackIds.clear()
-        trackIds.addAll(orderedTracks.map(PlayableTrack::id))
-        currentIndex = requestedStartIndex.coerceIn(tracks.indices)
+        trackIds.addAll(tracks.map(PlayableTrack::id))
+        currentIndex = before.lastIndex
+        origins[currentIndex] = QueueItemOrigin.MANUAL
         origins[currentIndex] = QueueItemOrigin.MANUAL
         playbackMode = mode
         repeatMode = repeat
@@ -159,6 +176,21 @@ class ProgressiveQueue @Inject constructor() {
         generatedRefillInFlight = null
         bumpRevision()
         return true
+    }
+
+    private data class RetainedFixed(val track: PlayableTrack, val occurrenceId: UUID, val groupId: UUID?)
+
+    @Synchronized
+    fun consumeCurrentFixed(): Boolean {
+        val id = occurrenceIds.getOrNull(currentIndex) ?: return false
+        if (!fixedOccurrences.remove(id)) return false
+        bumpRevision()
+        return true
+    }
+
+    @Synchronized
+    fun hasFixedFuture(): Boolean = tracks.indices.any {
+        it >= currentIndex && occurrenceIds[it] in fixedOccurrences
     }
 
     private data class RestoredEntry(
