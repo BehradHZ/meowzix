@@ -386,10 +386,10 @@ class ProgressiveQueue @Inject constructor() {
             trackIds += track.id
             track
         }
-        val destination = if (generationEnabled) {
-            (currentIndex + 1 until origins.size).firstOrNull { origins[it] == QueueItemOrigin.GENERATED }
-                ?: tracks.size
-        } else tracks.size
+        // Explicit Queue always precedes automatic Next, even when playback is ORDERED
+        // and no dynamic batch generation is active.
+        val destination = (currentIndex + 1 until origins.size)
+            .firstOrNull { origins[it] == QueueItemOrigin.GENERATED } ?: tracks.size
         tracks.add(destination, item)
         origins.add(destination, QueueItemOrigin.MANUAL)
         occurrenceIds.add(destination, occurrence)
