@@ -163,6 +163,20 @@ class AndroidPlaybackController @Inject constructor(
             playbackOccurrenceId = UUID.randomUUID()
             val active = progressiveQueue.snapshot()
             if (active != null) {
+                // Selecting an automatically generated Next item is a new listening context:
+                // fixed Queue occurrences must remain ahead, not be skipped over.
+                if (index in active.tracks.indices &&
+                    active.origins[index] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED &&
+                    progressiveQueue.hasFixedFuture()
+                ) {
+                    val ids = active.sourceTrackIds.ifEmpty {
+                        active.tracks.indices.filter { i ->
+                            active.origins[i] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
+                        }.map { i -> active.tracks[i].id }
+                    }
+                    replaceAndPlayInternal(ids, active.tracks[index].id, active.playbackMode)
+                    return@withController
+                }
                 val plan = progressiveQueue.jumpTo(index) ?: return@withController
                 val snapshot = progressiveQueue.snapshot() ?: return@withController
                 connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
@@ -374,7 +388,8 @@ class AndroidPlaybackController @Inject constructor(
                 active.playbackMode == mode &&
                 active.sourceTrackIds.isNotEmpty() &&
                 active.sourceTrackIds.size == trackIds.size &&
-                active.sourceTrackIds.toSet() == trackIds.toSet()
+                active.sourceTrackIds.toSet() == trackIds.toSet() &&
+                !progressiveQueue.hasFixedFuture()
             ) {
                 playAt(existingIndex)
                 return@launch
