@@ -323,7 +323,20 @@ private fun localSourcePriority(source: TrackSourceEntity): Int = when (source.t
 
 /** A database "AVAILABLE_LOCAL" flag is not proof that the copy still has valid bytes. */
 internal fun TrackSourceEntity.isReadableForPlayback(): Boolean {
-    if (!contentUri.isNullOrBlank()) return true // MediaStore/content permission is checked by Media3.
+    if (!contentUri.isNullOrBlank()) {
+        // Content providers own content:// access checks, but an app-owned
+        // file:// URI can outlive its deleted/downloaded-again audio file.
+        // Do not classify such stale paths as locally playable: the remote
+        // resolver must be allowed to start a real Telegram stream instead.
+        if (contentUri.startsWith("file://", ignoreCase = true)) {
+            val path = runCatching { android.net.Uri.parse(contentUri).path }.getOrNull()
+                ?.takeIf(String::isNotBlank) ?: return false
+            val file = File(path)
+            if (!file.isFile || !file.canRead() || file.length() <= 0L) return false
+            return fileSizeBytes?.takeIf { it > 0L }?.let { file.length() >= it } ?: true
+        }
+        return !contentUri.startsWith("meowzix-tdlib://", ignoreCase = true)
+    }
     val path = localPath?.takeIf(String::isNotBlank) ?: return false
     val file = File(path)
     if (!file.isFile || !file.canRead() || file.length() <= 0L) return false
