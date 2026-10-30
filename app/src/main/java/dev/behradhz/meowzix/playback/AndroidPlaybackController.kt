@@ -887,7 +887,7 @@ class AndroidPlaybackController @Inject constructor(
         )
         val actualHistory = (0 until currentPlayerIndex)
             .map { connected.getMediaItemAt(it).queueIdentity() }
-        if (actualHistory != desiredHistory.map(MediaItem::queueIdentity)) {
+        if (actualHistory != desiredHistory.map { it.queueIdentity() }) {
             connected.replaceMediaItems(0, currentPlayerIndex, desiredHistory)
         }
         val playerIndexAfterHistory = connected.currentMediaItemIndex
@@ -896,7 +896,7 @@ class AndroidPlaybackController @Inject constructor(
         )
         val actualFuture = (playerIndexAfterHistory + 1 until connected.mediaItemCount)
             .map { connected.getMediaItemAt(it).queueIdentity() }
-        if (actualFuture != desiredFuture.map(MediaItem::queueIdentity)) {
+        if (actualFuture != desiredFuture.map { it.queueIdentity() }) {
             connected.replaceMediaItems(
                 playerIndexAfterHistory + 1, connected.mediaItemCount, desiredFuture,
             )
