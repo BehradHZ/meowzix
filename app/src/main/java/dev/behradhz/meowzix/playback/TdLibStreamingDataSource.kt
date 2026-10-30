@@ -18,7 +18,6 @@ import java.io.File
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.io.RandomAccessFile
-import java.util.UUID
 import kotlin.math.min
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -32,12 +31,11 @@ class MeowzixDataSourceFactory(context: Context) : DataSource.Factory {
     private val appContext = context.applicationContext
     private val defaultFactory = DefaultDataSource.Factory(appContext)
 
-    override fun createDataSource(): DataSource = RoutingDataSource(appContext, defaultFactory)
+    override fun createDataSource(): DataSource = RoutingDataSource(defaultFactory)
 }
 
 @OptIn(UnstableApi::class)
 private class RoutingDataSource(
-    private val context: Context,
     private val defaultFactory: DataSource.Factory,
 ) : DataSource {
     private val listeners = mutableListOf<TransferListener>()
@@ -51,46 +49,22 @@ private class RoutingDataSource(
     override fun open(dataSpec: DataSpec): Long {
         check(active == null) { "DataSource is already open" }
 
-        val completedLocalCopy = if (dataSpec.uri.scheme == TDLIB_SCHEME &&
-            dataSpec.uri.getQueryParameter("ignoreCache") != "1"
-        ) {
-            findCompletedLocalCopy(context, dataSpec.uri)
+        // A Telegram URI must use TDLib's verified byte ranges. Directory scanning used
+        // to accept any nonempty orphan cache file as a fully downloaded track.
+        val source: DataSource = if (dataSpec.uri.scheme == TDLIB_SCHEME) {
+            TdLibStreamingDataSource()
         } else {
-            null
-        }
-        val source: DataSource
-        val routedSpec: DataSpec
-        if (completedLocalCopy != null) {
-            source = defaultFactory.createDataSource()
-            routedSpec = dataSpec.withUri(Uri.fromFile(completedLocalCopy))
-        } else if (dataSpec.uri.scheme == TDLIB_SCHEME) {
-            source = TdLibStreamingDataSource()
-            routedSpec = dataSpec
-        } else {
-            source = defaultFactory.createDataSource()
-            routedSpec = dataSpec
+            defaultFactory.createDataSource()
         }
 
         listeners.forEach(source::addTransferListener)
         active = source
         try {
-            return source.open(routedSpec)
-        } catch (failure: IOException) {
+            return source.open(dataSpec)
+        } catch (failure: Throwable) {
             runCatching { source.close() }
             active = null
-            // A cached file can disappear between choosing it and opening it.
-            // Try the TDLib bytes before declaring the track unplayable.
-            if (completedLocalCopy == null) throw failure
-            val fallback = TdLibStreamingDataSource()
-            listeners.forEach(fallback::addTransferListener)
-            active = fallback
-            try {
-                return fallback.open(dataSpec)
-            } catch (fallbackFailure: Throwable) {
-                runCatching { fallback.close() }
-                active = null
-                throw fallbackFailure
-            }
+            throw failure
         }
     }
 
@@ -109,25 +83,6 @@ private class RoutingDataSource(
             active = null
         }
     }
-}
-
-private fun findCompletedLocalCopy(context: Context, streamUri: Uri): File? {
-    val trackId = streamUri.getQueryParameter("trackId")
-        ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
-        ?: return null
-    val prefix = trackId.toString()
-    val roots = listOf(
-        File(context.filesDir, "offline"),
-        File(context.filesDir, "playback-cache"),
-    )
-    return roots.asSequence()
-        .filter(File::isDirectory)
-        .flatMap { root -> root.listFiles().orEmpty().asSequence() }
-        .firstOrNull { file ->
-            file.isFile && file.canRead() && file.length() > 0L &&
-                (file.name == prefix || file.name.startsWith("$prefix.")) &&
-                !file.name.endsWith(".part")
-        }
 }
 
 /**
