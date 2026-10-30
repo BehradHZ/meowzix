@@ -94,8 +94,6 @@ internal fun PlayerActionsMenu(
     sleepTimerLabel: String,
     onDismiss: () -> Unit,
     onOpenSleepTimer: () -> Unit,
-    onOpenPlaybackSpeed: () -> Unit = {},
-    playbackSpeed: Float = 1f,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
     onToggleLyrics: () -> Unit,
@@ -113,6 +111,8 @@ internal fun PlayerActionsMenu(
     draggedAction: Int? = null,
     draggedLyricsRequest: Int = 0,
     onActionBoundsChanged: (Int, Rect) -> Unit = { _, _ -> },
+    onOpenPlaybackSpeed: () -> Unit = {},
+    playbackSpeed: Float = 1f,
 ) {
     var page by remember(trackId) { mutableStateOf(PlayerActionsPage.ACTIONS) }
     var pendingDelete by remember(trackId) { mutableStateOf<LyricsVersion?>(null) }
