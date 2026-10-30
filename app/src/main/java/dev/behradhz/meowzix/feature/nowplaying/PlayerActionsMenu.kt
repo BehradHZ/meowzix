@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -93,6 +94,8 @@ internal fun PlayerActionsMenu(
     sleepTimerLabel: String,
     onDismiss: () -> Unit,
     onOpenSleepTimer: () -> Unit,
+    onOpenPlaybackSpeed: () -> Unit = {},
+    playbackSpeed: Float = 1f,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
     onToggleLyrics: () -> Unit,
@@ -164,10 +167,18 @@ internal fun PlayerActionsMenu(
                         // Full-width rows keep labels independent, readable and clickable even
                         // with large accessibility fonts. The timer status belongs to its action.
                         PlayerMenuOptionRow(
-                            icon = Icons.Rounded.Schedule,
-                            title = "Sleep timer",
+                            icon = Icons.Rounded.Speed,
+                            title = "Playback speed",
                             highlighted = draggedAction == 0,
                             onBoundsChanged = { onActionBoundsChanged(0, it) },
+                            subtitle = speedLabel(playbackSpeed),
+                            onClick = { onDismiss(); onOpenPlaybackSpeed() },
+                        )
+                        PlayerMenuOptionRow(
+                            icon = Icons.Rounded.Schedule,
+                            title = "Sleep timer",
+                            highlighted = draggedAction == 1,
+                            onBoundsChanged = { onActionBoundsChanged(1, it) },
                             subtitle = sleepTimerLabel,
                             switchChecked = sleepTimerActive,
                             switchEnabled = sleepTimerCanEnable,
@@ -180,22 +191,22 @@ internal fun PlayerActionsMenu(
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.HelpOutline,
                             title = "Why this song?",
-                            highlighted = draggedAction == 1,
-                            onBoundsChanged = { onActionBoundsChanged(1, it) },
+                            highlighted = draggedAction == 2,
+                            onBoundsChanged = { onActionBoundsChanged(2, it) },
                             onClick = { onDismiss(); onWhyThisSong() },
                         )
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.AutoAwesome,
                             title = "Continue the vibe",
-                            highlighted = draggedAction == 2,
-                            onBoundsChanged = { onActionBoundsChanged(2, it) },
+                            highlighted = draggedAction == 3,
+                            onBoundsChanged = { onActionBoundsChanged(3, it) },
                             onClick = { onDismiss(); onContinueVibe() },
                         )
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.MusicNote,
                             title = "Lyrics",
-                            highlighted = draggedAction == 3,
-                            onBoundsChanged = { onActionBoundsChanged(3, it) },
+                            highlighted = draggedAction == 4,
+                            onBoundsChanged = { onActionBoundsChanged(4, it) },
                             subtitle = if (versions.isEmpty()) "Add lyrics" else
                                 versions.size.toString() + " version" + (if (versions.size == 1) "" else "s"),
                             onClick = { page = PlayerActionsPage.LYRICS },
