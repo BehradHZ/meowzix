@@ -908,12 +908,11 @@ class ProgressiveQueue @Inject constructor() {
 }
 
 /**
- * Selection in Next is a forward seek through this exact sequence, NOT a new
- * shuffle cycle. Earlier generated occurrences are discarded from the future.
- * Queue (MANUAL) is excluded from this calculation and is retained by start().
+ * Continuation for a SEPARATE Library listening context that matches an existing
+ * queue item. The manual Queue is managed independently by start().
  *
- * Selecting a manual/current/history item is different: it starts an independent
- * playback context and keeps the existing generated future, as before.
+ * Selecting an upcoming song directly inside Next must instead use
+ * selectUpcomingNext(), which retains the skipped songs as session history.
  */
 internal fun ProgressiveQueueSnapshot.generatedIndicesAfterSelection(selectedIndex: Int): List<Int> {
     val selectedTrack = tracks.getOrNull(selectedIndex) ?: return emptyList()
