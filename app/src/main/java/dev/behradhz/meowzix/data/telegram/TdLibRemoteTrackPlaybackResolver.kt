@@ -139,20 +139,21 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         val track = libraryDao.trackById(trackId.toString()) ?: return null
         if (track.hidden) return null
         val now = Instant.now().toEpochMilli()
-        val sources = libraryDao.sourcesForTrack(trackId.toString())
+        val allSources = libraryDao.sourcesForTrack(trackId.toString())
+        val sources = allSources
             .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
             .sortedBy(::localSourcePriority)
-        val telegramBytes = libraryDao.sourcesForTrack(trackId.toString())
-            .firstOrNull { it.type == TrackSourceType.TELEGRAM_REMOTE }?.fileSizeBytes
+        val telegramSizes = allSources
+            .filter { it.type == TrackSourceType.TELEGRAM_REMOTE }
+            .map { it.fileSizeBytes }
 
         for (source in sources) {
             val managed = source.type == TrackSourceType.APP_OFFLINE_COPY ||
                 source.type == TrackSourceType.TDLIB_LOCAL
             val verified = if (managed) {
-                ManagedAudioIntegrity.isValid(
-                    source.localPath?.let(::File),
-                    ManagedAudioIntegrity.expectedBytes(telegramBytes, source.fileSizeBytes),
-                    source.contentHashSha256,
+                ManagedAudioIntegrity.isValidForAnyRemoteSize(
+                    source.localPath?.let(::File), telegramSizes,
+                    source.fileSizeBytes, source.contentHashSha256,
                 )
             } else {
                 source.isReadableForPlayback()
