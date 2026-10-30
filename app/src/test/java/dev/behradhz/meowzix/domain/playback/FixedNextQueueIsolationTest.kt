@@ -245,8 +245,10 @@ class FixedNextQueueIsolationTest {
         val before = requireNotNull(queue.snapshot())
         val manualIndex = before.tracks.indices.first(queue::isFixedOccurrence)
         val nextToKeep = before.generatedIndicesAfterSelection(manualIndex)
-        assertEquals(songs.drop(1).dropLast(1).map { it.id },
-            nextToKeep.map { before.tracks[it].id })
+        val expectedNext = (before.currentIndex + 1 until before.tracks.size).filter {
+            before.origins[it] == QueueItemOrigin.GENERATED
+        }
+        assertEquals(expectedNext, nextToKeep)
         val fixedBefore = before.tracks.indices.filter(queue::isFixedOccurrence)
             .map(before.occurrenceIds::get)
 
