@@ -585,9 +585,11 @@ private fun QueueScreen(
                             onDrag = { deltaY ->
                                 if (searchActive) return@SwipeableQueueItem
                                 val dragged = draggedQueueIndex ?: return@SwipeableQueueItem
-                                val from = displayItems.indexOfFirst { it.index == dragged }
-                                val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == from + 1 }
-                                    ?: return@SwipeableQueueItem
+                                val draggedKey = displayItems.firstOrNull { it.index == dragged }
+                                    ?.value?.occurrenceId?.toString() ?: return@SwipeableQueueItem
+                                val info = listState.layoutInfo.visibleItemsInfo.firstOrNull {
+                                    it.key == draggedKey
+                                } ?: return@SwipeableQueueItem
                                 draggedDistance += deltaY
                                 dragCenterY = info.offset + info.size / 2f + draggedDistance
                                 reorderAt(dragCenterY)
