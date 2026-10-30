@@ -115,8 +115,8 @@ interface SettingsRepository {
     suspend fun setDefaultRepeatMode(mode: RepeatMode)
     suspend fun setResumeOnLaunch(enabled: Boolean)
     suspend fun setResumeAfterExternalAudio(enabled: Boolean)
-    suspend fun setPauseOnMicrophoneRecording(enabled: Boolean)
-    suspend fun setPlaybackSpeed(speed: Float)
+    suspend fun setPauseOnMicrophoneRecording(enabled: Boolean) {}
+    suspend fun setPlaybackSpeed(speed: Float) {}
     suspend fun setLiveSongCardEnabled(enabled: Boolean)
     suspend fun setLiveSongCardStyle(style: LiveSongCardStyle)
     suspend fun setLiveSongLeftAction(action: LiveSongSideAction)
