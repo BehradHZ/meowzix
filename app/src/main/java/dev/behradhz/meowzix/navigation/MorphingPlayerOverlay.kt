@@ -220,6 +220,7 @@ internal fun MorphingPlayerOverlay(
     var moreActionsMenuOpen by remember(track.id) { mutableStateOf(false) }
     var moreButtonBounds by remember(track.id) { mutableStateOf<Rect?>(null) }
     var playerSurfaceTopLeft by remember { mutableStateOf(Offset.Zero) }
+    var overlayTopLeft by remember { mutableStateOf(Offset.Zero) }
     var queueFeedback by remember { mutableStateOf<QueueActionFeedback?>(null) }
     var queueFeedbackVisible by remember { mutableStateOf(false) }
 
@@ -256,7 +257,12 @@ internal fun MorphingPlayerOverlay(
         morphState.collapse()
     }
 
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        modifier = modifier.fillMaxSize().onGloballyPositioned { coordinates ->
+            val origin = coordinates.positionOnScreen()
+            if (origin != Offset.Unspecified) overlayTopLeft = origin
+        },
+    ) {
         val navigationBottom = WindowInsets.navigationBars
             .asPaddingValues()
             .calculateBottomPadding()
@@ -279,6 +285,15 @@ internal fun MorphingPlayerOverlay(
         val horizontalInset = lerp(miniInset, 0.dp, expansionFraction)
         val bottomInset = lerp(collapsedBottom, 0.dp, expansionFraction)
         val playerHeight = lerp(compactHeight, maxHeight, expansionFraction)
+        // Anchor feedback to the ACTUAL mini-player rectangle, not a hard-coded dock size.
+        // Global coordinates share the same screen origin; converting to this layout's
+        // bottom inset follows both dock morph and drag-to-expand on every layout frame.
+        val actualPlayerTop = playerSurfaceTopLeft.y - overlayTopLeft.y
+        val feedbackClearance = if (actualPlayerTop > 0f) {
+            with(density) { (maxHeight.toPx() - actualPlayerTop).toDp() } + 10.dp
+        } else {
+            collapsedBottom + compactHeight + 10.dp
+        }
         val cornerRadius = lerp(28.dp, 0.dp, expansionFraction)
         val travelPx = with(density) {
             (maxHeight - compactHeight).toPx().coerceAtLeast(1f)
@@ -445,7 +460,7 @@ internal fun MorphingPlayerOverlay(
                 .padding(
                     start = 30.dp,
                     end = 30.dp,
-                    bottom = collapsedBottom + compactHeight + 10.dp,
+                    bottom = feedbackClearance,
                 ),
             enter = slideInVertically(
                 animationSpec = tween(if (reduceMotion) 0 else 260, easing = FastOutSlowInEasing),
@@ -471,6 +486,8 @@ private fun QueueActionFeedbackPill(
     val prefix = when (feedback.kind) {
         QueueActionKind.PLAY_NEXT -> "Playing next"
         QueueActionKind.ADD_TO_END -> "Added to queue"
+        QueueActionKind.REMOVED -> "Removed from queue"
+        QueueActionKind.CLEARED -> "Queue cleared"
     }
     GlassSurface(
         hazeState = hazeState,
@@ -490,7 +507,8 @@ private fun QueueActionFeedbackPill(
             )
             Spacer(Modifier.width(10.dp))
             Text(
-                text = "$prefix · ${feedback.trackTitle}",
+                text = if (feedback.kind == QueueActionKind.CLEARED) prefix
+                    else "$prefix · ${feedback.trackTitle}",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
