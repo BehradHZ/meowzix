@@ -164,15 +164,9 @@ class AndroidPlaybackController @Inject constructor(
             playbackOccurrenceId = UUID.randomUUID()
             val active = progressiveQueue.snapshot()
             if (active != null) {
-                // Selecting a Next occurrence is NOT a request to reshuffle the collection.
-                // Keep every remaining Next occurrence in its current order and preserve
-                // explicit Queue occurrences even when the chosen song also exists there.
-                if (index > active.currentIndex && index in active.tracks.indices &&
-                    active.origins[index] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
-                ) {
-                    playIndependentTrackPreservingNext(connected, active, index)
-                    return@withController
-                }
+                // A forward selection in Next is a SEEK inside this session, not
+                // a new session. Earlier generated entries become previous/history
+                // items, while fixed Queue entries remain pending.
                 // Playing a later explicit Queue occurrence must not push earlier fixed
                 // entries into history. Move this occurrence to the front and leave
                 // the other fixed entries pending in their original relative order.
@@ -183,7 +177,16 @@ class AndroidPlaybackController @Inject constructor(
                     }
                     return@withController
                 }
-                val plan = progressiveQueue.jumpTo(index) ?: return@withController
+                val plan = if (
+                    index > active.currentIndex &&
+                    index in active.tracks.indices &&
+                    active.origins[index] ==
+                        dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
+                ) {
+                    progressiveQueue.selectUpcomingNext(index)
+                } else {
+                    progressiveQueue.jumpTo(index)
+                } ?: return@withController
                 val snapshot = progressiveQueue.snapshot() ?: return@withController
                 connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
                 connected.setMediaItems(
@@ -393,18 +396,31 @@ class AndroidPlaybackController @Inject constructor(
             // Tapping a song in the same collection must not regenerate a new shuffle
             // permutation or discard manually queued items. Jump within the existing cycle.
             val active = progressiveQueue.snapshot()
-            val existingIndex = active?.tracks?.indexOfFirst { it.id == startTrackId } ?: -1
+            // Prefer a FUTURE generated occurrence over a matching track in history
+            // or manual Queue. Canonical track IDs do not uniquely identify instances.
+            val existingIndex = active?.let { snapshot ->
+                (snapshot.currentIndex + 1 until snapshot.tracks.size).firstOrNull { index ->
+                    snapshot.tracks[index].id == startTrackId &&
+                        snapshot.origins[index] ==
+                            dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
+                } ?: snapshot.tracks.indexOfFirst { it.id == startTrackId }
+            } ?: -1
             if (startTrackId != null && existingIndex >= 0 && active != null &&
                 active.playbackMode == mode &&
                 active.sourceTrackIds.isNotEmpty() &&
                 active.sourceTrackIds.size == trackIds.size &&
                 active.sourceTrackIds.toSet() == trackIds.toSet()
             ) {
-                if (progressiveQueue.hasFixedFuture()) {
+                if (existingIndex > active.currentIndex &&
+                    active.origins[existingIndex] ==
+                        dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
+                ) {
+                    // Even with a pending manual Queue, this is a selection from
+                    // the current Next list: preserve navigation history.
+                    playAt(existingIndex)
+                } else if (progressiveQueue.hasFixedFuture()) {
                     withConnectedController { connected ->
-                        playIndependentTrackPreservingNext(
-                            connected, active, existingIndex,
-                        )
+                        playIndependentTrackPreservingNext(connected, active, existingIndex)
                     }
                 } else {
                     playAt(existingIndex)
