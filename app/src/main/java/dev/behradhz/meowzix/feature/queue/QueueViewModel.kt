@@ -63,6 +63,8 @@ class QueueViewModel @Inject constructor(
     fun move(fromIndex: Int, toIndex: Int) = queueRepository.move(fromIndex, toIndex)
     fun remove(index: Int) = queueRepository.removeAt(index)
     fun clear() = queueRepository.clear()
+    fun removeGroup(id: UUID) = queueRepository.removeGroup(id)
+    fun moveGroup(id: UUID, toIndex: Int) = queueRepository.moveGroup(id, toIndex)
     fun toggleShuffle() {
         val nextMode = if (state.value.playbackMode == PlaybackMode.PURE_SHUFFLE) {
             PlaybackMode.ORDERED

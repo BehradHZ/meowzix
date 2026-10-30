@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
+import dev.behradhz.meowzix.domain.playback.QueueGroupKind
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -112,6 +114,20 @@ class LibraryTracksViewModel @Inject constructor(
 
     fun setSearchQuery(query: String) {
         searchQuery.value = TextNormalizer.normalize(query).orEmpty()
+    }
+
+    fun queueArtist(summary: ArtistSummary, next: Boolean) = viewModelScope.launch {
+        val tracks = queryRepository.artistTracks(summary.normalizedName).first()
+        val ids = tracks.map { it.id }.distinct()
+        if (next) queueRepository.playNextGroup(ids, QueueGroupKind.ARTIST, summary.name)
+        else queueRepository.addGroupToQueue(ids, QueueGroupKind.ARTIST, summary.name)
+    }
+
+    fun queueAlbum(summary: AlbumSummary, next: Boolean) = viewModelScope.launch {
+        val tracks = queryRepository.albumTracks(summary.name, summary.normalizedArtist).first()
+        val ids = tracks.map { it.id }.distinct()
+        if (next) queueRepository.playNextGroup(ids, QueueGroupKind.ALBUM, summary.name)
+        else queueRepository.addGroupToQueue(ids, QueueGroupKind.ALBUM, summary.name)
     }
 
     fun openArtist(summary: ArtistSummary) {

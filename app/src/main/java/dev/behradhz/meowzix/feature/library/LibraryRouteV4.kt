@@ -8,6 +8,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -346,8 +352,16 @@ internal fun LibraryRouteV4(
                             ?.let(tracksViewModel::openArtist)
                     },
                 )
-                LibrarySectionV4.ARTISTS -> ArtistListV4(artists, tracksViewModel::openArtist)
-                LibrarySectionV4.ALBUMS -> AlbumListV4(albums, tracksViewModel::openAlbum)
+                LibrarySectionV4.ARTISTS -> ArtistListV4(
+                    artists, tracksViewModel::openArtist,
+                    { tracksViewModel.queueArtist(it, true) },
+                    { tracksViewModel.queueArtist(it, false) },
+                )
+                LibrarySectionV4.ALBUMS -> AlbumListV4(
+                    albums, tracksViewModel::openAlbum,
+                    { tracksViewModel.queueAlbum(it, true) },
+                    { tracksViewModel.queueAlbum(it, false) },
+                )
             }
         }
     }
@@ -457,27 +471,47 @@ private fun PagedTrackListV4(
 }
 
 @Composable
-private fun ArtistListV4(rows: List<ArtistSummary>, onOpen: (ArtistSummary) -> Unit) {
+private fun ArtistListV4(
+    rows: List<ArtistSummary>,
+    onOpen: (ArtistSummary) -> Unit,
+    onNext: (ArtistSummary) -> Unit,
+    onQueue: (ArtistSummary) -> Unit,
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 188.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(rows, key = { it.normalizedName }, contentType = { "artist" }) { row ->
-            SummaryRowV4(row.name, "${row.trackCount} tracks", Icons.Rounded.Person) { onOpen(row) }
+            SummaryRowV4(
+                row.name, "${row.trackCount} tracks", Icons.Rounded.Person,
+                onClick = { onOpen(row) },
+                onPlayNext = { onNext(row) },
+                onAddToQueue = { onQueue(row) },
+            )
         }
     }
 }
 
 @Composable
-private fun AlbumListV4(rows: List<AlbumSummary>, onOpen: (AlbumSummary) -> Unit) {
+private fun AlbumListV4(
+    rows: List<AlbumSummary>,
+    onOpen: (AlbumSummary) -> Unit,
+    onNext: (AlbumSummary) -> Unit,
+    onQueue: (AlbumSummary) -> Unit,
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 188.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(rows, key = { "${it.name}:${it.normalizedArtist}" }, contentType = { "album" }) { row ->
-            SummaryRowV4(row.name, "${row.artist} · ${row.trackCount} tracks", Icons.Rounded.Album) { onOpen(row) }
+            SummaryRowV4(
+                row.name, "${row.artist} · ${row.trackCount} tracks", Icons.Rounded.Album,
+                onClick = { onOpen(row) },
+                onPlayNext = { onNext(row) },
+                onAddToQueue = { onQueue(row) },
+            )
         }
     }
 }
@@ -546,9 +580,33 @@ private fun SummaryRowV4(
     subtitle: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
+    onPlayNext: (() -> Unit)? = null,
+    onAddToQueue: (() -> Unit)? = null,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var offsetX by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val threshold = with(density) { 85.dp.toPx() }
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth()
+            .pointerInput(onPlayNext, onAddToQueue) {
+                if (onPlayNext != null && onAddToQueue != null) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { change, amount ->
+                            change.consume()
+                            offsetX = (offsetX + amount).coerceIn(-threshold * 1.5f, threshold * 1.5f)
+                        },
+                        onDragEnd = {
+                            when {
+                                offsetX >= threshold -> onPlayNext()
+                                offsetX <= -threshold -> onAddToQueue()
+                            }
+                            offsetX = 0f
+                        },
+                        onDragCancel = { offsetX = 0f },
+                    )
+                }
+            },
         shape = RoundedCornerShape(16.dp),
         color = Color(0x4D252329),
         contentColor = Color.White,
@@ -557,6 +615,7 @@ private fun SummaryRowV4(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+                .graphicsLayer { translationX = offsetX }
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -570,6 +629,21 @@ private fun SummaryRowV4(
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.70f))
+        }
+        if (onPlayNext != null && onAddToQueue != null) {
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "Queue actions")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Play Next") }, onClick = {
+                        menuOpen = false; onPlayNext()
+                    })
+                    DropdownMenuItem(text = { Text("Add to Queue") }, onClick = {
+                        menuOpen = false; onAddToQueue()
+                    })
+                }
+            }
         }
         }
     }

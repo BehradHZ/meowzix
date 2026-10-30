@@ -9,6 +9,10 @@ enum class QueueItemOrigin {
     MANUAL,
 }
 
+enum class QueueGroupKind { ARTIST, ALBUM }
+
+data class QueueGroup(val id: UUID, val kind: QueueGroupKind, val title: String)
+
 enum class SmartFutureRevisionResult {
     APPLIED,
     NO_CHANGE,
@@ -30,6 +34,9 @@ enum class SmartFutureRevisionResult {
 class ProgressiveQueue @Inject constructor() {
     private val tracks = mutableListOf<PlayableTrack>()
     private val origins = mutableListOf<QueueItemOrigin>()
+    private val occurrenceIds = mutableListOf<UUID>()
+    private val groupIds = mutableListOf<UUID?>()
+    private val groups = linkedMapOf<UUID, QueueGroup>()
     private val trackIds = hashSetOf<UUID>()
     private var currentIndex = -1
     private var materializedStartIndex = 0
@@ -61,6 +68,11 @@ class ProgressiveQueue @Inject constructor() {
         require(orderedTracks.isNotEmpty()) { "Progressive queue requires at least one track" }
         tracks.clear()
         tracks.addAll(orderedTracks)
+        occurrenceIds.clear()
+        occurrenceIds.addAll(List(orderedTracks.size) { UUID.randomUUID() })
+        groupIds.clear()
+        groupIds.addAll(List(orderedTracks.size) { null })
+        groups.clear()
         origins.clear()
         generationEnabled = sourceIds.isNotEmpty()
         sourceTrackIds = sourceIds.toList()
@@ -96,20 +108,36 @@ class ProgressiveQueue @Inject constructor() {
         pendingIds: List<UUID> = emptyList(),
         generatedStartedCount: Int = 0,
         nextGenerationThreshold: Int = 90,
+        requestedOccurrenceIds: List<UUID>? = null,
+        requestedGroupIds: List<UUID?>? = null,
+        requestedGroups: List<QueueGroup> = emptyList(),
     ): Boolean {
         val restoredOrigins = requestedOrigins ?: QueueProvenanceRestoreHints.consume(orderedTrackIds)
         val fallbackOrigin = if (mode == PlaybackMode.SMART_SHUFFLE) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL
         val restored = orderedTrackIds.mapIndexedNotNull { index, id ->
-            availableTracks[id]?.let { it to (restoredOrigins?.getOrNull(index) ?: fallbackOrigin) }
+            availableTracks[id]?.let { track ->
+                RestoredEntry(
+                    track,
+                    restoredOrigins?.getOrNull(index) ?: fallbackOrigin,
+                    requestedOccurrenceIds?.getOrNull(index) ?: UUID.randomUUID(),
+                    requestedGroupIds?.getOrNull(index),
+                )
+            }
         }
         if (restored.isEmpty()) {
             clearLocked()
             return false
         }
         tracks.clear()
-        tracks.addAll(restored.map { it.first })
+        tracks.addAll(restored.map { it.track })
         origins.clear()
-        origins.addAll(restored.map { it.second })
+        origins.addAll(restored.map { it.origin })
+        occurrenceIds.clear()
+        occurrenceIds.addAll(restored.map { it.occurrenceId })
+        groupIds.clear()
+        groupIds.addAll(restored.map { it.groupId })
+        groups.clear()
+        requestedGroups.filter { it.id in groupIds }.forEach { groups[it.id] = it }
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
         currentIndex = requestedCurrentIndex.coerceIn(tracks.indices)
@@ -129,6 +157,13 @@ class ProgressiveQueue @Inject constructor() {
         bumpRevision()
         return true
     }
+
+    private data class RestoredEntry(
+        val track: PlayableTrack,
+        val origin: QueueItemOrigin,
+        val occurrenceId: UUID,
+        val groupId: UUID?,
+    )
 
     @Synchronized
     fun clear() = clearLocked()
@@ -226,6 +261,8 @@ class ProgressiveQueue @Inject constructor() {
         if (tracks.isEmpty()) {
             tracks += track
             origins += QueueItemOrigin.MANUAL
+            occurrenceIds += UUID.randomUUID()
+            groupIds += null
             trackIds += track.id
             currentIndex = 0
             bumpRevision()
@@ -239,14 +276,18 @@ class ProgressiveQueue @Inject constructor() {
         if (duplicateRequested) {
             tracks.add(insertionIndex.coerceAtMost(tracks.size), track)
             origins.add(insertionIndex.coerceAtMost(origins.size), QueueItemOrigin.MANUAL)
+            occurrenceIds.add(insertionIndex.coerceAtMost(occurrenceIds.size), UUID.randomUUID())
+            groupIds.add(insertionIndex.coerceAtMost(groupIds.size), null)
             trackIds += track.id
             bumpRevision()
             return true
         }
 
         val existingIndex = tracks.indexOfFirst { it.id == track.id }
+        val occurrence = if (existingIndex >= 0) occurrenceIds.removeAt(existingIndex) else UUID.randomUUID()
         val item = if (existingIndex >= 0) {
             origins.removeAt(existingIndex)
+            groupIds.removeAt(existingIndex)
             tracks.removeAt(existingIndex).also {
                 if (existingIndex < currentIndex) currentIndex -= 1
             }
@@ -257,6 +298,9 @@ class ProgressiveQueue @Inject constructor() {
         val destination = (currentIndex + 1).coerceAtMost(tracks.size)
         tracks.add(destination, item)
         origins.add(destination, QueueItemOrigin.MANUAL)
+        occurrenceIds.add(destination, occurrence)
+        groupIds.add(destination, null)
+        pruneGroups()
         if (generationEnabled) pendingGeneratedIds = pendingGeneratedIds.filterNot { it == track.id }
         bumpRevision()
         return true
@@ -267,6 +311,8 @@ class ProgressiveQueue @Inject constructor() {
         if (tracks.isEmpty()) {
             tracks += track
             origins += QueueItemOrigin.MANUAL
+            occurrenceIds += UUID.randomUUID()
+            groupIds += null
             trackIds += track.id
             currentIndex = 0
             bumpRevision()
@@ -275,8 +321,10 @@ class ProgressiveQueue @Inject constructor() {
         if (currentIndex !in tracks.indices || tracks[currentIndex].id == track.id) return false
 
         val existingIndex = tracks.indexOfFirst { it.id == track.id }
+        val occurrence = if (existingIndex >= 0) occurrenceIds.removeAt(existingIndex) else UUID.randomUUID()
         val item = if (existingIndex >= 0) {
             origins.removeAt(existingIndex)
+            groupIds.removeAt(existingIndex)
             tracks.removeAt(existingIndex).also {
                 if (existingIndex < currentIndex) currentIndex -= 1
             }
@@ -290,6 +338,9 @@ class ProgressiveQueue @Inject constructor() {
         } else tracks.size
         tracks.add(destination, item)
         origins.add(destination, QueueItemOrigin.MANUAL)
+        occurrenceIds.add(destination, occurrence)
+        groupIds.add(destination, null)
+        pruneGroups()
         if (generationEnabled) pendingGeneratedIds = pendingGeneratedIds.filterNot { it == track.id }
         bumpRevision()
         return true
@@ -301,6 +352,9 @@ class ProgressiveQueue @Inject constructor() {
         val removingCurrent = index == currentIndex
         val removed = tracks.removeAt(index)
         origins.removeAt(index)
+        occurrenceIds.removeAt(index)
+        groupIds.removeAt(index)
+        pruneGroups()
         if (tracks.none { it.id == removed.id }) trackIds.remove(removed.id)
         if (tracks.isEmpty()) {
             clearLocked()
@@ -331,8 +385,15 @@ class ProgressiveQueue @Inject constructor() {
         val movingCurrent = fromIndex == currentIndex
         val item = tracks.removeAt(fromIndex)
         origins.removeAt(fromIndex)
+        val occurrence = occurrenceIds.removeAt(fromIndex)
+        val originalGroup = groupIds.removeAt(fromIndex)
         tracks.add(toIndex, item)
         origins.add(toIndex, QueueItemOrigin.MANUAL)
+        occurrenceIds.add(toIndex, occurrence)
+        val stillGrouped = originalGroup != null &&
+            (groupIds.getOrNull(toIndex - 1) == originalGroup || groupIds.getOrNull(toIndex) == originalGroup)
+        groupIds.add(toIndex, originalGroup.takeIf { stillGrouped })
+        pruneGroups()
         currentIndex = if (movingCurrent) {
             toIndex
         } else {
@@ -349,10 +410,16 @@ class ProgressiveQueue @Inject constructor() {
     @Synchronized
     fun retainCurrentOnly(): Boolean {
         val current = tracks.getOrNull(currentIndex) ?: return false
+        val currentOccurrence = occurrenceIds[currentIndex]
         tracks.clear()
         tracks += current
         origins.clear()
         origins += QueueItemOrigin.MANUAL
+        occurrenceIds.clear()
+        occurrenceIds += currentOccurrence
+        groupIds.clear()
+        groupIds += null
+        groups.clear()
         trackIds.clear()
         trackIds += current.id
         currentIndex = 0
@@ -382,15 +449,30 @@ class ProgressiveQueue @Inject constructor() {
         if (tracks.isEmpty() || currentIndex < 0) return
         val fixedTracks = tracks.take(currentIndex + 1)
         val fixedOrigins = origins.take(currentIndex + 1)
+        val fixedOccurrences = occurrenceIds.take(currentIndex + 1)
+        val fixedGroups = groupIds.take(currentIndex + 1)
         val manualFuture = if (generationEnabled) {
             (currentIndex + 1 until tracks.size).filter { origins[it] == QueueItemOrigin.MANUAL }.map { tracks[it] }
         } else emptyList()
+        val manualPositions = if (generationEnabled) (currentIndex + 1 until tracks.size)
+            .filter { origins[it] == QueueItemOrigin.MANUAL } else emptyList()
+        val manualOccurrences = manualPositions.map { occurrenceIds[it] }
+        val manualGroups = manualPositions.map { groupIds[it] }
         tracks.clear()
         tracks.addAll(fixedTracks)
         tracks.addAll(manualFuture)
         tracks.addAll(future)
         origins.clear()
         origins.addAll(fixedOrigins)
+        occurrenceIds.clear()
+        occurrenceIds.addAll(fixedOccurrences)
+        occurrenceIds.addAll(manualOccurrences)
+        occurrenceIds.addAll(List(future.size) { UUID.randomUUID() })
+        groupIds.clear()
+        groupIds.addAll(fixedGroups)
+        groupIds.addAll(manualGroups)
+        groupIds.addAll(List(future.size) { null })
+        pruneGroups()
         origins.addAll(List(manualFuture.size) { QueueItemOrigin.MANUAL })
         val futureOrigin = if (generationEnabled || mode == PlaybackMode.SMART_SHUFFLE) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL
         origins.addAll(List(future.size) { futureOrigin })
@@ -437,7 +519,13 @@ class ProgressiveQueue @Inject constructor() {
             return SmartFutureRevisionResult.NO_CHANGE
         }
 
-        generatedPositions.forEachIndexed { index, position -> tracks[position] = ranked[index] }
+        val occurrencesById = generatedPositions.associate { position ->
+            tracks[position].id to occurrenceIds[position]
+        }
+        generatedPositions.forEachIndexed { index, position ->
+            tracks[position] = ranked[index]
+            occurrenceIds[position] = occurrencesById.getValue(ranked[index].id)
+        }
         bumpRevision()
         return SmartFutureRevisionResult.APPLIED
     }
@@ -487,10 +575,78 @@ class ProgressiveQueue @Inject constructor() {
         if (accepted.isNotEmpty()) {
             tracks.addAll(accepted)
             origins.addAll(List(accepted.size) { QueueItemOrigin.GENERATED })
+            occurrenceIds.addAll(List(accepted.size) { UUID.randomUUID() })
+            groupIds.addAll(List(accepted.size) { null })
             trackIds.addAll(accepted.map { it.id })
             bumpRevision()
         }
         return true
+    }
+
+    @Synchronized
+    fun insertGroup(members: List<PlayableTrack>, kind: QueueGroupKind, title: String, playNext: Boolean): UUID? {
+        if (tracks.isEmpty() || currentIndex !in tracks.indices || members.isEmpty()) return null
+        val selected = members.distinctBy { it.id }.filter { it.id != tracks[currentIndex].id }
+        if (selected.isEmpty()) return null
+        val selectedIds = selected.mapTo(hashSetOf()) { it.id }
+        for (index in tracks.lastIndex downTo currentIndex + 1) {
+            if (origins[index] == QueueItemOrigin.GENERATED && tracks[index].id in selectedIds) removeAt(index)
+        }
+        pendingGeneratedIds = pendingGeneratedIds.filterNot { it in selectedIds }
+        val destination = if (playNext) currentIndex + 1 else
+            (currentIndex + 1 until origins.size).firstOrNull { origins[it] == QueueItemOrigin.GENERATED }
+                ?: tracks.size
+        val id = UUID.randomUUID()
+        groups[id] = QueueGroup(id, kind, title)
+        tracks.addAll(destination, selected)
+        origins.addAll(destination, List(selected.size) { QueueItemOrigin.MANUAL })
+        occurrenceIds.addAll(destination, List(selected.size) { UUID.randomUUID() })
+        groupIds.addAll(destination, List(selected.size) { id })
+        trackIds.addAll(selected.map { it.id })
+        bumpRevision()
+        return id
+    }
+
+    @Synchronized
+    fun removeGroup(id: UUID): Boolean {
+        val positions = (currentIndex + 1 until tracks.size).filter { groupIds[it] == id }
+        if (positions.isEmpty()) return false
+        positions.asReversed().forEach(::removeAt)
+        groups.remove(id)
+        return true
+    }
+
+    @Synchronized
+    fun moveGroup(id: UUID, target: Int): Boolean {
+        val positions = (currentIndex + 1 until tracks.size).filter { groupIds[it] == id }
+        if (positions.isEmpty() || target in positions) return false
+        if (positions.last() - positions.first() + 1 != positions.size) return false
+        val first = positions.first()
+        val count = positions.size
+        val destination = target.coerceIn(currentIndex + 1, tracks.size)
+        val tracksBlock = tracks.subList(first, first + count).toList()
+        val originsBlock = origins.subList(first, first + count).toList()
+        val occurrencesBlock = occurrenceIds.subList(first, first + count).toList()
+        val groupsBlock = groupIds.subList(first, first + count).toList()
+        repeat(count) {
+            tracks.removeAt(first)
+            origins.removeAt(first)
+            occurrenceIds.removeAt(first)
+            groupIds.removeAt(first)
+        }
+        val at = (destination - if (destination > first) count else 0)
+            .coerceIn(currentIndex + 1, tracks.size)
+        tracks.addAll(at, tracksBlock)
+        origins.addAll(at, originsBlock)
+        occurrenceIds.addAll(at, occurrencesBlock)
+        groupIds.addAll(at, groupsBlock)
+        bumpRevision()
+        return true
+    }
+
+    private fun pruneGroups() {
+        val alive = groupIds.filterNotNull().toSet()
+        groups.keys.retainAll(alive)
     }
 
     @Synchronized
@@ -521,6 +677,9 @@ class ProgressiveQueue @Inject constructor() {
         return ProgressiveQueueSnapshot(
             tracks = tracks.toList(),
             origins = origins.toList(),
+            occurrenceIds = occurrenceIds.toList(),
+            groupIds = groupIds.toList(),
+            groups = groups.toMap(),
             currentIndex = currentIndex,
             materializedStartIndex = materializedStartIndex,
             materializedEndExclusive = materializedEndExclusive,
@@ -539,6 +698,9 @@ class ProgressiveQueue @Inject constructor() {
         val hadState = tracks.isNotEmpty() || currentIndex >= 0
         tracks.clear()
         origins.clear()
+        occurrenceIds.clear()
+        groupIds.clear()
+        groups.clear()
         trackIds.clear()
         currentIndex = -1
         materializedStartIndex = 0
@@ -586,6 +748,9 @@ data class QueueWindowPlan(
 data class ProgressiveQueueSnapshot(
     val tracks: List<PlayableTrack>,
     val origins: List<QueueItemOrigin>,
+    val occurrenceIds: List<UUID> = emptyList(),
+    val groupIds: List<UUID?> = emptyList(),
+    val groups: Map<UUID, QueueGroup> = emptyMap(),
     val currentIndex: Int,
     val materializedStartIndex: Int,
     val materializedEndExclusive: Int,

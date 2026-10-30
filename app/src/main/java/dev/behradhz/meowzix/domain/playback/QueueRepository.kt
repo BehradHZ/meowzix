@@ -8,6 +8,9 @@ data class QueueItem(
     val title: String,
     val artist: String?,
     val artworkRef: String?,
+    val occurrenceId: UUID = id,
+    val origin: QueueItemOrigin = QueueItemOrigin.MANUAL,
+    val groupId: UUID? = null,
 )
 
 data class QueueState(
@@ -15,6 +18,7 @@ data class QueueState(
     val currentIndex: Int = -1,
     val playbackMode: PlaybackMode = PlaybackMode.ORDERED,
     val repeatMode: RepeatMode = RepeatMode.OFF,
+    val groups: Map<UUID, QueueGroup> = emptyMap(),
 )
 
 interface QueueRepository {
@@ -24,6 +28,10 @@ interface QueueRepository {
     fun playAt(index: Int)
     fun playNext(trackId: UUID)
     fun addToQueue(trackId: UUID)
+    fun playNextGroup(trackIds: List<UUID>, kind: QueueGroupKind, title: String)
+    fun addGroupToQueue(trackIds: List<UUID>, kind: QueueGroupKind, title: String)
+    fun removeGroup(groupId: UUID)
+    fun moveGroup(groupId: UUID, toIndex: Int)
     fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode)
     fun replaceAndPlay(trackIds: List<UUID>, startTrackId: UUID, mode: PlaybackMode)
     fun removeAt(index: Int)

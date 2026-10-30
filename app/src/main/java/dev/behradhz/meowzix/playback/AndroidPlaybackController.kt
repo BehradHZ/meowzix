@@ -291,6 +291,59 @@ class AndroidPlaybackController @Inject constructor(
         }
     }
 
+    override fun playNextGroup(
+        trackIds: List<UUID>, kind: dev.behradhz.meowzix.domain.playback.QueueGroupKind, title: String,
+    ) = queueGroup(trackIds, kind, title, true)
+
+    override fun addGroupToQueue(
+        trackIds: List<UUID>, kind: dev.behradhz.meowzix.domain.playback.QueueGroupKind, title: String,
+    ) = queueGroup(trackIds, kind, title, false)
+
+    private fun queueGroup(
+        trackIds: List<UUID>,
+        kind: dev.behradhz.meowzix.domain.playback.QueueGroupKind,
+        title: String,
+        next: Boolean,
+    ) {
+        scope.launch {
+            val ids = trackIds.distinct()
+            val available = runCatching { catalog.availableTracks(ids) }.getOrDefault(emptyList())
+            val byId = available.associateBy { it.id }
+            val members = ids.mapNotNull(byId::get)
+            if (members.isEmpty()) {
+                showError("No playable tracks in this collection")
+                return@launch
+            }
+            withConnectedController { connected ->
+                if (progressiveQueue.snapshot() == null) {
+                    progressiveQueue.start(members.take(1), 0, PlaybackMode.ORDERED, RepeatMode.OFF,
+                        sourceIds = members.map { it.id })
+                    progressiveQueue.insertGroup(members.drop(1), kind, title, false)
+                    val plan = progressiveQueue.resetWindow()
+                    connected.setMediaItems(
+                        plan.tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
+                        plan.startIndexInWindow, 0,
+                    )
+                    connected.prepare()
+                    connected.play()
+                } else {
+                    syncLogicalCurrentFromPlayer(connected)
+                    if (progressiveQueue.insertGroup(members, kind, title, next) != null) {
+                        syncProgressiveWindowInPlace(connected)
+                    }
+                }
+            }
+        }
+    }
+
+    override fun removeGroup(groupId: UUID) = withController { connected ->
+        if (progressiveQueue.removeGroup(groupId)) syncProgressiveWindowInPlace(connected)
+    }
+
+    override fun moveGroup(groupId: UUID, toIndex: Int) = withController { connected ->
+        if (progressiveQueue.moveGroup(groupId, toIndex)) syncProgressiveWindowInPlace(connected)
+    }
+
     override fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode) {
         replaceAndPlayInternal(trackIds, null, mode)
     }
@@ -756,7 +809,14 @@ class AndroidPlaybackController @Inject constructor(
             // remap a 10k logical queue into QueueItems twice per second.
             if (logical !== lastPublishedLogicalQueue) {
                 _queueState.value = QueueState(
-                    items = logical.tracks.map(PlayableTrack::toQueueItem),
+                    items = logical.tracks.mapIndexed { index, track ->
+                        track.toQueueItem().copy(
+                            occurrenceId = logical.occurrenceIds[index],
+                            origin = logical.origins[index],
+                            groupId = logical.groupIds[index],
+                        )
+                    },
+                    groups = logical.groups,
                     currentIndex = logical.currentIndex,
                     playbackMode = logical.playbackMode,
                     repeatMode = logical.repeatMode,

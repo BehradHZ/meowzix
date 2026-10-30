@@ -13,6 +13,8 @@ data class PersistedPlaybackItem(
     val durationMs: Long,
 )
 
+data class PersistedQueueGroup(val id: String, val kind: String, val title: String)
+
 data class PersistedPlaybackSession(
     val items: List<PersistedPlaybackItem>,
     val currentIndex: Int,
@@ -21,6 +23,9 @@ data class PersistedPlaybackSession(
     val repeatMode: RepeatMode,
     val logicalMediaIds: List<String> = emptyList(),
     val logicalOrigins: List<QueueItemOrigin> = emptyList(),
+    val logicalOccurrenceIds: List<String> = emptyList(),
+    val logicalGroupIds: List<String?> = emptyList(),
+    val logicalGroups: List<PersistedQueueGroup> = emptyList(),
     val logicalCurrentIndex: Int = -1,
     val materializedStartIndex: Int = 0,
     val materializedEndExclusive: Int = 0,

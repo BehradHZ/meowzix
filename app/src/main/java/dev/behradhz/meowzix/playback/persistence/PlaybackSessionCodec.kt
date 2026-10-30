@@ -7,9 +7,10 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 
 object PlaybackSessionCodec {
-    private const val VERSION = "v4"
-    private const val PREVIOUS_VERSION = "v3"
-    private const val LEGACY_VERSION = "v2"
+    private const val VERSION = "v5"
+    private const val PREVIOUS_VERSION = "v4"
+    private const val LEGACY_VERSION = "v3"
+    private const val OLDER_VERSION = "v2"
     private const val ORIGINAL_VERSION = "v1"
     private const val NULL_VALUE = "-"
     private val encoder = Base64.getUrlEncoder().withoutPadding()
@@ -38,7 +39,15 @@ object PlaybackSessionCodec {
                 } else {
                     QueueItemOrigin.MANUAL
                 }
-            appendLine(listOf("q", encodeText(mediaId), origin.name).joinToString("|"))
+            appendLine(listOf(
+                "q", encodeText(mediaId), origin.name,
+                session.logicalOccurrenceIds.getOrNull(index) ?: NULL_VALUE,
+                session.logicalGroupIds.getOrNull(index) ?: NULL_VALUE,
+            ).joinToString("|"))
+        }
+        if (session.logicalGroupIds.isNotEmpty()) appendLine("k|groups")
+        session.logicalGroups.forEach {
+            appendLine(listOf("g", it.id, it.kind, encodeText(it.title)).joinToString("|"))
         }
         session.sourceMediaIds.forEach { appendLine("s|${encodeText(it)}") }
         session.pendingMediaIds.forEach { appendLine("r|${encodeText(it)}") }
@@ -61,13 +70,34 @@ object PlaybackSessionCodec {
         val lines = value.lineSequence().filter(String::isNotBlank).toList()
         val header = lines.first().split('|')
         when (header.firstOrNull()) {
-            VERSION -> decodeV4(header, lines.drop(1))
-            PREVIOUS_VERSION -> decodeV3(header, lines.drop(1))
-            LEGACY_VERSION -> decodeV2(header, lines.drop(1))
+            VERSION -> decodeV5(header, lines.drop(1))
+            PREVIOUS_VERSION -> decodeV4(header, lines.drop(1))
+            LEGACY_VERSION -> decodeV3(header, lines.drop(1))
+            OLDER_VERSION -> decodeV2(header, lines.drop(1))
             ORIGINAL_VERSION -> decodeV1(header, lines.drop(1))
             else -> error("Unsupported playback session version")
         }
     }.getOrNull()
+
+    private fun decodeV5(header: List<String>, body: List<String>): PersistedPlaybackSession {
+        require(header.size == 11)
+        val legacyBody = body.map { line ->
+            if (line.startsWith("q|")) line.split('|').take(3).joinToString("|") else line
+        }
+        val old = decodeV4(header, legacyBody)
+        val entries = body.filter { it.startsWith("q|") }.map { it.split('|') }
+        require(entries.all { it.size == 5 })
+        val groups = body.filter { it.startsWith("g|") }.map { it.split('|') }
+        require(groups.all { it.size == 4 })
+        return old.copy(
+            logicalOccurrenceIds = entries.map { it[3] }
+                .takeIf { values -> values.all { it != NULL_VALUE } }.orEmpty(),
+            logicalGroupIds = if (body.any { it == "k|groups" }) {
+                entries.map { it[4].takeUnless { raw -> raw == NULL_VALUE } }
+            } else emptyList(),
+            logicalGroups = groups.map { PersistedQueueGroup(it[1], it[2], decodeText(it[3])) },
+        )
+    }
 
     private fun decodeV4(header: List<String>, body: List<String>): PersistedPlaybackSession {
         require(header.size == 11)

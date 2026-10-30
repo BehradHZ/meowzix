@@ -1681,6 +1681,21 @@ class PlaybackService : MediaLibraryService() {
                 repeat = saved.repeatMode,
                 seed = saved.shuffleSeed,
                 requestedOrigins = saved.logicalOrigins,
+                requestedOccurrenceIds = saved.logicalOccurrenceIds.mapNotNull {
+                    runCatching { UUID.fromString(it) }.getOrNull()
+                }.takeIf { it.size == saved.logicalMediaIds.size },
+                requestedGroupIds = saved.logicalGroupIds.map { id ->
+                    id?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                }.takeIf { it.size == saved.logicalMediaIds.size },
+                requestedGroups = saved.logicalGroups.mapNotNull {
+                    runCatching {
+                        dev.behradhz.meowzix.domain.playback.QueueGroup(
+                            UUID.fromString(it.id),
+                            dev.behradhz.meowzix.domain.playback.QueueGroupKind.valueOf(it.kind),
+                            it.title,
+                        )
+                    }.getOrNull()
+                },
                 sourceIds = saved.sourceMediaIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() },
                 pendingIds = saved.pendingMediaIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() },
                 generatedStartedCount = saved.generatedStarted,
@@ -1761,6 +1776,13 @@ class PlaybackService : MediaLibraryService() {
                 materializedEndExclusive = logical?.materializedEndExclusive ?: items.size,
                 shuffleSeed = logical?.shuffleSeed,
                 logicalOrigins = logical?.origins.orEmpty(),
+                logicalOccurrenceIds = logical?.occurrenceIds?.map(UUID::toString).orEmpty(),
+                logicalGroupIds = logical?.groupIds?.map { it?.toString() }.orEmpty(),
+                logicalGroups = logical?.groups?.values?.map {
+                    dev.behradhz.meowzix.playback.persistence.PersistedQueueGroup(
+                        it.id.toString(), it.kind.name, it.title
+                    )
+                }.orEmpty(),
                 sourceMediaIds = logical?.sourceTrackIds?.map(UUID::toString).orEmpty(),
                 pendingMediaIds = logical?.pendingGeneratedIds?.map(UUID::toString).orEmpty(),
                 generatedStarted = logical?.generatedStarted ?: 0,

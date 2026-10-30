@@ -413,6 +413,25 @@ class ProgressiveQueueTest {
         assertEquals(List(2) { QueueItemOrigin.MANUAL }, state.origins.drop(1).take(2))
     }
 
+    @Test
+    fun `group insertion moves as one block and a member can detach`() {
+        val songs = tracks(22)
+        val queue = ProgressiveQueue()
+        queue.start(songs.take(11), 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
+            sourceIds = songs.map { it.id }, pendingIds = songs.drop(11).map { it.id })
+        val group = requireNotNull(queue.insertGroup(songs.subList(15, 19), QueueGroupKind.ARTIST, "Artist", false))
+        assertEquals(List(4) { group }, requireNotNull(queue.snapshot()).groupIds.drop(1).take(4))
+        assertTrue(queue.moveGroup(group, 9))
+        val moved = requireNotNull(queue.snapshot())
+        val positions = moved.groupIds.indices.filter { moved.groupIds[it] == group }
+        assertEquals(4, positions.last() - positions.first() + 1)
+        assertTrue(queue.move(positions.first(), 1))
+        assertEquals(null, requireNotNull(queue.snapshot()).groupIds[1])
+        assertEquals(3, requireNotNull(queue.snapshot()).groupIds.count { it == group })
+        assertTrue(queue.removeGroup(group))
+        assertTrue(requireNotNull(queue.snapshot()).groupIds.none { it == group })
+    }
+
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
         PlayableTrack(
             id = UUID.nameUUIDFromBytes("track-$index".toByteArray()),
