@@ -124,7 +124,7 @@ class ProgressiveQueue @Inject constructor() {
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
         currentIndex = before.lastIndex
-        origins[currentIndex] = QueueItemOrigin.MANUAL
+        // Playback selection is not a manual Queue insertion.
         playbackMode = mode
         repeatMode = repeat
         shuffleSeed = seed
@@ -152,7 +152,8 @@ class ProgressiveQueue @Inject constructor() {
         requestedGroups: List<QueueGroup> = emptyList(),
     ): Boolean {
         val restoredOrigins = requestedOrigins ?: QueueProvenanceRestoreHints.consume(orderedTrackIds)
-        val fallbackOrigin = if (mode == PlaybackMode.SMART_SHUFFLE) QueueItemOrigin.GENERATED else QueueItemOrigin.MANUAL
+        // Missing provenance must never mark all future tracks as manually queued.
+        val fallbackOrigin = QueueItemOrigin.GENERATED
         val restored = orderedTrackIds.mapIndexedNotNull { index, id ->
             availableTracks[id]?.let { track ->
                 RestoredEntry(
@@ -184,7 +185,8 @@ class ProgressiveQueue @Inject constructor() {
         for (index in currentIndex + 1 until tracks.size) {
             if (origins[index] == QueueItemOrigin.MANUAL) fixedOccurrences += occurrenceIds[index]
         }
-        origins[currentIndex] = QueueItemOrigin.MANUAL
+        // Selected and previous entries belong to history, not pending Queue.
+        for (index in 0..currentIndex) origins[index] = QueueItemOrigin.GENERATED
         materializedStartIndex = requestedMaterializedStartIndex.coerceIn(0, currentIndex)
         materializedEndExclusive = requestedMaterializedEndExclusive
             .coerceIn(currentIndex + 1, tracks.size)
@@ -262,7 +264,6 @@ class ProgressiveQueue @Inject constructor() {
         if (index != currentIndex) {
             noteGeneratedTransition(index)
             currentIndex = index
-            if (!generationEnabled) origins[currentIndex] = QueueItemOrigin.MANUAL
             bumpRevision()
         }
         return true
@@ -279,7 +280,6 @@ class ProgressiveQueue @Inject constructor() {
         if (logicalIndex != currentIndex) {
             noteGeneratedTransition(logicalIndex)
             currentIndex = logicalIndex
-            if (!generationEnabled) origins[currentIndex] = QueueItemOrigin.MANUAL
             bumpRevision()
         }
         return true
@@ -332,7 +332,6 @@ class ProgressiveQueue @Inject constructor() {
         if (currentIndex != index) {
             noteGeneratedTransition(index)
             currentIndex = index
-            if (!generationEnabled) origins[currentIndex] = QueueItemOrigin.MANUAL
             bumpRevision()
         }
         return resetWindowLocked()
@@ -396,7 +395,7 @@ class ProgressiveQueue @Inject constructor() {
     fun insertNext(track: PlayableTrack): Boolean {
         if (tracks.isEmpty()) {
             tracks += track
-            origins += QueueItemOrigin.MANUAL
+            origins += QueueItemOrigin.GENERATED
             // The first item is Now Playing, not a pending fixed Queue occurrence.
             occurrenceIds += UUID.randomUUID()
             groupIds += null
@@ -452,7 +451,7 @@ class ProgressiveQueue @Inject constructor() {
     fun append(track: PlayableTrack): Boolean {
         if (tracks.isEmpty()) {
             tracks += track
-            origins += QueueItemOrigin.MANUAL
+            origins += QueueItemOrigin.GENERATED
             occurrenceIds += UUID.randomUUID()
             groupIds += null
             trackIds += track.id
@@ -541,7 +540,6 @@ class ProgressiveQueue @Inject constructor() {
             index < currentIndex -> currentIndex - 1
             else -> currentIndex
         }
-        if (!generationEnabled) origins[currentIndex] = QueueItemOrigin.MANUAL
         bumpRevision()
         return true
     }
@@ -581,7 +579,7 @@ class ProgressiveQueue @Inject constructor() {
         tracks.clear()
         tracks += current
         origins.clear()
-        origins += QueueItemOrigin.MANUAL
+        origins += QueueItemOrigin.GENERATED
         occurrenceIds.clear()
         occurrenceIds += currentOccurrence
         groupIds.clear()
