@@ -145,4 +145,38 @@ class FixedNextQueueIsolationTest {
         assertTrue(queue.isFixedOccurrence(after.occurrenceIds.indexOf(fixedOccurrence)))
         assertEquals(0, after.currentIndex)
     }
+
+    @Test fun switchingToANextSongPreservesUnchangedNextIdsAndTheirOrder() {
+        val songs = (0..15).map(::song)
+        val queue = ProgressiveQueue()
+        queue.start(songs, 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
+            seed = 42L, sourceIds = songs.map { it.id })
+        queue.insertNext(songs[1])
+        queue.append(songs[2])
+        queue.append(songs[3])
+        val before = requireNotNull(queue.snapshot())
+        val oldFixed = before.tracks.indices.filter(queue::isFixedOccurrence)
+            .map { before.occurrenceIds[it] to before.tracks[it].id }
+        val chosen = songs[8]
+        val oldNext = before.tracks.indices.filter {
+            it > before.currentIndex && before.origins[it] == QueueItemOrigin.GENERATED &&
+                before.tracks[it].id != chosen.id
+        }.map { before.occurrenceIds[it] to before.tracks[it].id }
+        val generated = before.tracks.indices.filter {
+            it > before.currentIndex && before.origins[it] == QueueItemOrigin.GENERATED &&
+                before.tracks[it].id != chosen.id
+        }.map { before.tracks[it] }
+
+        queue.start(listOf(chosen) + generated, 0, PlaybackMode.PURE_SHUFFLE,
+            RepeatMode.OFF, seed = 42L, sourceIds = songs.map { it.id })
+
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(chosen.id, after.tracks[after.currentIndex].id)
+        assertEquals(oldFixed, after.tracks.indices.filter(queue::isFixedOccurrence)
+            .map { after.occurrenceIds[it] to after.tracks[it].id })
+        assertEquals(oldNext, after.tracks.indices.filter {
+            it > after.currentIndex && after.origins[it] == QueueItemOrigin.GENERATED
+        }.map { after.occurrenceIds[it] to after.tracks[it].id })
+        assertEquals(42L, after.shuffleSeed)
+    }
 }
