@@ -238,6 +238,7 @@ internal fun LibraryRouteV4(
                 onPlayNext = viewModel::playNext,
                 onAddToQueue = viewModel::addToQueue,
                 onPinOffline = viewModel::pinOffline,
+                onRemoveOfflineCopy = viewModel::removeOfflineCopy,
                 onFavorite = viewModel::setFavorite,
                 onAddToPlaylist = viewModel::addToPlaylist,
                 onGoToArtist = { track ->
@@ -472,6 +473,7 @@ private fun PagedTrackListV4(
                         onPlayNext = { viewModel.playNext(row.track) },
                         onAddToQueue = { viewModel.addToQueue(row.track) },
                         onPinOffline = { viewModel.pinOffline(row.track) },
+                        onRemoveOfflineCopy = { viewModel.removeOfflineCopy(row.track) },
                         availability = row.availability,
                         download = state.downloads[row.track.id],
                         playlists = state.playlists,
@@ -571,6 +573,7 @@ private fun LibraryDetailV4(
                     onPlayNext = { viewModel.playNext(track) },
                     onAddToQueue = { viewModel.addToQueue(track) },
                     onPinOffline = { viewModel.pinOffline(track) },
+                    onRemoveOfflineCopy = { viewModel.removeOfflineCopy(track) },
                     availability = state.availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
                     download = state.downloads[track.id],
                     playlists = state.playlists,
