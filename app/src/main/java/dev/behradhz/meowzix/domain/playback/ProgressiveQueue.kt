@@ -66,6 +66,7 @@ class ProgressiveQueue @Inject constructor() {
         seed: Long? = null,
         sourceIds: List<UUID> = emptyList(),
         pendingIds: List<UUID> = emptyList(),
+        futureOccurrenceIds: List<UUID>? = null,
     ): QueueWindowPlan {
         require(orderedTracks.isNotEmpty()) { "Progressive queue requires at least one track" }
         // An explicit queued occurrence survives starting any other Library/Next song.
@@ -82,6 +83,9 @@ class ProgressiveQueue @Inject constructor() {
         // An identical track ID in Next and explicit Queue denotes two independent
         // occurrences. Never remove one because the other exists.
         val after = orderedTracks.drop(before.size)
+        require(futureOccurrenceIds == null || futureOccurrenceIds.size == after.size) {
+            "Future occurrence IDs must match the selected Next suffix"
+        }
         val savedGroups = groups.filterKeys { id -> fixed.any { it.groupId == id } }
         tracks.clear()
         tracks.addAll(before)
@@ -90,9 +94,11 @@ class ProgressiveQueue @Inject constructor() {
         occurrenceIds.clear()
         occurrenceIds.addAll(List(before.size) { UUID.randomUUID() })
         occurrenceIds.addAll(fixed.map { it.occurrenceId })
-        occurrenceIds.addAll(after.map { track ->
-            val old = previousNextOccurrences[track.id]
-            if (old.isNullOrEmpty()) UUID.randomUUID() else old.removeAt(0)
+        occurrenceIds.addAll(after.mapIndexed { index, track ->
+            futureOccurrenceIds?.get(index) ?: run {
+                val old = previousNextOccurrences[track.id]
+                if (old.isNullOrEmpty()) UUID.randomUUID() else old.removeAt(0)
+            }
         })
         groupIds.clear()
         groupIds.addAll(List(before.size) { null })
@@ -851,6 +857,25 @@ class ProgressiveQueue @Inject constructor() {
         const val BACKWARD_REFILL_THRESHOLD = 1
         const val SMART_RERANK_WINDOW = 20
         const val GENERATED_BATCH_SIZE = 100
+    }
+}
+
+/**
+ * Selection in Next is a forward seek through this exact sequence, NOT a new
+ * shuffle cycle. Earlier generated occurrences are discarded from the future.
+ * Queue (MANUAL) is excluded from this calculation and is retained by start().
+ *
+ * Selecting a manual/current/history item is different: it starts an independent
+ * playback context and keeps the existing generated future, as before.
+ */
+internal fun ProgressiveQueueSnapshot.generatedIndicesAfterSelection(selectedIndex: Int): List<Int> {
+    val selectedTrack = tracks.getOrNull(selectedIndex) ?: return emptyList()
+    val selectingUpcomingNext = selectedIndex > currentIndex &&
+        origins[selectedIndex] == QueueItemOrigin.GENERATED
+    return (currentIndex + 1 until tracks.size).filter { index ->
+        origins[index] == QueueItemOrigin.GENERATED &&
+            if (selectingUpcomingNext) index > selectedIndex
+            else tracks[index].id != selectedTrack.id
     }
 }
 
