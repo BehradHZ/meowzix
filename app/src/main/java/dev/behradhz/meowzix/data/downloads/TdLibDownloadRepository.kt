@@ -294,8 +294,9 @@ class TdLibDownloadRepository @Inject constructor(
                         candidate.fileSizeBytes, file.size.toLong(), remoteSource.fileSizeBytes,
                     ),
                 )
-            if (!valid(result)) {
-                // Retry the actual Telegram bytes, not the stale completed TDLib cache.
+            if (!valid(result) && result.local.isDownloadingCompleted) {
+                // Only discard a falsely completed cache. An active partial stream is useful
+                // to Media3 and must not be deleted if a download merely stopped early.
                 client.send(TdApi.DeleteFile(fileId))
                 result = client.send(TdApi.DownloadFile(fileId, PIN_PRIORITY, 0L, 0L, true))
             }
