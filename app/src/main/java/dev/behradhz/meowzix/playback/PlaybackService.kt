@@ -264,8 +264,10 @@ class PlaybackService : MediaLibraryService() {
             // MediaController.pause() can arrive while the focus loss has already paused the
             // underlying player; no second onPlayWhenReadyChanged(false) is guaranteed.
             if (playerCommand == Player.COMMAND_PLAY_PAUSE || playerCommand == Player.COMMAND_STOP) {
-                cancelExternalResume()
-                wasPlayingBeforeAudioFocusLoss = false
+                // An explicit Pause must revoke resume even if an earlier
+                // system interruption has already set playWhenReady=false.
+                // A subsequent explicit Play will re-establish user intent.
+                cancelAutoResumeForUserIntent()
             }
             return super.onPlayerCommandRequest(session, controller, playerCommand)
         }
@@ -527,6 +529,16 @@ class PlaybackService : MediaLibraryService() {
 
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            if (!isRestoring && (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK ||
+                    reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
+            ) {
+                // A new user selection must not later be resumed as the song
+                // that was interrupted before this transition.
+                interruptionPolicy.newPlaybackSelection()
+                externalResumeJob?.cancel()
+                internalAutoResumePlayPending = false
+                clearInterruptedMedia()
+            }
             // Only a genuine automatic end consumes an explicit Queue occurrence.
             // Library selection/replacement must never consume the fixed list.
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
@@ -646,48 +658,52 @@ class PlaybackService : MediaLibraryService() {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             when {
                 playWhenReady -> {
-                    resumeAfterMicrophoneStops = false
-                    earlyExternalPausePending = false
-                    cancelExternalResume()
-                    baselineExternalMedia()
                     wasPlayingBeforeAudioFocusLoss = true
-                }
-                earlyExternalPausePending -> {
-                    resumeAfterMicrophoneStops = false
-                    earlyExternalPausePending = false
-                    wasPlayingBeforeAudioFocusLoss = false
-                    cancelExternalResume()
-                    if (resumeAfterExternalAudioEnabled && !isRestoring) {
-                        resumePendingExternalAudio = true
-                        observedExternalPlayback = true
-                        otherAppPlayingMedia = true
+                    focusLossAwaitingExternal = false
+                    if (internalAutoResumePlayPending) {
+                        // Service-issued automatic Play is NOT a new user
+                        // command. Retain its token until audio is actually
+                        // playing, not merely until playWhenReady flips.
+                        internalAutoResumePlayPending = false
+                    } else {
+                        interruptionPolicy.userPlayed()
+                        externalResumeJob?.cancel()
+                        clearInterruptedMedia()
+                        baselineExternalMedia()
                     }
                 }
-                resumeAfterMicrophoneStops -> {
-                    // This false transition is our own microphone-triggered pause.
-                    // Keep the restoration token until recording actually ends.
-                    cancelExternalResume()
+                internalInterruptionPausePending -> {
+                    // The service called player.pause() to yield to external
+                    // playback/microphone. Do not mistake it for a user Pause.
+                    internalInterruptionPausePending = false
                     wasPlayingBeforeAudioFocusLoss = false
                 }
                 reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS &&
-                    wasPlayingBeforeAudioFocusLoss && resumeAfterExternalAudioEnabled && !isRestoring -> {
-                    resumePendingExternalAudio = true
-                    observedExternalPlayback = otherAppPlayingMedia ||
-                        audioManager.activePlaybackConfigurations.any {
-                            it.audioAttributes.usage == android.media.AudioAttributes.USAGE_MEDIA
+                    wasPlayingBeforeAudioFocusLoss && !isRestoring -> {
+                    // Media3 owns focus arbitration. Its focus-loss callback
+                    // can precede AudioPlaybackCallback; permit one delayed
+                    // snapshot to identify the app that took over. Do not
+                    // invent a focus-gain event after permanent loss.
+                    internalAutoResumePlayPending = false
+                    focusLossAwaitingExternal = true
+                    serviceScope.launch {
+                        delay(150L)
+                        if (focusLossAwaitingExternal && !player.playWhenReady) {
+                            onExternalPlaybackConfigurations(
+                                audioManager.activePlaybackConfigurations
+                            )
                         }
-                    externalResumeJob?.cancel()
+                        delay(1_000L)
+                        focusLossAwaitingExternal = false
+                    }
                 }
                 else -> {
-                    // The user, controller, timer or end of queue stopped playback.
-                    resumeAfterMicrophoneStops = false
-                    cancelExternalResume()
-                    wasPlayingBeforeAudioFocusLoss = false
+                    // User Pause, STOP, end-of-track timer, disconnected audio
+                    // route and all other explicit stops must remain stopped.
+                    cancelAutoResumeForUserIntent()
                 }
             }
-            // The incoming crossfade player does not own audio focus until handoff.
-            // Pausing it during transient focus loss is NOT a user pause; the outgoing
-            // Media3-managed player will restore the intended playback after focus gain.
+            // Crossfade's second player must never claim ownership of focus.
             val crossfade = activeCrossfade
             if (!playWhenReady && crossfade != null &&
                 !(crossfade.identitySwitched && crossfade.focusPausedIncoming)
@@ -698,7 +714,19 @@ class PlaybackService : MediaLibraryService() {
                 reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM &&
                 sleepTimer.state.value.mode == SleepTimerMode.END_OF_TRACK
             ) {
-                serviceScope.launch { completeSleepTimer(SleepTimerTerminationReason.END_OF_TRACK_REACHED) }
+                serviceScope.launch {
+                    completeSleepTimer(SleepTimerTerminationReason.END_OF_TRACK_REACHED)
+                }
+            }
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) {
+                // Media3 may accept playWhenReady=true while focus is still
+                // suppressed. Only actual playback acknowledges auto-resume.
+                interruptionPolicy.playbackStarted()
+                internalAutoResumePlayPending = false
+                clearInterruptedMedia()
             }
         }
 
@@ -776,13 +804,30 @@ class PlaybackService : MediaLibraryService() {
                     } else {
                         audioManager.unregisterAudioRecordingCallback(microphoneObserver)
                         microphoneWasRecording = false
-                        resumeAfterMicrophoneStops = false
+                        if (interruptionPolicy.isInterruptedBy(
+                                AudioInterruptionResumePolicy.Source.MICROPHONE
+                            )
+                        ) {
+                            interruptionPolicy.disableAutoResume()
+                            interruptionPolicy.interruptionEnded(
+                                AudioInterruptionResumePolicy.Source.MICROPHONE
+                            )
+                            clearInterruptedMedia()
+                        }
                     }
                 }
                 val nextNormalization = preferences.loudnessNormalizationEnabled
                 if (resumeAfterExternalAudioEnabled != preferences.resumeAfterExternalAudio) {
                     resumeAfterExternalAudioEnabled = preferences.resumeAfterExternalAudio
-                    if (!resumeAfterExternalAudioEnabled) cancelExternalResume()
+                    if (!resumeAfterExternalAudioEnabled) {
+                        externalResumeJob?.cancel()
+                        // Preserve a separately armed microphone interruption,
+                        // but never restart solely for a disabled external setting.
+                        if (!interruptionPolicy.isInterruptedBy(
+                                AudioInterruptionResumePolicy.Source.MICROPHONE
+                            )
+                        ) interruptionPolicy.disableAutoResume()
+                    }
                 }
                 val nextCrossfadeSeconds = CrossfadePolicy.sanitizeSeconds(preferences.crossfadeDurationSeconds)
                 if (
@@ -898,8 +943,9 @@ class PlaybackService : MediaLibraryService() {
         liveSongCard?.cancel()
         audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
         if (pauseOnMicrophoneRecordingEnabled) audioManager.unregisterAudioRecordingCallback(microphoneObserver)
-        resumeAfterMicrophoneStops = false
-        cancelExternalResume()
+        interruptionPolicy.reset()
+        externalResumeJob?.cancel()
+        clearInterruptedMedia()
         clearPlaybackRetry()
         cancelCrossfade("service destroyed")
         player.removeListener(playerListener)
@@ -1476,7 +1522,7 @@ class PlaybackService : MediaLibraryService() {
     private suspend fun completeSleepTimer(reason: SleepTimerTerminationReason) {
         // The timer is an independent, user-requested stop: never undo it when a
         // microphone that happened to be active later closes.
-        resumeAfterMicrophoneStops = false
+        cancelAutoResumeForUserIntent()
         if (activeCrossfade != null) cancelCrossfade("sleep timer completed")
         val mediaId = player.currentMediaItem?.mediaId
         val position = player.currentPosition.coerceAtLeast(0L)
