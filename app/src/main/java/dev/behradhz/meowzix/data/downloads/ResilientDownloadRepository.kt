@@ -109,6 +109,7 @@ class ResilientDownloadRepository @Inject constructor(
                         pinned = row.pinned,
                         failureReason = row.failureReason,
                         updatedAtEpochMs = row.updatedAtEpochMs,
+                        hasManagedCopy = !row.localPath.isNullOrBlank(),
                     ),
                     title = row.title,
                     artworkRef = row.artworkRef,
