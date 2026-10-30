@@ -568,6 +568,20 @@ class PlaybackService : MediaLibraryService() {
             } else if (events.contains(Player.EVENT_TIMELINE_CHANGED)) {
                 expandProgressiveWindow()
             }
+            // Once a manually queued occurrence actually starts playing, it is
+            // consumed from the fixed Queue. Keep its occurrence in the session
+            // history, but never resurrect it when another playlist starts.
+            // Selecting a track that never starts (e.g. network failure) does
+            // not prematurely consume the user's manual Queue entry.
+            if (player.isPlaying && events.containsAny(
+                    Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    Player.EVENT_PLAYBACK_STATE_CHANGED,
+                    Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                    Player.EVENT_IS_PLAYING_CHANGED,
+                ) && syncLogicalCurrentFromPlayer()
+            ) {
+                if (progressiveQueue.consumeCurrentFixed()) schedulePersist()
+            }
             if (events.contains(Player.EVENT_TRACKS_CHANGED)) {
                 refreshNormalizationGain()
             }
@@ -1575,6 +1589,7 @@ class PlaybackService : MediaLibraryService() {
         // This is the equivalent of finishing the outgoing Queue occurrence.
         progressiveQueue.consumeFixedOccurrence(lastTransitionOccurrenceId)
         syncLogicalCurrentFromPlayer()
+        if (incoming.isPlaying) progressiveQueue.consumeCurrentFixed()
         lastTransitionOccurrenceId = progressiveQueue.snapshot()?.let { snapshot ->
             snapshot.occurrenceIds.getOrNull(snapshot.currentIndex)
         }
