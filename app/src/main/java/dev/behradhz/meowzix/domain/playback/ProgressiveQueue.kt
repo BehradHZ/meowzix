@@ -65,7 +65,9 @@ class ProgressiveQueue @Inject constructor() {
         repeat: RepeatMode,
         seed: Long? = null,
         sourceIds: List<UUID> = emptyList(),
-        pendingI        require(orderedTracks.isNotEmpty()) { "Progressive queue requires at least one track" }
+        pendingIds: List<UUID> = emptyList(),
+    ): QueueWindowPlan {
+        require(orderedTracks.isNotEmpty()) { "Progressive queue requires at least one track" }
         // An explicit queued occurrence survives starting any other Library/Next song.
         val fixed = tracks.indices.filter { occurrenceIds[it] in fixedOccurrences }
             .map { RetainedFixed(tracks[it], occurrenceIds[it], groupIds[it]) }
@@ -103,7 +105,6 @@ class ProgressiveQueue @Inject constructor() {
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
         currentIndex = before.lastIndex
-        origins[currentIndex] = QueueItemOrigin.MANUAL
         origins[currentIndex] = QueueItemOrigin.MANUAL
         playbackMode = mode
         repeatMode = repeat
