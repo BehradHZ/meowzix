@@ -70,7 +70,9 @@ class ProgressiveQueue @Inject constructor() {
     ): QueueWindowPlan {
         require(orderedTracks.isNotEmpty()) { "Progressive queue requires at least one track" }
         // An explicit queued occurrence survives starting any other Library/Next song.
-        val fixed = tracks.indices.filter { occurrenceIds[it] in fixedOccurrences }
+        // Only *unplayed future* manual occurrences survive a new Library context.
+        // Current/history entries can never re-enter the user's pending Queue.
+        val fixed = tracks.indices.filter { it > currentIndex && occurrenceIds[it] in fixedOccurrences }
             .map { RetainedFixed(tracks[it], occurrenceIds[it], groupIds[it]) }
         // Keep the identity of each unchanged Next entry across a listening-context
         // selection. Regenerating UUIDs for every row made the UI animate the entire
@@ -203,16 +205,24 @@ class ProgressiveQueue @Inject constructor() {
     private data class RetainedFixed(val track: PlayableTrack, val occurrenceId: UUID, val groupId: UUID?)
 
     @Synchronized
-    fun consumeCurrentFixed(): Boolean {
-        val id = occurrenceIds.getOrNull(currentIndex) ?: return false
-        if (!fixedOccurrences.remove(id)) return false
-        bumpRevision()
-        return true
-    }
+    fun consumeCurrentFixed(): Boolean =
+        consumeFixedOccurrence(occurrenceIds.getOrNull(currentIndex))
 
+    /**
+     * Consume a manual Queue occurrence once it actually begins playback. Retain
+     * the occurrence in session history, but remove its pending/manual provenance
+     * permanently: it must not be carried to the next playlist or relabelled
+     * as Queue after navigating backward.
+     */
     @Synchronized
     fun consumeFixedOccurrence(occurrenceId: UUID?): Boolean {
         if (occurrenceId == null || !fixedOccurrences.remove(occurrenceId)) return false
+        val index = occurrenceIds.indexOf(occurrenceId)
+        if (index >= 0) {
+            origins[index] = QueueItemOrigin.GENERATED
+            groupIds[index] = null
+            pruneGroups()
+        }
         bumpRevision()
         return true
     }
@@ -223,7 +233,7 @@ class ProgressiveQueue @Inject constructor() {
 
     @Synchronized
     fun hasFixedFuture(): Boolean = tracks.indices.any {
-        it >= currentIndex && occurrenceIds[it] in fixedOccurrences
+        it > currentIndex && occurrenceIds[it] in fixedOccurrences
     }
 
     private data class RestoredEntry(
@@ -351,7 +361,7 @@ class ProgressiveQueue @Inject constructor() {
         val skippedNext = (oldCurrent + 1 until index)
             .filter { origins[it] == QueueItemOrigin.GENERATED }
         val manualFuture = (oldCurrent + 1 until tracks.size)
-            .filter { origins[it] == QueueItemOrigin.MANUAL }
+            .filter { occurrenceIds[it] in fixedOccurrences }
         val remainingNext = (index + 1 until tracks.size)
             .filter { origins[it] == QueueItemOrigin.GENERATED }
         val arrangement = historyIndices + skippedNext + index + manualFuture + remainingNext
