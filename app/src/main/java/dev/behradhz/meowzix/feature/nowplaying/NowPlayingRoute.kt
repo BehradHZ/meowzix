@@ -244,7 +244,7 @@ fun NowPlayingRoute(
         if (playbackSpeedOpen) {
             PlaybackSpeedGlassDialog(
                 currentSpeed = state.playbackSpeed,
-                onConfirm = viewModel::setPlaybackSpeed,
+                onSpeedChange = viewModel::setPlaybackSpeed,
                 onDismiss = { playbackSpeedOpen = false },
             )
         }
