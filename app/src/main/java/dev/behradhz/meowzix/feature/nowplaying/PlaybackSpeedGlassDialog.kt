@@ -9,6 +9,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -30,11 +35,14 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.chrisbanes.haze.rememberHazeState
 import java.util.Locale
@@ -46,11 +54,11 @@ import kotlin.math.sin
 
 private val speedPresets = listOf(0.5f, 1f, 1.5f, 2f, 5f)
 
-/** Five presets and Custom occupy exactly two rows of three, above a single Done action. */
+/** Five presets and Custom occupy two rows of three. Changes apply immediately. */
 @Composable
 internal fun PlaybackSpeedGlassDialog(
     currentSpeed: Float,
-    onConfirm: (Float) -> Unit,
+    onSpeedChange: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var selectedSpeed by remember { mutableFloatStateOf(currentSpeed.coerceIn(0.5f, 5f)) }
@@ -59,11 +67,33 @@ internal fun PlaybackSpeedGlassDialog(
     val accent = MaterialTheme.colorScheme.primary
     val shape = RoundedCornerShape(28.dp)
 
-    Dialog(onDismissRequest = onDismiss) {
+    fun updateSpeed(value: Float) {
+        val bounded = value.coerceIn(0.5f, 5f)
+        if (selectedSpeed != bounded) {
+            selectedSpeed = bounded
+            onSpeedChange(bounded)
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        // Match the Sleep Timer floating glass surface without dimming the entire player.
+        val view = LocalView.current
+        SideEffect {
+            (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
+        }
+        Box(
+            modifier = Modifier.fillMaxSize()
+                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 14.dp),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
         GlassSurface(
             hazeState = haze,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
             shape = shape,
-            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
         ) {
             Column(
@@ -86,7 +116,7 @@ internal fun PlaybackSpeedGlassDialog(
                                 onClick = {
                                     if (index == 5) custom = true
                                     else {
-                                        selectedSpeed = speedPresets[index]
+                                        updateSpeed(speedPresets[index])
                                         custom = false
                                     }
                                 },
@@ -118,18 +148,18 @@ internal fun PlaybackSpeedGlassDialog(
                                 .testTag("custom-speed-gauge")
                                 .pointerInput(Unit) {
                                     detectTapGestures { point ->
-                                        selectedSpeed = gaugeSpeed(point, size.width.toFloat(), size.height.toFloat())
+                                        updateSpeed(gaugeSpeed(point, size.width.toFloat(), size.height.toFloat()))
                                     }
                                 }
                                 .pointerInput(Unit) {
                                     detectDragGestures(
                                         onDragStart = { point ->
-                                            selectedSpeed = gaugeSpeed(point, size.width.toFloat(), size.height.toFloat())
+                                            updateSpeed(gaugeSpeed(point, size.width.toFloat(), size.height.toFloat()))
                                         },
                                         onDrag = { change, _ ->
                                             change.consume()
-                                            selectedSpeed = gaugeSpeed(change.position,
-                                                size.width.toFloat(), size.height.toFloat())
+                                            updateSpeed(gaugeSpeed(change.position,
+                                                size.width.toFloat(), size.height.toFloat()))
                                         },
                                     )
                                 },
@@ -157,15 +187,8 @@ internal fun PlaybackSpeedGlassDialog(
                     }
                 }
 
-                Surface(
-                    onClick = { onConfirm(selectedSpeed); onDismiss() },
-                    modifier = Modifier.fillMaxWidth().height(52.dp).testTag("speed-done"),
-                    shape = RoundedCornerShape(18.dp),
-                    color = accent, contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) {
-                    Box(contentAlignment = Alignment.Center) { Text("Done", fontWeight = FontWeight.Bold) }
-                }
             }
+        }
         }
     }
 }
