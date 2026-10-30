@@ -11,7 +11,7 @@ internal fun shouldResumeAfterMicrophoneStops(
     otherMediaPlaying: Boolean,
     hasTrack: Boolean,
     playbackEnded: Boolean,
-    sleepTimerActive: Boolean,
+    sleepTimerExpired: Boolean,
 ): Boolean =
     pausedByMicrophone && !playbackRequested && !otherMediaPlaying &&
-        hasTrack && !playbackEnded && !sleepTimerActive
+        hasTrack && !playbackEnded && !sleepTimerExpired
