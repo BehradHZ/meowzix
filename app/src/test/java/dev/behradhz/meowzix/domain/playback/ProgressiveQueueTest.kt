@@ -469,6 +469,39 @@ class ProgressiveQueueTest {
         assertEquals(ProgressiveQueue.PREVIOUS_WINDOW_SIZE, plan.startIndexInWindow)
     }
 
+    @Test
+    fun `window index mismatch never changes the selected logical song or its shuffle order`() {
+        val queue = ProgressiveQueue()
+        val songs = tracks(60)
+        queue.start(songs, 10, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF, seed = 77L)
+        val previous = requireNotNull(queue.snapshot())
+
+        assertFalse(queue.updateCurrentFromWindowIndex(4, songs[8].id.toString()))
+        assertEquals(previous.currentIndex, queue.snapshot()?.currentIndex)
+        assertEquals(previous.tracks.map { it.id }, queue.snapshot()?.tracks?.map { it.id })
+        assertEquals(previous.shuffleSeed, queue.snapshot()?.shuffleSeed)
+        assertTrue(queue.updateCurrentFromWindowIndex(4, songs[11].id.toString()))
+        assertEquals(11, queue.snapshot()?.currentIndex)
+    }
+
+    @Test
+    fun `remote source fallback preserves all queue occurrences and order`() {
+        val queue = ProgressiveQueue()
+        val songs = tracks(5)
+        queue.start(songs, 1, PlaybackMode.ORDERED, RepeatMode.OFF)
+        queue.insertNext(songs[1])
+        val before = requireNotNull(queue.snapshot())
+        val repaired = songs[1].copy(contentUri = "meowzix-tdlib://audio/123?trackId=${songs[1].id}&ignoreCache=1")
+
+        assertTrue(queue.replacePlayableSource(songs[1].id, repaired))
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(before.tracks.map { it.id }, after.tracks.map { it.id })
+        assertEquals(before.occurrenceIds, after.occurrenceIds)
+        assertEquals(before.currentIndex, after.currentIndex)
+        assertEquals(before.playbackMode, after.playbackMode)
+        assertTrue(after.tracks.filter { it.id == songs[1].id }.all { it.contentUri == repaired.contentUri })
+    }
+
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
         PlayableTrack(
             id = UUID.nameUUIDFromBytes("track-$index".toByteArray()),
