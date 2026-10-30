@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Media3's default notification/status icon, overridden with the existing
+         monochrome Meowzix cat artwork. Android tints small icons automatically;
+         the full-color adaptive launcher icon is not valid in this slot. -->
+    <item type="drawable" name="media3_notification_small_icon">@drawable/meowzix_launcher_mono_art</item>
+</resources>
