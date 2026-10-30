@@ -147,6 +147,7 @@ fun NowPlayingRoute(
     val recommendationActions: RecommendationActionsViewModel = hiltViewModel()
     var lyricsExpanded by remember { mutableStateOf(false) }
     var sleepTimerOpen by remember { mutableStateOf(false) }
+    var playbackSpeedOpen by remember { mutableStateOf(false) }
 
     RecommendationActionDialogs(recommendationActions)
     BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
@@ -222,6 +223,7 @@ fun NowPlayingRoute(
         onOpenQueue = onOpenQueue,
         onGoToArtist = onGoToArtist,
         onOpenSleepTimer = { sleepTimerOpen = true },
+        onOpenPlaybackSpeed = { playbackSpeedOpen = true },
         onWhyThisSong = {
             state.currentTrack?.id?.let { trackId -> recommendationActions.why(trackId) }
         },
@@ -239,6 +241,13 @@ fun NowPlayingRoute(
         )
         // The dialog must inherit the exact same artwork-derived MaterialTheme as
         // Now Playing. Dialog creates a new window but retains CompositionLocals.
+        if (playbackSpeedOpen) {
+            PlaybackSpeedGlassDialog(
+                currentSpeed = state.playbackSpeed,
+                onConfirm = viewModel::setPlaybackSpeed,
+                onDismiss = { playbackSpeedOpen = false },
+            )
+        }
         if (sleepTimerOpen) {
             SleepTimerGlassDialog(
                 state = sleepTimer,
@@ -315,6 +324,7 @@ private fun NowPlayingScreen(
     onOpenQueue: () -> Unit,
     onGoToArtist: (String) -> Unit,
     onOpenSleepTimer: () -> Unit,
+    onOpenPlaybackSpeed: () -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
     onLyricsImport: (android.net.Uri) -> Unit,
@@ -396,6 +406,8 @@ private fun NowPlayingScreen(
                 onOpenForward = onOpenForward,
                 onOpenQueue = onOpenQueue,
                 onOpenSleepTimer = onOpenSleepTimer,
+                onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+                playbackSpeed = state.playbackSpeed,
                 onWhyThisSong = onWhyThisSong,
                 onContinueVibe = onContinueVibe,
                 onToggleLyrics = onToggleLyrics,
@@ -618,6 +630,8 @@ private fun PlayerHeader(
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSleepTimer: () -> Unit,
+    onOpenPlaybackSpeed: () -> Unit,
+    playbackSpeed: Float,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
     onToggleLyrics: () -> Unit,
@@ -719,10 +733,11 @@ private fun PlayerHeader(
                                     dragInProgress = false
                                     dragSelection = null
                                     when (selected) {
-                                        0 -> { menuExpanded = false; onOpenSleepTimer() }
-                                        1 -> { menuExpanded = false; onWhyThisSong() }
-                                        2 -> { menuExpanded = false; onContinueVibe() }
-                                        3 -> { draggedLyricsRequest++ }
+                                        0 -> { menuExpanded = false; onOpenPlaybackSpeed() }
+                                        1 -> { menuExpanded = false; onOpenSleepTimer() }
+                                        2 -> { menuExpanded = false; onWhyThisSong() }
+                                        3 -> { menuExpanded = false; onContinueVibe() }
+                                        4 -> { draggedLyricsRequest++ }
                                         // A short drag just opens the menu; user can tap to select.
                                     }
                                 },
@@ -752,6 +767,8 @@ private fun PlayerHeader(
                     onSleepTimerEnabledChange = onSetSleepTimerEnabled,
                     onDismiss = { menuExpanded = false },
                     onOpenSleepTimer = onOpenSleepTimer,
+                    onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+                    playbackSpeed = playbackSpeed,
                     onWhyThisSong = onWhyThisSong,
                     onContinueVibe = onContinueVibe,
                     onToggleLyrics = onToggleLyrics,
