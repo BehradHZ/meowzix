@@ -187,7 +187,11 @@ class FixedNextQueueIsolationTest {
             before.origins[it] == QueueItemOrigin.GENERATED && before.tracks[it].id == songs[2].id
         }
         val nextSuffix = before.generatedIndicesAfterSelection(cIndex)
-        assertEquals(songs.drop(3).map { it.id }, nextSuffix.map { before.tracks[it].id })
+        // Songs transferred into fixed Queue are not also present in generated Next.
+        val expectedNext = (cIndex + 1 until before.tracks.size).filter {
+            before.origins[it] == QueueItemOrigin.GENERATED
+        }
+        assertEquals(expectedNext, nextSuffix)
 
         queue.start(
             listOf(before.tracks[cIndex]) + nextSuffix.map(before.tracks::get),
@@ -201,9 +205,12 @@ class FixedNextQueueIsolationTest {
         assertEquals(songs[2].id, after.tracks[after.currentIndex].id)
         assertEquals(fixedBefore, after.tracks.indices.filter(queue::isFixedOccurrence)
             .map { after.occurrenceIds[it] to after.tracks[it].id })
-        assertEquals(songs.drop(3).map { it.id }, after.tracks.indices.filter {
+        assertEquals(expectedNext.map { before.tracks[it].id }, after.tracks.indices.filter {
             it > after.currentIndex && after.origins[it] == QueueItemOrigin.GENERATED
         }.map { after.tracks[it].id })
+        assertEquals(nextSuffix.map(before.occurrenceIds::get), after.tracks.indices.filter {
+            it > after.currentIndex && after.origins[it] == QueueItemOrigin.GENERATED
+        }.map(after.occurrenceIds::get))
         assertEquals(42L, after.shuffleSeed)
     }
 
