@@ -1481,6 +1481,13 @@ class PlaybackService : MediaLibraryService() {
         player = incoming
         incoming.addListener(playerListener)
         runtime.identitySwitched = true
+        // Crossfade switches ExoPlayer identity without an AUTO media-item transition.
+        // This is the equivalent of finishing the outgoing Queue occurrence.
+        progressiveQueue.consumeFixedOccurrence(lastTransitionOccurrenceId)
+        syncLogicalCurrentFromPlayer()
+        lastTransitionOccurrenceId = progressiveQueue.snapshot()?.let { snapshot ->
+            snapshot.occurrenceIds.getOrNull(snapshot.currentIndex)
+        }
         // MediaSession.setPlayer() does not invoke onMediaItemTransition on our
         // newly attached listener; publish and schedule the same one-shot retry.
         publishLiveSongTransition()
