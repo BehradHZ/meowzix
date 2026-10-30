@@ -326,6 +326,10 @@ class AndroidPlaybackController @Inject constructor(
                     )
                     connected.prepare()
                     connected.play()
+                    queueActionFeedbackBus.emit(
+                        if (next) QueueActionKind.PLAY_NEXT else QueueActionKind.ADD_TO_END,
+                        title,
+                    )
                 } else {
                     syncLogicalCurrentFromPlayer(connected)
                     if (progressiveQueue.insertGroup(members, kind, title, next) != null) {
