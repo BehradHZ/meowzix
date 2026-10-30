@@ -118,44 +118,46 @@ class ResolvingPlaybackController @Inject constructor(
 
     override fun playAt(index: Int) {
         neutralizeTimerFadeForManualPlayback()
-        val trackId = queueState.value.items.getOrNull(index)?.id ?: return
+        val selected = queueState.value.items.getOrNull(index) ?: return
         nextInitiator = PlaybackInitiator.USER
         intentionalSkip = historyTrackId != null
         scope.launch {
             if (resolvingRemote) return@launch
-            if (isLocal(trackId)) {
-                delegate.playAt(index)
-                return@launch
-            }
-
             resolvingRemote = true
             _state.value = delegate.state.value.copy(
                 status = PlaybackStatus.DOWNLOADING,
                 errorMessage = null,
             )
-            runCatching { remoteResolver.prepareForPlayback(trackId) }
-                .onSuccess { prepared ->
-                    resolvingRemote = false
-                    if (prepared == null) {
-                        clearPendingSelection()
-                        _state.value = delegate.state.value.copy(
-                            status = PlaybackStatus.ERROR,
-                            errorMessage = "This Telegram track is no longer available.",
-                        )
-                    } else {
-                        delegate.playAt(index)
-                    }
+            try {
+                // A track downloaded after this queue was built may still have
+                // a stale TDLib URI in its original MediaItem. Resolve the
+                // current source whether it is local or remote.
+                val prepared = if (isLocal(selected.id)) {
+                    catalog.playableTrack(selected.id)
+                } else {
+                    remoteResolver.prepareForPlayback(selected.id)
                 }
-                .onFailure { error ->
-                    if (error is CancellationException) throw error
-                    clearPendingSelection()
-                    resolvingRemote = false
+                if (prepared == null) {
                     _state.value = delegate.state.value.copy(
                         status = PlaybackStatus.ERROR,
-                        errorMessage = error.message?.takeIf(String::isNotBlank)
-                            ?: "Unable to buffer this Telegram track.",
+                        errorMessage = "This track has no available playback source.",
                     )
+                    clearPendingSelection()
+                } else {
+                    delegate.playPreparedOccurrence(selected.occurrenceId, prepared)
                 }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Throwable) {
+                clearPendingSelection()
+                _state.value = delegate.state.value.copy(
+                    status = PlaybackStatus.ERROR,
+                    errorMessage = error.message?.takeIf(String::isNotBlank)
+                        ?: "Unable to prepare this track for playback.",
+                )
+            } finally {
+                resolvingRemote = false
+            }
         }
     }
 
@@ -187,8 +189,12 @@ class ResolvingPlaybackController @Inject constructor(
             resolvingRemote = true
             _state.value = delegate.state.value.copy(status = PlaybackStatus.PREPARING, errorMessage = null)
             runCatching {
-                if (!isLocal(startTrackId)) remoteResolver.prepareForPlayback(startTrackId)
-                delegate.replaceAndPlay(trackIds, startTrackId, mode)
+                val prepared = if (isLocal(startTrackId)) {
+                    catalog.playableTrack(startTrackId)
+                } else {
+                    remoteResolver.prepareForPlayback(startTrackId)
+                } ?: error("The selected track has no available playback source.")
+                delegate.replaceAndPlayPrepared(trackIds, startTrackId, mode, prepared)
             }.onFailure { error ->
                 if (error is CancellationException) throw error
                 clearPendingSelection()
@@ -202,12 +208,19 @@ class ResolvingPlaybackController @Inject constructor(
     }
 
     override fun removeAt(index: Int) {
+        val occurrenceId = queueState.value.items.getOrNull(index)?.occurrenceId ?: return
+        removeOccurrence(occurrenceId)
+    }
+
+    override fun removeOccurrence(occurrenceId: UUID) {
         val queue = queueState.value
-        if (index == queue.currentIndex && index >= 0) intentionalSkip = true
-        if (index > queue.currentIndex) queue.items.getOrNull(index)?.id?.let { trackId ->
+        val index = queue.items.indexOfFirst { it.occurrenceId == occurrenceId }
+        if (index < 0) return
+        if (index == queue.currentIndex) intentionalSkip = true
+        if (index > queue.currentIndex) queue.items[index].id.let { trackId ->
             scope.launch { historySafely { history.recordQueueRemoval(trackId, queue.playbackMode) } }
         }
-        delegate.removeAt(index)
+        delegate.removeOccurrence(occurrenceId)
     }
 
     override fun move(fromIndex: Int, toIndex: Int) = delegate.move(fromIndex, toIndex)
@@ -365,7 +378,7 @@ class ResolvingPlaybackController @Inject constructor(
                             errorMessage = "This Telegram track is no longer available.",
                         )
                     } else {
-                        delegate.playNow(trackId)
+                        delegate.playPreparedNow(prepared)
                     }
                 }
                 .onFailure { error ->
