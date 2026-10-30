@@ -453,6 +453,22 @@ class ProgressiveQueueTest {
             .all { snapshot.origins[it] == QueueItemOrigin.MANUAL })
     }
 
+    @Test
+    fun `jumping to the ninety fifth generated item requests a batch once`() {
+        val songs = tracks(305)
+        val queue = ProgressiveQueue()
+        queue.start(songs.take(100), 0, PlaybackMode.ORDERED, RepeatMode.OFF,
+            sourceIds = songs.map { it.id }, pendingIds = songs.drop(100).map { it.id })
+        val plan = requireNotNull(queue.jumpTo(95))
+        assertEquals(95, requireNotNull(queue.snapshot()).generatedStarted)
+        val batch = requireNotNull(queue.claimGeneratedRefill())
+        assertEquals(100, batch.ids.size)
+        assertEquals(null, queue.claimGeneratedRefill())
+        assertTrue(queue.appendGeneratedBatch(batch, songs.drop(100).take(100)))
+        assertEquals(200, requireNotNull(queue.snapshot()).tracks.size)
+        assertEquals(ProgressiveQueue.PREVIOUS_WINDOW_SIZE, plan.startIndexInWindow)
+    }
+
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
         PlayableTrack(
             id = UUID.nameUUIDFromBytes("track-$index".toByteArray()),

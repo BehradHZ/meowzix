@@ -399,7 +399,7 @@ class AndroidPlaybackController @Inject constructor(
             }
             tracks = tracks.drop(startIndex) + tracks.take(startIndex)
             val sourceIds = requested.map { it.id }
-            val initial = tracks.take(ProgressiveQueue.GENERATED_BATCH_SIZE + 1)
+            val initial = tracks.take(ProgressiveQueue.GENERATED_BATCH_SIZE)
             val pending = tracks.drop(initial.size).map { it.id }
 
             withConnectedController { connected ->

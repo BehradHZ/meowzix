@@ -569,9 +569,12 @@ class ProgressiveQueue @Inject constructor() {
     }
 
     private fun noteGeneratedTransition(destination: Int) {
-        if (generationEnabled && destination > currentIndex && origins[destination] == QueueItemOrigin.GENERATED) {
-            generatedStarted++
-        }
+        if (!generationEnabled || destination <= currentIndex ||
+            origins[destination] != QueueItemOrigin.GENERATED) return
+        // The threshold is based on position, not on how many transitions Media3 emitted.
+        // Jumping directly to item 95 must trigger the same refill as playing 1..95.
+        val generatedBefore = (0..destination).count { origins[it] == QueueItemOrigin.GENERATED }
+        generatedStarted = maxOf(generatedStarted, generatedBefore)
     }
 
     @Synchronized
