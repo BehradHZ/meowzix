@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.Context
 import android.media.AudioManager
 import android.media.AudioPlaybackConfiguration
+import android.media.AudioRecordingConfiguration
 import android.os.Handler
 import android.os.Looper
 import android.os.Build
@@ -117,6 +118,22 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var playbackAudioAttributes: AudioAttributes
     private lateinit var audioManager: AudioManager
     private var resumeAfterExternalAudioEnabled = false
+    private var pauseOnMicrophoneRecordingEnabled = false
+    private var microphoneWasRecording = false
+    private val microphoneObserver = object : AudioManager.AudioRecordingCallback() {
+        override fun onRecordingConfigChanged(configs: List<AudioRecordingConfiguration>) {
+            val recording = configs.isNotEmpty()
+            val started = recording && !microphoneWasRecording
+            microphoneWasRecording = recording
+            if (pauseOnMicrophoneRecordingEnabled && started && player.isPlaying) {
+                // One-shot pause at the rising edge: manual Play is always allowed while
+                // the microphone remains active. Never schedule an automatic resume.
+                cancelExternalResume()
+                cancelCrossfade("microphone recording started")
+                player.pause()
+            }
+        }
+    }
     private var liveSongCardEnabled = false
     private var liveSongCardStyle = LiveSongCardStyle.MINIMAL
     private var liveSongLeftAction = LiveSongSideAction.PREVIOUS
@@ -628,6 +645,21 @@ class PlaybackService : MediaLibraryService() {
                     liveSongRightAction = preferences.liveSongRightAction
                     updateLiveSongCard()
                 }
+                val speed = preferences.playbackSpeed.coerceIn(0.5f, 5f)
+                if (player.playbackParameters.speed != speed) {
+                    if (activeCrossfade != null) cancelCrossfade("playback speed changed")
+                    player.setPlaybackSpeed(speed)
+                }
+                if (pauseOnMicrophoneRecordingEnabled != preferences.pauseOnMicrophoneRecording) {
+                    pauseOnMicrophoneRecordingEnabled = preferences.pauseOnMicrophoneRecording
+                    if (pauseOnMicrophoneRecordingEnabled) {
+                        microphoneWasRecording = audioManager.activeRecordingConfigurations.isNotEmpty()
+                        audioManager.registerAudioRecordingCallback(microphoneObserver, Handler(Looper.getMainLooper()))
+                    } else {
+                        audioManager.unregisterAudioRecordingCallback(microphoneObserver)
+                        microphoneWasRecording = false
+                    }
+                }
                 val nextNormalization = preferences.loudnessNormalizationEnabled
                 if (resumeAfterExternalAudioEnabled != preferences.resumeAfterExternalAudio) {
                     resumeAfterExternalAudioEnabled = preferences.resumeAfterExternalAudio
@@ -752,6 +784,7 @@ class PlaybackService : MediaLibraryService() {
         liveSongTransitionRetry.cancel()
         liveSongCard?.cancel()
         if (resumeAfterExternalAudioEnabled) audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
+        if (pauseOnMicrophoneRecordingEnabled) audioManager.unregisterAudioRecordingCallback(microphoneObserver)
         cancelExternalResume()
         clearPlaybackRetry()
         cancelCrossfade("service destroyed")
@@ -1235,6 +1268,12 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun tickCrossfade() {
+        // Wall-clock overlap calculations assume normal-speed music. At custom speeds
+        // prefer correct rate and gapless single-player transitions over a mistimed fade.
+        if (player.playbackParameters.speed != 1f) {
+            if (activeCrossfade != null) cancelCrossfade("non-normal playback speed")
+            return
+        }
         if (isRestoring || crossfadeDurationSeconds == 0) {
             if (crossfadeDurationSeconds == 0 && activeCrossfade != null) {
                 cancelCrossfade("crossfade disabled")
