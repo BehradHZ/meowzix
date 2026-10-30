@@ -146,33 +146,37 @@ class FixedNextQueueIsolationTest {
         assertEquals(0, after.currentIndex)
     }
 
-    @Test fun selectingCFromNextDiscardsABAndKeepsDThroughZ() {
+    @Test fun selectingCFromNextKeepsABAsHistoryAndDThroughZAsFuture() {
         val songs = (0..25).map(::song) // A..Z
         val queue = ProgressiveQueue()
         queue.start(songs, 0, PlaybackMode.ORDERED, RepeatMode.OFF,
             sourceIds = songs.map { it.id })
-
         val before = requireNotNull(queue.snapshot())
-        val cIndex = before.tracks.indexOfFirst { it.id == songs[2].id }
-        val nextSuffix = before.generatedIndicesAfterSelection(cIndex)
-        assertEquals(songs.drop(3).map { it.id }, nextSuffix.map { before.tracks[it].id })
 
-        queue.start(
-            orderedTracks = listOf(before.tracks[cIndex]) + nextSuffix.map(before.tracks::get),
-            requestedStartIndex = 0,
-            mode = PlaybackMode.ORDERED,
-            repeat = RepeatMode.OFF,
-            sourceIds = songs.map { it.id },
-            futureOccurrenceIds = nextSuffix.map(before.occurrenceIds::get),
-        )
-
+        val plan = requireNotNull(queue.selectUpcomingNext(2))
         val after = requireNotNull(queue.snapshot())
-        assertEquals(songs.drop(2).map { it.id }, after.tracks.map { it.id })
-        assertEquals(nextSuffix.map(before.occurrenceIds::get), after.occurrenceIds.drop(1))
-        assertFalse(after.tracks.any { it.id == songs[0].id || it.id == songs[1].id })
+        assertEquals(2, after.currentIndex)
+        assertEquals(songs[2].id, after.tracks[after.currentIndex].id)
+        assertEquals(songs.take(2).map { it.id }, after.tracks.take(after.currentIndex).map { it.id })
+        assertEquals(songs.drop(3).map { it.id },
+            after.tracks.drop(after.currentIndex + 1).map { it.id })
+        assertEquals(before.occurrenceIds, after.occurrenceIds)
+        assertEquals(before.shuffleSeed, after.shuffleSeed)
+        assertEquals(songs[2].id, plan.tracks[plan.startIndexInWindow].id)
+
+        // B and A were skipped, but are still reachable through Previous.
+        assertTrue(queue.hasPrevious())
+        requireNotNull(queue.jumpTo(1))
+        assertEquals(songs[1].id, queue.snapshot()?.tracks?.get(queue.snapshot()!!.currentIndex)?.id)
+        requireNotNull(queue.jumpTo(0))
+        assertEquals(songs[0].id, queue.snapshot()?.tracks?.get(queue.snapshot()!!.currentIndex)?.id)
+        // Returning to C does not bring A/B into its future.
+        requireNotNull(queue.selectUpcomingNext(2))
+        assertEquals(songs.drop(3).map { it.id },
+            requireNotNull(queue.snapshot()).tracks.drop(3).map { it.id })
     }
 
-    @Test fun selectingFromNextSkipsOnlyPreviousNextAndPreservesManualQueue() {
+    @Test fun selectingNextKeepsManualQueuePendingAndSkippedNextAsHistory() {
         val songs = (0..25).map(::song)
         val queue = ProgressiveQueue()
         queue.start(songs, 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
@@ -184,56 +188,56 @@ class FixedNextQueueIsolationTest {
         val fixedBefore = before.tracks.indices.filter(queue::isFixedOccurrence)
             .map { before.occurrenceIds[it] to before.tracks[it].id }
         val cIndex = before.tracks.indices.first {
-            before.origins[it] == QueueItemOrigin.GENERATED && before.tracks[it].id == songs[2].id
+            it > before.currentIndex &&
+                before.origins[it] == QueueItemOrigin.GENERATED &&
+                before.tracks[it].id == songs[2].id
         }
-        val nextSuffix = before.generatedIndicesAfterSelection(cIndex)
-        // Songs transferred into fixed Queue are not also present in generated Next.
-        val expectedNext = (cIndex + 1 until before.tracks.size).filter {
+        val skippedGenerated = (before.currentIndex + 1 until cIndex).filter {
             before.origins[it] == QueueItemOrigin.GENERATED
         }
-        assertEquals(expectedNext, nextSuffix)
+        val futureGenerated = (cIndex + 1 until before.tracks.size).filter {
+            before.origins[it] == QueueItemOrigin.GENERATED
+        }
+        val allOccurrences = before.occurrenceIds.toSet()
 
-        queue.start(
-            listOf(before.tracks[cIndex]) + nextSuffix.map(before.tracks::get),
-            0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
-            seed = 42L,
-            sourceIds = songs.map { it.id },
-            futureOccurrenceIds = nextSuffix.map(before.occurrenceIds::get),
-        )
-
+        requireNotNull(queue.selectUpcomingNext(cIndex))
         val after = requireNotNull(queue.snapshot())
         assertEquals(songs[2].id, after.tracks[after.currentIndex].id)
+        assertEquals(listOf(songs[0].id) + skippedGenerated.map { before.tracks[it].id },
+            after.tracks.take(after.currentIndex).map { it.id })
         assertEquals(fixedBefore, after.tracks.indices.filter(queue::isFixedOccurrence)
             .map { after.occurrenceIds[it] to after.tracks[it].id })
-        assertEquals(expectedNext.map { before.tracks[it].id }, after.tracks.indices.filter {
-            it > after.currentIndex && after.origins[it] == QueueItemOrigin.GENERATED
-        }.map { after.tracks[it].id })
-        assertEquals(nextSuffix.map(before.occurrenceIds::get), after.tracks.indices.filter {
-            it > after.currentIndex && after.origins[it] == QueueItemOrigin.GENERATED
-        }.map(after.occurrenceIds::get))
+        assertEquals(fixedBefore.map { it.second },
+            after.tracks.indices.filter {
+                it > after.currentIndex && queue.isFixedOccurrence(it)
+            }.map { after.tracks[it].id })
+        assertEquals(futureGenerated.map { before.occurrenceIds[it] },
+            after.tracks.indices.filter {
+                it > after.currentIndex && after.origins[it] == QueueItemOrigin.GENERATED
+            }.map(after.occurrenceIds::get))
+        assertEquals(allOccurrences, after.occurrenceIds.toSet())
+        assertEquals(before.tracks.size, after.tracks.size)
         assertEquals(42L, after.shuffleSeed)
+        assertTrue(queue.hasPrevious())
     }
 
-    @Test fun selectingNextWithDuplicateSongIdsRetainsOnlyTheFollowingOccurrences() {
+    @Test fun selectingNextKeepsPreviousAndFollowingDuplicateOccurrencesDistinct() {
         val songs = (0..5).map(::song)
         val queue = ProgressiveQueue()
         queue.start(listOf(songs[0], songs[1], songs[2], songs[1], songs[3], songs[4]),
             0, PlaybackMode.ORDERED, RepeatMode.OFF)
         val before = requireNotNull(queue.snapshot())
-        val nextSuffix = before.generatedIndicesAfterSelection(2)
-        assertEquals(listOf(songs[1].id, songs[3].id, songs[4].id),
-            nextSuffix.map { before.tracks[it].id })
-
-        queue.start(
-            listOf(before.tracks[2]) + nextSuffix.map(before.tracks::get),
-            0, PlaybackMode.ORDERED, RepeatMode.OFF,
-            futureOccurrenceIds = nextSuffix.map(before.occurrenceIds::get),
-        )
+        requireNotNull(queue.selectUpcomingNext(2))
         val after = requireNotNull(queue.snapshot())
-        assertEquals(listOf(songs[2].id, songs[1].id, songs[3].id, songs[4].id),
-            after.tracks.map { it.id })
-        assertEquals(nextSuffix.map(before.occurrenceIds::get), after.occurrenceIds.drop(1))
-        assertFalse(after.occurrenceIds.contains(before.occurrenceIds[1]))
+        assertEquals(2, after.currentIndex)
+        assertEquals(before.occurrenceIds, after.occurrenceIds)
+        assertEquals(listOf(songs[0].id, songs[1].id),
+            after.tracks.take(after.currentIndex).map { it.id })
+        assertEquals(listOf(songs[1].id, songs[3].id, songs[4].id),
+            after.tracks.drop(after.currentIndex + 1).map { it.id })
+        assertTrue(after.occurrenceIds[1] != after.occurrenceIds[3])
+        requireNotNull(queue.jumpTo(1))
+        assertEquals(songs[1].id, requireNotNull(queue.snapshot()).tracks[1].id)
     }
 
     @Test fun selectingManualQueueEntryDoesNotSkipEarlierGeneratedNextOccurrences() {
