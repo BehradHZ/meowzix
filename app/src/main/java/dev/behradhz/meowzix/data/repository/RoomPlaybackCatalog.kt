@@ -338,8 +338,11 @@ internal fun TrackSourceEntity.isReadableForPlayback(): Boolean {
  */
 private fun TrackSourceEntity.matchesTelegramLength(sources: List<TrackSourceEntity>): Boolean {
     if (type != TrackSourceType.APP_OFFLINE_COPY && type != TrackSourceType.TDLIB_LOCAL) return true
-    val expectedBytes = sources.firstOrNull {
-        it.type == TrackSourceType.TELEGRAM_REMOTE && (it.fileSizeBytes ?: 0L) > 0L
-    }?.fileSizeBytes
-    return ManagedAudioIntegrity.isValid(localPath?.let(::File), expectedBytes)
+    val remoteSizes = sources.asSequence()
+        .filter { it.type == TrackSourceType.TELEGRAM_REMOTE }
+        .map { it.fileSizeBytes }
+        .asIterable()
+    return ManagedAudioIntegrity.isValidForAnyRemoteSize(
+        localPath?.let(::File), remoteSizes, fileSizeBytes,
+    )
 }
