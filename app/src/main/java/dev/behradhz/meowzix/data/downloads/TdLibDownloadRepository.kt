@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import org.drinkless.tdlib.TdApi
 
 @Singleton
@@ -58,6 +59,68 @@ class TdLibDownloadRepository @Inject constructor(
     private val jobs = ConcurrentHashMap<UUID, Job>()
     private val pauseRequests = ConcurrentHashMap.newKeySet<UUID>()
     private val offlineDirectory = File(context.filesDir, "offline")
+
+    init {
+        scope.launch {
+            runCatching { reconcileCompletedDownloads() }
+        }
+    }
+
+    /**
+     * Repair legacy pinned copies on startup, but never delete the user's MediaStore music.
+     * A disconnected Telegram account leaves the record FAILED until connectivity returns.
+     */
+    private suspend fun reconcileCompletedDownloads() {
+        val pending = mutableListOf<UUID>()
+        for (record in downloadDao.all()) {
+            if (!record.pinned || record.status != DownloadStatus.COMPLETED.name ||
+                record.localPath.isNullOrBlank()
+            ) continue
+            val trackId = runCatching { UUID.fromString(record.trackId) }.getOrNull() ?: continue
+            val sources = libraryDao.sourcesForTrack(record.trackId)
+            val managed = sources.firstOrNull {
+                it.type == TrackSourceType.APP_OFFLINE_COPY && it.localPath == record.localPath
+            }
+            val expected = ManagedAudioIntegrity.expectedBytes(
+                sources.firstOrNull { it.type == TrackSourceType.TELEGRAM_REMOTE }?.fileSizeBytes,
+                record.totalBytes,
+                managed?.fileSizeBytes,
+            )
+            if (ManagedAudioIntegrity.isValid(
+                    File(record.localPath), expected, managed?.contentHashSha256,
+                )
+            ) continue
+            invalidateManagedCopy(trackId, record.localPath)
+            if (sources.any { it.type == TrackSourceType.TELEGRAM_REMOTE }) pending += trackId
+        }
+        if (pending.isEmpty()) return
+        telegramRepository.musicSourceState.first { it.accountId != null }
+        while (TdLibClientAdapter.activeOrNull() == null) delay(1_000L)
+        pending.forEach(::pinOffline)
+    }
+
+    private suspend fun invalidateManagedCopy(trackId: UUID, path: String?) {
+        val now = Instant.now().toEpochMilli()
+        libraryDao.sourcesForTrack(trackId.toString())
+            .filter {
+                (it.type == TrackSourceType.APP_OFFLINE_COPY || it.type == TrackSourceType.TDLIB_LOCAL) &&
+                    it.localPath == path
+            }
+            .forEach { libraryDao.updateAvailability(it.id, SourceAvailability.MISSING, now) }
+        val record = downloadDao.byTrackId(trackId.toString())
+        if (record != null && record.localPath == path) {
+            downloadDao.upsert(
+                record.copy(
+                    status = DownloadStatus.FAILED.name,
+                    downloadedBytes = 0L,
+                    localPath = null,
+                    failureReason = "Offline audio was incomplete or corrupted; re-download required.",
+                    updatedAtEpochMs = now,
+                ),
+            )
+        }
+        if (path != null) runCatching { deleteOwnedManagedFile(path) }
+    }
 
     override fun observeDownloads(): Flow<List<OfflineDownload>> = downloadDao.observeAll().map { rows ->
         rows.map { row ->
