@@ -650,8 +650,9 @@ class AndroidPlaybackController @Inject constructor(
 
     private fun syncLogicalCurrentFromPlayer(player: Player): Boolean {
         if (progressiveQueue.snapshot() == null) return false
-        return progressiveQueue.updateCurrentFromWindowIndex(player.currentMediaItemIndex) ||
-            progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)
+        return progressiveQueue.updateCurrentFromWindowIndex(
+            player.currentMediaItemIndex, player.currentMediaItem?.mediaId
+        ) || progressiveQueue.updateCurrent(player.currentMediaItem?.mediaId)
     }
 
     /**
