@@ -320,11 +320,16 @@ private fun QueueScreen(
         val from = displayItems.indexOfFirst { it.index == draggedIndex }
         if (from < 0) return
         val positions = listState.layoutInfo.visibleItemsInfo
-        val source = positions.firstOrNull { it.index == from + 1 } ?: return
+        val currentKey = displayItems[from].value.occurrenceId.toString()
+        val source = positions.firstOrNull { it.key == currentKey } ?: return
         val target = positions.asSequence()
-            .filter { it.index > 0 && it.index != from + 1 }
+            .filter { it.key != currentKey && visibleItems.any { row ->
+                row.value.occurrenceId.toString() == it.key
+            } }
             .minByOrNull { abs((it.offset + it.size / 2f) - center) } ?: return
-        val targetPosition = target.index - 1
+        val targetPosition = displayItems.indexOfFirst {
+            it.value.occurrenceId.toString() == target.key
+        }
         if (targetPosition !in displayItems.indices || targetPosition == from) return
         val targetCenter = target.offset + target.size / 2f
         if ((targetPosition > from && center >= targetCenter) ||
@@ -343,14 +348,20 @@ private fun QueueScreen(
         val from = visibleItems.indexOfFirst { it.value.groupId == id }
         if (from < 0) return
         val infos = listState.layoutInfo.visibleItemsInfo
-        val source = infos.firstOrNull { it.index == from + 1 } ?: return
+        val sourceKey = visibleItems[from].value.occurrenceId.toString()
+        val source = infos.firstOrNull { it.key == sourceKey } ?: return
         val target = infos.asSequence()
-            .filter { it.index > 0 && it.index != from + 1 }
+            .filter { it.key != sourceKey && visibleItems.any { row ->
+                row.value.occurrenceId.toString() == it.key
+            } }
             .minByOrNull { abs(it.offset + it.size / 2f - center) } ?: return
-        val targetEntry = visibleItems.getOrNull(target.index - 1) ?: return
+        val targetSlot = visibleItems.indexOfFirst {
+            it.value.occurrenceId.toString() == target.key
+        }
+        val targetEntry = visibleItems.getOrNull(targetSlot) ?: return
         if (targetEntry.index <= state.currentIndex || targetEntry.value.groupId == id) return
         val targetCenter = target.offset + target.size / 2f
-        val movingDown = target.index > from + 1
+        val movingDown = targetSlot > from
         if ((movingDown && center < targetCenter) || (!movingDown && center > targetCenter)) return
         val movingBlock = displayItems.filter { it.value.groupId == id }
         val remaining = displayItems.filterNot { it.value.groupId == id }.toMutableList()
@@ -449,7 +460,31 @@ private fun QueueScreen(
                     }
                 }
             } else {
-                itemsIndexed(visibleItems, key = { _, entry -> entry.value.occurrenceId.toString() }) { _, entry ->
+                visibleItems.forEach { entry ->
+                    val previousItem = state.items.getOrNull(entry.index - 1)
+                    val currentHeader = !searchActive && entry.index == state.currentIndex
+                    val manualHeader = !searchActive && entry.index > state.currentIndex &&
+                        entry.value.origin == QueueItemOrigin.MANUAL &&
+                        (previousItem?.origin != QueueItemOrigin.MANUAL || entry.index == state.currentIndex + 1)
+                    val generatedHeader = !searchActive && entry.index > state.currentIndex &&
+                        entry.value.origin == QueueItemOrigin.GENERATED &&
+                        (previousItem?.origin != QueueItemOrigin.GENERATED || entry.index == state.currentIndex + 1)
+                    if (currentHeader || manualHeader || generatedHeader) {
+                        item(key = "section-${entry.value.occurrenceId}") {
+                            Text(
+                                text = when {
+                                    currentHeader -> "Now Playing"
+                                    manualHeader -> "Queue"
+                                    else -> "Next in the queue"
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(start = 10.dp, top = 24.dp, bottom = 14.dp),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                    item(key = entry.value.occurrenceId.toString()) {
                     val item = entry.value
                     val queueIndex = entry.index
                     val isDragging = draggedQueueIndex == queueIndex
@@ -460,14 +495,6 @@ private fun QueueScreen(
                     val isGroupDragging = groupId != null && groupId == draggedGroupId
                     val lastGroupMember = groupId != null &&
                         (isGroupDragging || state.items.getOrNull(queueIndex + 1)?.groupId != groupId)
-                    val previous = state.items.getOrNull(queueIndex - 1)
-                    val nowPlayingSection = !searchActive && queueIndex == state.currentIndex
-                    val newManualSection = !searchActive && queueIndex > state.currentIndex &&
-                        item.origin == QueueItemOrigin.MANUAL &&
-                        (previous?.origin != QueueItemOrigin.MANUAL || queueIndex == state.currentIndex + 1)
-                    val newGeneratedSection = !searchActive && queueIndex > state.currentIndex &&
-                        item.origin == QueueItemOrigin.GENERATED &&
-                        (previous?.origin != QueueItemOrigin.GENERATED || queueIndex == state.currentIndex + 1)
                     Box(
                         modifier = Modifier
                             .zIndex(if (isDragging || isGroupDragging) 20f else 0f)
@@ -485,18 +512,6 @@ private fun QueueScreen(
                             },
                     ) {
                         Column(Modifier.animateContentSize()) {
-                        if (nowPlayingSection) {
-                            Text("Now Playing", modifier = Modifier.padding(start = 8.dp, top = 10.dp, bottom = 10.dp),
-                                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        }
-                        if (newManualSection) {
-                            Text("Queue", modifier = Modifier.padding(start = 8.dp, top = 14.dp, bottom = 10.dp),
-                                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        }
-                        if (newGeneratedSection) {
-                            Text("Next in the queue", modifier = Modifier.padding(start = 8.dp, top = 14.dp, bottom = 10.dp),
-                                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        }
                         Box(
                             modifier = Modifier.fillMaxWidth()
                                 .padding(bottom = if (groupId != null && !lastGroupMember) 0.dp else 6.dp)
@@ -605,6 +620,7 @@ private fun QueueScreen(
                         }
                         }
                         }
+                    }
                     }
                 }
             }
