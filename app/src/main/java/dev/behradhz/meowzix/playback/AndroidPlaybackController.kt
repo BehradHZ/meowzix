@@ -572,7 +572,7 @@ class AndroidPlaybackController @Inject constructor(
     ) {
         val removal = planQueueRemoval(current, index) ?: return
         val removedTitle = current.tracks[index].title
-        if (!progressiveQueue.removeAt(index)) return
+        if (!progressiveQueue.removeOccurrence(current.occurrenceIds[index])) return
 
         if (removal == QueueRemovalPlan.Current) {
             if (progressiveQueue.snapshot() == null) {
