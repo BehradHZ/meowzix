@@ -223,17 +223,33 @@ class TdLibDownloadRepository @Inject constructor(
                 }
         }
         val downloaded = try {
-            client.send(TdApi.DownloadFile(fileId, PIN_PRIORITY, 0L, 0L, true))
+            var result = client.send(TdApi.DownloadFile(fileId, PIN_PRIORITY, 0L, 0L, true))
+            fun valid(file: TdApi.File): Boolean = file.local.isDownloadingCompleted &&
+                ManagedAudioIntegrity.isValid(
+                    file.local.path.takeIf(String::isNotBlank)?.let(::File),
+                    ManagedAudioIntegrity.expectedBytes(
+                        candidate.fileSizeBytes, file.size.toLong(), remoteSource.fileSizeBytes,
+                    ),
+                )
+            if (!valid(result)) {
+                // Retry the actual Telegram bytes, not the stale completed TDLib cache.
+                client.send(TdApi.DeleteFile(fileId))
+                result = client.send(TdApi.DownloadFile(fileId, PIN_PRIORITY, 0L, 0L, true))
+            }
+            if (!valid(result)) error("Telegram audio is still incomplete after a fresh download.")
+            result
         } finally {
             progressJob.cancel()
         }
-        val tdPath = downloaded.local.path.takeIf { downloaded.local.isDownloadingCompleted && it.isNotBlank() }
-            ?: error("Telegram download did not complete.")
-        val sourceFile = File(tdPath).takeIf { it.isFile && it.length() > 0L &&
-            (downloaded.size <= 0 || it.length() >= downloaded.size.toLong()) }
-            ?: error("Telegram reported a completed but incomplete audio file.")
-
+        val sourceFile = File(downloaded.local.path)
+        val expectedBytes = ManagedAudioIntegrity.expectedBytes(
+            candidate.fileSizeBytes, downloaded.size.toLong(), remoteSource.fileSizeBytes,
+        )
         val localCopy = copyIntoOfflineDirectory(trackId, sourceFile, candidate.fileName)
+        if (!ManagedAudioIntegrity.isValid(localCopy.file, expectedBytes, localCopy.sha256)) {
+            runCatching { deleteOwnedManagedFile(localCopy.file.absolutePath) }
+            error("Offline copy failed post-copy integrity verification.")
+        }
         val completedAt = Instant.now().toEpochMilli()
         database.withTransaction {
             val previousOfflineSource = libraryDao.sourceById(offlineSourceId(trackId))
