@@ -42,6 +42,7 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PrivacyTip
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
@@ -230,6 +231,14 @@ fun UnifiedSettingsScreen(
                                 Icons.Rounded.PlayCircle,
                                 state.playback.resumeAfterExternalAudio,
                                 viewModel::setResumeAfterExternalAudio,
+                            )
+                            SettingsRowDivider()
+                            SettingsToggleRow(
+                                "Pause when microphone starts",
+                                "Pause once when microphone recording begins. You can press Play again while it remains active.",
+                                Icons.Rounded.Mic,
+                                state.playback.pauseOnMicrophoneRecording,
+                                viewModel::setPauseOnMicrophoneRecording,
                             )
                             SettingsRowDivider()
                             SettingsToggleRow(
