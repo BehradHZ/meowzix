@@ -653,78 +653,174 @@ private fun GroupQueueHeader(
 ) {
     var menuExpanded by remember(group.id) { mutableStateOf(false) }
     var swipeX by remember(group.id) { mutableFloatStateOf(0f) }
+    var horizontalDrag by remember(group.id) { mutableStateOf(false) }
     val density = LocalDensity.current
-    val threshold = with(density) { 90.dp.toPx() }
+    val actionThreshold = with(density) { 75.dp.toPx() }
+    val removeThreshold = with(density) { 150.dp.toPx() }
     val haptics = rememberMeowzixHaptics()
-    Surface(
-        modifier = Modifier.fillMaxWidth()
-            .graphicsLayer { translationY = offsetY; translationX = swipeX }
-            .pointerInput(group.id) {
-                detectHorizontalDragGestures(
-                    onHorizontalDrag = { change, delta ->
-                        change.consume()
-                        swipeX = (swipeX + delta).coerceIn(-threshold * 1.5f, threshold * 1.5f)
-                    },
-                    onDragEnd = {
-                        when {
-                            swipeX >= threshold -> onMoveToFront()
-                            swipeX <= -threshold -> onMoveToEnd()
-                        }
-                        swipeX = 0f
-                    },
-                    onDragCancel = { swipeX = 0f },
-                )
-            },
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 2.dp,
-    ) {
-        Row(
+    val animatedSwipeX by animateFloatAsState(
+        targetValue = swipeX,
+        animationSpec = if (horizontalDrag) snap() else tween(190),
+        label = "group-swipe",
+    )
+    val swipingRight = animatedSwipeX > 0f
+    val deleting = abs(animatedSwipeX) >= removeThreshold
+    Box(Modifier.fillMaxWidth().graphicsLayer { translationY = offsetY }) {
+        if (abs(animatedSwipeX) > 0.5f) {
+            Surface(
+                modifier = Modifier.matchParentSize().drawWithContent {
+                    val edge = animatedSwipeX.coerceIn(-size.width, size.width)
+                    if (edge > 0f) clipRect(left = 0f, right = edge) {
+                        this@drawWithContent.drawContent()
+                    } else if (edge < 0f) clipRect(left = size.width + edge, right = size.width) {
+                        this@drawWithContent.drawContent()
+                    }
+                },
+                shape = RoundedCornerShape(18.dp),
+                color = if (deleting) MaterialTheme.colorScheme.errorContainer
+                    else if (swipingRight) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.tertiaryContainer,
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                    horizontalArrangement = if (swipingRight) Arrangement.Start else Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        if (deleting) Icons.Rounded.Delete else if (swipingRight)
+                            Icons.Rounded.PlaylistPlay else Icons.Rounded.PlaylistAdd,
+                        contentDescription = null,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (deleting) "Remove group" else if (swipingRight) "Play next" else "Add to queue",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+        Surface(
             modifier = Modifier.fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = if (compact) 8.dp else 12.dp)
-                .animateContentSize(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                if (group.kind == QueueGroupKind.ALBUM) Icons.Rounded.Album else Icons.Rounded.Person,
-                contentDescription = null, tint = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(group.title, style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${group.kind.name.lowercase().replaceFirstChar { it.uppercase() }} · $count tracks",
-                    style = MaterialTheme.typography.bodySmall)
-            }
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Rounded.MoreVert, contentDescription = "Group actions")
-                }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(text = { Text("Play Next") }, onClick = {
-                        menuExpanded = false; onMoveToFront()
-                    })
-                    DropdownMenuItem(text = { Text("Add to Queue") }, onClick = {
-                        menuExpanded = false; onMoveToEnd()
-                    })
-                    DropdownMenuItem(text = { Text("Remove group") }, onClick = {
-                        menuExpanded = false; onRemove()
-                    })
-                }
-            }
-            Box(
-                modifier = Modifier.size(42.dp).pointerInput(group.id, reorderEnabled) {
-                    if (reorderEnabled) detectDragGesturesAfterLongPress(
-                        onDragStart = { haptics.perform(MeowzixHapticCue.Threshold); onStart() },
-                        onDrag = { change, delta -> change.consume(); onDrag(delta.y) },
-                        onDragEnd = { onStop(true); haptics.perform(MeowzixHapticCue.Threshold) },
-                        onDragCancel = { onStop(false) },
+                .graphicsLayer { translationX = animatedSwipeX }
+                .pointerInput(group.id, actionThreshold, removeThreshold) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { horizontalDrag = true },
+                        onHorizontalDrag = { change, delta ->
+                            change.consume()
+                            val old = abs(swipeX)
+                            swipeX = (swipeX + delta).coerceIn(-removeThreshold * 2, removeThreshold * 2)
+                            if ((old < actionThreshold && abs(swipeX) >= actionThreshold) ||
+                                (old < removeThreshold && abs(swipeX) >= removeThreshold)) {
+                                haptics.perform(MeowzixHapticCue.Threshold)
+                            }
+                        },
+                        onDragEnd = {
+                            val released = swipeX
+                            horizontalDrag = false
+                            if (abs(released) < removeThreshold) swipeX = 0f
+                            when {
+                                abs(released) >= removeThreshold -> onRemove()
+                                released >= actionThreshold -> onMoveToFront()
+                                released <= -actionThreshold -> onMoveToEnd()
+                            }
+                        },
+                        onDragCancel = { horizontalDrag = false; swipeX = 0f },
                     )
                 },
-                contentAlignment = Alignment.Center,
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.17f),
+            tonalElevation = 0.dp,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = if (compact) 8.dp else 12.dp)
+                    .animateContentSize(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Rounded.DragHandle, contentDescription = "Drag entire group",
-                    tint = MaterialTheme.colorScheme.onSurface)
+                Icon(
+                    if (group.kind == QueueGroupKind.ALBUM) Icons.Rounded.Album else Icons.Rounded.Person,
+                    contentDescription = null, tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(group.title, style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${group.kind.name.lowercase().replaceFirstChar { it.uppercase() }} · $count tracks",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                // Match single-track cards: drag handle before the overflow button.
+                Box(
+                    modifier = Modifier.size(42.dp).pointerInput(group.id, reorderEnabled) {
+                        if (reorderEnabled) detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                haptics.perform(MeowzixHapticCue.Threshold)
+                                onStart()
+                            },
+                            onDrag = { change, delta -> change.consume(); onDrag(delta.y) },
+                            onDragEnd = { onStop(true) },
+                            onDragCancel = { onStop(false) },
+                        )
+                    },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.DragHandle, contentDescription = "Drag entire group",
+                        tint = MaterialTheme.colorScheme.onSurface)
+                }
+                Box {
+                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "Group actions")
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                        modifier = Modifier.width(280.dp),
+                        offset = androidx.compose.ui.unit.DpOffset((-8).dp, 0.dp),
+                        containerColor = Color.Transparent,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                    ) {
+                        Column(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.97f),
+                                            MaterialTheme.colorScheme.surface.copy(alpha = 0.995f),
+                                        ),
+                                    )
+                                )
+                                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                        ) {
+                            Text(group.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("$count tracks · ${group.kind.name.lowercase()}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.size(6.dp))
+                            DropdownMenuItem(
+                                text = { Text("Play next") },
+                                leadingIcon = { Icon(Icons.Rounded.PlaylistPlay, contentDescription = null) },
+                                onClick = { menuExpanded = false; onMoveToFront() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Add to queue") },
+                                leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, contentDescription = null) },
+                                onClick = { menuExpanded = false; onMoveToEnd() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Remove group") },
+                                leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+                                onClick = { menuExpanded = false; onRemove() },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
