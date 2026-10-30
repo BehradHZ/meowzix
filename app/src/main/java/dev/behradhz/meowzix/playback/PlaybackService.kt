@@ -175,6 +175,7 @@ class PlaybackService : MediaLibraryService() {
     private var isChangingQueueCycle = false
     private var isExpandingWindow = false
     private var currentFavorite = false
+    private var lastTransitionOccurrenceId: UUID? = null
     private var normalizationEnabled = false
     private var localAudioAnalysisEnabled = true
     private var normalizationGainDb = 0f
@@ -462,6 +463,15 @@ class PlaybackService : MediaLibraryService() {
 
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            // Only a genuine automatic end consumes an explicit Queue occurrence.
+            // Library selection/replacement must never consume the fixed list.
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                progressiveQueue.consumeFixedOccurrence(lastTransitionOccurrenceId)
+            }
+            syncLogicalCurrentFromPlayer()
+            lastTransitionOccurrenceId = progressiveQueue.snapshot()?.let { snapshot ->
+                snapshot.occurrenceIds.getOrNull(snapshot.currentIndex)
+            }
             if (remoteFallbackMediaId != mediaItem?.mediaId) remoteFallbackMediaId = null
             if (activeCrossfade != null) cancelCrossfade("active media item changed")
             // Publish the new song before onEvents() runs its queue, audio-analysis,
