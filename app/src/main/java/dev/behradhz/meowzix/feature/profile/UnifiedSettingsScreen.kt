@@ -235,7 +235,7 @@ fun UnifiedSettingsScreen(
                             SettingsRowDivider()
                             SettingsToggleRow(
                                 "Pause when microphone starts",
-                                "Pause once when microphone recording begins. You can press Play again while it remains active.",
+                                "Pause when microphone recording starts, then resume automatically when it ends. Manual Play remains available.",
                                 Icons.Rounded.Mic,
                                 state.playback.pauseOnMicrophoneRecording,
                                 viewModel::setPauseOnMicrophoneRecording,
