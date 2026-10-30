@@ -10,6 +10,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.TransferListener
+import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrity
 import dev.behradhz.meowzix.data.telegram.TdDownloadPriority
 import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import dev.behradhz.meowzix.data.telegram.readableEndAt
@@ -339,11 +340,27 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
 
     private suspend fun waitForReadableWindow(position: Long): ReadableWindow {
         var recoveryAttempts = 0
+        var corruptCompletionRetries = 0
         while (true) {
             checkOpen()
             val client = awaitActiveClient()
                 ?: throw IOException("Telegram remained disconnected during playback")
             var state = client.fileStates.current(fileId) ?: seedFileStateWithRetry(client, fileId)
+            if (state.local.isDownloadingCompleted && !isValidCompletedFile(state)) {
+                // Completed with missing or truncated bytes is not EOF. Retry real Telegram bytes.
+                if (++corruptCompletionRetries > MAX_CORRUPT_COMPLETION_RETRIES) {
+                    throw IOException("Telegram repeatedly returned incomplete audio for file $fileId")
+                }
+                resetFileHandle()
+                client.send(TdApi.DeleteFile(fileId))
+                val restarted = client.send(
+                    TdApi.DownloadFile(
+                        fileId, TdDownloadPriority.CURRENT_TRACK_AUDIO, 0L, 0L, false,
+                    ),
+                )
+                client.fileStates.publish(restarted)
+                continue
+            }
             val readableEnd = resolveReadableEnd(client, state, position)
             if (readableEnd > position || isAtEnd(state, position)) {
                 return ReadableWindow(state, readableEnd)
@@ -487,8 +504,14 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         openedPath = null
     }
 
+    private fun isValidCompletedFile(state: TdApi.File): Boolean =
+        ManagedAudioIntegrity.isValid(
+            state.local.path.takeIf(String::isNotBlank)?.let(::File),
+            state.size.toLong().takeIf { it > 0L },
+        )
+
     private fun isAtEnd(state: TdApi.File, position: Long): Boolean {
-        if (!state.local.isDownloadingCompleted) return false
+        if (!state.local.isDownloadingCompleted || !isValidCompletedFile(state)) return false
         // A "completed" TDLib flag with a missing/empty local path is NOT a zero-length
         // song. Treat it as unreadable and let the bounded retry path report I/O failure
         // instead of reporting EOF to ExoPlayer and silently advancing the playlist.
@@ -509,6 +532,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         const val UPDATE_WAIT_TIMEOUT_MS = 4_000L
         const val MAX_UPDATE_RECOVERIES = 15
         const val MAX_STALE_FILE_RECOVERIES = 8
+        const val MAX_CORRUPT_COMPLETION_RETRIES = 2
         const val STALE_FILE_RETRY_BASE_DELAY_MS = 50L
         const val CLIENT_READY_ATTEMPTS = 8
         const val CLIENT_READY_RETRY_DELAY_MS = 250L
