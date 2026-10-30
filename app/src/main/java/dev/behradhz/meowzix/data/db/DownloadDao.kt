@@ -19,6 +19,7 @@ interface DownloadDao {
                d.pinned AS pinned,
                d.failureReason AS failureReason,
                d.updatedAtEpochMs AS updatedAtEpochMs,
+               d.localPath AS localPath,
                COALESCE(t.title, 'Unknown track') AS title,
                t.artworkRef AS artworkRef
         FROM download_records d
@@ -53,6 +54,7 @@ data class DownloadDisplayRow(
     val pinned: Boolean,
     val failureReason: String?,
     val updatedAtEpochMs: Long,
+    val localPath: String?,
     val title: String,
     val artworkRef: String?,
 )
