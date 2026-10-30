@@ -119,78 +119,95 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var playbackAudioAttributes: AudioAttributes
     private lateinit var audioManager: AudioManager
     private var resumeAfterExternalAudioEnabled = false
-    private val externalMediaStartDetector = ExternalMediaStartDetector()
-    // Distinguishes an immediate, app-initiated interruption from an explicit user pause.
-    private var earlyExternalPausePending = false
     private var pauseOnMicrophoneRecordingEnabled = false
     private var microphoneWasRecording = false
-    private var resumeAfterMicrophoneStops = false
+    private var otherAppPlayingMedia = false
+    private var wasPlayingBeforeAudioFocusLoss = false
+    private var focusLossAwaitingExternal = false
+    // Tags our own automatic pause and resume. Media3's USER_REQUEST reason
+    // alone cannot distinguish a service pause from a user's Pause.
+    private var internalInterruptionPausePending = false
+    private var internalAutoResumePlayPending = false
+    private var interruptedMediaId: String? = null
+    private var interruptedOccurrenceId: UUID? = null
+    private val interruptionPolicy = AudioInterruptionResumePolicy()
+    private val externalMediaStartDetector = ExternalMediaStartDetector()
+    private var externalResumeJob: Job? = null
+
     private val microphoneObserver = object : AudioManager.AudioRecordingCallback() {
         override fun onRecordingConfigChanged(configs: List<AudioRecordingConfiguration>) {
             val recording = configs.isNotEmpty()
             val started = recording && !microphoneWasRecording
             val stopped = !recording && microphoneWasRecording
             microphoneWasRecording = recording
-            if (pauseOnMicrophoneRecordingEnabled && started && player.playWhenReady) {
-                // Only remember a pause that WE initiated. A user-initiated pause or
-                // a later explicit Play must not trigger an unsolicited restart.
-                resumeAfterMicrophoneStops = true
-                cancelExternalResume()
-                cancelCrossfade("microphone recording started")
-                player.pause()
-            } else if (pauseOnMicrophoneRecordingEnabled && stopped) {
-                val shouldResume = shouldResumeAfterMicrophoneStops(
-                    pausedByMicrophone = resumeAfterMicrophoneStops,
-                    playbackRequested = player.playWhenReady,
-                    otherMediaPlaying = otherAppPlayingMedia,
-                    hasTrack = player.currentMediaItem != null,
-                    playbackEnded = player.playbackState == Player.STATE_ENDED,
-                    sleepTimerExpired = sleepTimer.state.value.let { timer ->
-                        timer.mode == SleepTimerMode.DURATION && timer.remainingMs <= 0L
-                    },
+            if (!pauseOnMicrophoneRecordingEnabled) return
+            if (started) {
+                val effect = interruptionPolicy.interrupted(
+                    AudioInterruptionResumePolicy.Source.MICROPHONE,
+                    player.playWhenReady,
                 )
-                resumeAfterMicrophoneStops = false
-                if (shouldResume) player.play()
+                if (effect == AudioInterruptionResumePolicy.Effect.PAUSE) {
+                    pauseForInterruption("microphone recording started")
+                }
+            } else if (stopped) {
+                requestAutoResume(interruptionPolicy.interruptionEnded(
+                    AudioInterruptionResumePolicy.Source.MICROPHONE
+                ))
             }
         }
     }
+
     private var liveSongCardEnabled = false
     private var liveSongCardStyle = LiveSongCardStyle.MINIMAL
     private var liveSongLeftAction = LiveSongSideAction.PREVIOUS
     private var liveSongRightAction = LiveSongSideAction.NEXT
     private var liveSongCard: NowPlayingLiveCard? = null
-    private var resumePendingExternalAudio = false
-    private var observedExternalPlayback = false
-    private var otherAppPlayingMedia = false
-    private var wasPlayingBeforeAudioFocusLoss = false
-    private var externalResumeJob: Job? = null
+
     private val externalAudioObserver = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: List<AudioPlaybackConfiguration>) {
-            // Android's public API anonymizes other apps' players. Detect a NEW external
-            // MEDIA/GAME player using count changes; never pause for our own player or
-            // the additional player used temporarily by crossfade.
-            val shouldPause = externalMediaStartDetector.observe(
-                activeMediaPlayers = mediaPlaybackCount(configs),
-                // The AudioTrack may be reported active before isPlaying flips to true.
-                // Count local playback requested to prevent Meowzix pausing itself.
-                audibleLocalPlayers = meowzixPlayerCount(includePendingStart = true),
-                playbackRequested = player.playWhenReady,
+            onExternalPlaybackConfigurations(configs)
+        }
+    }
+
+    private fun onExternalPlaybackConfigurations(configs: List<AudioPlaybackConfiguration>) {
+        // Android anonymizes players from other apps. Counts relative to our own
+        // active/crossfade players are a best-effort signal, not a package list.
+        val newlyStarted = externalMediaStartDetector.observe(
+            activeMediaPlayers = mediaPlaybackCount(configs),
+            audibleLocalPlayers = meowzixPlayerCount(includePendingStart = true),
+            playbackRequested = player.playWhenReady,
+        )
+        otherAppPlayingMedia = externalMediaStartDetector.externalCount > 0
+        if (otherAppPlayingMedia) {
+            externalResumeJob?.cancel()
+            val interruptedByFocus = focusLossAwaitingExternal && wasPlayingBeforeAudioFocusLoss
+            val needsAdditionalBlocker = interruptionPolicy.isResumeArmed() ||
+                interruptionPolicy.isResumeRequested()
+            if (!interruptionPolicy.isInterruptedBy(
+                    AudioInterruptionResumePolicy.Source.EXTERNAL_PLAYBACK
+                ) && (newlyStarted || interruptedByFocus || needsAdditionalBlocker)
+            ) {
+                val wasPlaying = player.playWhenReady || interruptedByFocus
+                val mayResume = (resumeAfterExternalAudioEnabled && wasPlaying) ||
+                    needsAdditionalBlocker
+                interruptionPolicy.interrupted(
+                    AudioInterruptionResumePolicy.Source.EXTERNAL_PLAYBACK,
+                    mayResume,
+                )
+                if (newlyStarted && player.playWhenReady) {
+                    // Pausing for new external MEDIA/GAME audio is unconditional;
+                    // only restarting afterwards is controlled by the preference.
+                    pauseForInterruption("external media started")
+                } else if (interruptedByFocus && interruptionPolicy.isResumeArmed()) {
+                    rememberInterruptedMedia()
+                }
+            }
+            focusLossAwaitingExternal = false
+        } else if (interruptionPolicy.isInterruptedBy(
+                AudioInterruptionResumePolicy.Source.EXTERNAL_PLAYBACK
             )
-            otherAppPlayingMedia = externalMediaStartDetector.externalCount > 0
-            if (shouldPause && player.playWhenReady) {
-                // Do not wait for Android 12+'s system fade-out/focus-loss callback.
-                // This is a direct pause, not a volume ramp, and retains queue/position.
-                earlyExternalPausePending = true
-                cancelCrossfade("external media started")
-                player.pause()
-            }
-            if (!resumePendingExternalAudio) return
-            if (otherAppPlayingMedia) {
-                observedExternalPlayback = true
-                externalResumeJob?.cancel()
-            } else if (observedExternalPlayback) {
-                scheduleExternalAudioResume()
-            }
+        ) {
+            scheduleExternalAudioResume()
         }
     }
 
@@ -206,13 +223,11 @@ class PlaybackService : MediaLibraryService() {
             }
 
     private fun baselineExternalMedia() {
-        // Before a user starts playback, the own AudioTrack might not yet be active.
-        // Baseline only audio currently audible; later callbacks reserve room for
-        // Meowzix's pending AudioTrack through includePendingStart.
         externalMediaStartDetector.baseline(
             mediaPlaybackCount(audioManager.activePlaybackConfigurations),
             meowzixPlayerCount(includePendingStart = false),
         )
+        otherAppPlayingMedia = externalMediaStartDetector.externalCount > 0
     }
     private var persistJob: Job? = null
     private var widgetRefreshJob: Job? = null
@@ -898,34 +913,106 @@ class PlaybackService : MediaLibraryService() {
         super.onDestroy()
     }
 
-    private fun cancelExternalResume() {
+    private fun rememberInterruptedMedia() {
+        if (interruptedMediaId == null) {
+            interruptedMediaId = player.currentMediaItem?.mediaId
+            interruptedOccurrenceId = player.currentMediaItem?.queueOccurrenceId()
+        }
+    }
+
+    private fun clearInterruptedMedia() {
+        interruptedMediaId = null
+        interruptedOccurrenceId = null
+    }
+
+    private fun pauseForInterruption(reason: String) {
+        if (!player.playWhenReady) return
+        if (interruptionPolicy.isResumeArmed()) rememberInterruptedMedia()
+        cancelCrossfade(reason)
+        internalInterruptionPausePending = true
+        player.pause()
+    }
+
+    private fun cancelAutoResumeForUserIntent() {
         externalResumeJob?.cancel()
         externalResumeJob = null
-        resumePendingExternalAudio = false
-        observedExternalPlayback = false
+        interruptionPolicy.userPaused()
+        internalAutoResumePlayPending = false
+        focusLossAwaitingExternal = false
+        wasPlayingBeforeAudioFocusLoss = false
+        clearInterruptedMedia()
     }
 
     private fun scheduleExternalAudioResume() {
-        if (!resumeAfterExternalAudioEnabled || !resumePendingExternalAudio) return
+        if (!interruptionPolicy.isInterruptedBy(
+                AudioInterruptionResumePolicy.Source.EXTERNAL_PLAYBACK
+            )
+        ) return
         externalResumeJob?.cancel()
         externalResumeJob = serviceScope.launch {
-            // Audio playback callbacks can briefly report silence during video transitions.
-            delay(1_300L)
-            if (resumeAfterExternalAudioEnabled &&
-                resumePendingExternalAudio &&
-                observedExternalPlayback &&
-                !otherAppPlayingMedia &&
-                !player.playWhenReady &&
-                player.currentMediaItem != null &&
-                player.playbackState != Player.STATE_ENDED &&
-                sleepTimer.state.value.mode == SleepTimerMode.OFF
-            ) {
-                cancelExternalResume()
-                // Media3 still owns focus arbitration. This only expresses the opt-in intent;
-                // Android may refuse focus while the service is no longer foreground.
-                player.play()
+            // One-shot debounce of the END event: adjacent clips often have a
+            // short silence. No polling and no repeating timer.
+            delay(450L)
+            val activeCount = mediaPlaybackCount(audioManager.activePlaybackConfigurations)
+            val localCount = meowzixPlayerCount(includePendingStart = false)
+            if (activeCount > localCount) {
+                otherAppPlayingMedia = true
+                return@launch
             }
+            otherAppPlayingMedia = false
+            requestAutoResume(interruptionPolicy.interruptionEnded(
+                AudioInterruptionResumePolicy.Source.EXTERNAL_PLAYBACK
+            ))
         }
+    }
+
+    private fun requestAutoResume(effect: AudioInterruptionResumePolicy.Effect) {
+        if (effect != AudioInterruptionResumePolicy.Effect.REQUEST_RESUME) return
+        if (!resumeAfterExternalAudioEnabled && !pauseOnMicrophoneRecordingEnabled) {
+            interruptionPolicy.resumeRejected()
+            clearInterruptedMedia()
+            return
+        }
+        val currentItem = player.currentMediaItem
+        val isSameSelection = currentItem?.mediaId == interruptedMediaId &&
+            currentItem?.queueOccurrenceId() == interruptedOccurrenceId
+        val timerHasExpired = sleepTimer.state.value.let { timer ->
+            timer.mode == SleepTimerMode.DURATION && timer.remainingMs <= 0L
+        }
+        if (!isSameSelection || currentItem == null ||
+            isRestoring || player.playWhenReady ||
+            player.playerError != null ||
+            player.playbackState == Player.STATE_IDLE ||
+            player.playbackState == Player.STATE_ENDED ||
+            timerHasExpired
+        ) {
+            interruptionPolicy.resumeRejected()
+            clearInterruptedMedia()
+            return
+        }
+        // Re-read device state at the decision boundary, not from an old
+        // callback. Do not steal audio focus while another player/recorder runs.
+        val activeCount = mediaPlaybackCount(audioManager.activePlaybackConfigurations)
+        val localCount = meowzixPlayerCount(includePendingStart = false)
+        if (activeCount > localCount) {
+            otherAppPlayingMedia = true
+            interruptionPolicy.interrupted(
+                AudioInterruptionResumePolicy.Source.EXTERNAL_PLAYBACK, true
+            )
+            return
+        }
+        if (pauseOnMicrophoneRecordingEnabled &&
+            audioManager.activeRecordingConfigurations.isNotEmpty()
+        ) {
+            interruptionPolicy.interrupted(
+                AudioInterruptionResumePolicy.Source.MICROPHONE, true
+            )
+            return
+        }
+        internalAutoResumePlayPending = true
+        // Media3 remains the only Audio Focus owner. A rejected focus request
+        // must not trigger an independent retry loop in this service.
+        player.play()
     }
 
     private fun publishLiveSongTransition() {
