@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
 
@@ -68,6 +69,7 @@ class TdLibDownloadRepository @Inject constructor(
                 pinned = row.pinned,
                 failureReason = row.failureReason,
                 updatedAtEpochMs = row.updatedAtEpochMs,
+                hasManagedCopy = !row.localPath.isNullOrBlank(),
             )
         }
     }
@@ -119,13 +121,33 @@ class TdLibDownloadRepository @Inject constructor(
 
     override suspend fun removeOfflineCopy(trackId: UUID) {
         pauseRequests.remove(trackId)
-        jobs.remove(trackId)?.cancel()
-        val record = downloadDao.byTrackId(trackId.toString()) ?: return
-        record.localPath?.let(::deleteOwnedOfflineFile)
+        jobs.remove(trackId)?.cancelAndJoin()
+        val record = downloadDao.byTrackId(trackId.toString())
+        val managedSources = libraryDao.sourcesForTrack(trackId.toString())
+            .filter { it.type == TrackSourceType.APP_OFFLINE_COPY || it.type == TrackSourceType.TDLIB_LOCAL }
+        val paths = (managedSources.mapNotNull(TrackSourceEntity::localPath) +
+            listOfNotNull(record?.localPath)).distinct()
+        // This only deletes copies in Meowzix storage, never device music or Telegram data.
+        paths.forEach(::deleteOwnedManagedFile)
         database.withTransaction {
-            libraryDao.deleteOfflineSource(offlineSourceId(trackId))
+            managedSources.forEach { source ->
+                if (source.type == TrackSourceType.APP_OFFLINE_COPY) {
+                    libraryDao.deleteOfflineSource(source.id)
+                } else {
+                    libraryDao.updateAvailability(source.id, SourceAvailability.MISSING, Instant.now().toEpochMilli())
+                }
+            }
             downloadDao.deleteByTrackId(trackId.toString())
         }
+    }
+
+    private fun deleteOwnedManagedFile(path: String) {
+        val file = File(path).canonicalFile
+        val parent = file.parentFile
+        val offlineRoot = offlineDirectory.canonicalFile
+        val cacheRoot = File(context.filesDir, "playback-cache").canonicalFile
+        if (parent != offlineRoot && parent != cacheRoot) return
+        if (file.exists() && !file.delete()) error("Unable to remove downloaded audio: ${file.name}")
     }
 
     override suspend fun storageBytes(): Long = managedStorage.usage().totalManagedBytes
@@ -207,7 +229,9 @@ class TdLibDownloadRepository @Inject constructor(
         }
         val tdPath = downloaded.local.path.takeIf { downloaded.local.isDownloadingCompleted && it.isNotBlank() }
             ?: error("Telegram download did not complete.")
-        val sourceFile = File(tdPath).takeIf(File::isFile) ?: error("Downloaded file is missing.")
+        val sourceFile = File(tdPath).takeIf { it.isFile && it.length() > 0L &&
+            (downloaded.size <= 0 || it.length() >= downloaded.size.toLong()) }
+            ?: error("Telegram reported a completed but incomplete audio file.")
 
         val localCopy = copyIntoOfflineDirectory(trackId, sourceFile, candidate.fileName)
         val completedAt = Instant.now().toEpochMilli()
@@ -360,7 +384,8 @@ class TdLibDownloadRepository @Inject constructor(
         val extension = fileName?.substringAfterLast('.', "")
             ?.takeIf { it.matches(Regex("[A-Za-z0-9]{1,8}")) }
         val destination = File(offlineDirectory, trackId.toString() + extension?.let { ".$it" }.orEmpty())
-        if (destination.isFile && destination.length() == sourceFile.length()) {
+        if (destination.isFile && destination.length() == sourceFile.length() &&
+            sha256(destination) == sha256(sourceFile)) {
             return LocalCopy(destination, sha256(destination))
         }
         val partial = File(offlineDirectory, destination.name + ".part")
