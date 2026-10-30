@@ -36,6 +36,21 @@ class ManagedAudioIntegrityTest {
         }
     }
 
+    @Test fun acceptsMatchingAlternateTelegramSourceButRejectsTruncation() {
+        val file = Files.createTempFile("meowzix-multisource", ".mp3").toFile()
+        try {
+            file.writeBytes(byteArrayOf(1, 2, 3, 4))
+            assertTrue(ManagedAudioIntegrity.isValidForAnyRemoteSize(
+                file, listOf(8L, 4L), storedBytes = 8L,
+            ))
+            assertFalse(ManagedAudioIntegrity.isValidForAnyRemoteSize(
+                file, listOf(8L, 12L), storedBytes = 4L,
+            ))
+        } finally {
+            file.delete()
+        }
+    }
+
     @Test fun rejectsInvalidDigestAndPrefersFreshSize() {
         val file = Files.createTempFile("meowzix-audio", ".mp3").toFile()
         try {
