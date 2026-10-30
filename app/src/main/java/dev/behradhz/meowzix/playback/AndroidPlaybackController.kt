@@ -287,34 +287,14 @@ class AndroidPlaybackController @Inject constructor(
                 val active = progressiveQueue.snapshot()
                 if (active != null) {
                     syncLogicalCurrentFromPlayer(connected)
-                    val refreshed = progressiveQueue.snapshot() ?: return@withConnectedController
-                    val existingIndex = refreshed.tracks.indexOfFirst { it.id == trackId }
-                    val affectsMaterializedWindow =
-                        existingIndex >= 0 && existingIndex < refreshed.materializedEndExclusive
                     if (progressiveQueue.append(track)) {
-                        if (affectsMaterializedWindow) {
-                            // Repositioning an item that Media3 already materialized must reconcile
-                            // that bounded window, but the currently playing item stays untouched.
-                            syncProgressiveWindowInPlace(connected)
-                        } else {
-                            // A normal Add to queue targets the logical tail, usually far beyond the
-                            // active Media3 window. Do not send any timeline command in that case:
-                            // it can cause a tiny audible hiccup even though playback itself is not
-                            // being replaced. Only materialize more items when the forward window is
-                            // actually close to running out.
-                            val forwardBatch = progressiveQueue.takeForwardBatchIfNeeded()
-                            if (forwardBatch.isNotEmpty()) {
-                                val snapshot = progressiveQueue.snapshot()
-                                if (snapshot != null) {
-                                    connected.addMediaItems(
-                                        forwardBatch.map {
-                                            it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode)
-                                        },
-                                    )
-                                }
-                            }
-                            updateState(connected)
-                        }
+                        // Queue priority changes even when the track did not
+                        // previously exist in the playback window. Skipping
+                        // Media3 reconciliation based on its *old* index caused
+                        // the visible Queue to disagree with what actually played.
+                        // This compares and updates only non-playing ranges; the
+                        // active MediaItem is not reset or prepared.
+                        syncProgressiveWindowInPlace(connected)
                         queueActionFeedbackBus.emit(QueueActionKind.ADD_TO_END, track.title)
                     }
                     return@withConnectedController
