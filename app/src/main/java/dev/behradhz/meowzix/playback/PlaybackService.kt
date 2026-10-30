@@ -731,6 +731,9 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // Playback errors are not an external-audio interruption. A later
+            // video-stop callback must never restart a failed media item.
+            cancelAutoResumeForUserIntent()
             handlePlaybackFailure(error)
         }
     }
@@ -1059,6 +1062,13 @@ class PlaybackService : MediaLibraryService() {
         // Media3 remains the only Audio Focus owner. A rejected focus request
         // must not trigger an independent retry loop in this service.
         player.play()
+        if (!player.playWhenReady) {
+            // A device can reject focus immediately. Don't leave a pending
+            // internal-resume marker to misclassify the next user Play.
+            internalAutoResumePlayPending = false
+            interruptionPolicy.resumeRejected()
+            clearInterruptedMedia()
+        }
     }
 
     private fun publishLiveSongTransition() {
