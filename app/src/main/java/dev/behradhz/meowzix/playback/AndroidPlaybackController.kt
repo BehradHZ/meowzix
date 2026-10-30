@@ -497,12 +497,12 @@ class AndroidPlaybackController @Inject constructor(
     }
 
     /**
-     * Starting a future Next occurrence is a forward seek: only its generated
-     * successors remain. Tracks BEFORE it must not be put back at the end.
-     * Explicit Queue occurrences survive as a separate, immutable priority lane.
+     * A separate Library selection can match a manually queued occurrence.
+     * In that specific case, start an independent playback context without
+     * consuming the pending manual Queue entry.
      *
-     * For a track selected independently from Library/manual Queue, preserve
-     * the original generated listening context rather than consuming Queue.
+     * Direct Next selections NEVER use this method: playAt() navigates within
+     * the existing session and retains every earlier song as navigable history.
      */
     private fun playIndependentTrackPreservingNext(
         connected: MediaController,
