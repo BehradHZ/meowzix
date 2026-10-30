@@ -366,6 +366,20 @@ class AndroidPlaybackController @Inject constructor(
         mode: PlaybackMode,
     ) {
         scope.launch {
+            // Tapping a song in the same collection must not regenerate a new shuffle
+            // permutation or discard manually queued items. Jump within the existing cycle.
+            val active = progressiveQueue.snapshot()
+            val existingIndex = active?.tracks?.indexOfFirst { it.id == startTrackId } ?: -1
+            if (startTrackId != null && existingIndex >= 0 &&
+                active?.playbackMode == mode &&
+                active.sourceTrackIds.isNotEmpty() &&
+                active.sourceTrackIds.size == trackIds.size &&
+                active.sourceTrackIds.toSet() == trackIds.toSet()
+            ) {
+                playAt(existingIndex)
+                return@launch
+            }
+
             val requested = runCatching { catalog.availableTracks(trackIds) }
                 .getOrElse { error ->
                     showError(error.message ?: "Unable to load playlist")
