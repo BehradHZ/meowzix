@@ -163,7 +163,7 @@ class AndroidPlaybackController @Inject constructor(
         )
         connected.repeatMode = Player.REPEAT_MODE_OFF
         connected.setMediaItems(
-            window.tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
+            requireNotNull(progressiveQueue.snapshot()).mediaItems(),
             window.startIndexInWindow,
             0,
         )
@@ -217,7 +217,7 @@ class AndroidPlaybackController @Inject constructor(
                 val snapshot = progressiveQueue.snapshot() ?: return
                 connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
                 connected.setMediaItems(
-                    plan.tracks.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) },
+                    snapshot.mediaItems(),
                     plan.startIndexInWindow,
                     0,
                 )
@@ -350,7 +350,7 @@ class AndroidPlaybackController @Inject constructor(
                     progressiveQueue.insertGroup(members.drop(1), kind, title, false)
                     val plan = progressiveQueue.resetWindow()
                     connected.setMediaItems(
-                        plan.tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
+                        requireNotNull(progressiveQueue.snapshot()).mediaItems(),
                         plan.startIndexInWindow, 0,
                     )
                     connected.prepare()
@@ -509,7 +509,7 @@ class AndroidPlaybackController @Inject constructor(
                     pendingIds = pending,
                 )
                 connected.setMediaItems(
-                    window.tracks.map { it.toMediaItem(mode, RepeatMode.OFF) },
+                    requireNotNull(progressiveQueue.snapshot()).mediaItems(),
                     window.startIndexInWindow,
                     0,
                 )
@@ -549,7 +549,7 @@ class AndroidPlaybackController @Inject constructor(
         playbackOccurrenceId = UUID.randomUUID()
         userSelectedOccurrence = true
         connected.setMediaItems(
-            window.tracks.map { it.toMediaItem(active.playbackMode, active.repeatMode) },
+            requireNotNull(progressiveQueue.snapshot()).mediaItems(),
             window.startIndexInWindow,
             0L,
         )
@@ -802,9 +802,19 @@ class AndroidPlaybackController @Inject constructor(
         action(connected)
     }
 
+    private fun MediaItem.queueIdentity(): String =
+        queueOccurrenceId()?.toString() ?: mediaId
+
     private fun syncLogicalCurrentFromPlayer(player: Player): Boolean {
         if (progressiveQueue.snapshot() == null) return false
-        val mediaId = player.currentMediaItem?.mediaId
+        val mediaItem = player.currentMediaItem
+        val mediaId = mediaItem?.mediaId
+        val expectedOccurrence = mediaItem?.queueOccurrenceId()
+        if (expectedOccurrence != null) {
+            val snapshot = progressiveQueue.snapshot() ?: return false
+            val position = snapshot.materializedStartIndex + player.currentMediaItemIndex
+            if (snapshot.occurrenceIds.getOrNull(position) != expectedOccurrence) return false
+        }
         if (progressiveQueue.updateCurrentFromWindowIndex(player.currentMediaItemIndex, mediaId)) {
             return true
         }
@@ -828,7 +838,13 @@ class AndroidPlaybackController @Inject constructor(
             .coerceIn(logicalFutureStart, snapshot.tracks.size)
         val desiredFuture = snapshot.tracks
             .subList(logicalFutureStart, logicalFutureEnd)
-            .map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) }
+            .mapIndexed { offset, track ->
+                track.toMediaItem(
+                    snapshot.playbackMode,
+                    snapshot.repeatMode,
+                    snapshot.occurrenceIds[logicalFutureStart + offset],
+                )
+            }
         val playerFutureStart = playerCurrentIndex + 1
 
         if (playerFutureStart < connected.mediaItemCount) {
@@ -859,19 +875,21 @@ class AndroidPlaybackController @Inject constructor(
             // logical window. Never reconcile by touching the active MediaItem.
             return
         }
-        val desiredHistory = plan.tracks.take(plan.startIndexInWindow)
-            .map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) }
+        val desiredHistory = snapshot.mediaItems(
+            snapshot.materializedStartIndex, snapshot.currentIndex,
+        )
         val actualHistory = (0 until currentPlayerIndex)
-            .map { connected.getMediaItemAt(it).mediaId }
-        if (actualHistory != desiredHistory.map { it.mediaId }) {
+            .map { connected.getMediaItemAt(it).queueIdentity() }
+        if (actualHistory != desiredHistory.map(MediaItem::queueIdentity)) {
             connected.replaceMediaItems(0, currentPlayerIndex, desiredHistory)
         }
         val playerIndexAfterHistory = connected.currentMediaItemIndex
-        val desiredFuture = plan.tracks.drop(plan.startIndexInWindow + 1)
-            .map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) }
+        val desiredFuture = snapshot.mediaItems(
+            snapshot.currentIndex + 1, snapshot.materializedEndExclusive,
+        )
         val actualFuture = (playerIndexAfterHistory + 1 until connected.mediaItemCount)
-            .map { connected.getMediaItemAt(it).mediaId }
-        if (actualFuture != desiredFuture.map { it.mediaId }) {
+            .map { connected.getMediaItemAt(it).queueIdentity() }
+        if (actualFuture != desiredFuture.map(MediaItem::queueIdentity)) {
             connected.replaceMediaItems(
                 playerIndexAfterHistory + 1, connected.mediaItemCount, desiredFuture,
             )
@@ -892,7 +910,7 @@ class AndroidPlaybackController @Inject constructor(
         val plan = progressiveQueue.resetWindow()
         connected.repeatMode = snapshot.repeatMode.toPlayerRepeatMode(progressive = true)
         connected.setMediaItems(
-            plan.tracks.map { it.toMediaItem(snapshot.playbackMode, snapshot.repeatMode) },
+            snapshot.mediaItems(),
             plan.startIndexInWindow,
             positionMs,
         )
