@@ -154,7 +154,9 @@ class PlaybackService : MediaLibraryService() {
             // the additional player used temporarily by crossfade.
             val shouldPause = externalMediaStartDetector.observe(
                 activeMediaPlayers = mediaPlaybackCount(configs),
-                audibleLocalPlayers = audibleMeowzixPlayerCount(),
+                // The AudioTrack may be reported active before isPlaying flips to true.
+                // Count local playback requested to prevent Meowzix pausing itself.
+                audibleLocalPlayers = meowzixPlayerCount(includePendingStart = true),
                 playbackRequested = player.playWhenReady,
             )
             otherAppPlayingMedia = externalMediaStartDetector.externalCount > 0
@@ -179,14 +181,20 @@ class PlaybackService : MediaLibraryService() {
         configs.count { it.audioAttributes.usage == android.media.AudioAttributes.USAGE_MEDIA ||
             it.audioAttributes.usage == android.media.AudioAttributes.USAGE_GAME }
 
-    private fun audibleMeowzixPlayerCount(): Int =
+    private fun meowzixPlayerCount(includePendingStart: Boolean): Int =
         listOfNotNull(player, activeCrossfade?.outgoing, activeCrossfade?.incoming)
-            .distinct().count { it.isPlaying }
+            .distinct().count { local ->
+                local.isPlaying || (includePendingStart && local.playWhenReady &&
+                    local.currentMediaItem != null)
+            }
 
     private fun baselineExternalMedia() {
+        // Before a user starts playback, the own AudioTrack might not yet be active.
+        // Baseline only audio currently audible; later callbacks reserve room for
+        // Meowzix's pending AudioTrack through includePendingStart.
         externalMediaStartDetector.baseline(
             mediaPlaybackCount(audioManager.activePlaybackConfigurations),
-            audibleMeowzixPlayerCount(),
+            meowzixPlayerCount(includePendingStart = false),
         )
     }
     private var persistJob: Job? = null
