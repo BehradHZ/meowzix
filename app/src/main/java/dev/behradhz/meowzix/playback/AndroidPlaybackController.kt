@@ -141,27 +141,54 @@ class AndroidPlaybackController @Inject constructor(
                     showError(error.message ?: "Playback is unavailable")
                     return@launch
                 }
-            playbackOccurrenceId = UUID.randomUUID()
-            val window = progressiveQueue.start(
-                orderedTracks = listOf(track),
-                requestedStartIndex = 0,
-                mode = PlaybackMode.ORDERED,
-                repeat = RepeatMode.OFF,
-            )
-            connected.repeatMode = Player.REPEAT_MODE_OFF
-            connected.setMediaItems(
-                window.tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
-                window.startIndexInWindow,
-                0,
-            )
-            connected.prepare()
-            connected.play()
+            playTrackNowOnController(connected, track)
         }
     }
 
-    override fun playAt(index: Int) {
-        withController { connected ->
-            playbackOccurrenceId = UUID.randomUUID()
+    /**
+     * A Telegram resolver may return a brand-new stream URI or a just-completed
+     * local download. Never discard this result and re-query a stale MediaItem.
+     */
+    fun playPreparedNow(track: PlayableTrack) = withController { connected ->
+        playTrackNowOnController(connected, track)
+    }
+
+    private fun playTrackNowOnController(connected: MediaController, track: PlayableTrack) {
+        playbackOccurrenceId = UUID.randomUUID()
+        val window = progressiveQueue.start(
+            orderedTracks = listOf(track),
+            requestedStartIndex = 0,
+            mode = PlaybackMode.ORDERED,
+            repeat = RepeatMode.OFF,
+        )
+        connected.repeatMode = Player.REPEAT_MODE_OFF
+        connected.setMediaItems(
+            window.tracks.map { it.toMediaItem(PlaybackMode.ORDERED, RepeatMode.OFF) },
+            window.startIndexInWindow,
+            0,
+        )
+        connected.prepare()
+        connected.play()
+    }
+
+    /**
+     * The identity is captured before the asynchronous source resolution. If
+     * the queue changed meanwhile, we play the SAME occurrence or do nothing.
+     */
+    fun playPreparedOccurrence(occurrenceId: UUID, track: PlayableTrack) = withController { connected ->
+        val before = progressiveQueue.snapshot()
+        val index = before?.occurrenceIds?.indexOf(occurrenceId) ?: -1
+        if (index < 0 || before?.tracks?.get(index)?.id != track.id) return@withController
+        progressiveQueue.replacePlayableSource(track.id, track)
+        playAtOnController(connected, index)
+    }
+
+    override fun playAt(index: Int) = withController { connected ->
+        playAtOnController(connected, index)
+    }
+
+    private fun playAtOnController(connected: MediaController, index: Int) {
+        playbackOccurrenceId = UUID.randomUUID()
             val active = progressiveQueue.snapshot()
             if (active != null) {
                 // A forward selection in Next is a SEEK inside this session, not
@@ -201,7 +228,6 @@ class AndroidPlaybackController @Inject constructor(
                 if (connected.playbackState == Player.STATE_IDLE) connected.prepare()
                 connected.play()
             }
-        }
     }
 
     override fun playNext(trackId: UUID) {
@@ -387,10 +413,21 @@ class AndroidPlaybackController @Inject constructor(
         replaceAndPlayInternal(trackIds, startTrackId, mode)
     }
 
+    fun replaceAndPlayPrepared(
+        trackIds: List<UUID>,
+        startTrackId: UUID,
+        mode: PlaybackMode,
+        prepared: PlayableTrack,
+    ) {
+        require(prepared.id == startTrackId)
+        replaceAndPlayInternal(trackIds, startTrackId, mode, prepared)
+    }
+
     private fun replaceAndPlayInternal(
         trackIds: List<UUID>,
         startTrackId: UUID?,
         mode: PlaybackMode,
+        prepared: PlayableTrack? = null,
     ) {
         scope.launch {
             // Tapping a song in the same collection must not regenerate a new shuffle
@@ -411,8 +448,10 @@ class AndroidPlaybackController @Inject constructor(
                 active.sourceTrackIds.size == trackIds.size &&
                 active.sourceTrackIds.toSet() == trackIds.toSet()
             ) {
-                if (existingIndex <= active.currentIndex ||
-                    active.origins[existingIndex] ==
+                if (prepared != null) progressiveQueue.replacePlayableSource(prepared.id, prepared)
+                val refreshed = progressiveQueue.snapshot() ?: return@launch
+                if (existingIndex <= refreshed.currentIndex ||
+                    refreshed.origins[existingIndex] ==
                         dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
                 ) {
                     // Current/previous/Next selections within this collection all
@@ -420,7 +459,7 @@ class AndroidPlaybackController @Inject constructor(
                     playAt(existingIndex)
                 } else if (progressiveQueue.hasFixedFuture()) {
                     withConnectedController { connected ->
-                        playIndependentTrackPreservingNext(connected, active, existingIndex)
+                        playIndependentTrackPreservingNext(connected, refreshed, existingIndex)
                     }
                 } else {
                     playAt(existingIndex)
@@ -428,11 +467,16 @@ class AndroidPlaybackController @Inject constructor(
                 return@launch
             }
 
-            val requested = runCatching { catalog.availableTracks(trackIds) }
+            val catalogTracks = runCatching { catalog.availableTracks(trackIds) }
                 .getOrElse { error ->
                     showError(error.message ?: "Unable to load playlist")
                     return@launch
                 }
+            // A freshly resolved Telegram URI outranks an old database snapshot.
+            val byId = catalogTracks.associateBy { it.id }
+            val requested = trackIds.distinct().mapNotNull { id ->
+                if (prepared?.id == id) prepared else byId[id]
+            }
             var shuffleSeed: Long? = null
             var tracks = when (mode) {
                 PlaybackMode.ORDERED -> requested
