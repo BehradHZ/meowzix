@@ -2,13 +2,14 @@ package dev.behradhz.meowzix.domain.recommendation
 
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.log2
 import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** Fixed acoustic order; descriptors are normalized to [0,1], frequency relative to Nyquist. */
 object AudioFeatureSchema {
-    const val VERSION = 4
+    const val VERSION = 5
     const val RMS = 0
     const val ZERO_CROSSING_RATE = 1
     const val SILENCE_RATIO = 2
@@ -21,6 +22,9 @@ object AudioFeatureSchema {
     const val INTRO_ENERGY = 9
     const val MIDDLE_ENERGY = 10
     const val OUTRO_ENERGY = 11
+    const val KEY_ROOT = 12
+    const val KEY_MAJOR = 13
+    const val KEY_CONFIDENCE = 14
     const val MIN_TEMPO_BPM = 60.0
     const val MAX_TEMPO_BPM = 200.0
     val names = listOf(
@@ -36,6 +40,9 @@ object AudioFeatureSchema {
         "intro_energy",
         "middle_energy",
         "outro_energy",
+        "key_root_norm",
+        "key_major",
+        "key_confidence",
     )
 
     fun isCompatible(values: DoubleArray): Boolean =
@@ -106,6 +113,16 @@ class PcmAudioAnalysis(
     private var crossings = 0L
     private var previous: Double? = null
     private val energies = ArrayList<Double>()
+    private val chroma = DoubleArray(12)
+    // Precompute bin -> equal-temperament pitch class. Tonal detection uses the same
+    // already-computed FFT, without another transform or keeping raw audio in memory.
+    private val pitchClassBins = IntArray(FRAME_SIZE / 2 + 1) { bin ->
+        val hz = bin * sampleRate.toDouble() / FRAME_SIZE
+        if (hz !in 90.0..2200.0) -1 else {
+            val midi = kotlin.math.round(69.0 + 12.0 * log2(hz / 440.0)).toInt()
+            ((midi % 12) + 12) % 12
+        }
+    }
     private var silentFrames = 0
     private var positiveOnsetEnergy = 0.0
     private var previousFrameRms: Double? = null
@@ -133,6 +150,7 @@ class PcmAudioAnalysis(
         val low = sorted[((sorted.size - 1) * 0.10).toInt()]
         val high = sorted[((sorted.size - 1) * 0.90).toInt()]
         val tempo = estimateTempo()
+        val tonal = MusicalKeyEstimator.estimate(chroma)
         return doubleArrayOf(
             sqrt(sumSquares / sampleCount).coerceIn(0.0, 1.0),
             crossings.toDouble() / (sampleCount - 1).coerceAtLeast(1L),
@@ -146,6 +164,9 @@ class PcmAudioAnalysis(
             sqrt(sumSquares / sampleCount).coerceIn(0.0, 1.0),
             sqrt(sumSquares / sampleCount).coerceIn(0.0, 1.0),
             sqrt(sumSquares / sampleCount).coerceIn(0.0, 1.0),
+            tonal?.root?.div(11.0) ?: 0.0,
+            if (tonal?.major == true) 1.0 else 0.0,
+            tonal?.confidence ?: 0.0,
         )
     }
 
@@ -174,6 +195,7 @@ class PcmAudioAnalysis(
                 var rolloff = powers.lastIndex
                 var found = false
                 powers.forEachIndexed { bin, power ->
+                    if (pitchClassBins[bin] >= 0) chroma[pitchClassBins[bin]] += sqrt(power)
                     weighted += bin * power
                     cumulative += power
                     if (!found && cumulative >= 0.85 * total) { rolloff = bin; found = true }
@@ -235,6 +257,46 @@ class PcmAudioAnalysis(
         const val DEFAULT_SAMPLE_RATE = 44_100
         const val MIN_TEMPO_FRAMES = 24
         const val MIN_TEMPO_CORRELATION = 0.15
+    }
+}
+
+
+/** Tentative tonal key from aggregate chroma, not a definitive harmonic analysis. */
+data class EstimatedKey(val root: Int, val major: Boolean, val confidence: Double)
+
+object MusicalKeyEstimator {
+    private val majorProfile = doubleArrayOf(6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88)
+    private val minorProfile = doubleArrayOf(6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
+
+    fun estimate(chroma: DoubleArray): EstimatedKey? {
+        require(chroma.size == 12)
+        val sum = chroma.sum()
+        if (!sum.isFinite() || sum <= 1e-8) return null
+        val mean = sum / 12.0
+        val variance = chroma.sumOf { (it - mean) * (it - mean) }
+        if (variance <= 1e-8) return null
+        data class Candidate(val root: Int, val major: Boolean, val correlation: Double)
+        val ranked = buildList {
+            for (root in 0..11) for ((major, profile) in listOf(true to majorProfile, false to minorProfile)) {
+                val profileMean = profile.average()
+                var cross = 0.0
+                var profilePower = 0.0
+                for (i in 0..11) {
+                    val centered = profile[i] - profileMean
+                    cross += (chroma[(i + root) % 12] - mean) * centered
+                    profilePower += centered * centered
+                }
+                val correlation = cross / sqrt(variance * profilePower)
+                add(Candidate(root, major, correlation))
+            }
+        }.sortedByDescending { it.correlation }
+        val best = ranked.first()
+        val second = ranked[1]
+        // Difference from runner-up is deliberately conservative: a low separation
+        // means no reliable major/minor classification for this recording.
+        val confidence = ((best.correlation - second.correlation) / 0.25).coerceIn(0.0, 1.0)
+        return if (best.correlation < 0.15 || confidence < 0.08) null
+        else EstimatedKey(best.root, best.major, confidence)
     }
 }
 
