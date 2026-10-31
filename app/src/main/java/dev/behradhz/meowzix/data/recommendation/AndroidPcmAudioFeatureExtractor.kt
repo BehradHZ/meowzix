@@ -13,6 +13,7 @@ import dev.behradhz.meowzix.domain.recommendation.AudioFeatureSource
 import dev.behradhz.meowzix.domain.recommendation.AudioFeatureVector
 import dev.behradhz.meowzix.domain.recommendation.AudioVectorFormat
 import dev.behradhz.meowzix.domain.recommendation.PcmAudioAnalysis
+import kotlin.math.roundToInt
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.time.Instant
@@ -258,7 +259,7 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
         // Vote across independently analyzed regions and reduce confidence for disagreement.
         val keyVotes = compatible.filter { it[AudioFeatureSchema.KEY_CONFIDENCE] >= 0.08 }
             .groupBy {
-                val root = (it[AudioFeatureSchema.KEY_ROOT] * 11.0).toInt().coerceIn(0, 11)
+                val root = (it[AudioFeatureSchema.KEY_ROOT] * 11.0).roundToInt().coerceIn(0, 11)
                 root to (it[AudioFeatureSchema.KEY_MAJOR] >= 0.5)
             }
         val winner = keyVotes.maxByOrNull { (_, votes) ->
