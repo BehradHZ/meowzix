@@ -75,7 +75,8 @@ object RecommendationRanking {
             if (isEmpty()) add(if (candidate.global.starts <= 3) RecommendationReason.UNDER_EXPLORED else RecommendationReason.INSUFFICIENT_EVIDENCE)
         }.take(4)
         return TrackScore(candidate.trackId, model?.expectedReward ?: (heuristicPreference * 2.0 - 1.0), uncertainty, total, reasons) to
-            base.copy(total = total, learnedPreference = model?.let { learnedPreference })
+            base.copy(total = total, exploration = if (explorationPercent > 0) base.exploration else 0.0,
+                learnedPreference = model?.let { learnedPreference })
     }
 }
 
