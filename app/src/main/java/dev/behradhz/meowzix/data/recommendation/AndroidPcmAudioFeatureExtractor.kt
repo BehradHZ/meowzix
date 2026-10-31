@@ -56,7 +56,7 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
 
     private suspend fun decode(trackId: UUID, source: AudioFeatureSource): AudioFeatureVector? {
         val probe = probe(source) ?: return null
-        val vectors = mutableListOf<DoubleArray>()
+        val vectors = mutableListOf<DoubleArray?>()
         for (startUs in representativeStarts(probe.durationUs)) {
             currentCoroutineContext().ensureActive()
             val vector = try {
@@ -66,9 +66,9 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
             } catch (_: Exception) {
                 null
             }
-            if (vector != null) vectors += vector
+            vectors += vector
         }
-        if (vectors.isEmpty()) return null
+        if (vectors.none { it != null }) return null
         val combined = combineSegments(vectors) ?: return null
         return AudioFeatureVector(
             id = UUID.randomUUID(),
@@ -232,8 +232,8 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
      * Stable mean for general descriptors. Tempo is confidence-weighted so a segment where no
      * reliable pulse was measurable does not drag a valid BPM toward 60 BPM.
      */
-    private fun combineSegments(vectors: List<DoubleArray>): DoubleArray? {
-        val compatible = vectors.filter(AudioFeatureSchema::isCompatible)
+    private fun combineSegments(vectors: List<DoubleArray?>): DoubleArray? {
+        val compatible = vectors.filterNotNull().filter(AudioFeatureSchema::isCompatible)
         if (compatible.isEmpty()) return null
         val result = DoubleArray(AudioFeatureSchema.names.size)
         for (index in 0 until AudioFeatureSchema.TEMPO_BPM) {
@@ -251,10 +251,14 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
             .coerceIn(0.0, 1.0)
         result[AudioFeatureSchema.ONSET_STRENGTH] =
             compatible.map { it[AudioFeatureSchema.ONSET_STRENGTH] }.average().coerceIn(0.0, 1.0)
-        val energy = compatible.map { it[AudioFeatureSchema.INTRO_ENERGY] }
-        result[AudioFeatureSchema.INTRO_ENERGY] = energy.first()
-        result[AudioFeatureSchema.MIDDLE_ENERGY] = energy.getOrElse(1) { energy.first() }
-        result[AudioFeatureSchema.OUTRO_ENERGY] = energy.last()
+        // Keep original segment positions even when one region cannot be decoded.
+        // Missing regions borrow the nearest available measurement, not a mislabeled slice.
+        val energy = vectors.map { it?.takeIf(AudioFeatureSchema::isCompatible)?.get(AudioFeatureSchema.INTRO_ENERGY) }
+        val first = energy.firstOrNull() ?: energy.firstNotNullOfOrNull { it } ?: return null
+        val last = energy.lastOrNull() ?: energy.lastOrNull { it != null } ?: first
+        result[AudioFeatureSchema.INTRO_ENERGY] = first
+        result[AudioFeatureSchema.MIDDLE_ENERGY] = energy.getOrNull(1) ?: first
+        result[AudioFeatureSchema.OUTRO_ENERGY] = last
         // Key is categorical; averaging roots (or major/minor flags) would produce a false key.
         // Vote across independently analyzed regions and reduce confidence for disagreement.
         val keyVotes = compatible.filter { it[AudioFeatureSchema.KEY_CONFIDENCE] >= 0.08 }
