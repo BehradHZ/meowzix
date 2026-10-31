@@ -47,6 +47,7 @@ object RecommendationRanking {
         model: ModelTrackScore?,
         sampleCount: Long,
         feedback: RecommendationFeedbackEffect = RecommendationFeedbackEffect(),
+        explorationPercent: Int = 15,
     ): Pair<TrackScore, ScoreBreakdown> {
         val base = AdaptiveScorer().score(candidate, context.timestamp)
         val blend = if (model == null) 0.0 else RecommendationConfig.learnedWeight(sampleCount)
@@ -54,7 +55,9 @@ object RecommendationRanking {
         val learnedPreference = model?.let { (it.expectedReward + 1.0) / 2.0 } ?: heuristicPreference
         val underObserved = 1.0 / (1.0 + candidate.global.starts.coerceAtLeast(0))
         val uncertainty = model?.uncertainty ?: underObserved
-        val exploration = ((1.0 - blend) * 0.10 * underObserved + blend * RecommendationConfig.ALPHA * uncertainty / (1.0 + uncertainty))
+        val exploration = (((1.0 - blend) * 0.10 * underObserved +
+            blend * RecommendationConfig.ALPHA * uncertainty / (1.0 + uncertainty)) *
+            explorationPercent.coerceIn(0, 50) / 15.0)
             .coerceIn(0.0, RecommendationConfig.MAX_EXPLORATION_BONUS)
         val explicit = (if (feedback.moreLikeThis) MORE_LIKE_BONUS else 0.0) -
             (if (feedback.suggestLess) SUGGEST_LESS_PENALTY else 0.0)
@@ -79,7 +82,8 @@ object RecommendationRanking {
 /** Section policies select from one shared ranked pool but apply policy-specific evidence. */
 class RecommendationSectionGenerator(private val similarity: TrackSimilarityCalculator = LocalTrackSimilarityCalculator()) {
     fun sections(pool: List<RankedRecommendationCandidate>, context: RecommendationContext, seed: Long,
-        anchors: List<RankedRecommendationCandidate>, limit: Int = RecommendationConfig.SECTION_SIZE): List<RecommendationSection> {
+        anchors: List<RankedRecommendationCandidate>, limit: Int = RecommendationConfig.SECTION_SIZE,
+        explorationPercent: Int = 0): List<RecommendationSection> {
         val timeEvidence = pool.count { it.candidate.time.starts >= MIN_TIME_BUCKET_STARTS }
         val timePool = if (timeEvidence >= MIN_TIME_BUCKET_CANDIDATES) {
             pool.map(::timeMixAdjusted)
@@ -89,8 +93,8 @@ class RecommendationSectionGenerator(private val similarity: TrackSimilarityCalc
             pool
         }
         val result = arrayListOf(
-            section(RecommendationSectionKind.FOR_YOU_NOW, pool, context, seed, limit),
-            section(RecommendationSectionKind.TIME_MIX, timePool, context, seed + 1, limit),
+            section(RecommendationSectionKind.FOR_YOU_NOW, pool, context, seed, limit, explorationPercent = explorationPercent),
+            section(RecommendationSectionKind.TIME_MIX, timePool, context, seed + 1, limit, explorationPercent = explorationPercent),
         )
         val positive = pool.filter { previouslyLiked(it) && !stronglyRejected(it) }
         val horizon = context.timestamp.minusSeconds(RecommendationConfig.REDISCOVER_DAYS * 86_400)
@@ -160,20 +164,38 @@ class RecommendationSectionGenerator(private val similarity: TrackSimilarityCalc
         }
 
     private fun section(kind: RecommendationSectionKind, candidates: List<RankedRecommendationCandidate>,
-        context: RecommendationContext, seed: Long, limit: Int, anchor: RankedRecommendationCandidate? = null): RecommendationSection {
-        val items = diverseOrder(candidates, seed, limit.coerceIn(0, 50))
+        context: RecommendationContext, seed: Long, limit: Int, anchor: RankedRecommendationCandidate? = null,
+        explorationPercent: Int = 0): RecommendationSection {
+        val items = diverseOrder(candidates, seed, limit.coerceIn(0, 50), explorationPercent)
         return RecommendationSection(kind, items, if (kind == RecommendationSectionKind.TIME_MIX) context.timeBucket else null,
             anchor?.candidate?.trackId, anchor?.title)
     }
 
     /** Sampling a top window + soft sequential artist penalty. Small one-artist libraries stay usable. */
-    fun diverseOrder(pool: List<RankedRecommendationCandidate>, seed: Long, limit: Int): List<RecommendationItem> {
+    fun diverseOrder(pool: List<RankedRecommendationCandidate>, seed: Long, limit: Int,
+        explorationPercent: Int = 0): List<RecommendationItem> {
         val random = Random(seed)
         val remaining = pool.distinctBy { it.candidate.trackId }.sortedWith(compareByDescending<RankedRecommendationCandidate> { it.item.score.finalScore }.thenBy { it.candidate.trackId }).toMutableList()
         val output = ArrayList<RecommendationItem>()
         val artists = ArrayList<String?>()
         while (remaining.isNotEmpty() && output.size < limit) {
-            val window = remaining.take(10)
+            // A percentage is a seeded probability per choice, not a fixed alternating pattern.
+            // Unplayed tracks go first; once exposed they yield to other under-observed tracks.
+            val wantsDiscovery = explorationPercent > 0 &&
+                random.nextInt(100) < explorationPercent.coerceIn(0, 50)
+            val discovery = if (wantsDiscovery) {
+                val unheard = remaining.asSequence().filter { it.candidate.global.starts == 0 }.take(10).toList()
+                if (unheard.isNotEmpty()) unheard else {
+                    val sparse = remaining.filter {
+                        it.candidate.global.starts in 1..3 && !stronglyRejected(it)
+                    }
+                    val leastStarts = sparse.minOfOrNull { it.candidate.global.starts }
+                    if (leastStarts == null) emptyList()
+                    else sparse.filter { it.candidate.global.starts == leastStarts }.take(10)
+                }
+            } else emptyList()
+            val exploring = discovery.isNotEmpty()
+            val window = if (exploring) discovery else remaining.take(10)
             val scores = window.map { candidate ->
                 val distance = candidate.profile.artist?.let { artists.indexOf(it) } ?: -1
                 candidate.item.score.finalScore - if (distance >= 0) 0.20 / (distance + 1) else 0.0
@@ -185,7 +207,9 @@ class RecommendationSectionGenerator(private val similarity: TrackSimilarityCalc
             for (i in window.indices) { roll -= weights[i]; if (roll <= 0.0) { index = i; break } }
             val selected = window[index]
             val variety = selected.profile.artist != null && artists.any { it != null } && selected.profile.artist !in artists
-            val reasons = (selected.item.score.reasons + if (variety) listOf(RecommendationReason.AVOIDED_RECENT_REPETITION) else emptyList()).distinct().take(4)
+            val reasons = ((if (exploring) listOf(RecommendationReason.DISCOVERY_PICK) else emptyList()) +
+                selected.item.score.reasons +
+                (if (variety) listOf(RecommendationReason.AVOIDED_RECENT_REPETITION) else emptyList())).distinct().take(4)
             output += selected.item.copy(score = selected.item.score.copy(finalScore = scores[index], reasons = reasons))
             artists.add(0, selected.profile.artist)
             if (artists.size > 5) artists.removeAt(artists.lastIndex)
