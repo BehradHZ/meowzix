@@ -28,9 +28,31 @@ class RecommendationWorkScheduler @Inject constructor(
         WorkManager.getInstance(context).enqueueUniqueWork("personalization-training", ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
+    /**
+     * Only one listening-window request exists at a time. A track change cancels obsolete
+     * prefetch without accumulating hundreds of stale jobs or competing with audio playback.
+     * WorkManager runs it opportunistically and the coordinator serializes the actual decoding.
+     */
+    fun schedulePlaybackWindow(trackIds: List<UUID>) {
+        val ids = trackIds.distinct().take(3)
+        if (ids.isEmpty()) return
+        val constraints = Constraints.Builder()
+            .setRequiresBatteryNotLow(true)
+            .setRequiresStorageNotLow(true)
+            .build()
+        val request = OneTimeWorkRequestBuilder<AudioFeatureExtractionWorker>()
+            .setInputData(workDataOf("tracks" to ids.map(UUID::toString).toTypedArray()))
+            .setConstraints(constraints)
+            .addTag("audio-features-on-play")
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "audio-features-playback-window", ExistingWorkPolicy.REPLACE, request,
+        )
+    }
+
     fun scheduleAudio(trackIds: Collection<UUID>, bulk: Boolean = false) {
         trackIds.distinct().chunked(100).forEach { ids ->
-            val constraints = Constraints.Builder().setRequiresBatteryNotLow(true)
+            val constraints = Constraints.Builder().setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true)
             if (bulk) constraints.setRequiresCharging(true).setRequiresDeviceIdle(true)
             val request = OneTimeWorkRequestBuilder<AudioFeatureExtractionWorker>()
                 .setInputData(workDataOf("tracks" to ids.map(UUID::toString).toTypedArray()))
