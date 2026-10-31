@@ -32,14 +32,14 @@ import kotlinx.coroutines.withContext
  *
  * At most three 10-second representative regions are decoded: shortly after the intro, near the
  * middle, and near the end. Short or effectively unseekable tracks degrade to whatever regions can
- * be read safely. Raw audio is never persisted; only the compact normalized schema-v3 vector is.
+ * be read safely. Raw audio is never persisted; only the compact normalized, versioned acoustic vector is.
  */
 @Singleton
 class AndroidPcmAudioFeatureExtractor @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) : AudioFeatureExtractor {
     override val extractorName: String = "android-pcm-summary"
-    override val extractorVersion: String = "4-energy-onset-budgeted-3x10s"
+    override val extractorVersion: String = "5-key-energy-onset-budgeted-3x10s"
     override val schemaVersion: Int = AudioFeatureSchema.VERSION
 
     override suspend fun extract(trackId: UUID, source: AudioFeatureSource): AudioFeatureVector? =
@@ -254,6 +254,22 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
         result[AudioFeatureSchema.INTRO_ENERGY] = energy.first()
         result[AudioFeatureSchema.MIDDLE_ENERGY] = energy.getOrElse(1) { energy.first() }
         result[AudioFeatureSchema.OUTRO_ENERGY] = energy.last()
+        // Key is categorical; averaging roots (or major/minor flags) would produce a false key.
+        // Vote across independently analyzed regions and reduce confidence for disagreement.
+        val keyVotes = compatible.filter { it[AudioFeatureSchema.KEY_CONFIDENCE] >= 0.08 }
+            .groupBy {
+                val root = (it[AudioFeatureSchema.KEY_ROOT] * 11.0).toInt().coerceIn(0, 11)
+                root to (it[AudioFeatureSchema.KEY_MAJOR] >= 0.5)
+            }
+        val winner = keyVotes.maxByOrNull { (_, votes) ->
+            votes.sumOf { it[AudioFeatureSchema.KEY_CONFIDENCE] }
+        }
+        if (winner != null) {
+            result[AudioFeatureSchema.KEY_ROOT] = winner.key.first / 11.0
+            result[AudioFeatureSchema.KEY_MAJOR] = if (winner.key.second) 1.0 else 0.0
+            result[AudioFeatureSchema.KEY_CONFIDENCE] =
+                (winner.value.sumOf { it[AudioFeatureSchema.KEY_CONFIDENCE] } / compatible.size).coerceIn(0.0, 1.0)
+        }
         return result.takeIf(AudioFeatureSchema::isCompatible)
     }
 
