@@ -12,6 +12,8 @@ internal fun reduceRecommendationCandidateIds(
     priorityTrackIds: List<UUID>,
     limit: Int,
     seed: Long,
+    unplayedTrackIds: List<UUID> = emptyList(),
+    explorationPercent: Int = 0,
 ): List<UUID> {
     val boundedLimit = limit.coerceAtLeast(1)
     val allowed = LinkedHashSet<UUID>(allowedTrackIds.size).apply { addAll(allowedTrackIds) }.toList()
@@ -25,8 +27,21 @@ internal fun reduceRecommendationCandidateIds(
         .take(priorityBudget)
         .toList()
     val prioritySet = priority.toHashSet()
-    val sampleLimit = boundedLimit - priority.size
-    if (sampleLimit <= 0) return priority.take(boundedLimit)
+
+    // Reserve room for never-played tracks before sampling the rest. Stable ordering and
+    // persisted start counts make the reserved window advance as tracks receive exposure.
+    val discoveryBudget = if (explorationPercent > 0) {
+        maxOf(1, boundedLimit * explorationPercent.coerceIn(0, 50) / 100)
+            .coerceAtMost(boundedLimit - priority.size)
+    } else 0
+    val unplayed = unplayedTrackIds.asSequence()
+        .filter { it in allowedSet && it !in prioritySet }
+        .distinct()
+        .take(discoveryBudget)
+        .toList()
+    val reserved = (priority + unplayed).toHashSet()
+    val sampleLimit = boundedLimit - reserved.size
+    if (sampleLimit <= 0) return priority + unplayed
 
     // Reservoir sampling is O(N) over UUIDs but O(limit) in memory and never materializes Track,
     // TrackSource, history-stat, acoustic-feature, or model-feature objects for the full library.
@@ -34,7 +49,7 @@ internal fun reduceRecommendationCandidateIds(
     val reservoir = ArrayList<UUID>(sampleLimit)
     var seen = 0
     for (trackId in allowed) {
-        if (trackId in prioritySet) continue
+        if (trackId in reserved) continue
         seen += 1
         if (reservoir.size < sampleLimit) {
             reservoir += trackId
@@ -43,5 +58,5 @@ internal fun reduceRecommendationCandidateIds(
             if (index < sampleLimit) reservoir[index] = trackId
         }
     }
-    return priority + reservoir
+    return priority + unplayed + reservoir
 }
