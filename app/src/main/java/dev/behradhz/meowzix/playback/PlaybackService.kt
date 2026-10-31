@@ -43,6 +43,7 @@ import com.google.common.util.concurrent.SettableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.MainActivity
 import dev.behradhz.meowzix.R
+import dev.behradhz.meowzix.data.recommendation.AudioFeatureExtractionCoordinator
 import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
@@ -91,6 +92,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var playbackCatalog: PlaybackCatalog
     @Inject lateinit var remotePlaybackResolver: RemoteTrackPlaybackResolver
     @Inject lateinit var audioVisualizer: AudioVisualizerRepository
+    @Inject lateinit var audioFeatureCoordinator: AudioFeatureExtractionCoordinator
     @Inject lateinit var libraryRepository: MusicLibraryRepository
     @Inject lateinit var progressiveQueue: ProgressiveQueue
     @Inject lateinit var sleepTimer: SleepTimerManager
@@ -101,6 +103,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var libraryQueryRepository: LibraryQueryRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var lastAudioAnalysisTrackId: UUID? = null
     private val liveSongTransitionRetry = LiveSongTransitionRetry(
         scope = serviceScope,
         retryDelayMs = LIVE_SONG_TRANSITION_RETRY_MS,
@@ -594,6 +597,35 @@ class PlaybackService : MediaLibraryService() {
                 }
             } else if (events.contains(Player.EVENT_TIMELINE_CHANGED)) {
                 expandProgressiveWindow()
+            }
+            if (player.isPlaying && events.containsAny(
+                    Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    Player.EVENT_PLAYBACK_STATE_CHANGED,
+                    Player.EVENT_IS_PLAYING_CHANGED,
+                )
+            ) {
+                val playingId = player.currentMediaItem?.mediaId
+                    ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                if (playingId != null && playingId != lastAudioAnalysisTrackId) {
+                    lastAudioAnalysisTrackId = playingId
+                    val logical = progressiveQueue.snapshot()
+                    val upcoming = if (logical != null) {
+                        logical.tracks.asSequence().drop(logical.currentIndex + 1).map { it.id }.take(8).toList()
+                    } else {
+                        ((player.currentMediaItemIndex + 1) until player.mediaItemCount)
+                            .asSequence().mapNotNull { index ->
+                                runCatching { UUID.fromString(player.getMediaItemAt(index).mediaId) }.getOrNull()
+                            }.take(8).toList()
+                    }
+                    val analysisIds = (sequenceOf(playingId) + upcoming.asSequence()).distinct().take(3).toList()
+                    serviceScope.launch {
+                        if (settingsRepository.recommendationPreferenceSettings.first().audioAnalysisEnabled &&
+                            player.currentMediaItem?.mediaId == playingId.toString()
+                        ) {
+                            audioFeatureCoordinator.schedulePlaybackWindow(analysisIds)
+                        }
+                    }
+                }
             }
             // Once a manually queued occurrence actually starts playing, it is
             // consumed from the fixed Queue. Keep its occurrence in the session
