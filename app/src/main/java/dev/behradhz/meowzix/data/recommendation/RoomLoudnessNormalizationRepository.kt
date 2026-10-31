@@ -24,7 +24,9 @@ class RoomLoudnessNormalizationRepository @Inject constructor(
     private val extractionCoordinator: AudioFeatureExtractionCoordinator,
 ) : LoudnessNormalizationRepository {
     override suspend fun fallbackAnalysis(trackId: UUID): LoudnessAnalysis {
-        extractionCoordinator.extractIfNeeded(trackId)
+        // Do not decode PCM synchronously in the playback gain path.
+        // If the cached vector is absent, normalization returns neutral until a later listen.
+        extractionCoordinator.schedule(trackId)
         val existing = loudnessDao.latest(trackId.toString(), ANALYSIS_VERSION)
         val feature = audioFeatureDao.compatibleVector(
             trackId.toString(),
