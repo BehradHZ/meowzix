@@ -8,7 +8,7 @@ import kotlin.math.sqrt
 
 /** Fixed acoustic order; descriptors are normalized to [0,1], frequency relative to Nyquist. */
 object AudioFeatureSchema {
-    const val VERSION = 3
+    const val VERSION = 4
     const val RMS = 0
     const val ZERO_CROSSING_RATE = 1
     const val SILENCE_RATIO = 2
@@ -17,6 +17,10 @@ object AudioFeatureSchema {
     const val SPECTRAL_ROLLOFF = 5
     const val TEMPO_BPM = 6
     const val TEMPO_CONFIDENCE = 7
+    const val ONSET_STRENGTH = 8
+    const val INTRO_ENERGY = 9
+    const val MIDDLE_ENERGY = 10
+    const val OUTRO_ENERGY = 11
     const val MIN_TEMPO_BPM = 60.0
     const val MAX_TEMPO_BPM = 200.0
     val names = listOf(
@@ -28,6 +32,10 @@ object AudioFeatureSchema {
         "spectral_rolloff",
         "tempo_bpm_norm",
         "tempo_confidence",
+        "onset_strength",
+        "intro_energy",
+        "middle_energy",
+        "outro_energy",
     )
 
     fun isCompatible(values: DoubleArray): Boolean =
@@ -99,6 +107,8 @@ class PcmAudioAnalysis(
     private var previous: Double? = null
     private val energies = ArrayList<Double>()
     private var silentFrames = 0
+    private var positiveOnsetEnergy = 0.0
+    private var previousFrameRms: Double? = null
     private var centroidSum = 0.0
     private var rolloffSum = 0.0
     private var spectralFrames = 0
@@ -132,6 +142,10 @@ class PcmAudioAnalysis(
             if (spectralFrames == 0) 0.0 else rolloffSum / spectralFrames,
             tempo?.let { AudioFeatureSchema.normalizeTempoBpm(it.first) } ?: 0.0,
             tempo?.second ?: 0.0,
+            (positiveOnsetEnergy / energies.size.coerceAtLeast(1) * 8.0).coerceIn(0.0, 1.0),
+            sqrt(sumSquares / sampleCount).coerceIn(0.0, 1.0),
+            sqrt(sumSquares / sampleCount).coerceIn(0.0, 1.0),
+            sqrt(sumSquares / sampleCount).coerceIn(0.0, 1.0),
         )
     }
 
@@ -140,6 +154,8 @@ class PcmAudioAnalysis(
         var energy = 0.0
         for (i in 0 until count) energy += frame[i] * frame[i]
         val rms = sqrt(energy / count)
+        previousFrameRms?.let { positiveOnsetEnergy += max(0.0, rms - it) }
+        previousFrameRms = rms
         energies += rms
         if (rms < SILENCE_THRESHOLD) {
             silentFrames++
