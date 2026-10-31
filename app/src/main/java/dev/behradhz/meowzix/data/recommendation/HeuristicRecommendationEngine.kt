@@ -177,9 +177,8 @@ class HeuristicRecommendationEngine @Inject constructor(
                 track.normalizedArtist?.let(artistStats::get)?.let { PersonalizationFeatureVectorizer.affinity(it) } ?: 0.0, breakdown)
         }
         val validSet = valid.mapTo(hashSetOf()) { it.trackId }
-        // Small opportunistic work is bounded; bulk analysis is an explicit maintenance action.
-        // Optional background analysis must never prevent a usable recommendation/Smart queue.
-        safely { audioFeatureExtractionCoordinator.schedule(valid.take(20).map { it.trackId }) }
+        // Do not start decode work merely because a ranking surface was opened.
+        // Real playback schedules only the current song and up to two successors.
         return RankedPool(ranked.filter { it.candidate.trackId in validSet }, ranked.filter { it.candidate in anchorCandidates },
             context, allowed.toSet(), explorationPercent)
     }
