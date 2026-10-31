@@ -182,4 +182,58 @@ class RecommendationPolicyTest {
         repeat(100) { model.update(DoubleArray(model.dimension) { 0.5 }, -0.7) }
         assertEquals(before, PureShuffleEngine.newCycle(ids, seed = 42L))
     }
+
+    @Test fun explorationSettingControlsRealDiscoveryWithoutForcingAlternation() {
+        fun scored(candidate: RankedRecommendationCandidate, value: Double) =
+            candidate.copy(item = candidate.item.copy(score = candidate.item.score.copy(finalScore = value)))
+        val known = (1L..50L).map {
+            scored(candidate(it, stats = PreferenceSnapshot(starts = 20, completions = 15)), 2.0)
+        }
+        val unheard = (51L..100L).map { scored(candidate(it), -2.0) }
+        val pool = known + unheard
+        val generator = RecommendationSectionGenerator()
+        val off = generator.diverseOrder(pool, 42L, 20, explorationPercent = 0)
+        val half = generator.diverseOrder(pool, 42L, 20, explorationPercent = 50)
+        val unheardIds = unheard.map { it.candidate.trackId }.toSet()
+
+        assertTrue(off.none { it.trackId in unheardIds })
+        assertTrue(half.any { it.trackId in unheardIds })
+        assertEquals(half, generator.diverseOrder(pool, 42L, 20, explorationPercent = 50))
+        assertEquals(20, half.map { it.trackId }.distinct().size)
+        assertTrue(half.any { RecommendationReason.DISCOVERY_PICK in it.score.reasons })
+        assertTrue(half.any { it.trackId !in unheardIds })
+    }
+
+    @Test fun exposureRotatesThroughUnplayedTracksAcrossRegeneratedQueues() {
+        val generator = RecommendationSectionGenerator()
+        val neverPlayed = (1L..50L).map { candidate(it) }
+        val known = (51L..100L).map {
+            val scored = candidate(it, stats = PreferenceSnapshot(starts = 20, completions = 15))
+            scored.copy(item = scored.item.copy(score = scored.item.score.copy(finalScore = 2.0)))
+        }
+        var pool = neverPlayed + known
+        val seen = mutableSetOf<UUID>()
+        repeat(20) { round ->
+            val result = generator.diverseOrder(pool, round.toLong() + 100L, 10, explorationPercent = 50)
+            val newIds = result.map { it.trackId }.filter { it in neverPlayed.map { n -> n.candidate.trackId } }.toSet()
+            seen += newIds
+            pool = pool.map { item ->
+                if (item.candidate.trackId in newIds) item.copy(
+                    candidate = item.candidate.copy(global = item.candidate.global.copy(starts = 1)),
+                ) else item
+            }
+        }
+        assertEquals(50, seen.size)
+    }
+
+    @Test fun explorationBonusRespectsOffAndMaxBounds() {
+        val c = candidate(111).candidate
+        val off = RecommendationRanking.score(c, context, null, 0, explorationPercent = 0).first
+        val normal = RecommendationRanking.score(c, context, null, 0, explorationPercent = 15).first
+        val high = RecommendationRanking.score(c, context, null, 0, explorationPercent = 50).first
+        assertTrue(off.finalScore < normal.finalScore)
+        assertTrue(normal.finalScore <= high.finalScore)
+        assertTrue(high.finalScore - off.finalScore <= RecommendationConfig.MAX_EXPLORATION_BONUS + 1e-12)
+    }
+
 }
