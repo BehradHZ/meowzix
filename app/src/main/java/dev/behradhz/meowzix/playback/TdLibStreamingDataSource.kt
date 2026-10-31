@@ -13,6 +13,8 @@ import androidx.media3.datasource.TransferListener
 import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrity
 import dev.behradhz.meowzix.data.telegram.TdDownloadPriority
 import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
+import dev.behradhz.meowzix.data.telegram.TELEGRAM_FILE_UNIQUE_ID_QUERY
+import dev.behradhz.meowzix.data.telegram.matchesTelegramFileIdentity
 import dev.behradhz.meowzix.data.telegram.readableEndAt
 import java.io.File
 import java.io.IOException
@@ -97,6 +99,7 @@ private class RoutingDataSource(
 private class TdLibStreamingDataSource : BaseDataSource(true) {
     private var openedUri: Uri? = null
     private var fileId: Int = 0
+    private var expectedFileUniqueId: String? = null
     private var randomAccessFile: RandomAccessFile? = null
     private var openedPath: String? = null
     private var readPosition: Long = 0L
@@ -114,16 +117,22 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         closed = false
         val id = dataSpec.uri.lastPathSegment?.toIntOrNull()
             ?: throw IOException("Invalid Telegram playback URI: ${dataSpec.uri}")
+        val expectedUniqueId = dataSpec.uri.getQueryParameter(TELEGRAM_FILE_UNIQUE_ID_QUERY)
+        if (expectedUniqueId.isNullOrBlank()) {
+            throw IOException("Telegram source identity missing; refresh the source before playback")
+        }
         val client = runBlockingIo { awaitActiveClient() }
             ?: throw IOException("Telegram is not ready yet after retrying")
 
         openedUri = dataSpec.uri
         fileId = id
+        expectedFileUniqueId = expectedUniqueId
         readPosition = dataSpec.position
         bytesRemaining = dataSpec.length
 
         val initialWindow = runBlockingIo {
             val seeded = seedFileStateWithRetry(client, id)
+            verifyFileIdentity(seeded)
             if (!seeded.local.isDownloadingCompleted) {
                 ensureDownload(
                     client = client,
@@ -236,6 +245,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         resetFileHandle()
         openedUri = null
         fileId = 0
+        expectedFileUniqueId = null
         if (opened) {
             opened = false
             transferEnded()
@@ -293,6 +303,12 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         throw IOException("Unable to resolve Telegram file state after retrying", lastError)
     }
 
+    private fun verifyFileIdentity(file: TdApi.File) {
+        if (!matchesTelegramFileIdentity(expectedFileUniqueId, file.remote.uniqueId)) {
+            throw IOException("Telegram audio identity changed; refresh the source before playback")
+        }
+    }
+
     private suspend fun waitForReadableWindow(position: Long): ReadableWindow {
         var recoveryAttempts = 0
         var corruptCompletionRetries = 0
@@ -301,6 +317,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             val client = awaitActiveClient()
                 ?: throw IOException("Telegram remained disconnected during playback")
             var state = client.fileStates.current(fileId) ?: seedFileStateWithRetry(client, fileId)
+            verifyFileIdentity(state)
             if (state.local.isDownloadingCompleted && !isValidCompletedFile(state)) {
                 // Completed with missing or truncated bytes is not EOF. Retry real Telegram bytes.
                 if (++corruptCompletionRetries > MAX_CORRUPT_COMPLETION_RETRIES) {
@@ -313,6 +330,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
                         fileId, TdDownloadPriority.CURRENT_TRACK_AUDIO, 0L, 0L, false,
                     ),
                 )
+                verifyFileIdentity(restarted)
                 client.fileStates.publish(restarted)
                 continue
             }
@@ -339,6 +357,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             checkOpen()
             if (pushedState != null) {
                 state = pushedState
+                verifyFileIdentity(state)
                 val pushedReadableEnd = resolveReadableEnd(client, state, position)
                 if (pushedReadableEnd > position || isAtEnd(state, position)) {
                     return ReadableWindow(state, pushedReadableEnd)
@@ -354,6 +373,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             val refreshed = runCatching { client.refreshFileState(fileId) }.getOrNull()
             if (refreshed != null) {
                 state = refreshed
+                verifyFileIdentity(state)
                 val refreshedReadableEnd = resolveReadableEnd(client, state, position)
                 if (refreshedReadableEnd > position || isAtEnd(state, position)) {
                     return ReadableWindow(state, refreshedReadableEnd)

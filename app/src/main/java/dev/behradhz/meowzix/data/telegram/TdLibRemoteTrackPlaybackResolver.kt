@@ -92,8 +92,11 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             album = track.album,
             durationMs = track.durationMs,
             artworkRef = track.artworkRef,
-            contentUri = streamUri(source.candidate.fileId, trackId) +
-                if (bypassLocalCache) "&ignoreCache=1" else "",
+            contentUri = telegramStreamUri(
+                source.candidate.fileId,
+                trackId.toString(),
+                source.candidate.persistentFileId,
+            ) + if (bypassLocalCache) "&ignoreCache=1" else "",
         )
     }
 
@@ -208,8 +211,14 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
 
         telegramSource.tdFileId?.let { persistedFileId ->
-            val stateValid = runCatching { client.seedFileState(persistedFileId) }.isSuccess
-            if (stateValid) {
+            val persisted = runCatching { client.seedFileState(persistedFileId) }.getOrNull()
+            // Numeric TDLib IDs can be reused after reconnecting. Never bind a
+            // playable song to an ID without verifying its stable file identity.
+            if (persisted != null && matchesTelegramFileIdentity(
+                    telegramSource.tdPersistentFileId,
+                    persisted.remote.uniqueId,
+                )
+            ) {
                 return ResolvedTelegramSource(
                     telegramTrackSourceId = telegramSource.trackSourceId,
                     remoteSource = remoteSource,
@@ -459,9 +468,6 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
 
     private companion object {
         const val PREFETCH_BYTES = 2L * 1024L * 1024L
-
-        fun streamUri(fileId: Int, trackId: UUID): String =
-            "meowzix-tdlib://audio/$fileId?trackId=$trackId"
     }
 }
 

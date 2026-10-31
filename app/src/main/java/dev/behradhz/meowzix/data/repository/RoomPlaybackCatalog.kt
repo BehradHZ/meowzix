@@ -9,6 +9,7 @@ import dev.behradhz.meowzix.data.db.PlaylistDao
 import dev.behradhz.meowzix.data.db.RecommendationDao
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
+import dev.behradhz.meowzix.data.telegram.telegramStreamUri
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.domain.playback.BrowseAlbum
@@ -286,8 +287,13 @@ class RoomPlaybackCatalog @Inject constructor(
                 }
                 .mapNotNull { source -> telegramBySource[source.id] }
                 .firstOrNull { it.tdFileId != null }
-                ?.tdFileId
-                ?.let { fileId -> "meowzix-tdlib://audio/$fileId?trackId=${track.id}" }
+                ?.let { source ->
+                    telegramStreamUri(
+                        requireNotNull(source.tdFileId),
+                        track.id,
+                        source.tdPersistentFileId,
+                    )
+                }
         } ?: return null
 
         return PlayableTrack(
