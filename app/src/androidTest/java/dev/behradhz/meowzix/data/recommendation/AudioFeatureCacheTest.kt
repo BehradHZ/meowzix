@@ -33,6 +33,7 @@ class AudioFeatureCacheTest {
             extractor,
             RecommendationWorkScheduler(context),
             TestManagedStorageRepository,
+            AudioAnalysisResourcePolicy(context),
             context,
         )
     }
