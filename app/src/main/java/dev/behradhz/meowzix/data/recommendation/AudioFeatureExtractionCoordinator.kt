@@ -29,11 +29,13 @@ class AudioFeatureExtractionCoordinator @Inject constructor(
     private val extractor: AudioFeatureExtractor,
     private val scheduler: RecommendationWorkScheduler,
     private val managedStorage: ManagedStorageRepository,
+    private val resourcePolicy: AudioAnalysisResourcePolicy,
     @param:ApplicationContext private val context: Context,
 ) {
     private val gate = Mutex()
     fun schedule(trackIds: Collection<UUID>) = scheduler.scheduleAudio(trackIds)
     fun schedule(trackId: UUID) = schedule(listOf(trackId))
+    fun schedulePlaybackWindow(trackIds: List<UUID>) = scheduler.schedulePlaybackWindow(trackIds)
     suspend fun scheduleBulk() {
         if (managedStorage.usage().lowSpace) return
         scheduler.scheduleAudio(libraryDao.allTracks().map { UUID.fromString(it.id) }, bulk = true)
@@ -42,9 +44,9 @@ class AudioFeatureExtractionCoordinator @Inject constructor(
     suspend fun extractIfNeeded(trackId: UUID) = withContext(Dispatchers.IO) {
         // Analysis is opportunistic. Low disk space must preserve playback/download headroom and
         // recovery is automatic: a later scheduled extraction rechecks current storage state.
-        if (managedStorage.usage().lowSpace) return@withContext
+        if (!resourcePolicy.mayAnalyze() || managedStorage.usage().lowSpace) return@withContext
         gate.withLock {
-            if (managedStorage.usage().lowSpace) return@withLock
+            if (!resourcePolicy.mayAnalyze() || managedStorage.usage().lowSpace) return@withLock
             val sources = libraryDao.sourcesForTrack(trackId.toString()).filter {
                 it.trainingEligible && it.availability == SourceAvailability.AVAILABLE_LOCAL &&
                     (!it.contentUri.isNullOrBlank() || !it.localPath.isNullOrBlank())
@@ -66,6 +68,7 @@ class AudioFeatureExtractionCoordinator @Inject constructor(
                         source.localPath, source.mimeType, source.fileSizeBytes, hash))
                 } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null } ?: continue
                 if (!AudioFeatureSchema.isCompatible(vector.values)) continue
+                if (!resourcePolicy.mayAnalyze()) return@withLock
                 val afterHash = try { contentHash(source) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
                 if (afterHash != hash) continue
                 audioFeatureDao.put(AudioFeatureVectorEntity(vector.id.toString(), trackId.toString(), source.id,
