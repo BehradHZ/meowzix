@@ -23,6 +23,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.withContext
 
 /**
@@ -37,13 +39,13 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) : AudioFeatureExtractor {
     override val extractorName: String = "android-pcm-summary"
-    override val extractorVersion: String = "3-multisegment-3x10s"
+    override val extractorVersion: String = "4-energy-onset-budgeted-3x10s"
     override val schemaVersion: Int = AudioFeatureSchema.VERSION
 
     override suspend fun extract(trackId: UUID, source: AudioFeatureSource): AudioFeatureVector? =
         withContext(Dispatchers.IO) {
             try {
-                decode(trackId, source)
+                withTimeoutOrNull(MAX_ANALYSIS_WALL_MS) { decode(trackId, source) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -53,9 +55,17 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
 
     private suspend fun decode(trackId: UUID, source: AudioFeatureSource): AudioFeatureVector? {
         val probe = probe(source) ?: return null
-        val vectors = representativeStarts(probe.durationUs).mapNotNull { startUs ->
+        val vectors = mutableListOf<DoubleArray>()
+        for (startUs in representativeStarts(probe.durationUs)) {
             currentCoroutineContext().ensureActive()
-            runCatching { decodeSegment(source, probe, startUs) }.getOrNull()
+            val vector = try {
+                decodeSegment(source, probe, startUs)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            if (vector != null) vectors += vector
         }
         if (vectors.isEmpty()) return null
         val combined = combineSegments(vectors) ?: return null
@@ -133,6 +143,7 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
                 var inputDone = false
                 var outputDone = false
                 var timeoutStreak = 0
+                var decodedBuffers = 0
 
                 while (!outputDone && !accumulator.full && timeoutStreak < MAX_TIMEOUT_STREAK) {
                     currentCoroutineContext().ensureActive()
@@ -176,6 +187,7 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
                             if (output != null && info.size > 0) accumulator.accept(output, info)
                             outputDone = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                             decoder.releaseOutputBuffer(outputIndex, false)
+                            if (++decodedBuffers % 8 == 0) yield()
                             progressed = true
                         }
                     }
@@ -236,6 +248,12 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
             .map { it[AudioFeatureSchema.TEMPO_CONFIDENCE] }
             .average()
             .coerceIn(0.0, 1.0)
+        result[AudioFeatureSchema.ONSET_STRENGTH] =
+            compatible.map { it[AudioFeatureSchema.ONSET_STRENGTH] }.average().coerceIn(0.0, 1.0)
+        val energy = compatible.map { it[AudioFeatureSchema.INTRO_ENERGY] }
+        result[AudioFeatureSchema.INTRO_ENERGY] = energy.first()
+        result[AudioFeatureSchema.MIDDLE_ENERGY] = energy.getOrElse(1) { energy.first() }
+        result[AudioFeatureSchema.OUTRO_ENERGY] = energy.last()
         return result.takeIf(AudioFeatureSchema::isCompatible)
     }
 
@@ -255,11 +273,15 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
         private var sampleRate = sampleRate.coerceAtLeast(1)
         private var channelCount = channelCount.coerceAtLeast(1)
         private var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
-        private var analysis = PcmAudioAnalysis(this.sampleRate)
+        private var downsampleFactor = (this.sampleRate / TARGET_ANALYSIS_SAMPLE_RATE).coerceAtLeast(1)
+        private var analysis = PcmAudioAnalysis(this.sampleRate / downsampleFactor)
+        private var samplesInDownsample = 0
+        private var downsampleSum = 0.0
+        private var decodedFrames = 0L
         private var channelSum = 0.0
         private var channelsRead = 0
         val sampleCount: Long get() = analysis.sampleCount
-        val full: Boolean get() = sampleCount >= sampleRate.toLong() * analysisSeconds
+        val full: Boolean get() = decodedFrames >= sampleRate.toLong() * analysisSeconds
 
         fun updateFormat(format: MediaFormat) {
             val newSampleRate = format.intOrNull(MediaFormat.KEY_SAMPLE_RATE)?.coerceAtLeast(1) ?: sampleRate
@@ -270,7 +292,8 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
             }
             if (sampleCount == 0L && newSampleRate != sampleRate) {
                 sampleRate = newSampleRate
-                analysis = PcmAudioAnalysis(sampleRate)
+                downsampleFactor = (sampleRate / TARGET_ANALYSIS_SAMPLE_RATE).coerceAtLeast(1)
+                analysis = PcmAudioAnalysis(sampleRate / downsampleFactor)
             }
         }
 
@@ -293,7 +316,14 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
                 channelSum += sample.coerceIn(-1.0, 1.0)
                 channelsRead++
                 if (channelsRead == channelCount) {
-                    analysis.accept(channelSum / channelCount)
+                    downsampleSum += channelSum / channelCount
+                    samplesInDownsample++
+                    decodedFrames++
+                    if (samplesInDownsample == downsampleFactor) {
+                        analysis.accept(downsampleSum / downsampleFactor)
+                        downsampleSum = 0.0
+                        samplesInDownsample = 0
+                    }
                     channelsRead = 0
                     channelSum = 0.0
                 }
@@ -311,7 +341,9 @@ class AndroidPcmAudioFeatureExtractor @Inject constructor(
         const val OUTRO_MARGIN_US = 3_000_000L
         const val SHORT_TRACK_US = 24_000_000L
         const val DEFAULT_SAMPLE_RATE = 44_100
-        const val BUFFER_BYTES = 1_048_576
+        const val BUFFER_BYTES = 65_536
+        const val TARGET_ANALYSIS_SAMPLE_RATE = 11_025
+        const val MAX_ANALYSIS_WALL_MS = 25_000L
         const val CODEC_TIMEOUT_US = 10_000L
         const val MAX_TIMEOUT_STREAK = 50
     }
