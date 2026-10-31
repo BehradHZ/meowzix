@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.data.recommendation
 
 import android.content.Context
+import android.os.BatteryManager
 import androidx.work.*
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -34,7 +35,11 @@ class RecommendationWorkScheduler @Inject constructor(
      * WorkManager runs it opportunistically and the coordinator serializes the actual decoding.
      */
     fun schedulePlaybackWindow(trackIds: List<UUID>) {
-        val ids = trackIds.distinct().take(3)
+        // On battery, analyze only the actual song. Speculative work for the next
+        // two tracks runs only while charging, reducing competition with other apps.
+        val battery = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        val maximum = if (battery?.isCharging == true) 3 else 1
+        val ids = trackIds.distinct().take(maximum)
         if (ids.isEmpty()) return
         val constraints = Constraints.Builder()
             .setRequiresBatteryNotLow(true)
