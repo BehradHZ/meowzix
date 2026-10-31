@@ -41,7 +41,7 @@ class HeuristicRecommendationEngine @Inject constructor(
     override suspend fun generate(allowedTrackIds: List<UUID>?, currentTrackId: UUID?, timeBucket: TimeBucket, seed: Long): SmartQueue =
         withContext(Dispatchers.Default) {
             val ranked = rank(allowedTrackIds, currentTrackId, timeBucket, seed)
-            val items = sectionGenerator.diverseOrder(ranked.pool, seed, ranked.pool.size)
+            val items = sectionGenerator.diverseOrder(ranked.pool, seed, ranked.pool.size, ranked.explorationPercent)
             remember(items)
             val finalScores = items.associate { it.trackId to it.score.finalScore }
             SmartQueue(items.map { it.trackId }, ranked.pool.associate { candidate ->
@@ -53,14 +53,15 @@ class HeuristicRecommendationEngine @Inject constructor(
     override suspend fun forYouNow(currentTrackId: UUID?, seed: Long): List<RecommendationItem> =
         withContext(Dispatchers.Default) {
             val ranked = rank(null, currentTrackId, null, seed)
-            sectionGenerator.diverseOrder(ranked.pool, seed, RecommendationConfig.SECTION_SIZE)
+            sectionGenerator.diverseOrder(ranked.pool, seed, RecommendationConfig.SECTION_SIZE, ranked.explorationPercent)
                 .also(::remember)
         }
 
     override suspend fun sections(currentTrackId: UUID?, seed: Long): List<RecommendationSection> = withContext(Dispatchers.Default) {
         val ranked = rank(null, currentTrackId, null, seed)
         val anchors = ranked.anchors.sortedByDescending { it.recent.strength + if (it.candidate.trackId == currentTrackId) 1.0 else 0.0 }.take(2)
-        val sections = sectionGenerator.sections(ranked.pool, ranked.context, seed, anchors)
+        val sections = sectionGenerator.sections(ranked.pool, ranked.context, seed, anchors,
+            explorationPercent = ranked.explorationPercent)
         remember(sections.flatMap { it.items })
         sections
     }
@@ -95,11 +96,19 @@ class HeuristicRecommendationEngine @Inject constructor(
             recommendationDao.preferredTrackIds(96).mapNotNull { it.uuid() }).distinct()
         // IDs are cheap to enumerate; only <=800 complete candidates/features are ever hydrated/scored.
         val offlineOnly = settings.networkPlaybackSettings.first().offlineMode
-        val eligible = recommendationDao.eligibleTrackIds(offlineOnly).mapNotNull { it.uuid() }.toHashSet()
-        val scoped = (allowedTrackIds ?: eligible.toList()).distinct().filter { it in eligible }
+        val explorationPercent = settings.recommendationPreferenceSettings.first().explorationPercent.coerceIn(0, 50)
+        val eligibleIds = recommendationDao.eligibleTrackIds(offlineOnly).mapNotNull { it.uuid() }
+        val eligible = eligibleIds.toHashSet()
+        val scoped = (allowedTrackIds ?: eligibleIds).distinct().filter { it in eligible }
         val allowed = (if (scoped.size > 1) scoped.filterNot { it == currentTrackId } else scoped)
             .filterNot { feedbackEffects[it]?.excluded == true }
-        val ids = reduceRecommendationCandidateIds(allowed, priorities, RecommendationConfig.CANDIDATE_LIMIT, seed)
+        // Reserve discovery candidates from the complete eligible set, not only the random
+        // 800-track sample. Exposure counts advance this window after each first play.
+        val unplayed = if (explorationPercent > 0 && allowed.size > RecommendationConfig.CANDIDATE_LIMIT) {
+            recommendationDao.unplayedTrackIds().mapNotNull { it.uuid() }
+        } else emptyList()
+        val ids = reduceRecommendationCandidateIds(allowed, priorities, RecommendationConfig.CANDIDATE_LIMIT,
+            seed, unplayed, explorationPercent)
         val hydrationIds = (ids + recentIds + listOfNotNull(currentTrackId, anchorId) + positiveIds.take(2) + feedbackPriorities.take(8)).distinct()
         if (hydrationIds.isEmpty()) return RankedPool(emptyList(), emptyList(), RecommendationContext(time.localHour, time.dayOfWeek.value, time.isWeekend, time.bucket, now))
         val strings = hydrationIds.map(UUID::toString)
@@ -160,6 +169,7 @@ class HeuristicRecommendationEngine @Inject constructor(
                 learned[candidate.trackId],
                 state.sampleCount,
                 feedbackEffects[candidate.trackId] ?: RecommendationFeedbackEffect(),
+                explorationPercent = explorationPercent,
             )
             RankedRecommendationCandidate(candidate, RecommendationItem(candidate.trackId, score),
                 SimilarityProfile(track.normalizedArtist, track.album, audio[track.id]), track.title,
@@ -170,7 +180,8 @@ class HeuristicRecommendationEngine @Inject constructor(
         // Small opportunistic work is bounded; bulk analysis is an explicit maintenance action.
         // Optional background analysis must never prevent a usable recommendation/Smart queue.
         safely { audioFeatureExtractionCoordinator.schedule(valid.take(20).map { it.trackId }) }
-        return RankedPool(ranked.filter { it.candidate.trackId in validSet }, ranked.filter { it.candidate in anchorCandidates }, context, allowed.toSet())
+        return RankedPool(ranked.filter { it.candidate.trackId in validSet }, ranked.filter { it.candidate in anchorCandidates },
+            context, allowed.toSet(), explorationPercent)
     }
 
     private fun remember(items: List<RecommendationItem>) = synchronized(explanationCache) {
@@ -179,7 +190,9 @@ class HeuristicRecommendationEngine @Inject constructor(
     }
     private suspend fun <T> safely(block: suspend () -> T): T? = try { block() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
     private fun String.uuid(): UUID? = try { UUID.fromString(this) } catch (_: IllegalArgumentException) { null }
-    private data class RankedPool(val pool: List<RankedRecommendationCandidate>, val anchors: List<RankedRecommendationCandidate>, val context: RecommendationContext, val eligibleTrackIds: Set<UUID> = emptySet())
+    private data class RankedPool(val pool: List<RankedRecommendationCandidate>, val anchors: List<RankedRecommendationCandidate>,
+        val context: RecommendationContext, val eligibleTrackIds: Set<UUID> = emptySet(),
+        val explorationPercent: Int = 0)
 }
 
 private fun TrackPreferenceStatsEntity.snapshot() = PreferenceSnapshot(totalStarts, totalCompletions, earlySkips, manualSelections, replays, lateSkips)
