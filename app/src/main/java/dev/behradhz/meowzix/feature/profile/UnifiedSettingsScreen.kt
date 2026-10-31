@@ -331,7 +331,7 @@ fun UnifiedSettingsScreen(
                                 Icons.Rounded.AutoAwesome, state.recommendations.smartRecommendationsEnabled, viewModel::setSmart)
                             SettingsRowDivider()
                             SettingsSliderRow("Exploration",
-                                if (state.recommendations.smartRecommendationsEnabled) "Balance familiar tracks and discoveries" else "Enable Smart recommendations to adjust",
+                                if (state.recommendations.smartRecommendationsEnabled) "Chance to try unheard or rarely played tracks" else "Enable Smart recommendations to adjust",
                                 Icons.Rounded.Explore, "${state.recommendations.explorationPercent}%",
                                 state.recommendations.explorationPercent.toFloat(), 0f..50f, 9,
                                 { viewModel.setExploration(it.toInt()) }, enabled = state.recommendations.smartRecommendationsEnabled)
