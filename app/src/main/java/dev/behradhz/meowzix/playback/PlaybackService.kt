@@ -47,6 +47,7 @@ import dev.behradhz.meowzix.data.recommendation.AudioFeatureExtractionCoordinato
 import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
+import dev.behradhz.meowzix.domain.recommendation.PlaybackAudioAnalysisPlan
 import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.playback.CrossfadePolicy
@@ -617,7 +618,7 @@ class PlaybackService : MediaLibraryService() {
                                 runCatching { UUID.fromString(player.getMediaItemAt(index).mediaId) }.getOrNull()
                             }.take(8).toList()
                     }
-                    val analysisIds = (sequenceOf(playingId) + upcoming.asSequence()).distinct().take(3).toList()
+                    val analysisIds = PlaybackAudioAnalysisPlan.select(playingId, upcoming.asSequence())
                     serviceScope.launch {
                         if (settingsRepository.recommendationPreferenceSettings.first().audioAnalysisEnabled &&
                             player.currentMediaItem?.mediaId == playingId.toString()
