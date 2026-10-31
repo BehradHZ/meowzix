@@ -75,6 +75,40 @@ class PcmAudioAnalysisTest {
         Radix2Fft.transform(DoubleArray(7), DoubleArray(7))
     }
 
+    @Test fun sharpEnergyChangesCreateOnsetStrengthWhileSilenceHasNone() {
+        val quiet = PcmAudioAnalysis(sampleRate = 8192)
+        repeat(32 * PcmAudioAnalysis.FRAME_SIZE) { quiet.accept(0.0) }
+        val silence = quiet.finish()!!
+        assertEquals(0.0, silence[AudioFeatureSchema.ONSET_STRENGTH], 0.0)
+        assertEquals(0.0, silence[AudioFeatureSchema.KEY_CONFIDENCE], 0.0)
+
+        val rhythmic = PcmAudioAnalysis(sampleRate = 8192)
+        repeat(32) { frame ->
+            val amplitude = if (frame % 4 == 0) 0.9 else 0.0
+            repeat(PcmAudioAnalysis.FRAME_SIZE) { index ->
+                rhythmic.accept(amplitude * sin(2.0 * PI * index / 32))
+            }
+        }
+        val result = rhythmic.finish()!!
+        assertTrue(result[AudioFeatureSchema.ONSET_STRENGTH] > 0.05)
+        assertEquals(result[AudioFeatureSchema.RMS], result[AudioFeatureSchema.INTRO_ENERGY], 1e-12)
+        assertEquals(result[AudioFeatureSchema.RMS], result[AudioFeatureSchema.OUTRO_ENERGY], 1e-12)
+    }
+
+    @Test fun keyEstimatorRecognizesSyntheticMajorAndMinorProfiles() {
+        val cMajor = doubleArrayOf(10.0, 0.0, 0.0, 0.0, 8.0, 0.0, 0.0, 6.0, 0.0, 0.0, 0.0, 0.0)
+        val cMinor = doubleArrayOf(10.0, 0.0, 0.0, 8.0, 0.0, 0.0, 0.0, 6.0, 0.0, 0.0, 0.0, 0.0)
+        val major = MusicalKeyEstimator.estimate(cMajor)!!
+        val minor = MusicalKeyEstimator.estimate(cMinor)!!
+        assertEquals(0, major.root)
+        assertTrue(major.major)
+        assertTrue(major.confidence > 0.0)
+        assertEquals(0, minor.root)
+        assertFalse(minor.major)
+        assertTrue(minor.confidence > 0.0)
+        assertNull(MusicalKeyEstimator.estimate(DoubleArray(12)))
+    }
+
     @Test fun compatibleNormalizedAudioHasSymmetricBoundedSimilarity() {
         val calculator = LocalTrackSimilarityCalculator()
         val first = SimilarityProfile(null, null, DoubleArray(AudioFeatureSchema.names.size) { 0.2 })
