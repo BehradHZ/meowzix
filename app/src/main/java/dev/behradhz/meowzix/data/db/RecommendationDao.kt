@@ -18,6 +18,15 @@ interface RecommendationDao {
     """)
     suspend fun eligibleTrackIds(offlineOnly: Boolean = false): List<String>
 
+    /** Eligible source filtering is applied by the caller; this query only tracks exposure. */
+    @Query("""
+        SELECT t.id FROM tracks t
+        LEFT JOIN track_preference_stats stats ON stats.trackId = t.id
+        WHERE t.hidden = 0 AND COALESCE(stats.totalStarts, 0) = 0
+        ORDER BY t.id
+    """)
+    suspend fun unplayedTrackIds(): List<String>
+
     @Query("SELECT t.normalizedArtist AS artist, t.album AS album, SUM(s.totalStarts) AS starts, SUM(s.totalCompletions) AS completions, SUM(s.earlySkips) AS earlySkips, SUM(s.lateSkips) AS lateSkips, SUM(s.manualSelections) AS manualSelections, SUM(s.replays) AS replays FROM track_preference_stats s INNER JOIN tracks t ON t.id = s.trackId GROUP BY t.normalizedArtist, t.album")
     suspend fun artistAlbumStats(): List<ArtistAlbumPreferenceRow>
     @Query(
