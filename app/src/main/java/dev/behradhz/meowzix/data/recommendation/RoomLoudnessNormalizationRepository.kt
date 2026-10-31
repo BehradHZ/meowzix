@@ -21,7 +21,6 @@ class RoomLoudnessNormalizationRepository @Inject constructor(
     private val loudnessDao: LoudnessAnalysisDao,
     private val audioFeatureDao: AudioFeatureDao,
     private val extractor: AudioFeatureExtractor,
-    private val extractionCoordinator: AudioFeatureExtractionCoordinator,
 ) : LoudnessNormalizationRepository {
     override suspend fun fallbackAnalysis(trackId: UUID): LoudnessAnalysis {
         // Only actual playback schedules acoustic extraction. The gain path reads
