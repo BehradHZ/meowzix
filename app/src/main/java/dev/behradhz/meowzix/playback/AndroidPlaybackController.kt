@@ -19,7 +19,6 @@ import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueueSnapshot
-import dev.behradhz.meowzix.domain.playback.generatedIndicesAfterSelection
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueActionKind
@@ -410,47 +409,9 @@ class AndroidPlaybackController @Inject constructor(
         prepared: PlayableTrack? = null,
     ) {
         scope.launch {
-            // Tapping a song in the same collection must not regenerate a new shuffle
-            // permutation or discard manually queued items. Jump within the existing cycle.
-            val active = progressiveQueue.snapshot()
-            // Prefer a FUTURE generated occurrence over a matching track in history
-            // or manual Queue. Canonical track IDs do not uniquely identify instances.
-            val existingIndex = active?.let { snapshot ->
-                (snapshot.currentIndex + 1 until snapshot.tracks.size).firstOrNull { index ->
-                    snapshot.tracks[index].id == startTrackId &&
-                        snapshot.origins[index] ==
-                            dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
-                } ?: snapshot.tracks.indexOfFirst { it.id == startTrackId }
-            } ?: -1
-            if (startTrackId != null && existingIndex >= 0 && active != null &&
-                active.playbackMode == mode &&
-                active.sourceTrackIds.isNotEmpty() &&
-                active.sourceTrackIds.size == trackIds.size &&
-                active.sourceTrackIds.toSet() == trackIds.toSet()
-            ) {
-                if (prepared != null) progressiveQueue.replacePlayableSource(prepared.id, prepared)
-                val refreshed = progressiveQueue.snapshot() ?: return@launch
-                val selectedOccurrence = refreshed.occurrenceIds[existingIndex]
-                withConnectedController { connected ->
-                    val latest = progressiveQueue.snapshot() ?: return@withConnectedController
-                    val selectedIndex = latest.occurrenceIds.indexOf(selectedOccurrence)
-                    if (selectedIndex < 0) return@withConnectedController
-                    if (selectedIndex <= latest.currentIndex ||
-                        latest.origins[selectedIndex] ==
-                            dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED ||
-                        !progressiveQueue.hasFixedFuture()
-                    ) {
-                        // Same session: resolve the occurrence again on the
-                        // connected player so an intervening queue edit cannot
-                        // make this index point at a different song.
-                        playAtOnController(connected, selectedIndex)
-                    } else {
-                        playIndependentTrackPreservingNext(connected, latest, selectedIndex)
-                    }
-                }
-                return@launch
-            }
-
+            // Every direct Library selection begins a fresh listening session,
+            // even when the selected track belongs to the active collection.
+            // Next/Previous navigation continues to use the existing committed order.
             val catalogTracks = runCatching { catalog.availableTracks(trackIds) }
                 .getOrElse { error ->
                     showError(error.message ?: "Unable to load playlist")
@@ -461,12 +422,21 @@ class AndroidPlaybackController @Inject constructor(
             val requested = trackIds.distinct().mapNotNull { id ->
                 if (prepared?.id == id) prepared else byId[id]
             }
+            if (startTrackId != null && requested.none { it.id == startTrackId }) {
+                return@launch showError("Selected track is no longer available")
+            }
             var shuffleSeed: Long? = null
             var tracks = when (mode) {
                 PlaybackMode.ORDERED -> requested
                 PlaybackMode.PURE_SHUFFLE -> {
                     val requestedById = requested.associateBy { it.id }
-                    PureShuffleEngine.newCycle(requested.map { it.id }).let { cycle ->
+                    val ids = requested.map { it.id }
+                    val cycle = if (startTrackId == null) {
+                        PureShuffleEngine.newCycle(ids)
+                    } else {
+                        PureShuffleEngine.newCycleStartingWith(ids, startTrackId)
+                    }
+                    cycle.let { cycle ->
                         shuffleSeed = cycle.seed
                         cycle.order.mapNotNull(requestedById::get)
                     }
@@ -486,7 +456,7 @@ class AndroidPlaybackController @Inject constructor(
             }
             if (tracks.isEmpty()) return@launch showError("No playlist tracks are available")
 
-            if (startTrackId != null && mode != PlaybackMode.ORDERED) {
+            if (startTrackId != null && mode == PlaybackMode.SMART_SHUFFLE) {
                 val selectedIndex = tracks.indexOfFirst { it.id == startTrackId }
                 if (selectedIndex > 0) tracks = tracks.drop(selectedIndex) + tracks.take(selectedIndex)
             }
@@ -522,44 +492,6 @@ class AndroidPlaybackController @Inject constructor(
                 connected.play()
             }
         }
-    }
-
-    /**
-     * A separate Library selection can match a manually queued occurrence.
-     * In that specific case, start an independent playback context without
-     * consuming the pending manual Queue entry.
-     *
-     * Direct Next selections NEVER use this method: playAt() navigates within
-     * the existing session and retains every earlier song as navigable history.
-     */
-    private fun playIndependentTrackPreservingNext(
-        connected: MediaController,
-        active: ProgressiveQueueSnapshot,
-        selectedIndex: Int,
-    ) {
-        val selected = active.tracks.getOrNull(selectedIndex) ?: return
-        val retainedNextIndices = active.generatedIndicesAfterSelection(selectedIndex)
-        val generated = retainedNextIndices.map(active.tracks::get)
-        val window = progressiveQueue.start(
-            orderedTracks = listOf(selected) + generated,
-            requestedStartIndex = 0,
-            mode = active.playbackMode,
-            repeat = active.repeatMode,
-            seed = active.shuffleSeed,
-            sourceIds = active.sourceTrackIds,
-            pendingIds = active.pendingGeneratedIds,
-            futureOccurrenceIds = retainedNextIndices.map(active.occurrenceIds::get),
-        )
-        playbackOccurrenceId = UUID.randomUUID()
-        userSelectedOccurrence = true
-        connected.setMediaItems(
-            requireNotNull(progressiveQueue.snapshot()).mediaItems(),
-            window.startIndexInWindow,
-            0L,
-        )
-        connected.repeatMode = active.repeatMode.toPlayerRepeatMode(progressive = true)
-        connected.prepare()
-        connected.play()
     }
 
     override fun removeOccurrence(occurrenceId: UUID) = withController { connected ->
@@ -938,7 +870,10 @@ class AndroidPlaybackController @Inject constructor(
                     val rank = order.withIndex().associate { it.value to it.index }
                     existingIds.drop(currentIndex + 1).sortedBy { rank[it] ?: Int.MAX_VALUE }
                 }
-                PlaybackMode.PURE_SHUFFLE -> existingIds.drop(currentIndex + 1).shuffled()
+                PlaybackMode.PURE_SHUFFLE -> {
+                    val ids = existingIds.drop(currentIndex + 1)
+                    PureShuffleEngine.newCycle(ids.indices.toList()).order.map(ids::get)
+                }
                 PlaybackMode.SMART_SHUFFLE -> {
                     val allowed = existingIds.drop(currentIndex + 1)
                         .mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }

@@ -1947,9 +1947,11 @@ class PlaybackService : MediaLibraryService() {
         val currentId = player.currentMediaItem?.mediaId
         serviceScope.launch {
             val desiredFutureIds = when (nextMode) {
-                PlaybackMode.PURE_SHUFFLE -> (currentIndex + 1 until player.mediaItemCount)
-                    .map { player.getMediaItemAt(it).mediaId }
-                    .shuffled()
+                PlaybackMode.PURE_SHUFFLE -> {
+                    val ids = (currentIndex + 1 until player.mediaItemCount)
+                        .map { player.getMediaItemAt(it).mediaId }
+                    PureShuffleEngine.newCycle(ids.indices.toList()).order.map(ids::get)
+                }
                 else -> {
                     val orderedIds = runCatching { playbackCatalog.availableTracks().map { it.id.toString() } }.getOrDefault(emptyList())
                     val rank = orderedIds.withIndex().associate { it.value to it.index }
@@ -2291,21 +2293,13 @@ class PlaybackService : MediaLibraryService() {
                     var seed: Long? = progressive.shuffleSeed
                     val nextOrder = when (progressive.playbackMode) {
                         PlaybackMode.PURE_SHUFFLE -> {
-                            PureShuffleEngine.newCycle(candidates.indices.toList()).let { cycle ->
+                            val byId = candidates.associateBy { it.id }
+                            PureShuffleEngine.newCycle(
+                                candidates.map { it.id }.distinct(),
+                                previousLastItem = previousLast?.id,
+                            ).let { cycle ->
                                 seed = cycle.seed
-                                val order = cycle.order.toMutableList()
-                                if (previousLast != null && order.size > 1 &&
-                                    candidates[order.first()].id == previousLast.id) {
-                                    val swapAt = (1 until order.size).firstOrNull {
-                                        candidates[order[it]].id != previousLast.id
-                                    }
-                                    if (swapAt != null) {
-                                        val first = order[0]
-                                        order[0] = order[swapAt]
-                                        order[swapAt] = first
-                                    }
-                                }
-                                order.map(candidates::get)
+                                cycle.order.mapNotNull(byId::get)
                             }
                         }
                         PlaybackMode.ORDERED, PlaybackMode.SMART_SHUFFLE -> candidates
