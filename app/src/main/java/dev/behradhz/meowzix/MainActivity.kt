@@ -14,11 +14,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.toArgb
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.core.performance.PerformanceMetrics
 import dev.behradhz.meowzix.navigation.MeowzixApp
@@ -28,11 +26,6 @@ import dev.behradhz.meowzix.domain.settings.ThemePreference
 import javax.inject.Inject
 import dev.behradhz.meowzix.ui.haptics.meowzixInteractionHaptics
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
-import dev.behradhz.meowzix.ui.theme.LauncherIconManager
-import dev.behradhz.meowzix.ui.theme.selectLauncherIconVariant
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.withContext
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -44,12 +37,7 @@ class MainActivity : ComponentActivity() {
         openNowPlaying = intent?.action == ACTION_OPEN_NOW_PLAYING
         enableEdgeToEdge()
         setContent {
-            // Do not publish a temporary default icon before saved settings have loaded.
-            val appearanceFlow = remember {
-                settingsRepository.appearanceSettings.map<AppearanceSettings, AppearanceSettings?> { it }
-            }
-            val savedAppearance by appearanceFlow.collectAsStateWithLifecycle(initialValue = null)
-            val appearance = savedAppearance ?: AppearanceSettings()
+            val appearance by settingsRepository.appearanceSettings.collectAsStateWithLifecycle(initialValue = AppearanceSettings())
             val systemDark = isSystemInDarkTheme()
             val darkTheme = when (appearance.theme) {
                 ThemePreference.SYSTEM -> systemDark
@@ -57,17 +45,6 @@ class MainActivity : ComponentActivity() {
                 ThemePreference.DARK -> true
             }
             MeowzixTheme(darkTheme = darkTheme, colorTheme = appearance.colorTheme, customColorSeed = appearance.customColorSeed) {
-                val wallpaperPrimary = MaterialTheme.colorScheme.primary.toArgb()
-                LaunchedEffect(savedAppearance, darkTheme, wallpaperPrimary) {
-                    val loaded = savedAppearance ?: return@LaunchedEffect
-                    val variant = selectLauncherIconVariant(
-                        loaded.colorTheme, loaded.customColorSeed, darkTheme, wallpaperPrimary,
-                    )
-                    withContext(Dispatchers.IO) {
-                        runCatching { LauncherIconManager.apply(applicationContext, variant) }
-                            .onFailure { Log.w("MeowzixLauncher", "Cannot update launcher icon", it) }
-                    }
-                }
                 LaunchedEffect(Unit) {
                     // Wait until Compose reaches a rendered frame instead of treating onCreate as
                     // startup completion. Macrobenchmark can then correlate this with fully-drawn.
