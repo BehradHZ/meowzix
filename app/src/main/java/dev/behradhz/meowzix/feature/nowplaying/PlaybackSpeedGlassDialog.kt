@@ -1,31 +1,47 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,19 +49,19 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
-import dev.behradhz.meowzix.ui.components.GlassSurface
-import dev.chrisbanes.haze.rememberHazeState
+import dev.behradhz.meowzix.ui.components.MeowzixGlassDialog
+import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
+import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
@@ -53,8 +69,9 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private val speedPresets = listOf(0.5f, 1f, 1.5f, 2f, 5f)
+private val speedSteps = (5..20).map { it / 10f } + (5..10).map { it / 2f }
 
-/** Five presets and Custom occupy two rows of three. Changes apply immediately. */
+/** Shared centered, tinted glass chrome; precise controls use one haptic per effective step. */
 @Composable
 internal fun PlaybackSpeedGlassDialog(
     currentSpeed: Float,
@@ -62,133 +79,261 @@ internal fun PlaybackSpeedGlassDialog(
     onDismiss: () -> Unit,
 ) {
     var selectedSpeed by remember { mutableFloatStateOf(currentSpeed.coerceIn(0.5f, 5f)) }
-    var custom by remember { mutableStateOf(speedPresets.none { it == selectedSpeed }) }
-    val haze = rememberHazeState()
-    val accent = MaterialTheme.colorScheme.primary
-    val shape = RoundedCornerShape(28.dp)
+    var custom by remember { mutableStateOf(speedPresets.none { abs(it - selectedSpeed) < 0.001f }) }
+    val colors = MaterialTheme.colorScheme
+    val haptics = rememberMeowzixHaptics()
+    val animatedSpeed by animateFloatAsState(
+        targetValue = selectedSpeed,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "speed-dial-value",
+    )
 
-    fun updateSpeed(value: Float) {
+    fun updateSpeed(value: Float, tick: Boolean = false) {
         val bounded = value.coerceIn(0.5f, 5f)
-        if (selectedSpeed != bounded) {
+        if (abs(selectedSpeed - bounded) > 0.001f) {
             selectedSpeed = bounded
             onSpeedChange(bounded)
+            if (tick) haptics.perform(MeowzixHapticCue.Selection)
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        // Match the Sleep Timer floating glass surface without dimming the entire player.
-        val view = LocalView.current
-        SideEffect {
-            (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
-        }
-        Box(
-            modifier = Modifier.fillMaxSize()
-                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 14.dp),
-            contentAlignment = Alignment.BottomCenter,
-        ) {
-        GlassSurface(
-            hazeState = haze,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-            shape = shape,
-            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
-        ) {
-            Column(
-                Modifier.fillMaxWidth().padding(20.dp).testTag("playback-speed-dialog"),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Text("Playback speed", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(speedLabel(selectedSpeed), style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.SemiBold, color = accent)
+    // Gesture handlers survive recomposition: read the latest speed and callback.
+    val onDialChange by rememberUpdatedState<(Float) -> Unit>({ updateSpeed(it, tick = true) })
 
-                val choices = listOf("0.5×", "Normal", "1.5×", "2×", "5×", "Custom")
-                choices.chunked(3).forEachIndexed { rowIndex, row ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEachIndexed { columnIndex, title ->
-                            val index = rowIndex * 3 + columnIndex
-                            val selected = if (index == 5) custom
-                                else !custom && selectedSpeed == speedPresets[index]
-                            Surface(
-                                onClick = {
-                                    if (index == 5) custom = true
-                                    else {
-                                        updateSpeed(speedPresets[index])
-                                        custom = false
-                                    }
-                                },
-                                modifier = Modifier.weight(1f).height(52.dp).testTag("speed-option-$index"),
-                                shape = RoundedCornerShape(16.dp),
-                                color = if (selected) accent.copy(alpha = 0.23f)
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f),
-                                border = BorderStroke(1.dp, if (selected) accent.copy(alpha = 0.6f)
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)),
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(title, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
-                                }
-                            }
+    MeowzixGlassDialog(onDismiss = onDismiss, tag = "playback-speed-dialog") { dismiss ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Playback speed", style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold)
+                Text("Adjust playback tempo", style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant)
+            }
+            IconButton(
+                onClick = {
+                    haptics.perform(MeowzixHapticCue.LightClick)
+                    dismiss()
+                },
+                modifier = Modifier.testTag("playback-speed-close"),
+            ) { Icon(Icons.Rounded.Close, contentDescription = "Close playback speed") }
+        }
+        HorizontalDivider(color = colors.onSurface.copy(alpha = 0.10f))
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .background(colors.primary.copy(alpha = 0.09f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Current speed", modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+            Text(speedLabel(selectedSpeed), style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold, color = colors.primary,
+                modifier = Modifier.testTag("playback-speed-current"))
+        }
+
+        val choices = listOf("0.5×", "Normal", "1.5×", "2×", "5×", "Custom")
+        choices.chunked(3).forEachIndexed { rowIndex, row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEachIndexed { columnIndex, title ->
+                    val index = rowIndex * 3 + columnIndex
+                    val selected = if (index == 5) custom
+                        else !custom && abs(selectedSpeed - speedPresets[index]) < 0.001f
+                    SpeedChoice(
+                        label = title,
+                        selected = selected,
+                        modifier = Modifier.weight(1f).testTag("speed-option-" + index),
+                    ) {
+                        haptics.perform(MeowzixHapticCue.LightClick)
+                        if (index == 5) custom = !custom
+                        else {
+                            updateSpeed(speedPresets[index])
+                            custom = false
                         }
                     }
                 }
+            }
+        }
 
-                if (custom) {
-                    Text("Drag the gauge to set a custom speed",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Box(contentAlignment = Alignment.Center) {
-                        val background = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.13f)
-                        val thumbFill = MaterialTheme.colorScheme.surface
+        AnimatedVisibility(
+            visible = custom,
+            enter = fadeIn(tween(170)) + expandVertically(
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                expandFrom = Alignment.Top,
+            ),
+            exit = fadeOut(tween(140)) + shrinkVertically(tween(190)),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+                    .background(colors.onSurface.copy(alpha = 0.045f), RoundedCornerShape(16.dp))
+                    .border(1.dp, colors.onSurface.copy(alpha = 0.09f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 10.dp, vertical = 12.dp)
+                    .testTag("speed-custom-panel"),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("Drag the dial or tap − / +", style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SpeedStepButton(
+                        increase = false,
+                        enabled = selectedSpeed > 0.5001f,
+                        modifier = Modifier.testTag("speed-step-minus"),
+                    ) { updateSpeed(stepPlaybackSpeed(selectedSpeed, -1), tick = true) }
+                    Box(
+                        modifier = Modifier.weight(1f).aspectRatio(1f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val dialTrack = colors.onSurface.copy(alpha = 0.14f)
+                        val dialAccent = colors.primary
+                        val dialThumb = colors.surface
                         Canvas(
-                            modifier = Modifier.size(226.dp)
+                            modifier = Modifier.matchParentSize()
                                 .semantics { contentDescription = "Custom speed dial" }
                                 .testTag("custom-speed-gauge")
                                 .pointerInput(Unit) {
                                     detectTapGestures { point ->
-                                        updateSpeed(gaugeSpeed(point, size.width.toFloat(), size.height.toFloat()))
+                                        onDialChange(gaugeSpeed(point, size.width.toFloat(), size.height.toFloat()))
                                     }
                                 }
                                 .pointerInput(Unit) {
                                     detectDragGestures(
                                         onDragStart = { point ->
-                                            updateSpeed(gaugeSpeed(point, size.width.toFloat(), size.height.toFloat()))
+                                            onDialChange(gaugeSpeed(point, size.width.toFloat(), size.height.toFloat()))
                                         },
                                         onDrag = { change, _ ->
                                             change.consume()
-                                            updateSpeed(gaugeSpeed(change.position,
-                                                size.width.toFloat(), size.height.toFloat()))
+                                            onDialChange(gaugeSpeed(
+                                                change.position,
+                                                size.width.toFloat(),
+                                                size.height.toFloat(),
+                                            ))
                                         },
                                     )
                                 },
                         ) {
                             val center = Offset(size.width / 2f, size.height * 0.54f)
-                            val radius = min(size.width, size.height) * 0.405f
+                            val radius = min(size.width, size.height) * 0.40f
                             val topLeft = Offset(center.x - radius, center.y - radius)
                             val arcSize = Size(radius * 2f, radius * 2f)
-                            val stroke = Stroke(width = 13.dp.toPx(), cap = StrokeCap.Round)
-                            drawArc(background, 150f, 240f, false, topLeft, arcSize, style = stroke)
-                            val fraction = (selectedSpeed - 0.5f) / 4.5f
-                            drawArc(accent, 150f, 240f * fraction, false, topLeft, arcSize, style = stroke)
+                            val stroke = Stroke(width = 11.dp.toPx(), cap = StrokeCap.Round)
+                            drawArc(dialTrack, 150f, 240f, false, topLeft, arcSize, style = stroke)
+                            val fraction = gaugeFraction(animatedSpeed)
+                            drawArc(dialAccent, 150f, 240f * fraction, false, topLeft, arcSize, style = stroke)
                             val angle = Math.toRadians(150.0 + fraction * 240.0)
-                            val thumb = Offset(center.x + radius * cos(angle).toFloat(),
-                                center.y + radius * sin(angle).toFloat())
-                            drawCircle(accent, radius = 11.dp.toPx(), center = thumb)
-                            drawCircle(thumbFill, radius = 4.dp.toPx(), center = thumb)
+                            val thumb = Offset(
+                                center.x + radius * cos(angle).toFloat(),
+                                center.y + radius * sin(angle).toFloat(),
+                            )
+                            drawCircle(dialAccent, radius = 10.dp.toPx(), center = thumb)
+                            drawCircle(dialThumb, radius = 3.5.dp.toPx(), center = thumb)
                         }
-                        Text(speedLabel(selectedSpeed), style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp))
+                        Text(speedLabel(selectedSpeed), style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold, color = colors.onSurface,
+                            modifier = Modifier.padding(top = 12.dp))
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("0.5×", style = MaterialTheme.typography.labelMedium)
-                        Text("5×", style = MaterialTheme.typography.labelMedium)
-                    }
+                    SpeedStepButton(
+                        increase = true,
+                        enabled = selectedSpeed < 4.9999f,
+                        modifier = Modifier.testTag("speed-step-plus"),
+                    ) { updateSpeed(stepPlaybackSpeed(selectedSpeed, 1), tick = true) }
                 }
-
+                Text("0.1× steps: 0.5–2×    •    0.5× steps: 2–5×",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                    textAlign = TextAlign.Center)
             }
         }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            Surface(
+                onClick = {
+                    haptics.perform(MeowzixHapticCue.LightClick)
+                    dismiss()
+                },
+                modifier = Modifier.heightIn(min = 48.dp).testTag("playback-speed-done"),
+                shape = RoundedCornerShape(18.dp),
+                color = colors.primary,
+                border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.70f)),
+            ) {
+                Box(Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center) {
+                    Text("Done", style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold, color = colors.onPrimary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedChoice(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val fill by animateColorAsState(
+        targetValue = colors.primary.copy(alpha = if (selected) 0.32f else 0.105f),
+        animationSpec = tween(220), label = "speed-choice-fill",
+    )
+    val stroke by animateColorAsState(
+        targetValue = colors.primary.copy(alpha = if (selected) 0.56f else 0.17f),
+        animationSpec = tween(220), label = "speed-choice-stroke",
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1f else 0.975f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium,
+        ),
+        label = "speed-choice-scale",
+    )
+    Surface(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 54.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale },
+        shape = RoundedCornerShape(14.dp),
+        color = fill,
+        border = BorderStroke(1.dp, stroke),
+    ) {
+        Box(Modifier.padding(horizontal = 3.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center) {
+            Text(label, style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                color = colors.onSurface, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun SpeedStepButton(
+    increase: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.size(44.dp),
+        shape = RoundedCornerShape(15.dp),
+        color = colors.primary.copy(alpha = if (enabled) 0.16f else 0.05f),
+        border = BorderStroke(1.dp, colors.primary.copy(alpha = if (enabled) 0.34f else 0.10f)),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                if (increase) Icons.Rounded.Add else Icons.Rounded.Remove,
+                contentDescription = if (increase) "Increase speed" else "Decrease speed",
+                tint = colors.onSurface.copy(alpha = if (enabled) 1f else 0.35f),
+                modifier = Modifier.size(23.dp),
+            )
         }
     }
 }
@@ -198,7 +343,24 @@ internal fun speedLabel(speed: Float): String {
     return formatted.trimEnd('0').trimEnd('.') + "×"
 }
 
-/** Clockwise 240-degree gauge, with 0.05x precision and hard limits. */
+/** Exact supported steps: 0.1× through 2×, then 0.5× through 5×. */
+internal fun stepPlaybackSpeed(current: Float, direction: Int): Float {
+    require(direction == -1 || direction == 1)
+    val index = if (direction > 0) {
+        speedSteps.indexOfFirst { it > current + 0.0001f }
+            .let { if (it < 0) speedSteps.lastIndex else it }
+    } else {
+        speedSteps.indexOfLast { it < current - 0.0001f }.coerceAtLeast(0)
+    }
+    return speedSteps[index]
+}
+
+/** Reserve 60% of dial travel for fine steps, 40% for coarse steps. */
+private fun gaugeFraction(speed: Float): Float =
+    if (speed <= 2f) ((speed - 0.5f) / 1.5f * 0.6f).coerceIn(0f, 1f)
+    else (0.6f + (speed - 2f) / 3f * 0.4f).coerceIn(0f, 1f)
+
+/** Clockwise 240-degree dial, snapped to the nearest supported step. */
 internal fun gaugeSpeed(point: Offset, width: Float, height: Float): Float {
     val dx = point.x - width / 2f
     val dy = point.y - height * 0.54f
@@ -207,5 +369,8 @@ internal fun gaugeSpeed(point: Offset, width: Float, height: Float): Float {
     val onArc = if (fromStart > 240f) {
         if (fromStart - 240f < 360f - fromStart) 240f else 0f
     } else fromStart
-    return ((0.5f + onArc / 240f * 4.5f) * 20f).roundToInt().div(20f).coerceIn(0.5f, 5f)
+    val fraction = onArc / 240f
+    val candidate = if (fraction <= 0.6f) 0.5f + fraction / 0.6f * 1.5f
+        else 2f + (fraction - 0.6f) / 0.4f * 3f
+    return speedSteps.minByOrNull { abs(it - candidate) } ?: 1f
 }
