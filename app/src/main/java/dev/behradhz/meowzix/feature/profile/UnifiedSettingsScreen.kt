@@ -359,7 +359,12 @@ fun UnifiedSettingsScreen(
                             },
                             showSubtitle = true,
                         )
-                        if (state.playback.liveSongCardEnabled) {
+                        AnimatedVisibility(
+                            visible = state.playback.liveSongCardEnabled,
+                            enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(190)),
+                            exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(140)),
+                        ) {
+                            Column {
                             SettingsRowDivider()
                             SettingsLiveUpdateLayoutPicker(
                                 selected = state.playback.liveSongCardStyle,
@@ -371,7 +376,12 @@ fun UnifiedSettingsScreen(
                                 leftAction = state.playback.liveSongLeftAction,
                                 rightAction = state.playback.liveSongRightAction,
                             )
-                            if (state.playback.liveSongCardStyle == LiveSongCardStyle.CONTROLS) {
+                            AnimatedVisibility(
+                                visible = state.playback.liveSongCardStyle == LiveSongCardStyle.CONTROLS,
+                                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(190)),
+                                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(140)),
+                            ) {
+                                Column {
                                 SettingsRowDivider()
                                 SettingsChoiceRow(
                                     "Left Live Update button",
@@ -388,6 +398,8 @@ fun UnifiedSettingsScreen(
                                     state.playback.liveSongRightAction.name,
                                     LiveSongSideAction.entries.map { it.name },
                                 ) { viewModel.setLiveSongRightAction(LiveSongSideAction.valueOf(it)) }
+                                }
+                            }
                             }
                         }
                         SettingsRowDivider()
