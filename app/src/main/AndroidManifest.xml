@@ -48,9 +48,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -65,9 +62,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_meowzix_dark"
             android:roundIcon="@mipmap/ic_launcher_meowzix_dark">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -82,9 +76,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_coral_light"
             android:roundIcon="@mipmap/ic_launcher_coral_light">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -99,9 +90,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_coral_dark"
             android:roundIcon="@mipmap/ic_launcher_coral_dark">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -116,9 +104,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_amber_light"
             android:roundIcon="@mipmap/ic_launcher_amber_light">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -133,9 +118,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_amber_dark"
             android:roundIcon="@mipmap/ic_launcher_amber_dark">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -150,9 +132,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_ocean_light"
             android:roundIcon="@mipmap/ic_launcher_ocean_light">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -167,9 +146,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_ocean_dark"
             android:roundIcon="@mipmap/ic_launcher_ocean_dark">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -184,9 +160,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_mint_light"
             android:roundIcon="@mipmap/ic_launcher_mint_light">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -201,9 +174,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_mint_dark"
             android:roundIcon="@mipmap/ic_launcher_mint_dark">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -218,9 +188,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_violet_light"
             android:roundIcon="@mipmap/ic_launcher_violet_light">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -235,9 +202,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_violet_dark"
             android:roundIcon="@mipmap/ic_launcher_violet_dark">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -252,9 +216,6 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_rose_light"
             android:roundIcon="@mipmap/ic_launcher_rose_light">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -269,22 +230,11 @@
             android:label="Meowzix"
             android:icon="@mipmap/ic_launcher_rose_dark"
             android:roundIcon="@mipmap/ic_launcher_rose_dark">
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/meowzix_shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity-alias>
-
-        <!-- Nothing-style gesture mode: a real app window launched from an Android
-             home-screen shortcut, NOT a proprietary Essential Apps home widget. -->
-        <activity
-            android:name=".widget.VinylGestureActivity"
-            android:exported="true"
-            android:excludeFromRecents="true"
-            android:theme="@style/Theme.Meowzix" />
 
         <!-- No visible app screen: notification click uses the normal system activity transition. -->
         <activity
@@ -330,17 +280,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
-        </receiver>
-
-        <receiver
-            android:name=".widget.VinylWidgetProvider"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/meowzix_vinyl_widget_info" />
         </receiver>
 
         <receiver
