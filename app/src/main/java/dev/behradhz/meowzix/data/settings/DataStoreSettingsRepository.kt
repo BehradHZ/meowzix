@@ -19,6 +19,7 @@ import dev.behradhz.meowzix.domain.settings.DEFAULT_TEMPORARY_CACHE_BUDGET_BYTES
 import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
 import dev.behradhz.meowzix.domain.settings.LibrarySortMode
+import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
@@ -88,6 +89,8 @@ class DataStoreSettingsRepository @Inject constructor(
             reduceMotion = values[REDUCE_MOTION] ?: false,
             playerAccentSource = values[PLAYER_ACCENT_SOURCE].enumOrDefault(PlayerAccentSource.GLOBAL),
             playerSeekBarStyle = values[PLAYER_SEEKBAR_STYLE].enumOrDefault(PlayerSeekBarStyle.WAVEFORM),
+            launcherIconSource = values[LAUNCHER_ICON_SOURCE].enumOrDefault(LauncherIconColorSource.APP_THEME),
+            spermerModeEnabled = values[SPERMER_MODE_ENABLED] ?: false,
         )
     }
 
@@ -128,6 +131,8 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setReduceMotion(enabled: Boolean) = set(REDUCE_MOTION, enabled)
     override suspend fun setPlayerAccentSource(source: PlayerAccentSource) = setEnum(PLAYER_ACCENT_SOURCE, source)
     override suspend fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle) = setEnum(PLAYER_SEEKBAR_STYLE, style)
+    override suspend fun setLauncherIconSource(source: LauncherIconColorSource) = setEnum(LAUNCHER_ICON_SOURCE, source)
+    override suspend fun setSpermerModeEnabled(enabled: Boolean) = set(SPERMER_MODE_ENABLED, enabled)
     override suspend fun setResumeOnLaunch(enabled: Boolean) = set(RESUME_ON_LAUNCH, enabled)
     override suspend fun setResumeAfterExternalAudio(enabled: Boolean) = set(RESUME_AFTER_EXTERNAL_AUDIO, enabled)
     override suspend fun setPauseOnMicrophoneRecording(enabled: Boolean) = set(PAUSE_ON_MICROPHONE_RECORDING, enabled)
@@ -212,6 +217,8 @@ class DataStoreSettingsRepository @Inject constructor(
         val REDUCE_MOTION = booleanPreferencesKey("reduce_motion")
         val PLAYER_ACCENT_SOURCE = stringPreferencesKey("player_accent_source")
         val PLAYER_SEEKBAR_STYLE = stringPreferencesKey("player_seekbar_style")
+        val LAUNCHER_ICON_SOURCE = stringPreferencesKey("launcher_icon_color_source")
+        val SPERMER_MODE_ENABLED = booleanPreferencesKey("spermer_mode_enabled")
         val DEFAULT_PLAYBACK_MODE = stringPreferencesKey("default_playback_mode")
         val DEFAULT_REPEAT_MODE = stringPreferencesKey("default_repeat_mode")
         val RESUME_ON_LAUNCH = booleanPreferencesKey("resume_on_launch")

@@ -6,6 +6,16 @@ import org.junit.Test
 
 class DockMotionTest {
     @Test
+    fun dockExpandsOnlyAtBottomOfUserScroll() {
+        assertTrue(shouldExpandDockAtEnd(true, false, true, -2f))
+        assertTrue(!shouldExpandDockAtEnd(false, false, true, -10f))
+        assertTrue(!shouldExpandDockAtEnd(true, true, true, -10f))
+        assertTrue(!shouldExpandDockAtEnd(true, false, false, -10f))
+        assertTrue(!shouldExpandDockAtEnd(true, false, true, 4f))
+        assertTrue(!shouldExpandDockAtEnd(true, false, true, -0.5f))
+    }
+
+    @Test
     fun collapseSettlesFasterThanExpansion() {
         assertTrue(DockCollapseDurationMs < DockExpandDurationMs)
         assertTrue(DockCollapseDurationMs <= 260)

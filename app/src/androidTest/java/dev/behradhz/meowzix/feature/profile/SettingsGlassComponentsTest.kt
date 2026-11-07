@@ -3,6 +3,10 @@ package dev.behradhz.meowzix.feature.profile
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -14,7 +18,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.createComposeRule
 import dev.behradhz.meowzix.feature.library.PlaylistGlassBackdrop
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
+import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import org.junit.Assert.assertEquals
+import kotlin.math.abs
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -65,6 +72,36 @@ class SettingsGlassComponentsTest {
         compose.onNodeWithContentDescription("Fullscreen Meowzix cat").assertIsDisplayed()
         compose.onNodeWithContentDescription("Close fullscreen cat").performClick()
         compose.onNodeWithContentDescription("Fullscreen Meowzix cat").assertDoesNotExist()
+    }
+
+    @Test
+    fun headerTitleIsVerticallyCenteredWithBackIconWhenSubtitleIsBlank() {
+        compose.setContent {
+            MeowzixTheme {
+                PlaylistGlassBackdrop { hazeState ->
+                    Box(Modifier.fillMaxWidth()) {
+                        MeowzixStickyHeader(
+                            title = "Settings",
+                            subtitle = "",
+                            hazeState = hazeState,
+                            leadingActions = {
+                                MeowzixHeaderAction(
+                                    "Back",
+                                    Icons.AutoMirrored.Rounded.ArrowBack,
+                                    onClick = {},
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        val title = compose.onNodeWithText("Settings").fetchSemanticsNode().boundsInRoot
+        val back = compose.onNodeWithContentDescription("Back").fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            "Title and back icon should share a vertical centerline",
+            abs(title.center.y - back.center.y) < 5f,
+        )
     }
 
     @Test

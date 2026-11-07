@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -164,7 +165,7 @@ internal fun PlaylistsSectionV3(
                 columns = GridCells.Adaptive(minSize = 156.dp),
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
                     .hazeSource(hazeState).testTag("playlist-grid"),
-                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 188.dp),
+                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = dockAwareBottomPadding(188.dp)),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -415,7 +416,7 @@ internal fun PlaylistDetailScreenV3(
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState).testTag("playlist-detail-list"),
             state = listState,
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 100.dp, bottom = 188.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 100.dp, bottom = dockAwareBottomPadding(188.dp)),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "playlist-hero") {
@@ -786,7 +787,7 @@ private fun PlaylistEditScreenV3(
         Box(Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding().hazeSource(hazeState).testTag("playlist-edit-list"),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 188.dp),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = dockAwareBottomPadding(188.dp)),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             item(key = "edit-artwork") {

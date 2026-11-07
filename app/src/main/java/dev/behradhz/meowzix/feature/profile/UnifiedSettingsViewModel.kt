@@ -27,6 +27,7 @@ import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
+import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
 import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.settings.RecommendationPreferenceSettings
@@ -138,6 +139,7 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setReduceMotion(value: Boolean) = launch { settings.setReduceMotion(value) }
     fun setPlayerAccentSource(source: PlayerAccentSource) = launch { settings.setPlayerAccentSource(source) }
     fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle) = launch { settings.setPlayerSeekBarStyle(style) }
+    fun setSpermerModeEnabled(enabled: Boolean) = launch { settings.setSpermerModeEnabled(enabled) }
     fun setDefaultMode(value: PlaybackMode) = launch { settings.setDefaultPlaybackMode(value) }
     fun setDefaultRepeat(value: RepeatMode) = launch { settings.setDefaultRepeatMode(value) }
     fun setResume(value: Boolean) = launch { settings.setResumeOnLaunch(value) }
@@ -179,6 +181,7 @@ class UnifiedSettingsViewModel @Inject constructor(
         }
     }
     fun extendSleepTimer(minutes: Int = 15) = launch { sleepTimer.extend(minutes.coerceAtLeast(1) * 60_000L) }
+    fun shortenSleepTimer(minutes: Int = 15) = launch { sleepTimer.extend(-minutes.coerceAtLeast(1) * 60_000L) }
     fun cancelSleepTimer() = setSleepTimerEnabled(false)
     fun setSmart(value: Boolean) = launch { settings.setSmartRecommendationsEnabled(value) }
     fun setExploration(value: Int) = launch { settings.setExplorationPercent(value) }

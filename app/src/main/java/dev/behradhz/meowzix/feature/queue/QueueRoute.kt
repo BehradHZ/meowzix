@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -437,7 +438,7 @@ private fun QueueScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(feedbackHazeState),
             state = listState,
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = 182.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = dockAwareBottomPadding(182.dp)),
             // Adjacent grouped rows share one continuous glass container.
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {

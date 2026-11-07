@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -65,7 +66,7 @@ fun DownloadsRoute(
     Box(Modifier.fillMaxSize()) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(headerHazeState),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 182.dp),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = dockAwareBottomPadding(182.dp)),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { SettingToggle("Offline mode", settings.offlineMode, viewModel::setOfflineMode) }

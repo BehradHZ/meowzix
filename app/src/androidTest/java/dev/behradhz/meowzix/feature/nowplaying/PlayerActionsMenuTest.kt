@@ -304,6 +304,7 @@ class PlayerActionsMenuTest {
         var requestedMinutes by mutableIntStateOf(0)
         var endOfTrackRequests by mutableIntStateOf(0)
         var extended by mutableIntStateOf(0)
+        var shortened by mutableIntStateOf(0)
         var state by mutableStateOf(SleepTimerState.Off)
         compose.setContent {
             MeowzixTheme(darkTheme = true) {
@@ -331,6 +332,7 @@ class PlayerActionsMenuTest {
                     },
                     onSetSleepTimerEndOfTrack = { endOfTrackRequests++ },
                     onExtendSleepTimer = { extended++ },
+                    onShortenSleepTimer = { shortened++ },
                 )
             }
         }
@@ -344,8 +346,12 @@ class PlayerActionsMenuTest {
             assertEquals(45, requestedMinutes)
             assertEquals(true, expanded)
         }
+        compose.onNodeWithTag("sleep-timer-shorten").assertIsDisplayed().performClick()
         compose.onNodeWithTag("sleep-timer-extend").assertIsDisplayed().performClick()
-        compose.runOnIdle { assertEquals(1, extended) }
+        compose.runOnIdle {
+            assertEquals(1, shortened)
+            assertEquals(1, extended)
+        }
         compose.onNodeWithTag("player-timer-back").performClick()
         compose.onNodeWithTag("player-actions-page").assertIsDisplayed()
     }

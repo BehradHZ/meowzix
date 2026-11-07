@@ -46,6 +46,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.playback.SleepTimerMode
@@ -145,6 +146,7 @@ fun SleepTimerMenuContent(
     onEndOfTrack: () -> Unit,
     onExtend: () -> Unit,
     onSetEnabled: (Boolean) -> Unit,
+    onShorten: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -164,9 +166,19 @@ fun SleepTimerMenuContent(
             enter = fadeIn(tween(180)) + expandVertically(tween(200)),
             exit = fadeOut(tween(130)) + shrinkVertically(tween(160)),
         ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 SleepTimerFooterAction(
-                    label = "+15 min",
+                    label = "-15",
+                    primary = false,
+                    onClick = onShorten,
+                    modifier = Modifier.testTag("sleep-timer-shorten"),
+                )
+                SleepTimerFooterAction(
+                    label = "+15",
                     primary = false,
                     onClick = onExtend,
                     modifier = Modifier.testTag("sleep-timer-extend"),
@@ -221,8 +233,11 @@ fun SleepTimerControls(
                 )
                 Text(
                     sleepTimerStatusLabel(state),
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.labelLarge,
                     color = colors.onSurface,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.testTag("sleep-timer-status"),
                 )
                 if (!state.active) {
@@ -247,11 +262,11 @@ fun SleepTimerControls(
         // Four always-visible actions. Only Custom reveals the duration controls.
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SleepTimerChoice(
-                label = "End of\ntrack",
+                label = "End of track",
                 selected = state.active && state.mode == SleepTimerMode.END_OF_TRACK,
                 enabled = endOfTrackEnabled,
                 tag = "sleep-timer-end-of-track",
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1.65f),
             ) {
                 customExpanded = false
                 onEndOfTrack()

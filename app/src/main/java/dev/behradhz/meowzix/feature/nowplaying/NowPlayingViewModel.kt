@@ -238,6 +238,7 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun extendSleepTimer() = viewModelScope.launch { sleepTimerManager.extend(15 * 60_000L) }
+    fun shortenSleepTimer() = viewModelScope.launch { sleepTimerManager.extend(-15 * 60_000L) }
     fun cancelSleepTimer() = setSleepTimerEnabled(false)
 
     private var savePlaybackSpeedJob: Job? = null

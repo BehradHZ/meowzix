@@ -38,6 +38,7 @@ enum class ColorThemePreference {
     MEOWZIX, WALLPAPER, CORAL, AMBER, OCEAN, MINT, VIOLET, ROSE, CUSTOM
 }
 
+enum class LauncherIconColorSource { APP_THEME, WALLPAPER }
 enum class PlayerAccentSource { GLOBAL, TRACK }
 enum class PlayerSeekBarStyle { WAVEFORM, CLASSIC }
 
@@ -55,6 +56,8 @@ data class AppearanceSettings(
     val reduceMotion: Boolean = false,
     val playerAccentSource: PlayerAccentSource = PlayerAccentSource.GLOBAL,
     val playerSeekBarStyle: PlayerSeekBarStyle = PlayerSeekBarStyle.WAVEFORM,
+    val launcherIconSource: LauncherIconColorSource = LauncherIconColorSource.APP_THEME,
+    val spermerModeEnabled: Boolean = false,
 )
 
 /** Remembers the user's last Sleep Timer mode independently from the running timer. */
@@ -111,6 +114,8 @@ interface SettingsRepository {
     suspend fun setReduceMotion(enabled: Boolean)
     suspend fun setPlayerAccentSource(source: PlayerAccentSource)
     suspend fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle)
+    suspend fun setLauncherIconSource(source: LauncherIconColorSource) {}
+    suspend fun setSpermerModeEnabled(enabled: Boolean) {}
     suspend fun setDefaultPlaybackMode(mode: PlaybackMode)
     suspend fun setDefaultRepeatMode(mode: RepeatMode)
     suspend fun setResumeOnLaunch(enabled: Boolean)

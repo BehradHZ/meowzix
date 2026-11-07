@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -96,7 +97,7 @@ fun HomeRoute(
                     start = 18.dp,
                     end = 18.dp,
                     top = 100.dp,
-                    bottom = 198.dp,
+                    bottom = dockAwareBottomPadding(198.dp),
                 ),
                 verticalArrangement = Arrangement.spacedBy(28.dp),
             ) {

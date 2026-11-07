@@ -118,6 +118,7 @@ internal fun PlayerActionsMenu(
     onSetSleepTimerMinutes: (Int) -> Unit = {},
     onSetSleepTimerEndOfTrack: () -> Unit = {},
     onExtendSleepTimer: () -> Unit = {},
+    onShortenSleepTimer: () -> Unit = {},
     onChangePlaybackSpeed: (Float) -> Unit = {},
     dragInProgress: Boolean = false,
     draggedAction: Int? = null,
@@ -148,7 +149,7 @@ internal fun PlayerActionsMenu(
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
-        modifier = Modifier.width(288.dp),
+        modifier = Modifier.width(if (page == PlayerActionsPage.SLEEP_TIMER) 336.dp else 288.dp),
         offset = DpOffset(x = (-8).dp, y = 0.dp),
         containerColor = Color.Transparent,
         tonalElevation = 0.dp,
@@ -413,6 +414,7 @@ internal fun PlayerActionsMenu(
                             onSetMinutes = onSetSleepTimerMinutes,
                             onEndOfTrack = onSetSleepTimerEndOfTrack,
                             onExtend = onExtendSleepTimer,
+                            onShorten = onShortenSleepTimer,
                             onSetEnabled = onSleepTimerEnabledChange,
                         )
                     }

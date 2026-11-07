@@ -38,6 +38,7 @@ fun SettingsRoute(
     onOpenOffline: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenTelegram: () -> Unit,
+    onApplyLauncherIcon: (dev.behradhz.meowzix.domain.settings.LauncherIconColorSource) -> Unit = {},
 ) {
     var showFullscreenCat by remember { mutableStateOf(false) }
 
@@ -47,6 +48,7 @@ fun SettingsRoute(
         onOpenTelegram = onOpenTelegram,
         onOpenDownloads = onOpenOffline,
         onOpenHistory = onOpenHistory,
+        onApplyLauncherIcon = onApplyLauncherIcon,
     )
 
     if (showFullscreenCat) SettingsBrandDialog(onDismiss = { showFullscreenCat = false })

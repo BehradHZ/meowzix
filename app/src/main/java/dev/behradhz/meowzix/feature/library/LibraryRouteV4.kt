@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -428,7 +429,7 @@ private fun PagedTrackListV4(
         else -> LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 188.dp),
+            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 2.dp, bottom = dockAwareBottomPadding(188.dp)),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(
@@ -491,7 +492,7 @@ private fun ArtistListV4(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 188.dp),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = dockAwareBottomPadding(188.dp)),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(rows, key = { it.normalizedName }, contentType = { "artist" }) { row ->
@@ -514,7 +515,7 @@ private fun AlbumListV4(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 188.dp),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = dockAwareBottomPadding(188.dp)),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(rows, key = { "${it.name}:${it.normalizedArtist}" }, contentType = { "album" }) { row ->
@@ -547,7 +548,7 @@ private fun LibraryDetailV4(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
-            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 100.dp, bottom = 188.dp),
+            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 100.dp, bottom = dockAwareBottomPadding(188.dp)),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(tracks, key = { it.id.toString() }, contentType = { "track" }) { track ->

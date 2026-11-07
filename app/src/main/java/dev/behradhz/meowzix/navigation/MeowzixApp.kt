@@ -134,6 +134,7 @@ internal data class DockDestination(
 fun MeowzixApp(
     openNowPlayingRequest: Boolean = false,
     onNowPlayingRequestConsumed: () -> Unit = {},
+    onApplyLauncherIcon: (dev.behradhz.meowzix.domain.settings.LauncherIconColorSource) -> Unit = {},
     playerViewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
@@ -183,6 +184,7 @@ fun MeowzixApp(
     }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     var dockCompact by rememberSaveable { mutableStateOf(false) }
+    var reachedScrollEnd by remember(currentRoute) { mutableStateOf(false) }
     // Incremented even when Home is already selected: reselecting the tab
     // should scroll its retained LazyColumn back to the header.
     var homeScrollToTopRequest by remember { mutableIntStateOf(0) }
@@ -194,6 +196,8 @@ fun MeowzixApp(
                 if (source != NestedScrollSource.UserInput || searchActive) return Offset.Zero
                 val delta = available.y
                 if (delta == 0f) return Offset.Zero
+                if (delta > 0f) reachedScrollEnd = false
+                if (delta < 0f && reachedScrollEnd) return Offset.Zero
                 if (delta * scrollDelta < 0f) scrollDelta = 0f
                 scrollDelta += delta
                 if (scrollDelta <= -threshold) {
@@ -205,10 +209,32 @@ fun MeowzixApp(
                 }
                 return Offset.Zero
             }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // At the true bottom of a scrollable page, the remaining upward
+                // drag is unconsumed. Expand the dock so the reserved footer is filled.
+                if (shouldExpandDockAtEnd(
+                        isUserInput = source == NestedScrollSource.UserInput,
+                        searchActive = searchActive,
+                        compact = dockCompact,
+                        unconsumedDy = available.y,
+                    )
+                ) {
+                    reachedScrollEnd = true
+                    dockCompact = false
+                    scrollDelta = 0f
+                }
+                return Offset.Zero
+            }
         }
     }
     LaunchedEffect(currentRoute, searchActive) {
         dockCompact = false
+        reachedScrollEnd = false
         scrollDelta = 0f
     }
 
@@ -308,6 +334,10 @@ fun MeowzixApp(
                 onSettings = if (currentRoute == SETTINGS_ROUTE) null else ({ toggleSettings() }),
                 onProxy = if (currentRoute == SETTINGS_ROUTE) ({ openProxyRequest++ }) else null,
             ),
+            LocalDockLayout provides DockLayout(
+                compact = dockCompact && !searchActive,
+                reduceMotion = reduceMotion,
+            ),
         ) {
         NavHost(
             navController = navController,
@@ -397,6 +427,7 @@ fun MeowzixApp(
                     onOpenOffline = { navController.navigate(DOWNLOADS_ROUTE) },
                     onOpenHistory = { navController.navigate(HISTORY_ROUTE) },
                     onOpenTelegram = { navController.navigate(TELEGRAM_AUTH_ROUTE) },
+                    onApplyLauncherIcon = onApplyLauncherIcon,
                 )
             }
             composable(TELEGRAM_AUTH_ROUTE) {

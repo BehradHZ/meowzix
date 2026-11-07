@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -56,7 +57,7 @@ fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
     Box(Modifier.fillMaxSize()) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(headerHazeState),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 192.dp),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = dockAwareBottomPadding(192.dp)),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {

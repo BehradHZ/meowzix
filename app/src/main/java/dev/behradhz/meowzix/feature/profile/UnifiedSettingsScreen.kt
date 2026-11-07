@@ -3,6 +3,13 @@ package dev.behradhz.meowzix.feature.profile
 import android.Manifest
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
@@ -76,7 +83,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,6 +95,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -98,11 +107,14 @@ import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.settings.ThemePreference
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
+import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
+import dev.behradhz.meowzix.BuildConfig
 import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.ui.components.SleepTimerMenuContent
 import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
+import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -114,6 +126,7 @@ fun UnifiedSettingsScreen(
     onOpenHistory: () -> Unit = {},
     onOpenTelegram: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
+    onApplyLauncherIcon: (LauncherIconColorSource) -> Unit = {},
     viewModel: UnifiedSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -131,6 +144,8 @@ fun UnifiedSettingsScreen(
     var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     var equalizerExpanded by rememberSaveable { mutableStateOf(false) }
     var sleepTimerExpanded by rememberSaveable { mutableStateOf(false) }
+    var pendingIconSource by remember { mutableStateOf<LauncherIconColorSource?>(null) }
+    var versionTaps by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(enabled = selectedCategory != null) { selectedCategory = null }
     val telegramConnected = telegramAuth.step is TelegramAuthStep.Ready
 
@@ -185,18 +200,57 @@ fun UnifiedSettingsScreen(
     PlaylistGlassBackdrop(variation = 2) { hazeState ->
         Box(Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalSettingsCompactMode provides true) {
-        key(selectedCategory) {
+        AnimatedContent(
+            targetState = selectedCategory,
+            transitionSpec = {
+                val isBack = targetState == null
+                val direction = if (isBack) -1 else 1
+                if (state.appearance.reduceMotion) {
+                    fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                } else {
+                    (slideInHorizontally(tween(270), initialOffsetX = { direction * it / 4 }) +
+                        fadeIn(tween(240))) togetherWith
+                        (slideOutHorizontally(tween(220), targetOffsetX = { -direction * it / 4 }) +
+                            fadeOut(tween(170)))
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+            label = "settings-category-transition",
+        ) { page ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 196.dp),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = dockAwareBottomPadding(196.dp)),
             verticalArrangement = Arrangement.spacedBy(25.dp),
         ) {
-            if (selectedCategory == null) {
+            if (page == null) {
                 item(key = "categories") {
                     SettingsCategoryIndex(hazeState) { category -> selectedCategory = category }
                 }
+                item(key = "settings-version") {
+                    Text(
+                        text = "Version " + BuildConfig.VERSION_NAME +
+                            if (state.appearance.spermerModeEnabled) " · Spermer" else "",
+                        modifier = Modifier.fillMaxWidth()
+                            .testTag("settings-version")
+                            .clickable(enabled = !state.appearance.spermerModeEnabled) {
+                                versionTaps++
+                                val remaining = 7 - versionTaps
+                                if (remaining <= 0) {
+                                    viewModel.setSpermerModeEnabled(true)
+                                    Toast.makeText(context, "Spermer mode enabled", Toast.LENGTH_SHORT).show()
+                                    versionTaps = 0
+                                } else if (remaining <= 3) {
+                                    Toast.makeText(context, "$remaining taps to unlock", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .padding(vertical = 8.dp),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            if (selectedCategory == SettingsCategory.APPEARANCE) {
+            if (page == SettingsCategory.APPEARANCE) {
                 item(key = "appearance") {
                         SettingsGlassSection(hazeState, "Appearance", "Color, typography and motion", Icons.Rounded.Palette, showHeading = false) {
                             SettingsChoiceRow("Theme", null, Icons.Rounded.DarkMode,
@@ -204,6 +258,24 @@ fun UnifiedSettingsScreen(
                                 ThemePreference.entries.map { it.name }) { viewModel.setTheme(ThemePreference.valueOf(it)) }
                             SettingsRowDivider()
                             SettingsColorPicker(state.appearance, viewModel::setColorTheme, viewModel::setCustomColorSeed)
+                            SettingsRowDivider()
+                            SettingsChoiceRow(
+                                "Launcher icon color", null, Icons.Rounded.Palette,
+                                if (state.appearance.launcherIconSource == LauncherIconColorSource.WALLPAPER)
+                                    "Wallpaper" else "App theme",
+                                listOf("App theme", "Wallpaper"),
+                            ) { selected ->
+                                if (selected == "Wallpaper" && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                                    Toast.makeText(context, "Wallpaper colors require Android 12+", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    pendingIconSource = if (selected == "Wallpaper")
+                                        LauncherIconColorSource.WALLPAPER else LauncherIconColorSource.APP_THEME
+                                }
+                            }
+                            SettingsActionRow(
+                                "Update launcher icon", null, Icons.Rounded.Palette, "Apply",
+                                onClick = { pendingIconSource = state.appearance.launcherIconSource },
+                            )
                             SettingsRowDivider()
                             SettingsChoiceRow(
                                 "Full player accent", "Choose the track cover's color or the global app accent",
@@ -218,20 +290,22 @@ fun UnifiedSettingsScreen(
                             SettingsRowDivider()
                             SettingsToggleRow("Reduced motion", "Shorter, more restrained lyric and UI animations",
                                 Icons.Rounded.Animation, state.appearance.reduceMotion, viewModel::setReduceMotion)
-                            SettingsRowDivider()
-                            val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()
-                            SettingsSeekBarStylePicker(
-                                selected = state.appearance.playerSeekBarStyle,
-                                onSelect = viewModel::setPlayerSeekBarStyle,
-                                playback = previewPlayback,
-                                spectrumFlow = viewModel.seekBarPreviewSpectrum,
-                                reduceMotion = state.appearance.reduceMotion,
-                                onPreviewCaptureChange = viewModel::setSettingsPreviewCaptureEnabled,
-                            )
+                            if (state.appearance.spermerModeEnabled) {
+                                SettingsRowDivider()
+                                val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()
+                                SettingsSeekBarStylePicker(
+                                    selected = state.appearance.playerSeekBarStyle,
+                                    onSelect = viewModel::setPlayerSeekBarStyle,
+                                    playback = previewPlayback,
+                                    spectrumFlow = viewModel.seekBarPreviewSpectrum,
+                                    reduceMotion = state.appearance.reduceMotion,
+                                    onPreviewCaptureChange = viewModel::setSettingsPreviewCaptureEnabled,
+                                )
+                            }
                         }
                     }
             }
-            if (selectedCategory == SettingsCategory.PLAYBACK) {
+            if (page == SettingsCategory.PLAYBACK) {
                 item(key = "playback") {
                         SettingsGlassSection(hazeState, "Playback", "", Icons.Rounded.PlayCircle, showHeading = false) {
                             SettingsChoiceRow("Default playback mode", null, Icons.AutoMirrored.Rounded.QueueMusic,
@@ -321,6 +395,7 @@ fun UnifiedSettingsScreen(
                                     onSetMinutes = viewModel::setSleepTimerMinutes,
                                     onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
                                     onExtend = { viewModel.extendSleepTimer(15) },
+                                    onShorten = { viewModel.shortenSleepTimer(15) },
                                     onSetEnabled = viewModel::setSleepTimerEnabled,
                                 )
                             }
@@ -335,7 +410,7 @@ fun UnifiedSettingsScreen(
                         }
                     }
             }
-            if (selectedCategory == SettingsCategory.SOUND) {
+            if (page == SettingsCategory.SOUND) {
                 item(key = "sound") {
                     SettingsGlassSection(hazeState, "Sound", "", Icons.Rounded.GraphicEq, showHeading = false) {
                             SettingsActionRow(
@@ -358,7 +433,7 @@ fun UnifiedSettingsScreen(
                     }
                 }
             }
-            if (selectedCategory == SettingsCategory.DISCOVERY) {
+            if (page == SettingsCategory.DISCOVERY) {
                 item(key = "recommendations") {
                         SettingsGlassSection(hazeState, "Discovery", "Private recommendations, made for you", Icons.Rounded.AutoAwesome, showHeading = false) {
                             SettingsToggleRow("Smart recommendations", "Enable learned recommendation surfaces",
@@ -385,7 +460,7 @@ fun UnifiedSettingsScreen(
                         }
                     }
             }
-            if (selectedCategory == SettingsCategory.CONNECTIONS) {
+            if (page == SettingsCategory.CONNECTIONS) {
                 item(key = "telegram") {
                         SettingsGlassSection(hazeState, "Telegram", "Connection and selected music sources", Icons.Rounded.Cloud) {
                             SettingsActionRow("Music sources",
@@ -402,7 +477,7 @@ fun UnifiedSettingsScreen(
                         }
                     }
             }
-            if (selectedCategory == SettingsCategory.CONNECTIONS) {
+            if (page == SettingsCategory.CONNECTIONS) {
                 item(key = "storage") {
                         SettingsGlassSection(hazeState, "Downloads & storage", "Keep listening, even offline", Icons.Rounded.Download) {
                             SettingsActionRow("Offline files & downloads",
@@ -419,7 +494,7 @@ fun UnifiedSettingsScreen(
                         }
                     }
             }
-            if (selectedCategory == SettingsCategory.DATA) {
+            if (page == SettingsCategory.DATA) {
                 item(key = "privacy") {
                         SettingsGlassSection(hazeState, "Privacy & history", "Your listening, under your control", Icons.Rounded.Shield) {
                             SettingsActionRow(
@@ -432,7 +507,7 @@ fun UnifiedSettingsScreen(
                         }
                     }
             }
-            if (selectedCategory == SettingsCategory.DATA) {
+            if (page == SettingsCategory.DATA) {
                 item(key = "backup") {
                         SettingsGlassSection(hazeState, "Backup & restore", "Take your preferences with you", Icons.Rounded.Backup) {
                             SettingsToggleRow("Include listening history", "Off by default; trained model weights are never exported",
@@ -451,7 +526,7 @@ fun UnifiedSettingsScreen(
                         }
                     }
             }
-            if (selectedCategory == SettingsCategory.DISCOVERY) {
+            if (page == SettingsCategory.DISCOVERY) {
                 item(key = "advanced") {
                         SettingsGlassSection(hazeState, "Advanced", "Diagnostics and local models", Icons.Rounded.Tune) {
                             SettingsToggleRow("Diagnostics", "Show local model and evaluation details",
@@ -459,7 +534,7 @@ fun UnifiedSettingsScreen(
                         }
                     }
             }
-            if (selectedCategory == SettingsCategory.DATA) {
+            if (page == SettingsCategory.DATA) {
                 item(key = "manage-data") {
                         SettingsGlassSection(hazeState, "Data controls", "Changes that deserve a second look", Icons.Rounded.DeleteOutline) {
                             SettingsDangerRow("Clear incomplete transfers", "Removes only interrupted partial files, never completed audio",
@@ -483,7 +558,7 @@ fun UnifiedSettingsScreen(
                         }
                     }
             }
-            if (selectedCategory == SettingsCategory.INFORMATION) {
+            if (page == SettingsCategory.INFORMATION) {
                 item(key = "information") {
                     SettingsInformationContent(
                         hazeState = hazeState,
@@ -520,6 +595,26 @@ fun UnifiedSettingsScreen(
             },
         )
         }
+    }
+
+    pendingIconSource?.let { chosen ->
+        AlertDialog(
+            onDismissRequest = { pendingIconSource = null },
+            title = { Text("Change launcher icon?") },
+            text = {
+                Text("Android may close or restart Meowzix while updating the icon. Apply the selected " +
+                    "color source now?")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingIconSource = null
+                    onApplyLauncherIcon(chosen)
+                }) { Text("Apply · allow restart") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingIconSource = null }) { Text("Not now") }
+            },
+        )
     }
 
     pendingDanger?.let { action ->

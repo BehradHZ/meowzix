@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.ui.theme
 
 import dev.behradhz.meowzix.domain.settings.ColorThemePreference
+import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
 import kotlin.math.abs
 
 /** Each entry has a light and dark full-color launcher icon in the manifest. */
@@ -70,3 +71,17 @@ private fun launcherHue(color: Int): Float? {
     }
     return ((sector * 60f) % 360f + 360f) % 360f
 }
+
+/** Source selection is independent of the in-app accent and requires explicit user approval before applying. */
+internal fun selectLauncherIconForSource(
+    source: LauncherIconColorSource,
+    appTheme: ColorThemePreference,
+    customColor: Int,
+    dark: Boolean,
+    wallpaperPrimary: Int,
+): LauncherIconVariant = selectLauncherIconVariant(
+    if (source == LauncherIconColorSource.WALLPAPER) ColorThemePreference.WALLPAPER else appTheme,
+    customColor,
+    dark,
+    wallpaperPrimary,
+)

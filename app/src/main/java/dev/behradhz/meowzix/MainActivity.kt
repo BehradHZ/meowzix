@@ -2,15 +2,19 @@ package dev.behradhz.meowzix
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,13 +29,15 @@ import dev.behradhz.meowzix.navigation.MeowzixApp
 import dev.behradhz.meowzix.domain.settings.AppearanceSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.ThemePreference
+import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
 import javax.inject.Inject
 import dev.behradhz.meowzix.ui.haptics.meowzixInteractionHaptics
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 import dev.behradhz.meowzix.ui.theme.LauncherIconManager
-import dev.behradhz.meowzix.ui.theme.selectLauncherIconVariant
+import dev.behradhz.meowzix.ui.theme.selectLauncherIconForSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @AndroidEntryPoint
@@ -57,17 +63,10 @@ class MainActivity : ComponentActivity() {
                 ThemePreference.DARK -> true
             }
             MeowzixTheme(darkTheme = darkTheme, colorTheme = appearance.colorTheme, customColorSeed = appearance.customColorSeed) {
-                val wallpaperPrimary = MaterialTheme.colorScheme.primary.toArgb()
-                LaunchedEffect(savedAppearance, darkTheme, wallpaperPrimary) {
-                    val loaded = savedAppearance ?: return@LaunchedEffect
-                    val variant = selectLauncherIconVariant(
-                        loaded.colorTheme, loaded.customColorSeed, darkTheme, wallpaperPrimary,
-                    )
-                    withContext(Dispatchers.IO) {
-                        runCatching { LauncherIconManager.apply(applicationContext, variant) }
-                            .onFailure { Log.w("MeowzixLauncher", "Cannot update launcher icon", it) }
-                    }
-                }
+                val wallpaperPrimary = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    (if (darkTheme) dynamicDarkColorScheme(this@MainActivity)
+                     else dynamicLightColorScheme(this@MainActivity)).primary.toArgb()
+                } else MaterialTheme.colorScheme.primary.toArgb()
                 LaunchedEffect(Unit) {
                     // Wait until Compose reaches a rendered frame instead of treating onCreate as
                     // startup completion. Macrobenchmark can then correlate this with fully-drawn.
@@ -86,6 +85,21 @@ class MainActivity : ComponentActivity() {
                     MeowzixApp(
                         openNowPlayingRequest = openNowPlaying,
                         onNowPlayingRequestConsumed = { openNowPlaying = false },
+                        onApplyLauncherIcon = { source ->
+                            // Only this explicit, confirmed action may change launcher aliases.
+                            // Saving the choice first ensures an OEM restart never loses it.
+                            lifecycleScope.launch {
+                                settingsRepository.setLauncherIconSource(source)
+                                val variant = selectLauncherIconForSource(
+                                    source, appearance.colorTheme, appearance.customColorSeed,
+                                    darkTheme, wallpaperPrimary,
+                                )
+                                withContext(Dispatchers.IO) {
+                                    runCatching { LauncherIconManager.apply(applicationContext, variant) }
+                                        .onFailure { Log.w("MeowzixLauncher", "Cannot update launcher icon", it) }
+                                }
+                            }
+                        },
                     )
                 }
             }

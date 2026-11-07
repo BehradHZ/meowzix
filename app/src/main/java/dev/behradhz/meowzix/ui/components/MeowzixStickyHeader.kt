@@ -69,18 +69,25 @@ fun MeowzixStickyHeader(
         val rowContent: @Composable RowScope.() -> Unit = {
             // A leading action is pinned to the physical left for this header only.
             leadingActions?.invoke(this)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+            ) {
                 CompositionLocalProvider(LocalLayoutDirection provides contentLayoutDirection) {
                     Text(
                         title, style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold, maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        subtitle, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
+                    // An empty Text still reserves a line-height in some Compose versions,
+                    // which raises the title above the 44dp header-action centerline.
+                    if (subtitle.isNotBlank()) {
+                        Text(
+                            subtitle, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
             actions()

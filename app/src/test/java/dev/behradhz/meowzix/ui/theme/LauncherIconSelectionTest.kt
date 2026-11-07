@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.ui.theme
 
 import dev.behradhz.meowzix.domain.settings.ColorThemePreference
+import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -37,6 +38,20 @@ class LauncherIconSelectionTest {
             LauncherIconPalette.AMBER,
             selectLauncherIconVariant(ColorThemePreference.CUSTOM, 0xFFFFFF00.toInt(), false, wallpaper).palette,
         )
+    }
+
+    @Test fun launcherColorSourceCanFollowWallpaperWithoutChangingAppPalette() {
+        val appVariant = selectLauncherIconForSource(
+            LauncherIconColorSource.APP_THEME,
+            ColorThemePreference.ROSE, custom, false, wallpaper,
+        )
+        val wallpaperVariant = selectLauncherIconForSource(
+            LauncherIconColorSource.WALLPAPER,
+            ColorThemePreference.ROSE, custom, false, wallpaper,
+        )
+        assertEquals(LauncherIconPalette.ROSE, appVariant.palette)
+        assertEquals(LauncherIconPalette.OCEAN, wallpaperVariant.palette)
+        assertEquals(false, wallpaperVariant.dark)
     }
 
     @Test fun grayCustomColorUsesStableDefaultRatherThanArbitraryHue() {
