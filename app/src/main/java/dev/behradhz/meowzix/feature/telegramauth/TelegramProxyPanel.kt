@@ -67,7 +67,7 @@ import dev.behradhz.meowzix.ui.components.TelegramGlassInput
 import dev.behradhz.meowzix.ui.components.TelegramGlassPill
 
 /**
- * The shield is always accessible in the Telegram header, including during login.
+ * The proxy manager is shared by every screen, including Telegram login.
  * Clipboard content is inspected only while the dialog is visible and foregrounded.
  */
 @Composable
@@ -81,6 +81,8 @@ internal fun TelegramProxyPanel(
     onRemove: (Int) -> Unit,
     onPing: (Int) -> Unit,
     onClearError: () -> Unit,
+    showTrigger: Boolean = true,
+    openRequest: Int = 0,
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -92,19 +94,24 @@ internal fun TelegramProxyPanel(
     val currentProxy = state.proxies.firstOrNull { it.enabled }
     val sortedProxies = rankTelegramProxiesByLatency(state.proxies)
 
-    Surface(
-        onClick = { open = true },
-        modifier = Modifier.size(44.dp),
-        shape = CircleShape,
-        color = if (currentProxy != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
-            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.075f),
-        contentColor = if (currentProxy != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(Icons.Rounded.Shield, contentDescription = "Proxy settings", modifier = Modifier.size(22.dp))
+    if (showTrigger) {
+        Surface(
+            onClick = { open = true },
+            modifier = Modifier.size(44.dp),
+            shape = CircleShape,
+            color = if (currentProxy != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.075f),
+            contentColor = if (currentProxy != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Shield, contentDescription = "Proxy settings", modifier = Modifier.size(22.dp))
+            }
         }
     }
 
+    LaunchedEffect(openRequest) {
+        if (openRequest > 0) open = true
+    }
     LaunchedEffect(open) {
         if (open) onRefresh()
     }

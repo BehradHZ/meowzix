@@ -392,7 +392,7 @@ private fun NowPlayingScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 22.dp, vertical = 10.dp),
+                .padding(horizontal = 22.dp).padding(top = 17.dp, bottom = 10.dp),
         ) {
             PlayerHeader(
                 hazeState = hazeState,
@@ -673,17 +673,10 @@ private fun PlayerHeader(
                     modifier = Modifier.size(30.dp),
                 )
             }
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = "Now Playing",
-                color = PlayerPrimaryContent,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.weight(1f))
             IconButton(onClick = onOpenForward) {
                 Icon(painterResource(R.drawable.ic_forward_paper_plane), contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
             }
+            Spacer(Modifier.weight(1f))
             IconButton(onClick = onOpenQueue) {
                 Icon(Icons.Rounded.QueueMusic, contentDescription = "Open queue", tint = PlayerPrimaryContent)
             }
@@ -785,6 +778,8 @@ private fun PlayerHeader(
                     onActionBoundsChanged = { index, bounds -> actionBounds[index] = bounds },
                 )
             }
+            // Matches the app-wide fixed Proxy and Settings slots.
+            Spacer(Modifier.width(97.dp))
         }
     }
     if (pasteDialog) {

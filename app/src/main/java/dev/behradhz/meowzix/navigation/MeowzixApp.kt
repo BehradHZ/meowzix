@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -41,12 +42,15 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -69,6 +73,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -77,6 +82,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -97,8 +103,11 @@ import dev.behradhz.meowzix.feature.profile.SettingsRoute
 import dev.behradhz.meowzix.feature.queue.QueueRoute
 import dev.behradhz.meowzix.feature.search.SearchViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
+import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthViewModel
+import dev.behradhz.meowzix.feature.telegramauth.TelegramProxyPanel
 import dev.behradhz.meowzix.ui.theme.LocalMeowzixLogoBackground
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import dev.behradhz.meowzix.ui.components.SecondaryAmbientBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -134,6 +143,9 @@ fun MeowzixApp(
     val morphingPlayerState = rememberMorphingPlayerState()
     val libraryViewModel: LibraryViewModel = hiltViewModel()
     val searchViewModel: SearchViewModel = hiltViewModel()
+    val telegramProxyViewModel: TelegramAuthViewModel = hiltViewModel()
+    val proxyState by telegramProxyViewModel.proxyState.collectAsStateWithLifecycle()
+    var openProxyRequest by remember { mutableIntStateOf(0) }
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
     val queueState by playerViewModel.queueState.collectAsStateWithLifecycle()
@@ -309,7 +321,6 @@ fun MeowzixApp(
                         pendingPlaylistId = id
                         navigateTopLevel(PLAYLISTS_ROUTE)
                     },
-                    onOpenSettings = { navigateTopLevel(SETTINGS_ROUTE) },
                 )
             }
             composable(LIBRARY_ROUTE) {
@@ -462,6 +473,39 @@ fun MeowzixApp(
                 },
             )
         }
+
+        // This layer sits above the navigation destination and expanded player, so neither
+        // scrolling nor destination-specific headers can displace the two fixed controls.
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+            Row(
+                modifier = Modifier.align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 20.dp, end = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MeowzixHeaderAction("Proxy settings", Icons.Rounded.Shield, {
+                    openProxyRequest++
+                })
+                MeowzixHeaderAction("Open settings", Icons.Rounded.Settings, {
+                    morphingPlayerState.collapse()
+                    navigateTopLevel(SETTINGS_ROUTE)
+                })
+            }
+        }
+        TelegramProxyPanel(
+            state = proxyState,
+            onAdd = telegramProxyViewModel::addProxy,
+            onImport = telegramProxyViewModel::importProxyLink,
+            onRefresh = telegramProxyViewModel::refreshProxies,
+            onEnable = telegramProxyViewModel::enableProxy,
+            onDisable = telegramProxyViewModel::disableProxy,
+            onRemove = telegramProxyViewModel::removeProxy,
+            onPing = telegramProxyViewModel::pingProxy,
+            onClearError = telegramProxyViewModel::clearProxyError,
+            showTrigger = false,
+            openRequest = openProxyRequest,
+        )
     }
 }
 

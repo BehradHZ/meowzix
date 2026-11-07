@@ -30,7 +30,6 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -55,7 +54,6 @@ import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
-import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import dev.chrisbanes.haze.hazeSource
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.chrisbanes.haze.HazeState
@@ -68,7 +66,6 @@ fun HomeRoute(
     onPlayCollection: (List<Track>) -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenPlaylist: (java.util.UUID) -> Unit,
-    onOpenSettings: () -> Unit,
     scrollToTopRequest: Int = 0,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -178,9 +175,7 @@ fun HomeRoute(
             hazeState = headerHazeState,
             tintAlpha = 0.28f,
             modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            MeowzixHeaderAction("Open settings", Icons.Rounded.Settings, onOpenSettings)
-        }
+        )
     }
 }
 

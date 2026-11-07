@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -65,8 +66,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthState
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
-import dev.behradhz.meowzix.domain.telegram.TelegramProxyDraft
-import dev.behradhz.meowzix.domain.telegram.TelegramProxyState
 import dev.behradhz.meowzix.domain.telegram.TelegramConnectionStatus
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
@@ -84,13 +83,11 @@ fun TelegramAuthRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val musicSourceState by viewModel.musicSourceState.collectAsStateWithLifecycle()
-    val proxyState by viewModel.proxyState.collectAsStateWithLifecycle()
     val hazeState = rememberHazeState()
     MeowzixTheme(darkTheme = true) {
         TelegramAuthScreen(
             state = state,
             musicSourceState = musicSourceState,
-            proxyState = proxyState,
             hazeState = hazeState,
             onBack = onBack,
             onPhoneNumber = viewModel::submitPhoneNumber,
@@ -102,14 +99,6 @@ fun TelegramAuthRoute(
             onLogout = viewModel::logout,
             onResetTelegram = viewModel::resetTelegram,
             onClearError = viewModel::clearError,
-            onRefreshProxies = viewModel::refreshProxies,
-            onAddProxy = viewModel::addProxy,
-            onImportProxyLink = viewModel::importProxyLink,
-            onEnableProxy = viewModel::enableProxy,
-            onDisableProxy = viewModel::disableProxy,
-            onRemoveProxy = viewModel::removeProxy,
-            onPingProxy = viewModel::pingProxy,
-            onClearProxyError = viewModel::clearProxyError,
             onRefreshSources = viewModel::refreshMusicSources,
             onSetSourceSelected = viewModel::setMusicSourceSelected,
             onSyncSources = viewModel::syncSelectedSources,
@@ -122,7 +111,6 @@ fun TelegramAuthRoute(
 private fun TelegramAuthScreen(
     state: TelegramAuthState,
     musicSourceState: TelegramMusicSourceState,
-    proxyState: TelegramProxyState,
     hazeState: HazeState,
     onBack: () -> Unit,
     onPhoneNumber: (String) -> Unit,
@@ -134,14 +122,6 @@ private fun TelegramAuthScreen(
     onLogout: () -> Unit,
     onResetTelegram: () -> Unit,
     onClearError: () -> Unit,
-    onRefreshProxies: () -> Unit,
-    onAddProxy: (TelegramProxyDraft) -> Unit,
-    onImportProxyLink: (String) -> Unit,
-    onEnableProxy: (Int) -> Unit,
-    onDisableProxy: () -> Unit,
-    onRemoveProxy: (Int) -> Unit,
-    onPingProxy: (Int) -> Unit,
-    onClearProxyError: () -> Unit,
     onRefreshSources: () -> Unit,
     onSetSourceSelected: (Long, Boolean) -> Unit,
     onSyncSources: () -> Unit,
@@ -195,17 +175,7 @@ private fun TelegramAuthScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                TelegramProxyPanel(
-                    state = proxyState,
-                    onAdd = onAddProxy,
-                    onImport = onImportProxyLink,
-                    onRefresh = onRefreshProxies,
-                    onEnable = onEnableProxy,
-                    onDisable = onDisableProxy,
-                    onRemove = onRemoveProxy,
-                    onPing = onPingProxy,
-                    onClearError = onClearProxyError,
-                )
+                Spacer(Modifier.width(97.dp))
             }
         }
 
