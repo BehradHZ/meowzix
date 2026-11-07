@@ -176,16 +176,21 @@ class ProgressiveQueueTest {
     }
 
     @Test
-    fun `add to queue still repositions existing tracks without adding duplicates`() {
+    fun `queueing a played track creates a separate manual occurrence without erasing history`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(20)
         queue.start(tracks, 3, PlaybackMode.ORDERED, RepeatMode.OFF)
+        val before = requireNotNull(queue.snapshot())
+        val playedOccurrence = before.occurrenceIds[1]
 
         assertTrue(queue.append(tracks[1]))
         val snapshot = requireNotNull(queue.snapshot())
         assertEquals(tracks[3].id, snapshot.tracks[snapshot.currentIndex].id)
-        assertEquals(tracks[1].id, snapshot.tracks.last().id)
-        assertEquals(20, snapshot.tracks.size)
+        assertEquals(playedOccurrence, snapshot.occurrenceIds[1])
+        assertEquals(tracks[1].id, snapshot.tracks[snapshot.currentIndex + 1].id)
+        assertTrue(queue.isFixedOccurrence(snapshot.currentIndex + 1))
+        assertTrue(playedOccurrence != snapshot.occurrenceIds[snapshot.currentIndex + 1])
+        assertEquals(21, snapshot.tracks.size)
         assertEquals(20, snapshot.tracks.map { it.id }.distinct().size)
     }
 
@@ -454,19 +459,26 @@ class ProgressiveQueueTest {
     }
 
     @Test
-    fun `jumping to the ninety fifth generated item requests a batch once`() {
+    fun `jumping to the ninetieth or later generated item requests one batch`() {
         val songs = tracks(305)
-        val queue = ProgressiveQueue()
-        queue.start(songs.take(100), 0, PlaybackMode.ORDERED, RepeatMode.OFF,
-            sourceIds = songs.map { it.id }, pendingIds = songs.drop(100).map { it.id })
-        val plan = requireNotNull(queue.jumpTo(95))
-        assertEquals(95, requireNotNull(queue.snapshot()).generatedStarted)
-        val batch = requireNotNull(queue.claimGeneratedRefill())
-        assertEquals(100, batch.ids.size)
-        assertEquals(null, queue.claimGeneratedRefill())
-        assertTrue(queue.appendGeneratedBatch(batch, songs.drop(100).take(100)))
-        assertEquals(200, requireNotNull(queue.snapshot()).tracks.size)
-        assertEquals(ProgressiveQueue.PREVIOUS_WINDOW_SIZE, plan.startIndexInWindow)
+        for (target in listOf(90, 95, 120)) {
+            val queue = ProgressiveQueue()
+            queue.start(songs.take(150), 0, PlaybackMode.ORDERED, RepeatMode.OFF,
+                sourceIds = songs.map { it.id }, pendingIds = songs.drop(150).map { it.id })
+            // A refill must not start before the ninetieth generated song.
+            requireNotNull(queue.jumpTo(89))
+            assertEquals(89, requireNotNull(queue.snapshot()).generatedStarted)
+            assertEquals(null, queue.claimGeneratedRefill())
+
+            val plan = requireNotNull(queue.jumpTo(target))
+            assertEquals(target, requireNotNull(queue.snapshot()).generatedStarted)
+            val batch = requireNotNull(queue.claimGeneratedRefill())
+            assertEquals(100, batch.ids.size)
+            assertEquals(null, queue.claimGeneratedRefill())
+            assertTrue(queue.appendGeneratedBatch(batch, songs.drop(150).take(100)))
+            assertEquals(250, requireNotNull(queue.snapshot()).tracks.size)
+            assertEquals(ProgressiveQueue.PREVIOUS_WINDOW_SIZE, plan.startIndexInWindow)
+        }
     }
 
     @Test

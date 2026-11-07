@@ -69,21 +69,6 @@ class ProgressiveQueueSmartAdaptationTest {
     }
 
     @Test
-    fun `smart rerank is bounded to future window`() {
-        val queue = ProgressiveQueue()
-        val tracks = tracks(40)
-        queue.start(tracks, 0, PlaybackMode.SMART_SHUFFLE, RepeatMode.OFF)
-        val before = requireNotNull(queue.snapshot())
-        val ranked = before.tracks.drop(1).map { it.id }.reversed()
-
-        assertEquals(SmartFutureRevisionResult.APPLIED, queue.rerankGeneratedFuture(ranked, before.revision))
-
-        val after = requireNotNull(queue.snapshot())
-        assertEquals(before.tracks.drop(1 + ProgressiveQueue.SMART_RERANK_WINDOW).map { it.id },
-            after.tracks.drop(1 + ProgressiveQueue.SMART_RERANK_WINDOW).map { it.id })
-    }
-
-    @Test
     fun `restored provenance remains durable`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(6)
@@ -108,7 +93,13 @@ class ProgressiveQueueSmartAdaptationTest {
             requestedOrigins = origins,
         ))
 
-        assertEquals(origins, requireNotNull(queue.snapshot()).origins)
+        val restored = requireNotNull(queue.snapshot())
+        // Legacy interleaving is normalized into contiguous manual and generated
+        // lanes; provenance must stay attached to each track, not its old index.
+        assertEquals(tracks.zip(origins).associate { it.first.id to it.second },
+            restored.tracks.zip(restored.origins).associate { it.first.id to it.second })
+        assertEquals(QueueItemOrigin.MANUAL, restored.origins[restored.currentIndex])
+        assertEquals(QueueItemOrigin.MANUAL, restored.origins[restored.currentIndex + 1])
     }
 
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->

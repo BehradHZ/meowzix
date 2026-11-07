@@ -7,7 +7,7 @@ import org.junit.Test
 
 class ProgressiveQueueTailAppendTest {
     @Test
-    fun `tail append outside active window stays logical until refill is needed`() {
+    fun `append prioritizes a manual entry without expanding the playback window`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(100)
         val appended = track("appended")
@@ -19,7 +19,10 @@ class ProgressiveQueueTailAppendTest {
         val after = requireNotNull(queue.snapshot())
         assertEquals(before.materializedStartIndex, after.materializedStartIndex)
         assertEquals(before.materializedEndExclusive, after.materializedEndExclusive)
-        assertEquals(appended.id, after.tracks.last().id)
+        assertEquals(appended.id, after.tracks[1].id)
+        assertTrue(queue.isFixedOccurrence(1))
+        assertEquals(tracks.drop(1).map { it.id }, after.tracks.drop(2).map { it.id })
+        assertEquals(101, after.tracks.size)
         assertTrue(queue.takeForwardBatchIfNeeded().isEmpty())
     }
 
