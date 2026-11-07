@@ -309,7 +309,8 @@ fun UnifiedSettingsScreen(
                             SettingsActionRow(
                                 "Equalizer", "", Icons.Rounded.Equalizer,
                                 if (equalizerExpanded) "Hide" else "Adjust",
-                            ) { equalizerExpanded = !equalizerExpanded }
+                                onClick = { equalizerExpanded = !equalizerExpanded },
+                            )
                             AnimatedVisibility(visible = equalizerExpanded) {
                                 SettingsEqualizerControls()
                             }
@@ -317,7 +318,8 @@ fun UnifiedSettingsScreen(
                             SettingsActionRow(
                                 "Sleep timer", "", Icons.Rounded.Bedtime,
                                 if (sleepTimerExpanded) "Hide" else sleepTimerStatusLabel(sleepTimer),
-                            ) { sleepTimerExpanded = !sleepTimerExpanded }
+                                onClick = { sleepTimerExpanded = !sleepTimerExpanded },
+                            )
                             AnimatedVisibility(visible = sleepTimerExpanded) {
                                 SleepTimerMenuContent(
                                     state = sleepTimer,
@@ -503,9 +505,13 @@ fun UnifiedSettingsScreen(
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
             leadingActions = {
-                MeowzixHeaderAction("Back", Icons.AutoMirrored.Rounded.ArrowBack) {
-                    if (selectedCategory == null) onBack() else selectedCategory = null
-                }
+                MeowzixHeaderAction(
+                    "Back",
+                    Icons.AutoMirrored.Rounded.ArrowBack,
+                    onClick = {
+                        if (selectedCategory == null) onBack() else selectedCategory = null
+                    },
+                )
             },
         )
         }
