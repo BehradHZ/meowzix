@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -36,7 +37,8 @@ import dev.chrisbanes.haze.HazeState
 /** The whole settings hierarchy is the index and one category detail; no nested destinations. */
 internal enum class SettingsCategory(val title: String, val icon: ImageVector) {
     APPEARANCE("Appearance", Icons.Rounded.Palette),
-    PLAYBACK("Playback & sound", Icons.Rounded.GraphicEq),
+    PLAYBACK("Playback", Icons.Rounded.PlayCircle),
+    SOUND("Sound", Icons.Rounded.GraphicEq),
     DISCOVERY("Discovery", Icons.Rounded.AutoAwesome),
     CONNECTIONS("Telegram & downloads", Icons.Rounded.CloudDownload),
     DATA("Privacy & data", Icons.Rounded.Shield),

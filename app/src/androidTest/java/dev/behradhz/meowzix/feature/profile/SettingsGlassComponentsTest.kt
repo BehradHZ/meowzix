@@ -77,8 +77,8 @@ class SettingsGlassComponentsTest {
                 }
             }
         }
-        compose.onNodeWithText("Playback & sound").performClick()
-        compose.runOnIdle { assertEquals(SettingsCategory.PLAYBACK, opened) }
+        compose.onNodeWithText("Sound").performClick()
+        compose.runOnIdle { assertEquals(SettingsCategory.SOUND, opened) }
     }
 
     @Test

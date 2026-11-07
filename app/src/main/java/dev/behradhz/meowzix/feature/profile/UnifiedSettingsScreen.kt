@@ -80,6 +80,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -127,9 +128,9 @@ fun UnifiedSettingsScreen(
     val scope = rememberCoroutineScope()
     var includeHistoryInBackup by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<Pair<ByteArray, BackupPreview>?>(null) }
-    var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
-    var equalizerExpanded by remember { mutableStateOf(false) }
-    var sleepTimerExpanded by remember { mutableStateOf(false) }
+    var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
+    var equalizerExpanded by rememberSaveable { mutableStateOf(false) }
+    var sleepTimerExpanded by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = selectedCategory != null) { selectedCategory = null }
     val telegramConnected = telegramAuth.step is TelegramAuthStep.Ready
 
@@ -217,12 +218,22 @@ fun UnifiedSettingsScreen(
                             SettingsRowDivider()
                             SettingsToggleRow("Reduced motion", "Shorter, more restrained lyric and UI animations",
                                 Icons.Rounded.Animation, state.appearance.reduceMotion, viewModel::setReduceMotion)
+                            SettingsRowDivider()
+                            val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()
+                            SettingsSeekBarStylePicker(
+                                selected = state.appearance.playerSeekBarStyle,
+                                onSelect = viewModel::setPlayerSeekBarStyle,
+                                playback = previewPlayback,
+                                spectrumFlow = viewModel.seekBarPreviewSpectrum,
+                                reduceMotion = state.appearance.reduceMotion,
+                                onPreviewCaptureChange = viewModel::setSettingsPreviewCaptureEnabled,
+                            )
                         }
                     }
             }
             if (selectedCategory == SettingsCategory.PLAYBACK) {
                 item(key = "playback") {
-                        SettingsGlassSection(hazeState, "Playback & sound", "Fine-tune every listening session", Icons.Rounded.PlayCircle, showHeading = false) {
+                        SettingsGlassSection(hazeState, "Playback", "", Icons.Rounded.PlayCircle, showHeading = false) {
                             SettingsChoiceRow("Default playback mode", null, Icons.AutoMirrored.Rounded.QueueMusic,
                                 state.playback.defaultMode.name, PlaybackMode.entries.map { it.name }) { viewModel.setDefaultMode(PlaybackMode.valueOf(it)) }
                             SettingsRowDivider()
@@ -296,25 +307,6 @@ fun UnifiedSettingsScreen(
                                 }
                             }
                             SettingsRowDivider()
-                            val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()
-                            SettingsSeekBarStylePicker(
-                                selected = state.appearance.playerSeekBarStyle,
-                                onSelect = viewModel::setPlayerSeekBarStyle,
-                                playback = previewPlayback,
-                                spectrumFlow = viewModel.seekBarPreviewSpectrum,
-                                reduceMotion = state.appearance.reduceMotion,
-                                onPreviewCaptureChange = viewModel::setSettingsPreviewCaptureEnabled,
-                            )
-                            SettingsRowDivider()
-                            SettingsActionRow(
-                                "Equalizer", "", Icons.Rounded.Equalizer,
-                                if (equalizerExpanded) "Hide" else "Adjust",
-                                onClick = { equalizerExpanded = !equalizerExpanded },
-                            )
-                            AnimatedVisibility(visible = equalizerExpanded) {
-                                SettingsEqualizerControls()
-                            }
-                            SettingsRowDivider()
                             SettingsActionRow(
                                 "Sleep timer", "", Icons.Rounded.Bedtime,
                                 if (sleepTimerExpanded) "Hide" else sleepTimerStatusLabel(sleepTimer),
@@ -340,7 +332,21 @@ fun UnifiedSettingsScreen(
                                 state.playback.sleepTimerFadeEnabled,
                                 viewModel::setSleepTimerFadeEnabled,
                             )
-                            SettingsRowDivider()
+                        }
+                    }
+            }
+            if (selectedCategory == SettingsCategory.SOUND) {
+                item(key = "sound") {
+                    SettingsGlassSection(hazeState, "Sound", "", Icons.Rounded.GraphicEq, showHeading = false) {
+                            SettingsActionRow(
+                                "Equalizer", "", Icons.Rounded.Equalizer,
+                                if (equalizerExpanded) "Hide" else "Adjust",
+                                onClick = { equalizerExpanded = !equalizerExpanded },
+                            )
+                            AnimatedVisibility(visible = equalizerExpanded) {
+                                SettingsEqualizerControls()
+                            }
+                        SettingsRowDivider()
                             SettingsToggleRow("Loudness normalization",
                                 "ReplayGain first; readable local audio may use conservative RMS dBFS, not LUFS.",
                                 Icons.AutoMirrored.Rounded.VolumeUp, state.playback.loudnessNormalizationEnabled, viewModel::setLoudnessNormalization)
@@ -349,9 +355,8 @@ fun UnifiedSettingsScreen(
                                 if (state.playback.crossfadeDurationSeconds == 0) "Off" else "${state.playback.crossfadeDurationSeconds} s",
                                 state.playback.crossfadeDurationSeconds.toFloat(), 0f..12f, 11,
                                 { viewModel.setCrossfadeSeconds(it.toInt().coerceIn(0, 12)) })
-                            SettingsRowDivider()
-                        }
                     }
+                }
             }
             if (selectedCategory == SettingsCategory.DISCOVERY) {
                 item(key = "recommendations") {
