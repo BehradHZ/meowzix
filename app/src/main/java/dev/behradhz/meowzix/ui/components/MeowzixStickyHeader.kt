@@ -20,13 +20,16 @@ import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 
@@ -49,6 +52,7 @@ fun MeowzixStickyHeader(
     hazeState: HazeState,
     modifier: Modifier = Modifier,
     tintAlpha: Float = 0.76f,
+    leadingActions: (@Composable RowScope.() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     GlassSurface(
@@ -61,24 +65,23 @@ fun MeowzixStickyHeader(
         // A real rectangular frosted strip, not a transparent floating title.
         // The translucent fill remains visible when device blur is unavailable.
         Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.surface.copy(alpha = 0.30f)))
-        Row(
-            modifier = Modifier.fillMaxWidth().statusBarsPadding()
-                .padding(horizontal = 18.dp, vertical = 12.dp)
-                .heightIn(min = 60.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
-        ) {
+        val contentLayoutDirection = LocalLayoutDirection.current
+        val rowContent: @Composable RowScope.() -> Unit = {
+            // A leading action is pinned to the physical left for this header only.
+            leadingActions?.invoke(this)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    title, style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    subtitle, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
+                CompositionLocalProvider(LocalLayoutDirection provides contentLayoutDirection) {
+                    Text(
+                        title, style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        subtitle, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             actions()
             // Trailing controls share the same spacing and inset as contextual actions.
@@ -89,6 +92,26 @@ fun MeowzixStickyHeader(
                 controls.onProxy?.let { onProxy ->
                     MeowzixHeaderAction("Proxy settings", Icons.Rounded.Shield, onProxy)
                 }
+            }
+        }
+        val rowModifier = Modifier.fillMaxWidth().statusBarsPadding()
+            .padding(horizontal = 18.dp, vertical = 12.dp)
+            .heightIn(min = 60.dp)
+        if (leadingActions == null) {
+            Row(
+                modifier = rowModifier,
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                content = rowContent,
+            )
+        } else {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Row(
+                    modifier = rowModifier,
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    content = rowContent,
+                )
             }
         }
     }

@@ -463,9 +463,10 @@ fun UnifiedSettingsScreen(
             subtitle = "Make Meowzix yours.",
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            MeowzixHeaderAction("Back to Home", Icons.AutoMirrored.Rounded.ArrowBack, onBack)
-        }
+            leadingActions = {
+                MeowzixHeaderAction("Back to Home", Icons.AutoMirrored.Rounded.ArrowBack, onBack)
+            },
+        )
         }
     }
 
