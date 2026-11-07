@@ -131,6 +131,51 @@ fun SleepTimerGlassDialog(
     }
 }
 
+/**
+ * Embedded timer page for the player's More menu.
+ * The settings dialog continues to use the same controls independently.
+ */
+@Composable
+fun SleepTimerMenuContent(
+    state: SleepTimerState,
+    endOfTrackEnabled: Boolean,
+    lastMinutes: Int,
+    lastMode: SleepTimerPresetMode,
+    onSetMinutes: (Int) -> Unit,
+    onEndOfTrack: () -> Unit,
+    onExtend: () -> Unit,
+    onSetEnabled: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        SleepTimerControls(
+            state = state,
+            endOfTrackEnabled = endOfTrackEnabled,
+            lastMinutes = lastMinutes,
+            lastMode = lastMode,
+            onSetMinutes = onSetMinutes,
+            onEndOfTrack = onEndOfTrack,
+            onSetEnabled = onSetEnabled,
+        )
+        AnimatedVisibility(
+            visible = state.active && state.mode == SleepTimerMode.DURATION,
+            enter = fadeIn(tween(180)) + expandVertically(tween(200)),
+            exit = fadeOut(tween(130)) + shrinkVertically(tween(160)),
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                SleepTimerFooterAction(
+                    label = "+15 min",
+                    primary = false,
+                    onClick = onExtend,
+                    modifier = Modifier.testTag("sleep-timer-extend"),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun SleepTimerControls(
     state: SleepTimerState,

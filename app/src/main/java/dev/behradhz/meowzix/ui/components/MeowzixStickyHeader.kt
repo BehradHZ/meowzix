@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 
 data class MeowzixHeaderControls(
-    val onSettings: () -> Unit,
+    val onSettings: (() -> Unit)? = null,
     val onProxy: (() -> Unit)? = null,
 )
 
@@ -83,7 +83,9 @@ fun MeowzixStickyHeader(
             actions()
             // Trailing controls share the same spacing and inset as contextual actions.
             LocalMeowzixHeaderControls.current?.let { controls ->
-                MeowzixHeaderAction("Open settings", Icons.Rounded.Settings, controls.onSettings)
+                controls.onSettings?.let { onSettings ->
+                    MeowzixHeaderAction("Open settings", Icons.Rounded.Settings, onSettings)
+                }
                 controls.onProxy?.let { onProxy ->
                     MeowzixHeaderAction("Proxy settings", Icons.Rounded.Shield, onProxy)
                 }

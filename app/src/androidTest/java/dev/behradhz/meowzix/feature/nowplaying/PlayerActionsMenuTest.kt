@@ -6,6 +6,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
@@ -14,6 +15,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.behradhz.meowzix.domain.playback.SleepTimerMode
+import dev.behradhz.meowzix.domain.playback.SleepTimerState
+import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.domain.lyrics.LyricsContentType
 import dev.behradhz.meowzix.domain.lyrics.LyricsSourceType
 import dev.behradhz.meowzix.domain.lyrics.LyricsVersion
@@ -51,8 +55,7 @@ class PlayerActionsMenuTest {
                         expanded = expanded, trackId = trackId,
                         lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId, selected, versions)),
                         lyricsExpanded = false, sleepTimerLabel = "Off",
-                        onDismiss = { expanded = false }, onOpenSleepTimer = {},
-                        onWhyThisSong = {}, onContinueVibe = {}, onToggleLyrics = {},
+                        onDismiss = { expanded = false },                         onWhyThisSong = {}, onContinueVibe = {}, onToggleLyrics = {},
                         onImportLrc = { imported++ }, onPasteLyrics = {},
                         onAdjustDelay = { delay += it }, onSelectVersion = { selectedId = it },
                         onDeleteVersion = {},
@@ -88,7 +91,6 @@ class PlayerActionsMenuTest {
     @Test fun primaryMenuUsesRowsWithInlineTimerStatusAndPreservesActions() {
         val trackId = UUID.randomUUID()
         var expanded by mutableStateOf(true)
-        var timerOpened by mutableIntStateOf(0)
         var whyOpened by mutableIntStateOf(0)
         var vibeOpened by mutableIntStateOf(0)
         compose.setContent {
@@ -102,7 +104,6 @@ class PlayerActionsMenuTest {
                         lyricsExpanded = false,
                         sleepTimerLabel = "Off",
                         onDismiss = { expanded = false },
-                        onOpenSleepTimer = { timerOpened++ },
                         onWhyThisSong = { whyOpened++ },
                         onContinueVibe = { vibeOpened++ },
                         onToggleLyrics = {},
@@ -124,8 +125,10 @@ class PlayerActionsMenuTest {
         compose.onNodeWithText("Off").assertIsDisplayed()
 
         compose.onNodeWithTag("player-action-sleep-timer").performClick()
-        compose.runOnIdle { assertEquals(1, timerOpened); assertEquals(false, expanded) }
-        compose.onNodeWithText("Open menu").performClick()
+        compose.onNodeWithTag("player-timer-page").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(true, expanded) }
+        compose.onNodeWithTag("player-timer-back").performClick()
+        compose.onNodeWithTag("player-actions-page").assertIsDisplayed()
         compose.onNodeWithTag("player-action-why-this-song").performClick()
         compose.runOnIdle { assertEquals(1, whyOpened); assertEquals(false, expanded) }
         compose.onNodeWithText("Open menu").performClick()
@@ -137,7 +140,6 @@ class PlayerActionsMenuTest {
         val trackId = UUID.randomUUID()
         var expanded by mutableStateOf(true)
         var requestedEnabled by mutableStateOf<Boolean?>(null)
-        var opened by mutableIntStateOf(0)
         compose.setContent {
             MeowzixTheme(darkTheme = true) {
                 Box {
@@ -149,7 +151,6 @@ class PlayerActionsMenuTest {
                         lyricsExpanded = false,
                         sleepTimerLabel = "Off · Last: 30 min",
                         onDismiss = { expanded = false },
-                        onOpenSleepTimer = { opened++ },
                         onWhyThisSong = {},
                         onContinueVibe = {},
                         onToggleLyrics = {},
@@ -168,7 +169,7 @@ class PlayerActionsMenuTest {
         compose.onNodeWithTag("player-sleep-timer-switch").performClick()
         compose.runOnIdle {
             assertEquals(true, requestedEnabled)
-            assertEquals(0, opened)
+            assertEquals(true, expanded)
         }
     }
 
@@ -182,7 +183,7 @@ class PlayerActionsMenuTest {
                     expanded = true, trackId = trackId,
                     lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId, version, listOf(version))),
                     lyricsExpanded = false, sleepTimerLabel = "Off",
-                    onDismiss = {}, onOpenSleepTimer = {}, onWhyThisSong = {},
+                    onDismiss = {}, onWhyThisSong = {},
                     onContinueVibe = {}, onToggleLyrics = {}, onImportLrc = {},
                     onPasteLyrics = {}, onAdjustDelay = {}, onSelectVersion = {},
                     onDeleteVersion = { deletedId = it },
@@ -209,7 +210,7 @@ class PlayerActionsMenuTest {
                     expanded = true, trackId = trackId,
                     lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId)),
                     lyricsExpanded = false, sleepTimerLabel = "Off",
-                    onDismiss = {}, onOpenSleepTimer = {}, onWhyThisSong = {},
+                    onDismiss = {}, onWhyThisSong = {},
                     onContinueVibe = {}, onToggleLyrics = {}, onImportLrc = {},
                     onPasteLyrics = { pasted++ }, onAdjustDelay = {}, onSelectVersion = {},
                     onDeleteVersion = {},
@@ -236,7 +237,7 @@ class PlayerActionsMenuTest {
                     expanded = true, trackId = trackId,
                     lyricsState = NowPlayingLyricsState(trackId, trackLyrics),
                     lyricsExpanded = false, sleepTimerLabel = "Off",
-                    onDismiss = {}, onOpenSleepTimer = {}, onWhyThisSong = {},
+                    onDismiss = {}, onWhyThisSong = {},
                     onContinueVibe = {}, onToggleLyrics = {},
                     onImportLrc = {}, onPasteLyrics = {}, onAdjustDelay = {},
                     onSelectVersion = {}, onDeleteVersion = {},
@@ -257,6 +258,96 @@ class PlayerActionsMenuTest {
         compose.onNodeWithTag("player-lyrics-empty").assertIsDisplayed()
         compose.onNodeWithTag("player-action-restore-detected-lyrics").performClick()
         compose.runOnIdle { assertEquals(1, restored) }
+    }
+
+    @Test fun speedPageKeepsPopupOpenAndAppliesFineAdjustments() {
+        val trackId = UUID.randomUUID()
+        var expanded by mutableStateOf(true)
+        var selectedSpeed by mutableFloatStateOf(2f)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                PlayerActionsMenu(
+                    expanded = expanded,
+                    trackId = trackId,
+                    lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId)),
+                    lyricsExpanded = false,
+                    sleepTimerLabel = "Off",
+                    onDismiss = { expanded = false },
+                    onWhyThisSong = {},
+                    onContinueVibe = {},
+                    onToggleLyrics = {},
+                    onImportLrc = {},
+                    onPasteLyrics = {},
+                    onAdjustDelay = {},
+                    onSelectVersion = {},
+                    onDeleteVersion = {},
+                    playbackSpeed = selectedSpeed,
+                    onChangePlaybackSpeed = { selectedSpeed = it },
+                )
+            }
+        }
+        compose.onNodeWithTag("player-action-playback-speed").performClick()
+        compose.onNodeWithTag("player-speed-page").assertIsDisplayed()
+        compose.onNodeWithTag("speed-option-5").performClick()
+        compose.onNodeWithTag("speed-step-plus").performClick()
+        compose.runOnIdle {
+            assertEquals(2.1f, selectedSpeed, 0.001f)
+            assertEquals(true, expanded)
+        }
+        compose.onNodeWithTag("player-speed-back").performClick()
+        compose.onNodeWithTag("player-actions-page").assertIsDisplayed()
+    }
+
+    @Test fun timerPageKeepsPresetsAndCustomControlsInsidePopup() {
+        val trackId = UUID.randomUUID()
+        var expanded by mutableStateOf(true)
+        var requestedMinutes by mutableIntStateOf(0)
+        var endOfTrackRequests by mutableIntStateOf(0)
+        var extended by mutableIntStateOf(0)
+        var state by mutableStateOf(SleepTimerState.Off)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                PlayerActionsMenu(
+                    expanded = expanded,
+                    trackId = trackId,
+                    lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId)),
+                    lyricsExpanded = false,
+                    sleepTimerLabel = "Off",
+                    onDismiss = { expanded = false },
+                    onWhyThisSong = {},
+                    onContinueVibe = {},
+                    onToggleLyrics = {},
+                    onImportLrc = {},
+                    onPasteLyrics = {},
+                    onAdjustDelay = {},
+                    onSelectVersion = {},
+                    onDeleteVersion = {},
+                    sleepTimerState = state,
+                    sleepTimerLastMinutes = 45,
+                    sleepTimerLastMode = SleepTimerPresetMode.DURATION,
+                    onSetSleepTimerMinutes = {
+                        requestedMinutes = it
+                        state = SleepTimerState(SleepTimerMode.DURATION, it * 60_000L)
+                    },
+                    onSetSleepTimerEndOfTrack = { endOfTrackRequests++ },
+                    onExtendSleepTimer = { extended++ },
+                )
+            }
+        }
+        compose.onNodeWithTag("player-action-sleep-timer").performClick()
+        compose.onNodeWithTag("player-timer-page").assertIsDisplayed()
+        compose.onNodeWithTag("sleep-timer-end-of-track").performClick()
+        compose.runOnIdle { assertEquals(1, endOfTrackRequests) }
+        compose.onNodeWithTag("sleep-timer-option-custom").performClick()
+        compose.onNodeWithTag("sleep-timer-custom-start").performClick()
+        compose.runOnIdle {
+            assertEquals(45, requestedMinutes)
+            assertEquals(true, expanded)
+        }
+        compose.onNodeWithTag("sleep-timer-extend").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, extended) }
+        compose.onNodeWithTag("player-timer-back").performClick()
+        compose.onNodeWithTag("player-actions-page").assertIsDisplayed()
     }
 
     private fun version(trackId: UUID, label: String, selected: Boolean): LyricsVersion =

@@ -77,6 +77,23 @@ internal fun PlaybackSpeedGlassDialog(
     onSpeedChange: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    MeowzixGlassDialog(onDismiss = onDismiss, tag = "playback-speed-dialog") { dismiss ->
+        PlaybackSpeedMenuContent(
+            currentSpeed = currentSpeed,
+            onSpeedChange = onSpeedChange,
+            onClose = dismiss,
+            showClose = true,
+        )
+    }
+}
+
+@Composable
+internal fun PlaybackSpeedMenuContent(
+    currentSpeed: Float,
+    onSpeedChange: (Float) -> Unit,
+    onClose: () -> Unit = {},
+    showClose: Boolean = false,
+) {
     var selectedSpeed by remember { mutableFloatStateOf(currentSpeed.coerceIn(0.5f, 5f)) }
     var custom by remember { mutableStateOf(speedPresets.none { abs(it - selectedSpeed) < 0.001f }) }
     val colors = MaterialTheme.colorScheme
@@ -99,8 +116,9 @@ internal fun PlaybackSpeedGlassDialog(
 
     val onDialChange by rememberUpdatedState<(Float) -> Unit>({ updateSpeed(it, fromDial = true) })
 
-    MeowzixGlassDialog(onDismiss = onDismiss, tag = "playback-speed-dialog") { dismiss ->
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (showClose) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Playback speed", style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold)
@@ -108,12 +126,13 @@ internal fun PlaybackSpeedGlassDialog(
             IconButton(
                 onClick = {
                     haptics.perform(MeowzixHapticCue.LightClick)
-                    dismiss()
+                    onClose()
                 },
                 modifier = Modifier.testTag("playback-speed-close"),
             ) { Icon(Icons.Rounded.Close, contentDescription = "Close playback speed") }
         }
-        HorizontalDivider(color = colors.onSurface.copy(alpha = 0.10f))
+            HorizontalDivider(color = colors.onSurface.copy(alpha = 0.10f))
+        }
         val choices = listOf("0.5×", "Normal", "1.5×", "2×", "5×", "Custom")
         choices.chunked(3).forEachIndexed { rowIndex, row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

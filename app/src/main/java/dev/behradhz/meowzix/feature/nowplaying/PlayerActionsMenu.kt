@@ -1,6 +1,9 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.using
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -69,6 +72,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
+import dev.behradhz.meowzix.domain.playback.SleepTimerState
+import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
+import dev.behradhz.meowzix.ui.components.SleepTimerMenuContent
 import dev.behradhz.meowzix.domain.lyrics.LyricsContentType
 import dev.behradhz.meowzix.domain.lyrics.LyricsSourceType
 import dev.behradhz.meowzix.domain.lyrics.LyricsVersion
@@ -82,7 +88,7 @@ internal fun draggedPlayerAction(screenPoint: Offset, rowBounds: Map<Int, Rect>,
             screenPoint.x <= rect.right + horizontalTolerancePx
     }?.key
 
-internal enum class PlayerActionsPage { ACTIONS, LYRICS }
+internal enum class PlayerActionsPage { ACTIONS, LYRICS, PLAYBACK_SPEED, SLEEP_TIMER }
 
 /** Two-page anchored glass popup, matching Library's track-actions menu. */
 @Composable
@@ -93,7 +99,6 @@ internal fun PlayerActionsMenu(
     lyricsExpanded: Boolean,
     sleepTimerLabel: String,
     onDismiss: () -> Unit,
-    onOpenSleepTimer: () -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
     onToggleLyrics: () -> Unit,
@@ -107,11 +112,20 @@ internal fun PlayerActionsMenu(
     sleepTimerActive: Boolean = false,
     sleepTimerCanEnable: Boolean = true,
     onSleepTimerEnabledChange: (Boolean) -> Unit = {},
+    sleepTimerState: SleepTimerState = SleepTimerState.Off,
+    sleepTimerLastMinutes: Int = 30,
+    sleepTimerLastMode: SleepTimerPresetMode = SleepTimerPresetMode.DURATION,
+    sleepTimerEndOfTrackEnabled: Boolean = true,
+    onSetSleepTimerMinutes: (Int) -> Unit = {},
+    onSetSleepTimerEndOfTrack: () -> Unit = {},
+    onExtendSleepTimer: () -> Unit = {},
+    onChangePlaybackSpeed: (Float) -> Unit = {},
     dragInProgress: Boolean = false,
     draggedAction: Int? = null,
     draggedLyricsRequest: Int = 0,
+    draggedSpeedRequest: Int = 0,
+    draggedTimerRequest: Int = 0,
     onActionBoundsChanged: (Int, Rect) -> Unit = { _, _ -> },
-    onOpenPlaybackSpeed: () -> Unit = {},
     playbackSpeed: Float = 1f,
 ) {
     var page by remember(trackId) { mutableStateOf(PlayerActionsPage.ACTIONS) }
@@ -120,6 +134,12 @@ internal fun PlayerActionsMenu(
     LaunchedEffect(expanded) { if (!expanded) page = PlayerActionsPage.ACTIONS }
     LaunchedEffect(draggedLyricsRequest) {
         if (draggedLyricsRequest > 0) page = PlayerActionsPage.LYRICS
+    }
+    LaunchedEffect(draggedSpeedRequest) {
+        if (draggedSpeedRequest > 0) page = PlayerActionsPage.PLAYBACK_SPEED
+    }
+    LaunchedEffect(draggedTimerRequest) {
+        if (draggedTimerRequest > 0) page = PlayerActionsPage.SLEEP_TIMER
     }
     val accent = MaterialTheme.colorScheme.primary
     val glass = MaterialTheme.colorScheme.surface
@@ -149,10 +169,14 @@ internal fun PlayerActionsMenu(
         ) {
             AnimatedContent(
                 targetState = page,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                transitionSpec = {
+                    (fadeIn(tween(200)) togetherWith fadeOut(tween(140)))
+                        .using(SizeTransform(clip = false))
+                },
                 label = "player-actions-page",
             ) { currentPage ->
-                if (currentPage == PlayerActionsPage.ACTIONS) {
+                when (currentPage) {
+                PlayerActionsPage.ACTIONS -> {
                     Column(
                         modifier = Modifier.fillMaxWidth()
                             .padding(horizontal = 10.dp, vertical = 10.dp)
@@ -172,7 +196,7 @@ internal fun PlayerActionsMenu(
                             highlighted = draggedAction == 0,
                             onBoundsChanged = { onActionBoundsChanged(0, it) },
                             subtitle = speedLabel(playbackSpeed),
-                            onClick = { onDismiss(); onOpenPlaybackSpeed() },
+                            onClick = { page = PlayerActionsPage.PLAYBACK_SPEED },
                         )
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.Schedule,
@@ -183,10 +207,9 @@ internal fun PlayerActionsMenu(
                             switchChecked = sleepTimerActive,
                             switchEnabled = sleepTimerCanEnable,
                             onSwitchCheckedChange = { enabled ->
-                                onDismiss()
                                 onSleepTimerEnabledChange(enabled)
                             },
-                            onClick = { onDismiss(); onOpenSleepTimer() },
+                            onClick = { page = PlayerActionsPage.SLEEP_TIMER },
                         )
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.HelpOutline,
@@ -212,7 +235,8 @@ internal fun PlayerActionsMenu(
                             onClick = { page = PlayerActionsPage.LYRICS },
                         )
                     }
-                } else {
+                }
+                PlayerActionsPage.LYRICS -> {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
                         .testTag("player-lyrics-page")) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -356,6 +380,45 @@ internal fun PlayerActionsMenu(
                         }
                     }
                 }
+                PlayerActionsPage.PLAYBACK_SPEED -> {
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .testTag("player-speed-page"),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        PlayerSubpageHeader("Playback speed", "player-speed-back") {
+                            page = PlayerActionsPage.ACTIONS
+                        }
+                        PlaybackSpeedMenuContent(
+                            currentSpeed = playbackSpeed,
+                            onSpeedChange = onChangePlaybackSpeed,
+                        )
+                    }
+                }
+                PlayerActionsPage.SLEEP_TIMER -> {
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .testTag("player-timer-page"),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        PlayerSubpageHeader("Sleep timer", "player-timer-back") {
+                            page = PlayerActionsPage.ACTIONS
+                        }
+                        SleepTimerMenuContent(
+                            state = sleepTimerState,
+                            endOfTrackEnabled = sleepTimerEndOfTrackEnabled,
+                            lastMinutes = sleepTimerLastMinutes,
+                            lastMode = sleepTimerLastMode,
+                            onSetMinutes = onSetSleepTimerMinutes,
+                            onEndOfTrack = onSetSleepTimerEndOfTrack,
+                            onExtend = onExtendSleepTimer,
+                            onSetEnabled = onSleepTimerEnabledChange,
+                        )
+                    }
+                }
+                }
             }
         }
     }
@@ -391,6 +454,16 @@ internal fun PlayerActionsMenu(
             },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun PlayerSubpageHeader(title: String, backTag: String, onBack: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack, modifier = Modifier.testTag(backTag)) {
+            Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to player actions")
+        }
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
     }
 }
 

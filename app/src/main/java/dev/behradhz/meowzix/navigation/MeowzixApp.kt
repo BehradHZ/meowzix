@@ -305,7 +305,7 @@ fun MeowzixApp(
         }
         CompositionLocalProvider(
             LocalMeowzixHeaderControls provides MeowzixHeaderControls(
-                onSettings = ::toggleSettings,
+                onSettings = if (currentRoute == SETTINGS_ROUTE) null else ({ toggleSettings() }),
                 onProxy = if (currentRoute == SETTINGS_ROUTE) ({ openProxyRequest++ }) else null,
             ),
         ) {

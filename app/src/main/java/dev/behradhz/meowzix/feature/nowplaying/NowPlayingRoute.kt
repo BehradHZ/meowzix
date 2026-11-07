@@ -102,7 +102,6 @@ import dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs
 import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import dev.behradhz.meowzix.ui.components.GlassSurface
-import dev.behradhz.meowzix.ui.components.SleepTimerGlassDialog
 import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
 import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
 import dev.behradhz.meowzix.ui.components.rememberArtworkAccentColor
@@ -146,8 +145,6 @@ fun NowPlayingRoute(
     val appearance by viewModel.appearanceSettings.collectAsStateWithLifecycle()
     val recommendationActions: RecommendationActionsViewModel = hiltViewModel()
     var lyricsExpanded by remember { mutableStateOf(false) }
-    var sleepTimerOpen by remember { mutableStateOf(false) }
-    var playbackSpeedOpen by remember { mutableStateOf(false) }
 
     RecommendationActionDialogs(recommendationActions)
     BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
@@ -205,6 +202,10 @@ fun NowPlayingRoute(
         sleepTimer = sleepTimer,
         sleepTimerPreferences = sleepTimerPreferences,
         onSetSleepTimerEnabled = viewModel::setSleepTimerEnabled,
+        onSetSleepTimerMinutes = viewModel::setSleepTimerMinutes,
+        onSetSleepTimerEndOfTrack = viewModel::setSleepTimerEndOfTrack,
+        onExtendSleepTimer = viewModel::extendSleepTimer,
+        onChangePlaybackSpeed = viewModel::setPlaybackSpeed,
         reduceMotion = appearance.reduceMotion,
         seekBarStyle = appearance.playerSeekBarStyle,
         onBack = closeOrCollapse,
@@ -222,8 +223,6 @@ fun NowPlayingRoute(
         onOpenForward = viewModel::openForwardPicker,
         onOpenQueue = onOpenQueue,
         onGoToArtist = onGoToArtist,
-        onOpenSleepTimer = { sleepTimerOpen = true },
-        onOpenPlaybackSpeed = { playbackSpeedOpen = true },
         onWhyThisSong = {
             state.currentTrack?.id?.let { trackId -> recommendationActions.why(trackId) }
         },
@@ -239,28 +238,6 @@ fun NowPlayingRoute(
         onLyricsRestoreAutomatic = lyricsViewModel::restoreAutomaticLyrics,
         onLyricSeek = lyricsViewModel::seekToLine,
         )
-        // The dialog must inherit the exact same artwork-derived MaterialTheme as
-        // Now Playing. Dialog creates a new window but retains CompositionLocals.
-        if (playbackSpeedOpen) {
-            PlaybackSpeedGlassDialog(
-                currentSpeed = state.playbackSpeed,
-                onSpeedChange = viewModel::setPlaybackSpeed,
-                onDismiss = { playbackSpeedOpen = false },
-            )
-        }
-        if (sleepTimerOpen) {
-            SleepTimerGlassDialog(
-                state = sleepTimer,
-                endOfTrackEnabled = state.currentTrack != null,
-                lastMinutes = sleepTimerPreferences.sleepTimerLastMinutes,
-                lastMode = sleepTimerPreferences.sleepTimerLastMode,
-                onDismiss = { sleepTimerOpen = false },
-                onSetMinutes = viewModel::setSleepTimerMinutes,
-                onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
-                onExtend = viewModel::extendSleepTimer,
-                onSetEnabled = viewModel::setSleepTimerEnabled,
-            )
-        }
     }
 
     val track = forwardState.track ?: state.currentTrack
@@ -306,6 +283,10 @@ private fun NowPlayingScreen(
     sleepTimer: SleepTimerState,
     sleepTimerPreferences: PlaybackPreferenceSettings,
     onSetSleepTimerEnabled: (Boolean) -> Unit,
+    onSetSleepTimerMinutes: (Int) -> Unit,
+    onSetSleepTimerEndOfTrack: () -> Unit,
+    onExtendSleepTimer: () -> Unit,
+    onChangePlaybackSpeed: (Float) -> Unit,
     reduceMotion: Boolean,
     seekBarStyle: PlayerSeekBarStyle,
     onBack: () -> Unit,
@@ -323,8 +304,6 @@ private fun NowPlayingScreen(
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
     onGoToArtist: (String) -> Unit,
-    onOpenSleepTimer: () -> Unit,
-    onOpenPlaybackSpeed: () -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
     onLyricsImport: (android.net.Uri) -> Unit,
@@ -400,13 +379,15 @@ private fun NowPlayingScreen(
                 sleepTimer = sleepTimer,
                 sleepTimerPreferences = sleepTimerPreferences,
                 onSetSleepTimerEnabled = onSetSleepTimerEnabled,
+                onSetSleepTimerMinutes = onSetSleepTimerMinutes,
+                onSetSleepTimerEndOfTrack = onSetSleepTimerEndOfTrack,
+                onExtendSleepTimer = onExtendSleepTimer,
+                onChangePlaybackSpeed = onChangePlaybackSpeed,
                 onBack = onBack,
                 onMoreActionsMenuExpandedChange = onMoreActionsMenuExpandedChange,
                 onMoreActionsButtonBoundsChanged = onMoreActionsButtonBoundsChanged,
                 onOpenForward = onOpenForward,
                 onOpenQueue = onOpenQueue,
-                onOpenSleepTimer = onOpenSleepTimer,
-                onOpenPlaybackSpeed = onOpenPlaybackSpeed,
                 playbackSpeed = state.playbackSpeed,
                 onWhyThisSong = onWhyThisSong,
                 onContinueVibe = onContinueVibe,
@@ -624,13 +605,15 @@ private fun PlayerHeader(
     sleepTimer: SleepTimerState,
     sleepTimerPreferences: PlaybackPreferenceSettings,
     onSetSleepTimerEnabled: (Boolean) -> Unit,
+    onSetSleepTimerMinutes: (Int) -> Unit,
+    onSetSleepTimerEndOfTrack: () -> Unit,
+    onExtendSleepTimer: () -> Unit,
+    onChangePlaybackSpeed: (Float) -> Unit,
     onBack: () -> Unit,
     onMoreActionsMenuExpandedChange: (Boolean) -> Unit,
     onMoreActionsButtonBoundsChanged: (Rect) -> Unit,
     onOpenForward: () -> Unit,
     onOpenQueue: () -> Unit,
-    onOpenSleepTimer: () -> Unit,
-    onOpenPlaybackSpeed: () -> Unit,
     playbackSpeed: Float,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
@@ -648,6 +631,8 @@ private fun PlayerHeader(
     var dragInProgress by remember { mutableStateOf(false) }
     var dragSelection by remember { mutableStateOf<Int?>(null) }
     var draggedLyricsRequest by remember { mutableIntStateOf(0) }
+    var draggedSpeedRequest by remember { mutableIntStateOf(0) }
+    var draggedTimerRequest by remember { mutableIntStateOf(0) }
     var triggerBounds by remember { mutableStateOf(Rect.Zero) }
     val actionBounds = remember { mutableStateMapOf<Int, Rect>() }
     // The player-wide vertical swipe handler is suspended while this menu is visible.
@@ -733,8 +718,8 @@ private fun PlayerHeader(
                                     dragInProgress = false
                                     dragSelection = null
                                     when (selected) {
-                                        0 -> { menuExpanded = false; onOpenPlaybackSpeed() }
-                                        1 -> { menuExpanded = false; onOpenSleepTimer() }
+                                        0 -> { draggedSpeedRequest++ }
+                                        1 -> { draggedTimerRequest++ }
                                         2 -> { menuExpanded = false; onWhyThisSong() }
                                         3 -> { menuExpanded = false; onContinueVibe() }
                                         4 -> { draggedLyricsRequest++ }
@@ -765,9 +750,15 @@ private fun PlayerHeader(
                         sleepTimerPreferences.sleepTimerLastMode != SleepTimerPresetMode.END_OF_TRACK ||
                         lyricsState.trackId != null,
                     onSleepTimerEnabledChange = onSetSleepTimerEnabled,
+                    sleepTimerState = sleepTimer,
+                    sleepTimerLastMinutes = sleepTimerPreferences.sleepTimerLastMinutes,
+                    sleepTimerLastMode = sleepTimerPreferences.sleepTimerLastMode,
+                    sleepTimerEndOfTrackEnabled = lyricsState.trackId != null,
+                    onSetSleepTimerMinutes = onSetSleepTimerMinutes,
+                    onSetSleepTimerEndOfTrack = onSetSleepTimerEndOfTrack,
+                    onExtendSleepTimer = onExtendSleepTimer,
+                    onChangePlaybackSpeed = onChangePlaybackSpeed,
                     onDismiss = { menuExpanded = false },
-                    onOpenSleepTimer = onOpenSleepTimer,
-                    onOpenPlaybackSpeed = onOpenPlaybackSpeed,
                     playbackSpeed = playbackSpeed,
                     onWhyThisSong = onWhyThisSong,
                     onContinueVibe = onContinueVibe,
@@ -782,6 +773,8 @@ private fun PlayerHeader(
                     dragInProgress = dragInProgress,
                     draggedAction = dragSelection,
                     draggedLyricsRequest = draggedLyricsRequest,
+                    draggedSpeedRequest = draggedSpeedRequest,
+                    draggedTimerRequest = draggedTimerRequest,
                     onActionBoundsChanged = { index, bounds -> actionBounds[index] = bounds },
                 )
             }
