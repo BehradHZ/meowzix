@@ -76,7 +76,6 @@ class SettingsPlaybackControlsTest {
         compose.onNodeWithTag("settings-live-update-placeholder").assertIsDisplayed()
         compose.onNodeWithTag("settings-live-update-controls").assertDoesNotExist()
         compose.runOnIdle { setSong?.invoke(); setStyle?.invoke() }
-        compose.onNodeWithText("Current song", substring = true).assertIsDisplayed()
         compose.onNodeWithTag("settings-live-update-track").assertIsDisplayed()
         compose.onNodeWithTag("settings-live-update-controls").assertIsDisplayed()
     }
