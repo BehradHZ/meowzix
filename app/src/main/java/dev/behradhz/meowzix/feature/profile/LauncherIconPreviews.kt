@@ -16,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
@@ -49,7 +50,7 @@ internal fun LauncherIconPreviews(
     val supportsWallpaper = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val wallpaperAccent = if (supportsWallpaper) dynamicLightColorScheme(context).primary.toArgb()
         else 0xFFE5948A.toInt()
-    val old = LauncherIconManager.activeVariant(context)
+    val old = remember(context) { LauncherIconManager.activeVariant(context) }
     // Use the light full-color artwork even in dark mode, as selected in Appearance.
     val app = selectLauncherIconForSource(
         LauncherIconColorSource.APP_THEME, appearance.colorTheme, appearance.customColorSeed,
