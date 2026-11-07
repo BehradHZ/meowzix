@@ -232,15 +232,25 @@ fun UnifiedSettingsScreen(
                             if (state.appearance.spermerModeEnabled) " · Spermer" else "",
                         modifier = Modifier.fillMaxWidth()
                             .testTag("settings-version")
-                            .clickable(enabled = !state.appearance.spermerModeEnabled) {
+                            .clickable {
                                 versionTaps++
                                 val remaining = 7 - versionTaps
                                 if (remaining <= 0) {
-                                    viewModel.setSpermerModeEnabled(true)
-                                    Toast.makeText(context, "Spermer mode enabled", Toast.LENGTH_SHORT).show()
+                                    val enabled = !state.appearance.spermerModeEnabled
+                                    viewModel.setSpermerModeEnabled(enabled)
+                                    Toast.makeText(
+                                        context,
+                                        if (enabled) "Spermer mode enabled" else "Spermer mode disabled",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
                                     versionTaps = 0
                                 } else if (remaining <= 3) {
-                                    Toast.makeText(context, "$remaining taps to unlock", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(
+                                        context,
+                                        "$remaining taps to " +
+                                            if (state.appearance.spermerModeEnabled) "disable" else "unlock",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
                                 }
                             }
                             .padding(vertical = 8.dp),
