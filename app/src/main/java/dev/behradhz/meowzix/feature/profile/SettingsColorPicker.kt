@@ -107,11 +107,6 @@ internal fun SettingsColorPicker(
             style = MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp, lineHeight = 21.sp),
             fontWeight = FontWeight.SemiBold,
         )
-        Text(
-            "Choose an accent or follow your device wallpaper. Light and dark appearance can be set separately.",
-            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         availablePalettes.chunked(3).forEach { group ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 group.forEach { (mode, label) ->
@@ -168,20 +163,6 @@ internal fun SettingsColorPicker(
             }
         }
 
-        if (!supportsWallpaper) {
-            Text(
-                "Wallpaper colors require Android 12 or newer. Meowzix's palette remains available.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (appearance.colorTheme == ColorThemePreference.WALLPAPER && supportsWallpaper) {
-            Text(
-                "Following Android's current wallpaper/system palette. Changing your wallpaper can update app colors.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
 
         OutlinedButton(
             onClick = { showCustomPicker = true },
@@ -194,16 +175,6 @@ internal fun SettingsColorPicker(
             Spacer(Modifier.width(10.dp))
             Text("Custom RGB · #" + "%06X".format(appearance.customColorSeed and 0xFFFFFF))
         }
-        Text(
-            "The palette is tonal: background and text colors are adjusted for readability instead of using the raw accent everywhere.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            "The original Meowzix logo background is #E5948A. Other in-app logo colors use the exact chosen RGB without tonal filtering; launcher icons are controlled by Android.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 
     if (showCustomPicker) {
@@ -265,7 +236,6 @@ private fun CustomRgbPickerDialog(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
-                        Text("Drag or edit RGB below", style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 RgbColorPlane(selectedArgb, ::setColor)
@@ -286,11 +256,6 @@ private fun CustomRgbPickerDialog(
                     singleLine = true,
                     isError = !validHex,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-                )
-                Text(
-                    "The logo and color values update instantly. Apply saves the custom accent; Cancel keeps your previous theme.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },

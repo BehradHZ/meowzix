@@ -68,6 +68,20 @@ class SettingsGlassComponentsTest {
     }
 
     @Test
+    fun categoryIndexOpensOnlyTheSelectedSection() {
+        var opened: SettingsCategory? = null
+        compose.setContent {
+            MeowzixTheme {
+                PlaylistGlassBackdrop { hazeState ->
+                    SettingsCategoryIndex(hazeState) { opened = it }
+                }
+            }
+        }
+        compose.onNodeWithText("Playback & sound").performClick()
+        compose.runOnIdle { assertEquals(SettingsCategory.PLAYBACK, opened) }
+    }
+
+    @Test
     fun choiceRowShowsOptionsAndReturnsSelectedValue() {
         var selected = ""
         compose.setContent {
@@ -83,7 +97,8 @@ class SettingsGlassComponentsTest {
             }
         }
 
-        compose.onNodeWithText("Theme").performClick()
+        // Choices are always visible; no dropdown needs to be opened.
+        compose.onNodeWithText("Dark").assertIsDisplayed()
         compose.onNodeWithText("Dark").performClick()
         compose.runOnIdle { assertEquals("DARK", selected) }
     }

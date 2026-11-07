@@ -1,6 +1,8 @@
 package dev.behradhz.meowzix.feature.profile
 
 import android.Manifest
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
@@ -73,6 +75,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -96,7 +100,7 @@ import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
-import dev.behradhz.meowzix.ui.components.SleepTimerGlassDialog
+import dev.behradhz.meowzix.ui.components.SleepTimerMenuContent
 import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -107,7 +111,6 @@ fun UnifiedSettingsScreen(
     onBack: () -> Unit,
     onOpenBrand: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
-    onOpenEqualizer: () -> Unit = {},
     onOpenTelegram: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
     viewModel: UnifiedSettingsViewModel = hiltViewModel(),
@@ -124,7 +127,10 @@ fun UnifiedSettingsScreen(
     val scope = rememberCoroutineScope()
     var includeHistoryInBackup by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<Pair<ByteArray, BackupPreview>?>(null) }
-    var showSleepTimer by remember { mutableStateOf(false) }
+    var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
+    var equalizerExpanded by remember { mutableStateOf(false) }
+    var sleepTimerExpanded by remember { mutableStateOf(false) }
+    BackHandler(enabled = selectedCategory != null) { selectedCategory = null }
     val telegramConnected = telegramAuth.step is TelegramAuthStep.Ready
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -177,22 +183,21 @@ fun UnifiedSettingsScreen(
 
     PlaylistGlassBackdrop(variation = 2) { hazeState ->
         Box(Modifier.fillMaxSize()) {
+        CompositionLocalProvider(LocalSettingsCompactMode provides true) {
+        key(selectedCategory) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
             contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 196.dp),
             verticalArrangement = Arrangement.spacedBy(25.dp),
         ) {
-            item(key = "hero") {
-                SettingsGlassHero(
-                    hazeState,
-                    telegramConnected,
-                    state.recommendations.smartRecommendationsEnabled,
-                    downloadSummary,
-                    onOpenBrand = onOpenBrand,
-                )
+            if (selectedCategory == null) {
+                item(key = "categories") {
+                    SettingsCategoryIndex(hazeState) { category -> selectedCategory = category }
+                }
             }
-            item(key = "appearance") {
-                        SettingsGlassSection(hazeState, "Appearance", "Color, typography and motion", Icons.Rounded.Palette) {
+            if (selectedCategory == SettingsCategory.APPEARANCE) {
+                item(key = "appearance") {
+                        SettingsGlassSection(hazeState, "Appearance", "Color, typography and motion", Icons.Rounded.Palette, showHeading = false) {
                             SettingsChoiceRow("Theme", null, Icons.Rounded.DarkMode,
                                 state.appearance.theme.name.lowercase().replaceFirstChar(Char::uppercase),
                                 ThemePreference.entries.map { it.name }) { viewModel.setTheme(ThemePreference.valueOf(it)) }
@@ -214,8 +219,10 @@ fun UnifiedSettingsScreen(
                                 Icons.Rounded.Animation, state.appearance.reduceMotion, viewModel::setReduceMotion)
                         }
                     }
-                    item(key = "playback") {
-                        SettingsGlassSection(hazeState, "Playback & sound", "Fine-tune every listening session", Icons.Rounded.PlayCircle) {
+            }
+            if (selectedCategory == SettingsCategory.PLAYBACK) {
+                item(key = "playback") {
+                        SettingsGlassSection(hazeState, "Playback & sound", "Fine-tune every listening session", Icons.Rounded.PlayCircle, showHeading = false) {
                             SettingsChoiceRow("Default playback mode", null, Icons.AutoMirrored.Rounded.QueueMusic,
                                 state.playback.defaultMode.name, PlaybackMode.entries.map { it.name }) { viewModel.setDefaultMode(PlaybackMode.valueOf(it)) }
                             SettingsRowDivider()
@@ -299,9 +306,30 @@ fun UnifiedSettingsScreen(
                                 onPreviewCaptureChange = viewModel::setSettingsPreviewCaptureEnabled,
                             )
                             SettingsRowDivider()
-                            SettingsActionRow("Equalizer", "Device-aware audio controls", Icons.Rounded.Equalizer, "Open", onOpenEqualizer)
+                            SettingsActionRow(
+                                "Equalizer", "", Icons.Rounded.Equalizer,
+                                if (equalizerExpanded) "Hide" else "Adjust",
+                            ) { equalizerExpanded = !equalizerExpanded }
+                            AnimatedVisibility(visible = equalizerExpanded) {
+                                SettingsEqualizerControls()
+                            }
                             SettingsRowDivider()
-                            SettingsActionRow("Sleep timer", sleepTimerStatusLabel(sleepTimer), Icons.Rounded.Bedtime, "Configure", { showSleepTimer = true })
+                            SettingsActionRow(
+                                "Sleep timer", "", Icons.Rounded.Bedtime,
+                                if (sleepTimerExpanded) "Hide" else sleepTimerStatusLabel(sleepTimer),
+                            ) { sleepTimerExpanded = !sleepTimerExpanded }
+                            AnimatedVisibility(visible = sleepTimerExpanded) {
+                                SleepTimerMenuContent(
+                                    state = sleepTimer,
+                                    endOfTrackEnabled = hasCurrentTrack,
+                                    lastMinutes = state.playback.sleepTimerLastMinutes,
+                                    lastMode = state.playback.sleepTimerLastMode,
+                                    onSetMinutes = viewModel::setSleepTimerMinutes,
+                                    onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
+                                    onExtend = { viewModel.extendSleepTimer(15) },
+                                    onSetEnabled = viewModel::setSleepTimerEnabled,
+                                )
+                            }
                             SettingsRowDivider()
                             SettingsToggleRow(
                                 "Sleep timer fade",
@@ -320,13 +348,12 @@ fun UnifiedSettingsScreen(
                                 state.playback.crossfadeDurationSeconds.toFloat(), 0f..12f, 11,
                                 { viewModel.setCrossfadeSeconds(it.toInt().coerceIn(0, 12)) })
                             SettingsRowDivider()
-                            SettingsInfoRow("Gapless & crossfade limits",
-                                "Gapless is automatic where supported. Progressive Telegram is not guaranteed gapless. EQ, sleep timer, repeat-one, short tracks, queue changes or preload failure may prevent crossfade.",
-                                Icons.Rounded.Tune)
                         }
                     }
-                    item(key = "recommendations") {
-                        SettingsGlassSection(hazeState, "Discovery", "Private recommendations, made for you", Icons.Rounded.AutoAwesome) {
+            }
+            if (selectedCategory == SettingsCategory.DISCOVERY) {
+                item(key = "recommendations") {
+                        SettingsGlassSection(hazeState, "Discovery", "Private recommendations, made for you", Icons.Rounded.AutoAwesome, showHeading = false) {
                             SettingsToggleRow("Smart recommendations", "Enable learned recommendation surfaces",
                                 Icons.Rounded.AutoAwesome, state.recommendations.smartRecommendationsEnabled, viewModel::setSmart)
                             SettingsRowDivider()
@@ -339,10 +366,7 @@ fun UnifiedSettingsScreen(
                             SettingsToggleRow("Local audio analysis", "Analyze readable local audio only",
                                 Icons.Rounded.AutoAwesome, state.recommendations.audioAnalysisEnabled, viewModel::setAudioAnalysis)
                             SettingsRowDivider()
-                            if (feedbackRows.isEmpty()) {
-                                SettingsInfoRow("Active feedback", "No active recommendation feedback", Icons.Rounded.ThumbUp)
-                            } else {
-                                SettingsInfoRow("Active feedback", "${feedbackRows.size} current preferences", Icons.Rounded.ThumbUp)
+                            if (feedbackRows.isNotEmpty()) {
                                 feedbackRows.forEach { row ->
                                     SettingsRowDivider()
                                     SettingsActionRow(
@@ -353,12 +377,10 @@ fun UnifiedSettingsScreen(
                             }
                         }
                     }
-                    item(key = "telegram") {
+            }
+            if (selectedCategory == SettingsCategory.CONNECTIONS) {
+                item(key = "telegram") {
                         SettingsGlassSection(hazeState, "Telegram", "Connection and selected music sources", Icons.Rounded.Cloud) {
-                            SettingsInfoRow("Connection",
-                                if (telegramConnected) "Connected · ${telegramSources.selectedChatIds.size} selected music source(s)" else "Disconnected · local and offline music remain available",
-                                Icons.Rounded.CloudDone)
-                            SettingsRowDivider()
                             SettingsActionRow("Music sources",
                                 if (telegramConnected) "Manage selected chats" else "Connect Telegram to choose music chats",
                                 Icons.Rounded.FolderOpen, "Manage", onOpenTelegram)
@@ -372,14 +394,10 @@ fun UnifiedSettingsScreen(
                                 Icons.Rounded.Wifi, state.network.wifiOnlyDownloads, viewModel::setWifiOnly)
                         }
                     }
-                    item(key = "storage") {
+            }
+            if (selectedCategory == SettingsCategory.CONNECTIONS) {
+                item(key = "storage") {
                         SettingsGlassSection(hazeState, "Downloads & storage", "Keep listening, even offline", Icons.Rounded.Download) {
-                            SettingsInfoRow("Managed storage",
-                                storageUsage?.let { usage ->
-                                    "Untracked ${formatBytes(usage.temporaryPlaybackBytes)} · Saved ${formatBytes(usage.pinnedOfflineBytes)} · Artwork ${formatBytes(usage.otherManagedBytes)}"
-                                } ?: "Calculating storage usage…",
-                                Icons.Rounded.Storage)
-                            SettingsRowDivider()
                             SettingsActionRow("Offline files & downloads",
                                 "${downloadSummary.activeCount} active · ${downloadSummary.pinnedCount} saved offline",
                                 Icons.Rounded.DownloadForOffline, "Manage", onOpenDownloads)
@@ -391,28 +409,24 @@ fun UnifiedSettingsScreen(
                                 "Available when prefetch is on and Wi-Fi-only downloads are off",
                                 Icons.Rounded.Wifi, state.network.prefetchOnMetered, viewModel::setPrefetchOnMetered,
                                 enabled = state.network.prefetchEnabled && !state.network.wifiOnlyDownloads)
-                            SettingsRowDivider()
-                            SettingsInfoRow("Permanent downloads",
-                                "Completed songs are kept offline until you remove them.",
-                                Icons.Rounded.CloudDone)
                         }
                     }
-                    item(key = "privacy") {
+            }
+            if (selectedCategory == SettingsCategory.DATA) {
+                item(key = "privacy") {
                         SettingsGlassSection(hazeState, "Privacy & history", "Your listening, under your control", Icons.Rounded.Shield) {
                             SettingsActionRow(
-                                "Listening history", "Browse recently played music",
+                                "Browse history", "",
                                 Icons.Rounded.History, "Open", onOpenHistory,
                             )
                             SettingsRowDivider()
-                            SettingsToggleRow("Listening history", "Turning this off stops new learning-event capture",
+                            SettingsToggleRow("Save listening history", null,
                                 Icons.Rounded.History, state.network.listeningHistoryEnabled, viewModel::setHistory)
-                            SettingsRowDivider()
-                            SettingsInfoRow("Personalization controls",
-                                "Use Manage data below to clear raw history or reset learned state separately.",
-                                Icons.Rounded.PrivacyTip)
                         }
                     }
-                    item(key = "backup") {
+            }
+            if (selectedCategory == SettingsCategory.DATA) {
+                item(key = "backup") {
                         SettingsGlassSection(hazeState, "Backup & restore", "Take your preferences with you", Icons.Rounded.Backup) {
                             SettingsToggleRow("Include listening history", "Off by default; trained model weights are never exported",
                                 Icons.Rounded.History, includeHistoryInBackup, { includeHistoryInBackup = it })
@@ -429,13 +443,17 @@ fun UnifiedSettingsScreen(
                             }
                         }
                     }
-                    item(key = "advanced") {
+            }
+            if (selectedCategory == SettingsCategory.DISCOVERY) {
+                item(key = "advanced") {
                         SettingsGlassSection(hazeState, "Advanced", "Diagnostics and local models", Icons.Rounded.Tune) {
                             SettingsToggleRow("Diagnostics", "Show local model and evaluation details",
                                 Icons.Rounded.BugReport, state.recommendations.diagnosticsVisible, viewModel::setDiagnostics)
                         }
                     }
-                    item(key = "manage-data") {
+            }
+            if (selectedCategory == SettingsCategory.DATA) {
+                item(key = "manage-data") {
                         SettingsGlassSection(hazeState, "Data controls", "Changes that deserve a second look", Icons.Rounded.DeleteOutline) {
                             SettingsDangerRow("Clear incomplete transfers", "Removes only interrupted partial files, never completed audio",
                                 Icons.Rounded.DeleteSweep) { pendingDanger = SettingsDangerAction.CLEAR_CACHE }
@@ -457,14 +475,37 @@ fun UnifiedSettingsScreen(
                             }
                         }
                     }
+            }
+            if (selectedCategory == SettingsCategory.INFORMATION) {
+                item(key = "information") {
+                    SettingsInformationContent(
+                        hazeState = hazeState,
+                        telegramStatus = if (telegramConnected)
+                            "Telegram connected · " + telegramSources.selectedChatIds.size + " selected sources"
+                        else "Telegram disconnected · offline music remains available",
+                        downloadsStatus = downloadSummary.activeCount.toString() +
+                            " active downloads · " + downloadSummary.pinnedCount + " saved offline",
+                        managedStorage = storageUsage?.let { usage ->
+                            "Managed storage: untracked " + formatBytes(usage.temporaryPlaybackBytes) +
+                                ", saved " + formatBytes(usage.pinnedOfflineBytes) +
+                                ", artwork " + formatBytes(usage.otherManagedBytes)
+                        } ?: "Managed storage is being calculated",
+                        onOpenBrand = onOpenBrand,
+                    )
+                }
+            }
+        }
+        }
         }
         MeowzixStickyHeader(
-            title = "Settings",
-            subtitle = "Make Meowzix yours.",
+            title = selectedCategory?.title ?: "Settings",
+            subtitle = "",
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
             leadingActions = {
-                MeowzixHeaderAction("Back to Home", Icons.AutoMirrored.Rounded.ArrowBack, onBack)
+                MeowzixHeaderAction("Back", Icons.AutoMirrored.Rounded.ArrowBack) {
+                    if (selectedCategory == null) onBack() else selectedCategory = null
+                }
             },
         )
         }
@@ -488,20 +529,6 @@ fun UnifiedSettingsScreen(
                 }) { Text(action.confirm, color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { pendingDanger = null }) { Text("Cancel") } },
-        )
-    }
-
-    if (showSleepTimer) {
-        SleepTimerGlassDialog(
-            state = sleepTimer,
-            endOfTrackEnabled = hasCurrentTrack,
-            lastMinutes = state.playback.sleepTimerLastMinutes,
-            lastMode = state.playback.sleepTimerLastMode,
-            onDismiss = { showSleepTimer = false },
-            onSetMinutes = viewModel::setSleepTimerMinutes,
-            onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
-            onExtend = { viewModel.extendSleepTimer(15) },
-            onSetEnabled = viewModel::setSleepTimerEnabled,
         )
     }
 

@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,9 +30,8 @@ import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -39,6 +40,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -131,7 +133,6 @@ internal fun SettingsSeekBarStylePicker(
                     RadioButton(selected = chosen, onClick = null)
                     Column(Modifier.weight(1f)) {
                         Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 val previewPosition = scrubPosition ?: playbackFraction
@@ -175,15 +176,19 @@ internal fun SettingsSeekBarStylePicker(
  * Consistent hierarchy: section title 18sp; setting label 15sp; supporting text 12sp.
  * Keep a single frosted surface per section rather than stacking glass cards.
  */
+internal val LocalSettingsCompactMode = compositionLocalOf { false }
+
 @Composable
 internal fun SettingsGlassSection(
     hazeState: HazeState,
     title: String,
     description: String,
     icon: ImageVector,
+    showHeading: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (showHeading) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -207,12 +212,15 @@ internal fun SettingsGlassSection(
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, lineHeight = 23.sp),
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(
-                    description,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (description.isNotBlank() && !LocalSettingsCompactMode.current) {
+                    Text(
+                        description,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
+        }
         }
         PlaylistGlassPanel(hazeState, modifier = Modifier.fillMaxWidth(), radius = 26.dp) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 5.dp)) {
@@ -349,7 +357,7 @@ private fun SettingsRowLabel(title: String, subtitle: String?, modifier: Modifie
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        if (subtitle != null) {
+        if (!LocalSettingsCompactMode.current && !subtitle.isNullOrBlank()) {
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
@@ -382,26 +390,38 @@ internal fun SettingsToggleRow(
 }
 
 @Composable
-internal fun SettingsChoiceRow(title: String, subtitle: String?, icon: ImageVector, current: String, options: List<String>, onChoice: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxWidth()) {
+internal fun SettingsChoiceRow(
+    title: String,
+    subtitle: String?,
+    icon: ImageVector,
+    current: String,
+    options: List<String>,
+    onChoice: (String) -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 62.dp).clickable(role = Role.Button) { expanded = true }
-                .padding(horizontal = 11.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SettingsLeadingIcon(icon)
             SettingsRowLabel(title, subtitle, Modifier.weight(1f))
-            Text(current, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.primary, maxLines = 1)
-            Icon(Icons.Rounded.ArrowDropDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                .padding(start = 50.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             options.forEach { option ->
-                DropdownMenuItem(text = { Text(option.lowercase().replaceFirstChar(Char::uppercase)) }, onClick = {
-                    expanded = false
-                    onChoice(option)
-                })
+                val label = option.lowercase().replace('_', ' ')
+                    .replaceFirstChar(Char::uppercase)
+                FilterChip(
+                    selected = option.equals(current, ignoreCase = true),
+                    onClick = { onChoice(option) },
+                    label = { Text(label, maxLines = 1) },
+                )
             }
         }
     }
