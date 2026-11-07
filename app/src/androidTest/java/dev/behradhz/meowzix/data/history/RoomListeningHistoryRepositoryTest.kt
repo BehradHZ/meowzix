@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -73,6 +74,25 @@ class RoomListeningHistoryRepositoryTest {
 
         repository.clear()
         assertEquals(emptyList<Any>(), repository.observeEvents().first())
+    }
+
+    @Test fun manualSelectionStartsFreshSessionWhileAutomaticNextStaysInTheSameSession() = runTest {
+        database.libraryDao().upsertTrack(track())
+        val chosen = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.PURE_SHUFFLE)
+        repository.finalizePlayback(chosen, 95_000, 100_000, false)
+
+        val automatic = repository.startPlayback(trackId, PlaybackInitiator.PURE_SHUFFLE, PlaybackMode.PURE_SHUFFLE)
+        repository.finalizePlayback(automatic, 95_000, 100_000, false)
+
+        val chosenAgain = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.PURE_SHUFFLE)
+        repository.finalizePlayback(chosenAgain, 95_000, 100_000, false)
+
+        val starts = repository.observeEvents().first().filter { it.type == ListeningEventType.PLAY_STARTED }
+        fun sessionFor(playback: UUID) = starts.single { it.playbackInstanceId == playback }.sessionId
+
+        assertEquals(3, starts.size)
+        assertEquals(sessionFor(chosen), sessionFor(automatic))
+        assertNotEquals(sessionFor(chosen), sessionFor(chosenAgain))
     }
 
     @Test fun repeatedIntentionalSeeksAreStoredWithoutCreatingDuplicateOutcomes() = runTest {

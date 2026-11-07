@@ -94,7 +94,7 @@ class RoomListeningHistoryRepository @Inject constructor(
         if (database.libraryDao().trackById(trackId.toString()) == null) return@withLock playbackId
 
         val now = Instant.now()
-        val session = session(now, mode)
+        val session = session(now, mode, forceNew = initiatedBy == PlaybackInitiator.USER)
         val context = ActivePlayback(playbackId, trackId, session.id, initiatedBy, mode, ListeningEventSemantics.timeContext(now, ZoneId.systemDefault()).bucket)
         database.withTransaction {
             if (initiatedBy == PlaybackInitiator.USER) insert(context, ListeningEventType.MANUAL_SELECTED, now, null, null)
@@ -185,9 +185,9 @@ class RoomListeningHistoryRepository @Inject constructor(
         personalizationTrainer.resetLearningKeepHistory()
     }
 
-    private suspend fun session(now: Instant, mode: PlaybackMode): Session {
+    private suspend fun session(now: Instant, mode: PlaybackMode, forceNew: Boolean = false): Session {
         val existing = currentSession
-        if (existing != null && now.toEpochMilli() - existing.lastActivityEpochMs <= ListeningEventSemantics.SESSION_TIMEOUT_MS) {
+        if (!forceNew && existing != null && now.toEpochMilli() - existing.lastActivityEpochMs <= ListeningEventSemantics.SESSION_TIMEOUT_MS) {
             existing.lastActivityEpochMs = now.toEpochMilli()
             return existing
         }
