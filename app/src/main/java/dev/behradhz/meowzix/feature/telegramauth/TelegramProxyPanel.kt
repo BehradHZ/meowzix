@@ -33,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,6 +53,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.chrisbanes.haze.rememberHazeState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -91,6 +94,7 @@ internal fun TelegramProxyPanel(
     var pendingRemoval by remember { mutableStateOf<Int?>(null) }
     var clipboardSuggestion by remember { mutableStateOf<String?>(null) }
     var lastSeenClipboard by remember { mutableStateOf<String?>(null) }
+    val proxyHaze = rememberHazeState()
     val currentProxy = state.proxies.firstOrNull { it.enabled }
     val sortedProxies = rankTelegramProxiesByLatency(state.proxies)
 
@@ -143,11 +147,14 @@ internal fun TelegramProxyPanel(
 
     if (open) {
         Dialog(onDismissRequest = { open = false }) {
-            Surface(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 650.dp),
-                shape = RoundedCornerShape(28.dp),
-                color = TelegramGlassChrome.base,
-                tonalElevation = 8.dp,
+            val shape = RoundedCornerShape(28.dp)
+            GlassSurface(
+                hazeState = proxyHaze,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 650.dp)
+                    .border(1.dp, TelegramGlassChrome.stroke, shape),
+                shape = shape,
+                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -164,6 +171,7 @@ internal fun TelegramProxyPanel(
                             Icon(Icons.Rounded.Close, contentDescription = "Close proxy settings")
                         }
                     }
+                    HorizontalDivider(color = TelegramGlassChrome.stroke.copy(alpha = 0.55f))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Use proxy", style = MaterialTheme.typography.titleMedium)
@@ -294,6 +302,8 @@ internal fun TelegramProxyPanel(
     pendingRemoval?.let { id ->
         AlertDialog(
             onDismissRequest = { pendingRemoval = null },
+            shape = RoundedCornerShape(28.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
             title = { Text("Delete proxy?") },
             text = { Text("This removes the saved proxy. Your Telegram account and music are preserved.") },
             confirmButton = {
@@ -329,10 +339,18 @@ private fun AddTelegramProxyDialog(
     var password by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    val proxyHaze = rememberHazeState()
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(26.dp), color = TelegramGlassChrome.base,
-            modifier = Modifier.fillMaxWidth().heightIn(max = 650.dp), tonalElevation = 10.dp) {
+        val shape = RoundedCornerShape(28.dp)
+        GlassSurface(
+            hazeState = proxyHaze,
+            modifier = Modifier.fillMaxWidth().heightIn(max = 650.dp)
+                .border(1.dp, TelegramGlassChrome.stroke, shape),
+            shape = shape,
+            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+        ) {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -344,6 +362,7 @@ private fun AddTelegramProxyDialog(
                         Icon(Icons.Rounded.Close, contentDescription = "Close")
                     }
                 }
+                HorizontalDivider(color = TelegramGlassChrome.stroke.copy(alpha = 0.55f))
                 TelegramGlassInput(link, { link = it }, "Telegram proxy link", Modifier.fillMaxWidth())
                 OutlinedButton(
                     onClick = { link = readProxyClipboard(context).orEmpty() },
