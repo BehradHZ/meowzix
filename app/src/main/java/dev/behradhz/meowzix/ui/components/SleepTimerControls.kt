@@ -276,7 +276,10 @@ fun SleepTimerControls(
                     modifier = Modifier.testTag("sleep-timer-custom-slider"),
                 )
                 Button(
-                    onClick = { onSetMinutes(customMinutes.roundToInt()) },
+                    onClick = {
+                        haptics.perform(MeowzixHapticCue.LightClick)
+                        onSetMinutes(customMinutes.roundToInt())
+                    },
                     modifier = Modifier.fillMaxWidth().testTag("sleep-timer-custom-start"),
                 ) {
                     Text("Start custom timer")
