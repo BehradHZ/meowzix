@@ -273,7 +273,7 @@ fun UnifiedSettingsScreen(
                                 }
                             }
                             SettingsActionRow(
-                                "Update launcher icon", null, Icons.Rounded.Palette, "Apply",
+                                "Update launcher icon", "", Icons.Rounded.Palette, "Apply",
                                 onClick = { pendingIconSource = state.appearance.launcherIconSource },
                             )
                             SettingsRowDivider()
