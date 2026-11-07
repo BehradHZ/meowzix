@@ -1,6 +1,17 @@
 package dev.behradhz.meowzix.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,9 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Schedule
@@ -34,18 +43,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import dev.behradhz.meowzix.domain.playback.SleepTimerMode
 import dev.behradhz.meowzix.domain.playback.SleepTimerState
 import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
+import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
+import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
 import kotlin.math.roundToInt
 
 /**
@@ -67,47 +74,25 @@ fun SleepTimerGlassDialog(
     onSetEnabled: (Boolean) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(24.dp)
-    // Blend the current track's accent into the middle glass layer rather than using
-    // the untinted surfaceVariant; both the header controls and panel now match.
-    val accentGlass = colors.primary.copy(alpha = 0.16f).compositeOver(colors.surface)
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(0.90f)
-                .heightIn(max = 700.dp)
-                .clip(shape)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            colors.surface.copy(alpha = 0.94f),
-                            accentGlass.copy(alpha = 0.97f),
-                            colors.surface.copy(alpha = 0.995f),
-                        ),
-                    ),
-                )
-                .border(1.dp, Color.White.copy(alpha = 0.15f), shape)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 14.dp)
-                .testTag("glass-sleep-timer-dialog"),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+    val haptics = rememberMeowzixHaptics()
+    MeowzixGlassDialog(onDismiss = onDismiss, tag = "glass-sleep-timer-dialog") { dismiss ->
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Sleep timer", style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold)
-                    Text("Choose when playback stops", style = MaterialTheme.typography.bodySmall,
-                        color = colors.onSurfaceVariant)
-                }
-                IconButton(onClick = onDismiss, modifier = Modifier.testTag("sleep-timer-close")) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Close sleep timer")
-                }
+            Column(Modifier.weight(1f)) {
+                Text("Sleep timer", style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold)
+                Text("Choose when playback stops", style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant)
             }
+            IconButton(onClick = {
+                haptics.perform(MeowzixHapticCue.LightClick)
+                dismiss()
+            }, modifier = Modifier.testTag("sleep-timer-close")) {
+                Icon(Icons.Rounded.Close, contentDescription = "Close sleep timer")
+            }
+        }
             SleepTimerControls(
                 state = state,
                 endOfTrackEnabled = endOfTrackEnabled,
@@ -124,7 +109,11 @@ fun SleepTimerGlassDialog(
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (state.active && state.mode == SleepTimerMode.DURATION) {
+                AnimatedVisibility(
+                    visible = state.active && state.mode == SleepTimerMode.DURATION,
+                    enter = fadeIn(tween(180)) + expandHorizontally(tween(210), expandFrom = Alignment.End),
+                    exit = fadeOut(tween(140)) + shrinkHorizontally(tween(170), shrinkTowards = Alignment.End),
+                ) {
                     SleepTimerFooterAction(
                         label = "+15 min",
                         primary = false,
@@ -135,11 +124,10 @@ fun SleepTimerGlassDialog(
                 SleepTimerFooterAction(
                     label = "Done",
                     primary = true,
-                    onClick = onDismiss,
+                    onClick = dismiss,
                     modifier = Modifier.testTag("sleep-timer-done"),
                 )
             }
-        }
     }
 }
 
@@ -160,6 +148,7 @@ fun SleepTimerControls(
     // A newly opened dialog is always compact, even if the last timer used a custom duration.
     var customExpanded by remember { androidx.compose.runtime.mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
+    val haptics = rememberMeowzixHaptics()
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -202,7 +191,10 @@ fun SleepTimerControls(
             Switch(
                 checked = state.active,
                 enabled = state.active || lastMode != SleepTimerPresetMode.END_OF_TRACK || endOfTrackEnabled,
-                onCheckedChange = onSetEnabled,
+                onCheckedChange = {
+                    haptics.perform(MeowzixHapticCue.Toggle)
+                    onSetEnabled(it)
+                },
                 modifier = Modifier.testTag("sleep-timer-enabled"),
             )
         }
@@ -252,7 +244,14 @@ fun SleepTimerControls(
             }
         }
 
-        AnimatedVisibility(visible = customExpanded) {
+        AnimatedVisibility(
+            visible = customExpanded,
+            enter = fadeIn(tween(180)) + expandVertically(
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                expandFrom = Alignment.Top,
+            ),
+            exit = fadeOut(tween(140)) + shrinkVertically(tween(180)),
+        ) {
             Column(
                 modifier = Modifier.fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
@@ -300,8 +299,12 @@ private fun SleepTimerFooterAction(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    val haptics = rememberMeowzixHaptics()
     Surface(
-        onClick = onClick,
+        onClick = {
+            haptics.perform(MeowzixHapticCue.LightClick)
+            onClick()
+        },
         modifier = modifier.heightIn(min = 48.dp),
         shape = RoundedCornerShape(18.dp),
         color = if (primary) colors.primary else colors.primary.copy(alpha = 0.10f),
@@ -335,16 +338,32 @@ private fun SleepTimerChoice(
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
+    val haptics = rememberMeowzixHaptics()
+    val fill by animateColorAsState(
+        targetValue = colors.primary.copy(alpha = if (selected) 0.32f else 0.105f),
+        animationSpec = tween(220), label = "sleep-choice-fill",
+    )
+    val stroke by animateColorAsState(
+        targetValue = colors.primary.copy(alpha = if (selected) 0.56f else 0.17f),
+        animationSpec = tween(220), label = "sleep-choice-border",
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1f else 0.975f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium),
+        label = "sleep-choice-scale",
+    )
     Surface(
-        onClick = onClick,
+        onClick = {
+            haptics.perform(MeowzixHapticCue.LightClick)
+            onClick()
+        },
         enabled = enabled,
-        modifier = modifier.heightIn(min = 54.dp).testTag(tag),
+        modifier = modifier.heightIn(min = 54.dp).testTag(tag)
+            .graphicsLayer { scaleX = scale; scaleY = scale },
         shape = RoundedCornerShape(14.dp),
-        color = colors.primary.copy(alpha = if (selected) 0.32f else 0.105f),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            colors.primary.copy(alpha = if (selected) 0.56f else 0.17f),
-        ),
+        color = fill,
+        border = androidx.compose.foundation.BorderStroke(1.dp, stroke),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 3.dp, vertical = 8.dp)) {
             Text(
