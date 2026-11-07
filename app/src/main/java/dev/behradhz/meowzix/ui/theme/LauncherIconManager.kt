@@ -10,6 +10,22 @@ import android.os.Build
  * notifications and external intents. Launcher icon caching is launcher-dependent.
  */
 internal object LauncherIconManager {
+    /** Read the actual enabled alias rather than inferring it from the saved color preference. */
+    fun activeVariant(context: Context): LauncherIconVariant {
+        val pm = context.packageManager
+        for (palette in LauncherIconPalette.entries) {
+            for (dark in listOf(false, true)) {
+                val variant = LauncherIconVariant(palette, dark)
+                val name = ComponentName(context.packageName, context.packageName + "." + variant.aliasName)
+                if (pm.getComponentEnabledSetting(name) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
+                    return variant
+                }
+            }
+        }
+        // LauncherIconMeowzixLight is the only alias enabled by default in the manifest.
+        return LauncherIconVariant(LauncherIconPalette.MEOWZIX, false)
+    }
+
     fun apply(context: Context, selected: LauncherIconVariant) {
         val pm = context.packageManager
         val variants = LauncherIconPalette.entries.flatMap { palette ->

@@ -269,23 +269,9 @@ fun UnifiedSettingsScreen(
                             SettingsRowDivider()
                             SettingsColorPicker(state.appearance, viewModel::setColorTheme, viewModel::setCustomColorSeed)
                             SettingsRowDivider()
-                            SettingsChoiceRow(
-                                "Launcher icon color", null, Icons.Rounded.Palette,
-                                if (state.appearance.launcherIconSource == LauncherIconColorSource.WALLPAPER)
-                                    "Wallpaper" else "App theme",
-                                listOf("App theme", "Wallpaper"),
-                            ) { selected ->
-                                if (selected == "Wallpaper" && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                                    Toast.makeText(context, "Wallpaper colors require Android 12+", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    pendingIconSource = if (selected == "Wallpaper")
-                                        LauncherIconColorSource.WALLPAPER else LauncherIconColorSource.APP_THEME
-                                }
+                            LauncherIconPreviews(state.appearance) { source ->
+                                pendingIconSource = source
                             }
-                            SettingsActionRow(
-                                "Update launcher icon", "", Icons.Rounded.Palette, "Apply",
-                                onClick = { pendingIconSource = state.appearance.launcherIconSource },
-                            )
                             SettingsRowDivider()
                             SettingsChoiceRow(
                                 "Full player accent", "Choose the track cover's color or the global app accent",
@@ -297,6 +283,7 @@ fun UnifiedSettingsScreen(
                             SettingsSliderRow("Lyrics text size", null, Icons.Rounded.TextFields,
                                 "${state.appearance.lyricsTextScalePercent}%", state.appearance.lyricsTextScalePercent.toFloat(),
                                 80f..160f, 7, { viewModel.setLyricsScale(it.toInt()) })
+                            SettingsPlayerPreview(state.appearance)
                             SettingsRowDivider()
                             SettingsToggleRow("Reduced motion", "Shorter, more restrained lyric and UI animations",
                                 Icons.Rounded.Animation, state.appearance.reduceMotion, viewModel::setReduceMotion)
@@ -610,19 +597,19 @@ fun UnifiedSettingsScreen(
     pendingIconSource?.let { chosen ->
         AlertDialog(
             onDismissRequest = { pendingIconSource = null },
-            title = { Text("Change launcher icon?") },
+            title = { Text("Restart Meowzix?") },
             text = {
-                Text("Android may close or restart Meowzix while updating the icon. Apply the selected " +
-                    "color source now?")
+                Text("Restart the app now to apply the " +
+                    if (chosen == LauncherIconColorSource.WALLPAPER) "Wallpaper icon?" else "App theme icon?")
             },
             confirmButton = {
                 TextButton(onClick = {
                     pendingIconSource = null
                     onApplyLauncherIcon(chosen)
-                }) { Text("Apply · allow restart") }
+                }) { Text("Restart & apply") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingIconSource = null }) { Text("Not now") }
+                TextButton(onClick = { pendingIconSource = null }) { Text("Cancel") }
             },
         )
     }

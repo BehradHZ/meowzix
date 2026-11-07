@@ -2,16 +2,16 @@
 <resources>
     <!-- Preset launcher icon backgrounds; the full-color cat foreground is shared. -->
     <color name="launcher_icon_bg_meowzix_dark">#FF39282E</color>
-    <color name="launcher_icon_bg_coral_light">#FFFFB4B4</color>
+    <color name="launcher_icon_bg_coral_light">#FFE45A5C</color>
     <color name="launcher_icon_bg_coral_dark">#FF41282D</color>
-    <color name="launcher_icon_bg_amber_light">#FFFFDB96</color>
+    <color name="launcher_icon_bg_amber_light">#FFE2A000</color>
     <color name="launcher_icon_bg_amber_dark">#FF40331F</color>
-    <color name="launcher_icon_bg_ocean_light">#FFB7DDF0</color>
+    <color name="launcher_icon_bg_ocean_light">#FF187CB9</color>
     <color name="launcher_icon_bg_ocean_dark">#FF203747</color>
-    <color name="launcher_icon_bg_mint_light">#FFB2EAD8</color>
+    <color name="launcher_icon_bg_mint_light">#FF16856F</color>
     <color name="launcher_icon_bg_mint_dark">#FF20382F</color>
-    <color name="launcher_icon_bg_violet_light">#FFD9C7FF</color>
+    <color name="launcher_icon_bg_violet_light">#FF8257D4</color>
     <color name="launcher_icon_bg_violet_dark">#FF342B47</color>
-    <color name="launcher_icon_bg_rose_light">#FFFFC6DD</color>
+    <color name="launcher_icon_bg_rose_light">#FFBB4D8D</color>
     <color name="launcher_icon_bg_rose_dark">#FF432B3D</color>
 </resources>

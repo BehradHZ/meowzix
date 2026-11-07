@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Build
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -64,8 +65,7 @@ class MainActivity : ComponentActivity() {
             }
             MeowzixTheme(darkTheme = darkTheme, colorTheme = appearance.colorTheme, customColorSeed = appearance.customColorSeed) {
                 val wallpaperPrimary = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    (if (darkTheme) dynamicDarkColorScheme(this@MainActivity)
-                     else dynamicLightColorScheme(this@MainActivity)).primary.toArgb()
+                    dynamicLightColorScheme(this@MainActivity).primary.toArgb()
                 } else MaterialTheme.colorScheme.primary.toArgb()
                 LaunchedEffect(Unit) {
                     // Wait until Compose reaches a rendered frame instead of treating onCreate as
@@ -86,17 +86,29 @@ class MainActivity : ComponentActivity() {
                         openNowPlayingRequest = openNowPlaying,
                         onNowPlayingRequestConsumed = { openNowPlaying = false },
                         onApplyLauncherIcon = { source ->
-                            // Only this explicit, confirmed action may change launcher aliases.
-                            // Saving the choice first ensures an OEM restart never loses it.
+                            // Called only from the explicit Restart & apply confirmation.
                             lifecycleScope.launch {
-                                settingsRepository.setLauncherIconSource(source)
-                                val variant = selectLauncherIconForSource(
-                                    source, appearance.colorTheme, appearance.customColorSeed,
-                                    darkTheme, wallpaperPrimary,
-                                )
-                                withContext(Dispatchers.IO) {
-                                    runCatching { LauncherIconManager.apply(applicationContext, variant) }
-                                        .onFailure { Log.w("MeowzixLauncher", "Cannot update launcher icon", it) }
+                                try {
+                                    val variant = selectLauncherIconForSource(
+                                        source, appearance.colorTheme, appearance.customColorSeed,
+                                        false, wallpaperPrimary,
+                                    )
+                                    settingsRepository.setLauncherIconSource(source)
+                                    withContext(Dispatchers.IO) {
+                                        LauncherIconManager.apply(applicationContext, variant)
+                                    }
+                                    // Restart the entire task with a new root Activity, rather than
+                                    // merely redrawing the current Compose content.
+                                    val restart = Intent.makeRestartActivityTask(
+                                        android.content.ComponentName(this@MainActivity, MainActivity::class.java),
+                                    )
+                                    startActivity(restart)
+                                } catch (error: Exception) {
+                                    Log.e("MeowzixLauncher", "Unable to apply and restart icon", error)
+                                    Toast.makeText(
+                                        this@MainActivity, "Launcher icon could not be updated",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
                                 }
                             }
                         },
