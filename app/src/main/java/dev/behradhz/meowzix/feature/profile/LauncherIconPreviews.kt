@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -94,9 +95,8 @@ private fun LauncherIconTile(
     enabled: Boolean,
     modifier: Modifier,
 ) {
-    val context = LocalContext.current
     val iconId = launcherIconResource(variant)
-    val backgroundArgb = context.getColor(launcherBackgroundResource(variant))
+    val backgroundArgb = colorResource(launcherBackgroundResource(variant)).toArgb()
     val hex = String.format(Locale.ROOT, "#%06X", backgroundArgb and 0xFFFFFF)
     val borderColor = if (onChoose == null) MaterialTheme.colorScheme.outlineVariant
         else MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
