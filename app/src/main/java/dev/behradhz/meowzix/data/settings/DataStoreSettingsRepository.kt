@@ -132,7 +132,16 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setPlayerAccentSource(source: PlayerAccentSource) = setEnum(PLAYER_ACCENT_SOURCE, source)
     override suspend fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle) = setEnum(PLAYER_SEEKBAR_STYLE, style)
     override suspend fun setLauncherIconSource(source: LauncherIconColorSource) = setEnum(LAUNCHER_ICON_SOURCE, source)
-    override suspend fun setSpermerModeEnabled(enabled: Boolean) = set(SPERMER_MODE_ENABLED, enabled)
+    override suspend fun setSpermerModeEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[SPERMER_MODE_ENABLED] = enabled
+            if (!enabled) {
+                // Exiting Spermer always restores the equalizer-style waveform
+                // in the same atomic transaction as disabling the mode.
+                preferences[PLAYER_SEEKBAR_STYLE] = PlayerSeekBarStyle.WAVEFORM.name
+            }
+        }
+    }
     override suspend fun setResumeOnLaunch(enabled: Boolean) = set(RESUME_ON_LAUNCH, enabled)
     override suspend fun setResumeAfterExternalAudio(enabled: Boolean) = set(RESUME_AFTER_EXTERNAL_AUDIO, enabled)
     override suspend fun setPauseOnMicrophoneRecording(enabled: Boolean) = set(PAUSE_ON_MICROPHONE_RECORDING, enabled)
