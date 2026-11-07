@@ -32,10 +32,22 @@
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
 
+        <!-- Keep the real activity enabled for intents and shortcuts; launcher aliases
+             change only the Home screen icon without disabling the running activity. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Exactly one alias is enabled at a time. Original full-color artwork is unchanged. -->
+        <activity-alias
+            android:name=".LauncherIconMeowzixLight"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round">
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/meowzix_shortcuts" />
@@ -43,7 +55,228 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconMeowzixDark"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_meowzix_dark"
+            android:roundIcon="@mipmap/ic_launcher_meowzix_dark">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconCoralLight"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_coral_light"
+            android:roundIcon="@mipmap/ic_launcher_coral_light">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconCoralDark"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_coral_dark"
+            android:roundIcon="@mipmap/ic_launcher_coral_dark">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconAmberLight"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_amber_light"
+            android:roundIcon="@mipmap/ic_launcher_amber_light">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconAmberDark"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_amber_dark"
+            android:roundIcon="@mipmap/ic_launcher_amber_dark">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconOceanLight"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_ocean_light"
+            android:roundIcon="@mipmap/ic_launcher_ocean_light">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconOceanDark"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_ocean_dark"
+            android:roundIcon="@mipmap/ic_launcher_ocean_dark">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconMintLight"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_mint_light"
+            android:roundIcon="@mipmap/ic_launcher_mint_light">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconMintDark"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_mint_dark"
+            android:roundIcon="@mipmap/ic_launcher_mint_dark">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconVioletLight"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_violet_light"
+            android:roundIcon="@mipmap/ic_launcher_violet_light">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconVioletDark"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_violet_dark"
+            android:roundIcon="@mipmap/ic_launcher_violet_dark">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconRoseLight"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_rose_light"
+            android:roundIcon="@mipmap/ic_launcher_rose_light">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconRoseDark"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_rose_dark"
+            android:roundIcon="@mipmap/ic_launcher_rose_dark">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/meowzix_shortcuts" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Nothing-style gesture mode: a real app window launched from an Android
              home-screen shortcut, NOT a proprietary Essential Apps home widget. -->
