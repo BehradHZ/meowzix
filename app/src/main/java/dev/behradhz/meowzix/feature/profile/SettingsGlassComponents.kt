@@ -347,7 +347,7 @@ private fun SettingsLeadingIcon(icon: ImageVector, danger: Boolean = false) {
 }
 
 @Composable
-private fun SettingsRowLabel(title: String, subtitle: String?, modifier: Modifier = Modifier, danger: Boolean = false, alwaysShowSubtitle: Boolean = false) {
+private fun SettingsRowLabel(title: String, subtitle: String?, modifier: Modifier = Modifier, danger: Boolean = false, alwaysShowSubtitle: Boolean = false, subtitleMaxLines: Int = 1) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             title,
@@ -362,7 +362,7 @@ private fun SettingsRowLabel(title: String, subtitle: String?, modifier: Modifie
                 subtitle,
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = if (alwaysShowSubtitle) 1 else Int.MAX_VALUE,
+                maxLines = if (alwaysShowSubtitle) subtitleMaxLines else Int.MAX_VALUE,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -378,6 +378,7 @@ internal fun SettingsToggleRow(
     onChecked: (Boolean) -> Unit,
     enabled: Boolean = true,
     showSubtitle: Boolean = false,
+    subtitleMaxLines: Int = 1,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 62.dp)
@@ -387,7 +388,7 @@ internal fun SettingsToggleRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         SettingsLeadingIcon(icon)
-        SettingsRowLabel(title, subtitle, Modifier.weight(1f), alwaysShowSubtitle = showSubtitle)
+        SettingsRowLabel(title, subtitle, Modifier.weight(1f), alwaysShowSubtitle = showSubtitle, subtitleMaxLines = subtitleMaxLines)
         Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
@@ -441,11 +442,13 @@ internal fun SettingsSliderRow(
     steps: Int,
     onValue: (Float) -> Unit,
     enabled: Boolean = true,
+    showSubtitle: Boolean = false,
+    subtitleMaxLines: Int = 1,
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SettingsLeadingIcon(icon)
-            SettingsRowLabel(title, subtitle, Modifier.weight(1f))
+            SettingsRowLabel(title, subtitle, Modifier.weight(1f), alwaysShowSubtitle = showSubtitle, subtitleMaxLines = subtitleMaxLines)
             Text(valueLabel, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp))
         }
         Slider(
@@ -470,6 +473,8 @@ internal fun SettingsActionRow(
     actionLabel: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
+    showSubtitle: Boolean = false,
+    subtitleMaxLines: Int = 1,
 ) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 62.dp)
@@ -479,7 +484,7 @@ internal fun SettingsActionRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         SettingsLeadingIcon(icon)
-        SettingsRowLabel(title, subtitle, Modifier.weight(1f))
+        SettingsRowLabel(title, subtitle, Modifier.weight(1f), alwaysShowSubtitle = showSubtitle, subtitleMaxLines = subtitleMaxLines)
         Text(actionLabel, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp), color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
         Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
     }

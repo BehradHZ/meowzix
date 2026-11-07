@@ -65,7 +65,6 @@ import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Wifi
@@ -473,30 +472,67 @@ fun UnifiedSettingsScreen(
             }
             if (page == SettingsCategory.DISCOVERY) {
                 item(key = "recommendations") {
-                        SettingsGlassSection(hazeState, "Discovery", "Private recommendations, made for you", Icons.Rounded.AutoAwesome, showHeading = false) {
-                            SettingsToggleRow("Smart recommendations", "Enable learned recommendation surfaces",
-                                Icons.Rounded.AutoAwesome, state.recommendations.smartRecommendationsEnabled, viewModel::setSmart)
+                    SettingsGlassSection(hazeState, "Discovery", "", Icons.Rounded.AutoAwesome, showHeading = false) {
+                        SettingsToggleRow(
+                            "Smart recommendations",
+                            "Personalize music suggestions from your listening habits. Your data stays on this device.",
+                            Icons.Rounded.AutoAwesome,
+                            state.recommendations.smartRecommendationsEnabled,
+                            viewModel::setSmart,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        SettingsRowDivider()
+                        SettingsSliderRow(
+                            "Exploration",
+                            if (state.recommendations.smartRecommendationsEnabled)
+                                "Give rarely played songs more chances in Smart recommendations. Higher values encourage discovery."
+                            else
+                                "Give rarely played songs more chances in Smart recommendations. Enable Smart recommendations to adjust.",
+                            Icons.Rounded.Explore,
+                            "${state.recommendations.explorationPercent}%",
+                            state.recommendations.explorationPercent.toFloat(),
+                            0f..50f,
+                            9,
+                            { viewModel.setExploration(it.toInt()) },
+                            enabled = state.recommendations.smartRecommendationsEnabled,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Local audio analysis",
+                            "Analyze readable audio files on this device to improve recommendations. Your music is not uploaded.",
+                            Icons.Rounded.AutoAwesome,
+                            state.recommendations.audioAnalysisEnabled,
+                            viewModel::setAudioAnalysis,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Diagnostics",
+                            "Show local model details and evaluation metrics. Use them to understand how recommendations perform.",
+                            Icons.Rounded.BugReport,
+                            state.recommendations.diagnosticsVisible,
+                            viewModel::setDiagnostics,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        feedbackRows.forEach { row ->
                             SettingsRowDivider()
-                            SettingsSliderRow("Exploration",
-                                if (state.recommendations.smartRecommendationsEnabled) "Chance to try unheard or rarely played tracks" else "Enable Smart recommendations to adjust",
-                                Icons.Rounded.Explore, "${state.recommendations.explorationPercent}%",
-                                state.recommendations.explorationPercent.toFloat(), 0f..50f, 9,
-                                { viewModel.setExploration(it.toInt()) }, enabled = state.recommendations.smartRecommendationsEnabled)
-                            SettingsRowDivider()
-                            SettingsToggleRow("Local audio analysis", "Analyze readable local audio only",
-                                Icons.Rounded.AutoAwesome, state.recommendations.audioAnalysisEnabled, viewModel::setAudioAnalysis)
-                            SettingsRowDivider()
-                            if (feedbackRows.isNotEmpty()) {
-                                feedbackRows.forEach { row ->
-                                    SettingsRowDivider()
-                                    SettingsActionRow(
-                                        row.title, feedbackActionLabel(row.action), Icons.AutoMirrored.Rounded.Undo, "Undo",
-                                        { viewModel.undoRecommendationFeedback(row.trackId, row.action) },
-                                    )
-                                }
-                            }
+                            SettingsActionRow(
+                                row.title,
+                                "Remove your '${feedbackActionLabel(row.action)}' feedback for this song.",
+                                Icons.AutoMirrored.Rounded.Undo,
+                                "Undo",
+                                { viewModel.undoRecommendationFeedback(row.trackId, row.action) },
+                                showSubtitle = true,
+                                subtitleMaxLines = 3,
+                            )
                         }
                     }
+                }
             }
             if (page == SettingsCategory.CONNECTIONS) {
                 item(key = "telegram") {
@@ -561,14 +597,6 @@ fun UnifiedSettingsScreen(
                                     modifier = Modifier.weight(1f),
                                 ) { Text("Import") }
                             }
-                        }
-                    }
-            }
-            if (page == SettingsCategory.DISCOVERY) {
-                item(key = "advanced") {
-                        SettingsGlassSection(hazeState, "Advanced", "Diagnostics and local models", Icons.Rounded.Tune) {
-                            SettingsToggleRow("Diagnostics", "Show local model and evaluation details",
-                                Icons.Rounded.BugReport, state.recommendations.diagnosticsVisible, viewModel::setDiagnostics)
                         }
                     }
             }
