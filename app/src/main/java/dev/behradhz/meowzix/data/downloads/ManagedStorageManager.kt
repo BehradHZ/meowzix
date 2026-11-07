@@ -7,6 +7,7 @@ import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.DownloadDao
 import dev.behradhz.meowzix.data.db.LibraryDao
+import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.downloads.ManagedFileLease
 import dev.behradhz.meowzix.domain.downloads.ManagedStorageRepository
 import dev.behradhz.meowzix.domain.downloads.ManagedStorageUsage
@@ -35,17 +36,18 @@ class ManagedStorageManager @Inject constructor(
         calculateUsage()
     }
 
+    // Legacy API name: completed audio is permanent, and no size budget may evict it.
     override suspend fun reconcileAndEnforceBudget(): ManagedStorageUsage = withContext(Dispatchers.IO) {
         reconcileSources()
-        cleanInterruptedPartials()
-        evictTemporaryCacheToBudget()
         calculateUsage()
     }
 
+    // Explicit cleanup only: never delete a completed audio file, even one from an older version.
     override suspend fun clearTemporaryCache(): ManagedStorageUsage = withContext(Dispatchers.IO) {
-        playbackFiles()
-            .filterNot { leases.isProtected(it.absolutePath) }
-            .forEach(::deleteTemporaryFile)
+        listOf(playbackRoot, offlineRoot)
+            .flatMap(::managedFiles)
+            .filter { ManualStorageCleanupPolicy.canRemove(it.name, leases.isProtected(it.absolutePath)) }
+            .forEach(File::delete)
         calculateUsage()
     }
 
@@ -92,54 +94,38 @@ class ManagedStorageManager @Inject constructor(
         sources
             .filter { it.type == TrackSourceType.TDLIB_LOCAL || it.type == TrackSourceType.APP_OFFLINE_COPY }
             .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
+            .sortedBy { if (it.type == TrackSourceType.APP_OFFLINE_COPY) 0 else 1 }
             .forEach { managed ->
                 val file = managed.localPath?.let(::File)
                 if (ManagedAudioIntegrity.isValidForAnyRemoteSize(
                         file, remoteSizes[managed.trackId].orEmpty(),
                         managed.fileSizeBytes, managed.contentHashSha256,
                     )
-                ) return@forEach
-                libraryDao.updateAvailability(managed.id, SourceAvailability.MISSING, now)
-                // Never remove user-owned MediaStore files or files currently leased by a transfer.
-                if (file != null && !leases.isProtected(file.absolutePath)) {
-                    when (managed.type) {
-                        TrackSourceType.TDLIB_LOCAL -> deleteTemporaryFile(file)
-                        TrackSourceType.APP_OFFLINE_COPY ->
-                            if (isOwnedBy(file, offlineRoot)) file.delete()
-                        else -> Unit
+                ) {
+                    // Automatically adopt completed audio from older app versions.
+                    if (file != null && (isOwnedBy(file, playbackRoot) || isOwnedBy(file, offlineRoot))) {
+                        val existing = downloadDao.byTrackId(managed.trackId)
+                        val alreadyRetained = existing?.pinned == true &&
+                            existing.status == DownloadStatus.COMPLETED.name &&
+                            existing.localPath?.let(::File)?.isFile == true
+                        if (!alreadyRetained) {
+                            downloadDao.upsert(
+                                PermanentAudioRecordFactory.completed(
+                                    trackId = managed.trackId,
+                                    sourceId = managed.id,
+                                    tdFileId = existing?.tdFileId,
+                                    file = file,
+                                    timestampMs = now,
+                                    existing = existing,
+                                ),
+                            )
+                        }
                     }
+                    return@forEach
                 }
+                // Unavailable copies must not be used for playback, but physical files are never auto-deleted.
+                libraryDao.updateAvailability(managed.id, SourceAvailability.MISSING, now)
             }
-    }
-
-    private suspend fun evictTemporaryCacheToBudget() {
-        val budget = settingsRepository.storagePolicySettings.first().temporaryCacheBudgetBytes
-            .coerceAtLeast(MIN_CACHE_BUDGET_BYTES)
-        var current = playbackFiles().sumOf(File::length)
-        if (current <= budget) return
-
-        playbackFiles()
-            .filterNot { leases.isProtected(it.absolutePath) }
-            .sortedBy(File::lastModified)
-            .forEach { file ->
-                if (current <= budget) return@forEach
-                val length = file.length()
-                if (deleteTemporaryFile(file)) current = (current - length).coerceAtLeast(0L)
-            }
-    }
-
-    private fun deleteTemporaryFile(file: File): Boolean {
-        if (!isOwnedBy(file, playbackRoot) || leases.isProtected(file.absolutePath)) return false
-        return file.delete()
-    }
-
-    private fun cleanInterruptedPartials() {
-        val cutoff = System.currentTimeMillis() - STALE_PARTIAL_AGE_MS
-        listOf(playbackRoot, offlineRoot, artworkRoot)
-            .flatMap(::managedFiles)
-            .filter { it.name.endsWith(".part") && it.lastModified() < cutoff }
-            .filterNot { leases.isProtected(it.absolutePath) }
-            .forEach(File::delete)
     }
 
     private fun playbackFiles(): List<File> = managedFiles(playbackRoot)
@@ -166,7 +152,5 @@ class ManagedStorageManager @Inject constructor(
     private companion object {
         const val LOW_SPACE_PERCENT = 5L
         const val LOW_SPACE_MIN_BYTES = 256L * 1024L * 1024L
-        const val MIN_CACHE_BUDGET_BYTES = 64L * 1024L * 1024L
-        const val STALE_PARTIAL_AGE_MS = 24L * 60L * 60L * 1_000L
     }
 }

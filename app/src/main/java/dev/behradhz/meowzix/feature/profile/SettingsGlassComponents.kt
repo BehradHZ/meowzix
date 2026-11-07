@@ -490,9 +490,9 @@ internal fun SettingsDangerRow(title: String, subtitle: String, icon: ImageVecto
 
 internal enum class SettingsDangerAction(val title: String, val message: String, val confirm: String) {
     CLEAR_CACHE(
-        "Clear temporary cache?",
-        "Only evictable app-managed cache will be cleared. Pinned offline and MediaStore files are preserved.",
-        "Clear cache",
+        "Clear incomplete transfers?",
+        "Only interrupted .part files will be deleted. Completed downloads and your device music are preserved.",
+        "Clear incomplete",
     ),
     CLEAR_HISTORY(
         "Clear listening history?",

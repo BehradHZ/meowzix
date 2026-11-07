@@ -6,14 +6,18 @@ import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
+import dev.behradhz.meowzix.data.db.DownloadDao
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrity
+import dev.behradhz.meowzix.data.downloads.PermanentAudioRecordFactory
 import dev.behradhz.meowzix.data.network.NetworkPolicy
 import dev.behradhz.meowzix.data.network.NetworkUse
 import dev.behradhz.meowzix.data.repository.isReadableForPlayback
+import dev.behradhz.meowzix.domain.downloads.DownloadStatus
+import dev.behradhz.meowzix.domain.downloads.ManagedStorageRepository
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
@@ -39,6 +43,8 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     private val telegramRepository: TelegramRepository,
     private val telegramDao: TelegramDao,
     private val libraryDao: LibraryDao,
+    private val downloadDao: DownloadDao,
+    private val managedStorage: ManagedStorageRepository,
     private val settingsRepository: SettingsRepository,
     private val networkPolicy: NetworkPolicy,
 ) : RemoteTrackPlaybackResolver {
@@ -164,7 +170,6 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             if (!verified) {
                 if (source.type == TrackSourceType.APP_OFFLINE_COPY || source.type == TrackSourceType.TDLIB_LOCAL) {
                     libraryDao.updateAvailability(source.id, SourceAvailability.MISSING, now)
-                    deleteBrokenManagedAudio(source.localPath, source.type)
                 }
                 continue
             }
@@ -188,21 +193,6 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
      * been indexed yet or TDLib rejects the persisted id, removing a metadata round-trip from the
      * normal play path.
      */
-    private fun deleteBrokenManagedAudio(path: String?, type: TrackSourceType) {
-        if (path.isNullOrBlank()) return
-        val rootName = when (type) {
-            TrackSourceType.APP_OFFLINE_COPY -> "offline"
-            TrackSourceType.TDLIB_LOCAL -> "playback-cache"
-            else -> return
-        }
-        // Only owned copies are eligible; never remove the user's MediaStore music or TDLib data.
-        runCatching {
-            val root = File(context.filesDir, rootName).canonicalFile
-            val file = File(path).canonicalFile
-            if (file.parentFile == root && file.isFile) file.delete()
-        }
-    }
-
     private suspend fun resolveSource(trackId: UUID): ResolvedTelegramSource? {
         val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
         val telegramSource = telegramDao.telegramSourceForTrack(accountId, trackId.toString()) ?: return null
@@ -398,6 +388,22 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                             lastVerifiedAtEpochMs = now,
                         ),
                     )
+                    val previousDownload = downloadDao.byTrackId(trackId.toString())
+                    val alreadyRetained = previousDownload?.pinned == true &&
+                        previousDownload.status == DownloadStatus.COMPLETED.name &&
+                        previousDownload.localPath?.let(::File)?.isFile == true
+                    if (!alreadyRetained) {
+                        downloadDao.upsert(
+                            PermanentAudioRecordFactory.completed(
+                                trackId = trackId.toString(),
+                                sourceId = localSourceId,
+                                tdFileId = fileId,
+                                file = permanent,
+                                timestampMs = now,
+                                existing = previousDownload,
+                            ),
+                        )
+                    }
                     extractFullArtwork(trackId, permanent)?.let { artworkUri ->
                         libraryDao.setArtworkRef(trackId.toString(), artworkUri, Instant.now().toEpochMilli())
                     }
@@ -422,12 +428,17 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         if (destination.isFile && destination.length() == source.length() &&
             java.security.MessageDigest.isEqual(fileDigest(destination), fileDigest(source))) return destination
         val partial = File(playbackDirectory, destination.name + ".part")
-        source.inputStream().buffered().use { input ->
-            partial.outputStream().buffered().use(input::copyTo)
+        val lease = managedStorage.acquireLease(partial.absolutePath, "playback-copy")
+        try {
+            source.inputStream().buffered().use { input ->
+                partial.outputStream().buffered().use(input::copyTo)
+            }
+            if (destination.exists() && !destination.delete()) error("Unable to replace playback cache")
+            if (!partial.renameTo(destination)) error("Unable to finalize playback cache")
+            return destination
+        } finally {
+            lease.close()
         }
-        if (destination.exists() && !destination.delete()) error("Unable to replace playback cache")
-        if (!partial.renameTo(destination)) error("Unable to finalize playback cache")
-        return destination
     }
 
     private fun fileDigest(file: File): ByteArray {

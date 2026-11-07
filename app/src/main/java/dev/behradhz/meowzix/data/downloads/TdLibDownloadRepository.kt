@@ -118,7 +118,6 @@ class TdLibDownloadRepository @Inject constructor(
                 ),
             )
         }
-        if (path != null) runCatching { deleteOwnedManagedFile(path) }
     }
 
     override fun observeDownloads(): Flow<List<OfflineDownload>> = downloadDao.observeAll().map { rows ->
@@ -570,7 +569,3 @@ private fun localReusePriority(source: TrackSourceEntity): Int = when (source.ty
     else -> 3
 }
 
-internal object CacheEvictionPolicy {
-    fun evictable(records: List<DownloadRecordEntity>): List<DownloadRecordEntity> =
-        records.filterNot { it.pinned }
-}

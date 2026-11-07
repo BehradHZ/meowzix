@@ -59,7 +59,6 @@ fun DownloadsRoute(
     val selectedChats by viewModel.selectedTelegramChats.collectAsStateWithLifecycle()
     val chatDownloadProgress by viewModel.chatDownloadProgress.collectAsStateWithLifecycle()
     val storageUsage by storageViewModel.usage.collectAsStateWithLifecycle()
-    val storageSettings by storageViewModel.settings.collectAsStateWithLifecycle()
     val active = rows.filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
     val rest = rows.filterNot { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
     val headerHazeState = rememberHazeState()
@@ -76,9 +75,7 @@ fun DownloadsRoute(
         item {
             StoragePolicyCard(
                 usage = storageUsage,
-                selectedBudget = storageSettings.temporaryCacheBudgetBytes,
-                onBudgetSelected = storageViewModel::setBudget,
-                onClearTemporary = storageViewModel::clearTemporaryCache,
+                onClearIncomplete = storageViewModel::clearTemporaryCache,
             )
         }
         if (selectedChats.isNotEmpty()) {
@@ -132,9 +129,7 @@ fun DownloadsRoute(
 @Composable
 private fun StoragePolicyCard(
     usage: ManagedStorageUsage?,
-    selectedBudget: Long,
-    onBudgetSelected: (Long) -> Unit,
-    onClearTemporary: () -> Unit,
+    onClearIncomplete: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -147,7 +142,7 @@ private fun StoragePolicyCard(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             } else {
                 Text(
-                    "Temporary ${formatBytes(usage.temporaryPlaybackBytes)} · Pinned ${formatBytes(usage.pinnedOfflineBytes)} · Other ${formatBytes(usage.otherManagedBytes)}",
+                    "Untracked ${formatBytes(usage.temporaryPlaybackBytes)} · Saved ${formatBytes(usage.pinnedOfflineBytes)} · Artwork ${formatBytes(usage.otherManagedBytes)}",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -163,19 +158,10 @@ private fun StoragePolicyCard(
                     )
                 }
             }
-            Text("Temporary cache budget", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CACHE_BUDGET_PRESETS.forEach { bytes ->
-                    if (selectedBudget == bytes) {
-                        Button(onClick = { onBudgetSelected(bytes) }) { Text(formatBudget(bytes)) }
-                    } else {
-                        OutlinedButton(onClick = { onBudgetSelected(bytes) }) { Text(formatBudget(bytes)) }
-                    }
-                }
-            }
-            OutlinedButton(onClick = onClearTemporary) { Text("Clear temporary cache") }
+            Text("Completed downloads stay offline until you remove them.")
+            OutlinedButton(onClick = onClearIncomplete) { Text("Clear incomplete transfers") }
             Text(
-                "Pinned offline copies and your own MediaStore audio are never removed by Clear temporary cache.",
+                "Only interrupted partial files are cleared. Saved songs are always preserved.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
             )
@@ -355,16 +341,3 @@ private fun formatBytes(bytes: Long): String {
         String.format(Locale.US, "%.0f MB", mib)
     }
 }
-
-private fun formatBudget(bytes: Long): String = when (bytes) {
-    256L * 1024L * 1024L -> "256 MB"
-    512L * 1024L * 1024L -> "512 MB"
-    1024L * 1024L * 1024L -> "1 GB"
-    else -> formatBytes(bytes)
-}
-
-private val CACHE_BUDGET_PRESETS = listOf(
-    256L * 1024L * 1024L,
-    512L * 1024L * 1024L,
-    1024L * 1024L * 1024L,
-)

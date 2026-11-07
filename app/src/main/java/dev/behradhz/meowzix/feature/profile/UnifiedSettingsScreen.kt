@@ -376,12 +376,12 @@ fun UnifiedSettingsScreen(
                         SettingsGlassSection(hazeState, "Downloads & storage", "Keep listening, even offline", Icons.Rounded.Download) {
                             SettingsInfoRow("Managed storage",
                                 storageUsage?.let { usage ->
-                                    "Temporary ${formatBytes(usage.temporaryPlaybackBytes)} · Pinned ${formatBytes(usage.pinnedOfflineBytes)} · Other ${formatBytes(usage.otherManagedBytes)}"
+                                    "Untracked ${formatBytes(usage.temporaryPlaybackBytes)} · Saved ${formatBytes(usage.pinnedOfflineBytes)} · Artwork ${formatBytes(usage.otherManagedBytes)}"
                                 } ?: "Calculating storage usage…",
                                 Icons.Rounded.Storage)
                             SettingsRowDivider()
                             SettingsActionRow("Offline files & downloads",
-                                "${downloadSummary.activeCount} active · ${downloadSummary.pinnedCount} pinned/offline",
+                                "${downloadSummary.activeCount} active · ${downloadSummary.pinnedCount} saved offline",
                                 Icons.Rounded.DownloadForOffline, "Manage", onOpenDownloads)
                             SettingsRowDivider()
                             SettingsToggleRow("Prefetch", "Prepare likely next tracks when policy allows",
@@ -392,10 +392,9 @@ fun UnifiedSettingsScreen(
                                 Icons.Rounded.Wifi, state.network.prefetchOnMetered, viewModel::setPrefetchOnMetered,
                                 enabled = state.network.prefetchEnabled && !state.network.wifiOnlyDownloads)
                             SettingsRowDivider()
-                            SettingsSliderRow("Temporary cache budget", "Maximum app-managed temporary playback storage", Icons.Rounded.Storage,
-                                formatBytes(state.storage.temporaryCacheBudgetBytes),
-                                state.storage.temporaryCacheBudgetBytes / MIB.toFloat(), 64f..2048f, 30,
-                                { viewModel.setCacheBudget(it.toLong() * MIB) })
+                            SettingsInfoRow("Permanent downloads",
+                                "Completed songs are kept offline until you remove them.",
+                                Icons.Rounded.CloudDone)
                         }
                     }
                     item(key = "privacy") {
@@ -438,7 +437,7 @@ fun UnifiedSettingsScreen(
                     }
                     item(key = "manage-data") {
                         SettingsGlassSection(hazeState, "Data controls", "Changes that deserve a second look", Icons.Rounded.DeleteOutline) {
-                            SettingsDangerRow("Clear temporary cache", "Pinned offline and MediaStore files are preserved",
+                            SettingsDangerRow("Clear incomplete transfers", "Removes only interrupted partial files, never completed audio",
                                 Icons.Rounded.DeleteSweep) { pendingDanger = SettingsDangerAction.CLEAR_CACHE }
                             SettingsRowDivider()
                             SettingsDangerRow("Clear listening history", "Delete raw listening events",
