@@ -55,7 +55,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.ui.components.MeowzixGlassDialog
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
@@ -69,9 +68,9 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private val speedPresets = listOf(0.5f, 1f, 1.5f, 2f, 5f)
-private val speedSteps = (5..20).map { it / 10f } + (5..10).map { it / 2f }
+private val speedSteps = (5..50).map { it / 10f }
 
-/** Shared centered, tinted glass chrome; precise controls use one haptic per effective step. */
+/** Fine speed selection with restrained dial feedback. */
 @Composable
 internal fun PlaybackSpeedGlassDialog(
     currentSpeed: Float,
@@ -88,25 +87,23 @@ internal fun PlaybackSpeedGlassDialog(
         label = "speed-dial-value",
     )
 
-    fun updateSpeed(value: Float, tick: Boolean = false) {
+    fun updateSpeed(value: Float, fromDial: Boolean = false) {
         val bounded = value.coerceIn(0.5f, 5f)
         if (abs(selectedSpeed - bounded) > 0.001f) {
+            val tick = fromDial && crossesHalfSpeedMark(selectedSpeed, bounded)
             selectedSpeed = bounded
             onSpeedChange(bounded)
             if (tick) haptics.perform(MeowzixHapticCue.Selection)
         }
     }
 
-    // Gesture handlers survive recomposition: read the latest speed and callback.
-    val onDialChange by rememberUpdatedState<(Float) -> Unit>({ updateSpeed(it, tick = true) })
+    val onDialChange by rememberUpdatedState<(Float) -> Unit>({ updateSpeed(it, fromDial = true) })
 
     MeowzixGlassDialog(onDismiss = onDismiss, tag = "playback-speed-dialog") { dismiss ->
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Playback speed", style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold)
-                Text("Adjust playback tempo", style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant)
             }
             IconButton(
                 onClick = {
@@ -117,19 +114,6 @@ internal fun PlaybackSpeedGlassDialog(
             ) { Icon(Icons.Rounded.Close, contentDescription = "Close playback speed") }
         }
         HorizontalDivider(color = colors.onSurface.copy(alpha = 0.10f))
-        Row(
-            modifier = Modifier.fillMaxWidth()
-                .background(colors.primary.copy(alpha = 0.09f), RoundedCornerShape(14.dp))
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Current speed", modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
-            Text(speedLabel(selectedSpeed), style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold, color = colors.primary,
-                modifier = Modifier.testTag("playback-speed-current"))
-        }
-
         val choices = listOf("0.5×", "Normal", "1.5×", "2×", "5×", "Custom")
         choices.chunked(3).forEachIndexed { rowIndex, row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -170,8 +154,6 @@ internal fun PlaybackSpeedGlassDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("Drag the dial or tap − / +", style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -181,7 +163,10 @@ internal fun PlaybackSpeedGlassDialog(
                         increase = false,
                         enabled = selectedSpeed > 0.5001f,
                         modifier = Modifier.testTag("speed-step-minus"),
-                    ) { updateSpeed(stepPlaybackSpeed(selectedSpeed, -1), tick = true) }
+                    ) {
+                        haptics.perform(MeowzixHapticCue.LightClick)
+                        updateSpeed(stepPlaybackSpeed(selectedSpeed, -1))
+                    }
                     Box(
                         modifier = Modifier.weight(1f).aspectRatio(1f),
                         contentAlignment = Alignment.Center,
@@ -232,38 +217,16 @@ internal fun PlaybackSpeedGlassDialog(
                         }
                         Text(speedLabel(selectedSpeed), style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold, color = colors.onSurface,
-                            modifier = Modifier.padding(top = 12.dp))
+                            modifier = Modifier.padding(top = 12.dp).testTag("playback-speed-current"))
                     }
                     SpeedStepButton(
                         increase = true,
                         enabled = selectedSpeed < 4.9999f,
                         modifier = Modifier.testTag("speed-step-plus"),
-                    ) { updateSpeed(stepPlaybackSpeed(selectedSpeed, 1), tick = true) }
-                }
-                Text("0.1× steps: 0.5–2×    •    0.5× steps: 2–5×",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant,
-                    textAlign = TextAlign.Center)
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            Surface(
-                onClick = {
-                    haptics.perform(MeowzixHapticCue.LightClick)
-                    dismiss()
-                },
-                modifier = Modifier.heightIn(min = 48.dp).testTag("playback-speed-done"),
-                shape = RoundedCornerShape(18.dp),
-                color = colors.primary,
-                border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.70f)),
-            ) {
-                Box(Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
-                    contentAlignment = Alignment.Center) {
-                    Text("Done", style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold, color = colors.onPrimary)
+                    ) {
+                        haptics.perform(MeowzixHapticCue.LightClick)
+                        updateSpeed(stepPlaybackSpeed(selectedSpeed, 1))
+                    }
                 }
             }
         }
@@ -338,12 +301,16 @@ private fun SpeedStepButton(
     }
 }
 
+internal fun crossesHalfSpeedMark(before: Float, after: Float): Boolean =
+    (before.coerceIn(0.5f, 5f) * 2f + 0.0001f).toInt() !=
+        (after.coerceIn(0.5f, 5f) * 2f + 0.0001f).toInt()
+
 internal fun speedLabel(speed: Float): String {
     val formatted = String.format(Locale.US, if (speed % 1f == 0f) "%.0f" else "%.2f", speed)
     return formatted.trimEnd('0').trimEnd('.') + "×"
 }
 
-/** Exact supported steps: 0.1× through 2×, then 0.5× through 5×. */
+/** All supported increments are 0.1×. */
 internal fun stepPlaybackSpeed(current: Float, direction: Int): Float {
     require(direction == -1 || direction == 1)
     val index = if (direction > 0) {
@@ -355,12 +322,12 @@ internal fun stepPlaybackSpeed(current: Float, direction: Int): Float {
     return speedSteps[index]
 }
 
-/** Reserve 60% of dial travel for fine steps, 40% for coarse steps. */
+/** Reserve 60% of the arc for 0.5–2× and 40% for 2–5×. */
 private fun gaugeFraction(speed: Float): Float =
     if (speed <= 2f) ((speed - 0.5f) / 1.5f * 0.6f).coerceIn(0f, 1f)
     else (0.6f + (speed - 2f) / 3f * 0.4f).coerceIn(0f, 1f)
 
-/** Clockwise 240-degree dial, snapped to the nearest supported step. */
+/** Clockwise 240-degree dial, snapped to 0.1×. */
 internal fun gaugeSpeed(point: Offset, width: Float, height: Float): Float {
     val dx = point.x - width / 2f
     val dy = point.y - height * 0.54f

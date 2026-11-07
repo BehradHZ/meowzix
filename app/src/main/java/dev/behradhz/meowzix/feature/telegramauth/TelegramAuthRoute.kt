@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -68,6 +67,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
 import dev.behradhz.meowzix.domain.telegram.TelegramConnectionStatus
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
 import dev.behradhz.meowzix.ui.components.TelegramGlassFrame
 import dev.behradhz.meowzix.ui.components.TelegramGlassInput
@@ -79,6 +79,7 @@ import dev.chrisbanes.haze.rememberHazeState
 @Composable
 fun TelegramAuthRoute(
     onBack: () -> Unit,
+    onOpenSettings: () -> Unit = {},
     viewModel: TelegramAuthViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -90,6 +91,7 @@ fun TelegramAuthRoute(
             musicSourceState = musicSourceState,
             hazeState = hazeState,
             onBack = onBack,
+            onOpenSettings = onOpenSettings,
             onPhoneNumber = viewModel::submitPhoneNumber,
             onCode = viewModel::submitCode,
             onPassword = viewModel::submitPassword,
@@ -113,6 +115,7 @@ private fun TelegramAuthScreen(
     musicSourceState: TelegramMusicSourceState,
     hazeState: HazeState,
     onBack: () -> Unit,
+    onOpenSettings: () -> Unit,
     onPhoneNumber: (String) -> Unit,
     onCode: (String) -> Unit,
     onPassword: (String) -> Unit,
@@ -175,7 +178,7 @@ private fun TelegramAuthScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.width(97.dp))
+                MeowzixHeaderAction("Open settings", Icons.Rounded.Settings, onOpenSettings)
             }
         }
 

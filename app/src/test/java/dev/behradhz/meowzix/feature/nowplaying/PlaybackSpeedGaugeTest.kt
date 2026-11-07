@@ -26,14 +26,15 @@ class PlaybackSpeedGaugeTest {
         assertEquals(5f, gaugeSpeed(point(390.0), 200f, 200f), 0.001f)
     }
 
-    @Test fun fineStepsArePointOneThroughTwoThenPointFiveAboveTwo() {
+    @Test fun fineStepsCoverTheWholeRangeThroughFive() {
         assertEquals(0.6f, stepPlaybackSpeed(0.5f, 1), 0.001f)
         assertEquals(1.9f, stepPlaybackSpeed(2f, -1), 0.001f)
         assertEquals(2f, stepPlaybackSpeed(1.9f, 1), 0.001f)
-        assertEquals(2.5f, stepPlaybackSpeed(2f, 1), 0.001f)
-        assertEquals(2f, stepPlaybackSpeed(2.5f, -1), 0.001f)
-        assertEquals(3f, stepPlaybackSpeed(2.5f, 1), 0.001f)
-        assertEquals(4.5f, stepPlaybackSpeed(5f, -1), 0.001f)
+        assertEquals(2.1f, stepPlaybackSpeed(2f, 1), 0.001f)
+        assertEquals(2.4f, stepPlaybackSpeed(2.5f, -1), 0.001f)
+        assertEquals(2.6f, stepPlaybackSpeed(2.5f, 1), 0.001f)
+        assertEquals(3.4f, stepPlaybackSpeed(3.3f, 1), 0.001f)
+        assertEquals(4.9f, stepPlaybackSpeed(5f, -1), 0.001f)
     }
 
     @Test fun steppingClampsAtLimitsAndSnapsLegacyFractionalSpeeds() {
@@ -41,9 +42,21 @@ class PlaybackSpeedGaugeTest {
         assertEquals(5f, stepPlaybackSpeed(5f, 1), 0.001f)
         assertEquals(1.3f, stepPlaybackSpeed(1.25f, 1), 0.001f)
         assertEquals(1.2f, stepPlaybackSpeed(1.25f, -1), 0.001f)
-        assertEquals(2.5f, stepPlaybackSpeed(2.25f, 1), 0.001f)
-        assertEquals(2f, stepPlaybackSpeed(2.25f, -1), 0.001f)
+        assertEquals(2.3f, stepPlaybackSpeed(2.25f, 1), 0.001f)
+        assertEquals(2.2f, stepPlaybackSpeed(2.25f, -1), 0.001f)
         assertThrows(IllegalArgumentException::class.java) { stepPlaybackSpeed(1f, 0) }
+    }
+
+    @Test fun dialOnlyTicksAcrossHalfSpeedBoundaries() {
+        assertEquals(false, crossesHalfSpeedMark(2.3f, 2.4f))
+        assertEquals(true, crossesHalfSpeedMark(2.4f, 2.5f))
+        assertEquals(true, crossesHalfSpeedMark(2.5f, 2.4f))
+        assertEquals(false, crossesHalfSpeedMark(3.7f, 3.8f))
+        assertEquals(true, crossesHalfSpeedMark(3.9f, 4.0f))
+    }
+
+    @Test fun dialCanSelectThreePointFour() {
+        assertEquals(3.4f, gaugeSpeed(point(338.8), 200f, 200f), 0.001f)
     }
 
     @Test fun speedLabelsAreUnambiguous() {

@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.feature.telegramauth
 
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -53,7 +54,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.chrisbanes.haze.rememberHazeState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -70,7 +70,7 @@ import dev.behradhz.meowzix.ui.components.TelegramGlassInput
 import dev.behradhz.meowzix.ui.components.TelegramGlassPill
 
 /**
- * The proxy manager is shared by every screen, including Telegram login.
+ * The proxy manager is opened from the Settings header.
  * Clipboard content is inspected only while the dialog is visible and foregrounded.
  */
 @Composable
@@ -94,7 +94,6 @@ internal fun TelegramProxyPanel(
     var pendingRemoval by remember { mutableStateOf<Int?>(null) }
     var clipboardSuggestion by remember { mutableStateOf<String?>(null) }
     var lastSeenClipboard by remember { mutableStateOf<String?>(null) }
-    val proxyHaze = rememberHazeState()
     val currentProxy = state.proxies.firstOrNull { it.enabled }
     val sortedProxies = rankTelegramProxiesByLatency(state.proxies)
 
@@ -148,13 +147,14 @@ internal fun TelegramProxyPanel(
     if (open) {
         Dialog(onDismissRequest = { open = false }) {
             val shape = RoundedCornerShape(28.dp)
-            GlassSurface(
-                hazeState = proxyHaze,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 650.dp)
-                    .border(1.dp, TelegramGlassChrome.stroke, shape),
+            Surface(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 650.dp),
                 shape = shape,
-                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                color = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                tonalElevation = 8.dp,
+                shadowElevation = 12.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),

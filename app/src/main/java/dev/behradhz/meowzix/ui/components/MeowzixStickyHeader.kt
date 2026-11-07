@@ -7,22 +7,21 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -30,6 +29,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
+
+data class MeowzixHeaderControls(
+    val onSettings: () -> Unit,
+    val onProxy: (() -> Unit)? = null,
+)
+
+val LocalMeowzixHeaderControls = compositionLocalOf<MeowzixHeaderControls?> { null }
 
 /**
  * One chrome language for scrolling destinations. Draw this after the scrolling content
@@ -74,12 +80,12 @@ fun MeowzixStickyHeader(
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
-            // Reserve the two rightmost slots for the always-visible app-wide controls.
-            // RTL order: Proxy, Settings, then the screen's own actions.
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Spacer(Modifier.width(97.dp))
-                    actions()
+            actions()
+            // Trailing controls share the same spacing and inset as contextual actions.
+            LocalMeowzixHeaderControls.current?.let { controls ->
+                MeowzixHeaderAction("Open settings", Icons.Rounded.Settings, controls.onSettings)
+                controls.onProxy?.let { onProxy ->
+                    MeowzixHeaderAction("Proxy settings", Icons.Rounded.Shield, onProxy)
                 }
             }
         }

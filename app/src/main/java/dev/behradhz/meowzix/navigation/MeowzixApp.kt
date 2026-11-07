@@ -9,6 +9,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
@@ -31,7 +33,6 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -42,8 +43,6 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -73,7 +72,6 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -82,7 +80,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -107,7 +104,8 @@ import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramProxyPanel
 import dev.behradhz.meowzix.ui.theme.LocalMeowzixLogoBackground
 import dev.behradhz.meowzix.ui.components.GlassSurface
-import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
+import dev.behradhz.meowzix.ui.components.LocalMeowzixHeaderControls
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderControls
 import dev.behradhz.meowzix.ui.components.SecondaryAmbientBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -255,6 +253,17 @@ fun MeowzixApp(
 
     fun goHome() = navigateTopLevel(HOME_ROUTE)
 
+    fun toggleSettings() {
+        when {
+            currentRoute == SETTINGS_ROUTE -> navController.popBackStack()
+            currentRoute in secondarySettingsRoutes -> navController.popBackStack(SETTINGS_ROUTE, false)
+            else -> {
+                clearSearchState()
+                navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true }
+            }
+        }
+    }
+
     LaunchedEffect(searchActive, searchScope, searchQuery) {
         if (searchActive && searchScope == DockSearchScope.GLOBAL) {
             searchViewModel.setQuery(searchQuery)
@@ -277,6 +286,7 @@ fun MeowzixApp(
             morphingPlayerState.targetExpanded -> morphingPlayerState.collapse()
             searchActive -> clearSearchState()
             currentRoute in secondarySettingsRoutes -> navController.popBackStack()
+            currentRoute == SETTINGS_ROUTE -> navController.popBackStack()
             currentRoute != HOME_ROUTE -> goHome()
         }
     }
@@ -293,6 +303,12 @@ fun MeowzixApp(
                 },
             )
         }
+        CompositionLocalProvider(
+            LocalMeowzixHeaderControls provides MeowzixHeaderControls(
+                onSettings = ::toggleSettings,
+                onProxy = if (currentRoute == SETTINGS_ROUTE) ({ openProxyRequest++ }) else null,
+            ),
+        ) {
         NavHost(
             navController = navController,
             startDestination = HOME_ROUTE,
@@ -300,10 +316,26 @@ fun MeowzixApp(
                 .fillMaxSize()
                 .nestedScroll(dockScrollConnection)
                 .hazeSource(hazeState),
-            enterTransition = { fadeIn(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS)) },
-            exitTransition = { fadeOut(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS)) },
-            popEnterTransition = { fadeIn(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS)) },
-            popExitTransition = { fadeOut(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS)) },
+            enterTransition = {
+                if (!reduceMotion && targetState.destination.route == SETTINGS_ROUTE)
+                    fadeIn(tween(260)) + slideInHorizontally(tween(300), initialOffsetX = { it / 6 })
+                else fadeIn(tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS))
+            },
+            exitTransition = {
+                if (!reduceMotion && initialState.destination.route == SETTINGS_ROUTE)
+                    fadeOut(tween(210)) + slideOutHorizontally(tween(250), targetOffsetX = { it / 6 })
+                else fadeOut(tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS))
+            },
+            popEnterTransition = {
+                if (!reduceMotion && targetState.destination.route == SETTINGS_ROUTE)
+                    fadeIn(tween(260)) + slideInHorizontally(tween(300), initialOffsetX = { it / 6 })
+                else fadeIn(tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS))
+            },
+            popExitTransition = {
+                if (!reduceMotion && initialState.destination.route == SETTINGS_ROUTE)
+                    fadeOut(tween(210)) + slideOutHorizontally(tween(250), targetOffsetX = { it / 6 })
+                else fadeOut(tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS))
+            },
         ) {
             composable(HOME_ROUTE) {
                 HomeRoute(
@@ -368,10 +400,14 @@ fun MeowzixApp(
                 )
             }
             composable(TELEGRAM_AUTH_ROUTE) {
-                TelegramAuthRoute(onBack = { navController.popBackStack() })
+                TelegramAuthRoute(
+                    onBack = { navController.popBackStack() },
+                    onOpenSettings = ::toggleSettings,
+                )
             }
             composable(DOWNLOADS_ROUTE) { DownloadsRoute() }
             composable(HISTORY_ROUTE) { HistoryRoute() }
+        }
         }
 
         // Search results and the dock share one IME/navigation-bar anchor, independent of focus.
@@ -474,25 +510,6 @@ fun MeowzixApp(
             )
         }
 
-        // This layer sits above the navigation destination and expanded player, so neither
-        // scrolling nor destination-specific headers can displace the two fixed controls.
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            Row(
-                modifier = Modifier.align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(top = 20.dp, end = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                MeowzixHeaderAction("Proxy settings", Icons.Rounded.Shield, {
-                    openProxyRequest++
-                })
-                MeowzixHeaderAction("Open settings", Icons.Rounded.Settings, {
-                    morphingPlayerState.collapse()
-                    navigateTopLevel(SETTINGS_ROUTE)
-                })
-            }
-        }
         TelegramProxyPanel(
             state = proxyState,
             onAdd = telegramProxyViewModel::addProxy,

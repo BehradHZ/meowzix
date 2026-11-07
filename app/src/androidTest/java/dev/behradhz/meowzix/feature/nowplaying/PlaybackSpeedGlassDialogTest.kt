@@ -30,6 +30,7 @@ class PlaybackSpeedGlassDialogTest {
         }
 
         compose.onNodeWithTag("playback-speed-dialog").assertIsDisplayed()
+        compose.onNodeWithTag("playback-speed-done").assertDoesNotExist()
         compose.onNodeWithTag("speed-option-5").assertIsDisplayed()
         compose.onNodeWithTag("speed-step-plus").assertDoesNotExist()
         compose.onNodeWithTag("speed-option-5").performClick()
@@ -40,7 +41,7 @@ class PlaybackSpeedGlassDialogTest {
         compose.onNodeWithTag("speed-step-plus").assertDoesNotExist()
     }
 
-    @Test fun buttonsIncrementInFineStepsBelowTwoAndCoarseStepsAbove() {
+    @Test fun buttonsIncrementInFineStepsThroughFive() {
         var playedSpeed by mutableFloatStateOf(1f)
         compose.setContent {
             MeowzixTheme(darkTheme = true) {
@@ -62,7 +63,7 @@ class PlaybackSpeedGlassDialogTest {
         compose.runOnIdle { assertEquals(2f, playedSpeed, 0.001f) }
         compose.onNodeWithTag("speed-option-5").performClick()
         compose.onNodeWithTag("speed-step-plus").performClick()
-        compose.runOnIdle { assertEquals(2.5f, playedSpeed, 0.001f) }
+        compose.runOnIdle { assertEquals(2.1f, playedSpeed, 0.001f) }
         compose.onNodeWithTag("speed-step-minus").performClick()
         compose.runOnIdle { assertEquals(2f, playedSpeed, 0.001f) }
         compose.onNodeWithTag("speed-step-minus").performClick()
