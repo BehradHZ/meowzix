@@ -6,8 +6,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import android.content.pm.PackageManager
@@ -203,14 +205,12 @@ fun UnifiedSettingsScreen(
         AnimatedContent(
             targetState = selectedCategory,
             transitionSpec = {
-                val isBack = targetState == null
-                val direction = if (isBack) -1 else 1
                 if (state.appearance.reduceMotion) {
                     fadeIn(tween(0)) togetherWith fadeOut(tween(0))
                 } else {
-                    (slideInHorizontally(tween(270), initialOffsetX = { direction * it / 4 }) +
+                    (slideInVertically(tween(270), initialOffsetY = { -it / 8 }) +
                         fadeIn(tween(240))) togetherWith
-                        (slideOutHorizontally(tween(220), targetOffsetX = { -direction * it / 4 }) +
+                        (slideOutVertically(tween(220), targetOffsetY = { -it / 8 }) +
                             fadeOut(tween(170)))
                 }
             },
@@ -304,86 +304,108 @@ fun UnifiedSettingsScreen(
             }
             if (page == SettingsCategory.PLAYBACK) {
                 item(key = "playback") {
-                        SettingsGlassSection(hazeState, "Playback", "", Icons.Rounded.PlayCircle, showHeading = false) {
-                            SettingsChoiceRow("Default playback mode", null, Icons.AutoMirrored.Rounded.QueueMusic,
-                                state.playback.defaultMode.name, PlaybackMode.entries.map { it.name }) { viewModel.setDefaultMode(PlaybackMode.valueOf(it)) }
+                    val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()
+                    SettingsGlassSection(hazeState, "Playback", "", Icons.Rounded.PlayCircle, showHeading = false) {
+                        SettingsPlaybackModeSelector(
+                            selected = state.playback.defaultMode,
+                            onSelect = viewModel::setDefaultMode,
+                        )
+                        SettingsRowDivider()
+                        SettingsRepeatCycleRow(
+                            selected = state.playback.defaultRepeat,
+                            onSelect = viewModel::setDefaultRepeat,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Resume playback state",
+                            "Restore your last queue and playback position.",
+                            Icons.Rounded.Restore,
+                            state.playback.resumeOnLaunch,
+                            viewModel::setResume,
+                            showSubtitle = true,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Resume after other apps",
+                            "Resume after another app finishes, unless you paused.",
+                            Icons.Rounded.PlayCircle,
+                            state.playback.resumeAfterExternalAudio,
+                            viewModel::setResumeAfterExternalAudio,
+                            showSubtitle = true,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Pause when microphone starts",
+                            "Pause for microphone use and resume when it ends.",
+                            Icons.Rounded.Mic,
+                            state.playback.pauseOnMicrophoneRecording,
+                            viewModel::setPauseOnMicrophoneRecording,
+                            showSubtitle = true,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Live song card",
+                            "Show the current song on the lock screen and supported AODs.",
+                            Icons.Rounded.MusicNote,
+                            state.playback.liveSongCardEnabled,
+                            onChecked = { enabled ->
+                                when {
+                                    !enabled -> viewModel.setLiveSongCardEnabled(false)
+                                    Build.VERSION.SDK_INT >= 33 &&
+                                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ->
+                                        liveCardPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    else -> viewModel.setLiveSongCardEnabled(true)
+                                }
+                            },
+                            showSubtitle = true,
+                        )
+                        if (state.playback.liveSongCardEnabled) {
                             SettingsRowDivider()
-                            SettingsChoiceRow("Default repeat", null, Icons.Rounded.Repeat,
-                                state.playback.defaultRepeat.name, RepeatMode.entries.map { it.name }) { viewModel.setDefaultRepeat(RepeatMode.valueOf(it)) }
-                            SettingsRowDivider()
-                            SettingsToggleRow("Resume playback state", "Restore the previous queue and position",
-                                Icons.Rounded.Restore, state.playback.resumeOnLaunch, viewModel::setResume)
-                            SettingsRowDivider()
-                            SettingsToggleRow(
-                                "Resume after other apps",
-                                "Restart music when an audio-focus interruption ends; manual pauses never resume automatically",
-                                Icons.Rounded.PlayCircle,
-                                state.playback.resumeAfterExternalAudio,
-                                viewModel::setResumeAfterExternalAudio,
+                            SettingsLiveUpdateLayoutPicker(
+                                selected = state.playback.liveSongCardStyle,
+                                onSelect = viewModel::setLiveSongCardStyle,
                             )
-                            SettingsRowDivider()
-                            SettingsToggleRow(
-                                "Pause when microphone starts",
-                                "Pause when microphone recording starts, then resume automatically when it ends. Manual Play remains available.",
-                                Icons.Rounded.Mic,
-                                state.playback.pauseOnMicrophoneRecording,
-                                viewModel::setPauseOnMicrophoneRecording,
+                            SettingsLiveUpdatePreview(
+                                playback = previewPlayback,
+                                style = state.playback.liveSongCardStyle,
+                                leftAction = state.playback.liveSongLeftAction,
+                                rightAction = state.playback.liveSongRightAction,
                             )
-                            SettingsRowDivider()
-                            SettingsToggleRow(
-                                "Live song card",
-                                "Show a separate track-and-artist card on the lock screen and, if supported, AOD. Requires notification permission; Android controls prominence.",
-                                Icons.Rounded.MusicNote,
-                                state.playback.liveSongCardEnabled,
-                                onChecked = { enabled ->
-                                    when {
-                                        !enabled -> viewModel.setLiveSongCardEnabled(false)
-                                        Build.VERSION.SDK_INT >= 33 &&
-                                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ->
-                                            liveCardPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                        else -> viewModel.setLiveSongCardEnabled(true)
-                                    }
-                                },
-                            )
-                            if (state.playback.liveSongCardEnabled) {
+                            if (state.playback.liveSongCardStyle == LiveSongCardStyle.CONTROLS) {
                                 SettingsRowDivider()
                                 SettingsChoiceRow(
-                                    "Live Update layout",
-                                    "Minimal chip or three playback buttons in the expanded card",
-                                    Icons.Rounded.PlayCircle,
-                                    if (state.playback.liveSongCardStyle == LiveSongCardStyle.MINIMAL) "Minimal" else "Playback controls",
-                                    listOf("Minimal", "Playback controls"),
-                                ) { value ->
-                                    viewModel.setLiveSongCardStyle(
-                                        if (value == "Minimal") LiveSongCardStyle.MINIMAL else LiveSongCardStyle.CONTROLS
-                                    )
-                                }
-                                if (state.playback.liveSongCardStyle == LiveSongCardStyle.CONTROLS) {
-                                    SettingsRowDivider()
-                                    SettingsChoiceRow(
-                                        "Left Live Update button",
-                                        "The middle button is always Pause",
-                                        Icons.Rounded.MusicNote,
-                                        state.playback.liveSongLeftAction.name,
-                                        LiveSongSideAction.entries.map { it.name },
-                                    ) { viewModel.setLiveSongLeftAction(LiveSongSideAction.valueOf(it)) }
-                                    SettingsRowDivider()
-                                    SettingsChoiceRow(
-                                        "Right Live Update button",
-                                        "Previous, Next, Favorite, Shuffle, or Repeat",
-                                        Icons.Rounded.MusicNote,
-                                        state.playback.liveSongRightAction.name,
-                                        LiveSongSideAction.entries.map { it.name },
-                                    ) { viewModel.setLiveSongRightAction(LiveSongSideAction.valueOf(it)) }
-                                }
+                                    "Left Live Update button",
+                                    "The middle button is always Pause",
+                                    Icons.Rounded.MusicNote,
+                                    state.playback.liveSongLeftAction.name,
+                                    LiveSongSideAction.entries.map { it.name },
+                                ) { viewModel.setLiveSongLeftAction(LiveSongSideAction.valueOf(it)) }
+                                SettingsRowDivider()
+                                SettingsChoiceRow(
+                                    "Right Live Update button",
+                                    "Previous, Next, Favorite, Shuffle, or Repeat",
+                                    Icons.Rounded.MusicNote,
+                                    state.playback.liveSongRightAction.name,
+                                    LiveSongSideAction.entries.map { it.name },
+                                ) { viewModel.setLiveSongRightAction(LiveSongSideAction.valueOf(it)) }
                             }
-                            SettingsRowDivider()
-                            SettingsActionRow(
-                                "Sleep timer", "", Icons.Rounded.Bedtime,
-                                if (sleepTimerExpanded) "Hide" else sleepTimerStatusLabel(sleepTimer),
-                                onClick = { sleepTimerExpanded = !sleepTimerExpanded },
-                            )
-                            AnimatedVisibility(visible = sleepTimerExpanded) {
+                        }
+                        SettingsRowDivider()
+                        SettingsSleepTimerHeader(
+                            state = sleepTimer,
+                            lastMode = state.playback.sleepTimerLastMode,
+                            lastMinutes = state.playback.sleepTimerLastMinutes,
+                            endOfTrackEnabled = hasCurrentTrack,
+                            expanded = sleepTimerExpanded,
+                            onToggle = viewModel::setSleepTimerEnabled,
+                            onExpand = { sleepTimerExpanded = !sleepTimerExpanded },
+                        )
+                        AnimatedVisibility(
+                            visible = sleepTimerExpanded,
+                            enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(190)),
+                            exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(140)),
+                        ) {
+                            Column {
                                 SleepTimerMenuContent(
                                     state = sleepTimer,
                                     endOfTrackEnabled = hasCurrentTrack,
@@ -394,18 +416,21 @@ fun UnifiedSettingsScreen(
                                     onExtend = { viewModel.extendSleepTimer(15) },
                                     onShorten = { viewModel.shortenSleepTimer(15) },
                                     onSetEnabled = viewModel::setSleepTimerEnabled,
+                                    showStatusHeader = false,
+                                )
+                                SettingsRowDivider()
+                                SettingsToggleRow(
+                                    "Fade out",
+                                    "Fade music during the final 5 seconds of the timer.",
+                                    Icons.Rounded.Bedtime,
+                                    state.playback.sleepTimerFadeEnabled,
+                                    viewModel::setSleepTimerFadeEnabled,
+                                    showSubtitle = true,
                                 )
                             }
-                            SettingsRowDivider()
-                            SettingsToggleRow(
-                                "Sleep timer fade",
-                                "Fade playback over the final 5 seconds (enabled by default)",
-                                Icons.Rounded.Bedtime,
-                                state.playback.sleepTimerFadeEnabled,
-                                viewModel::setSleepTimerFadeEnabled,
-                            )
                         }
                     }
+                }
             }
             if (page == SettingsCategory.SOUND) {
                 item(key = "sound") {
@@ -415,7 +440,11 @@ fun UnifiedSettingsScreen(
                                 if (equalizerExpanded) "Hide" else "Adjust",
                                 onClick = { equalizerExpanded = !equalizerExpanded },
                             )
-                            AnimatedVisibility(visible = equalizerExpanded) {
+                            AnimatedVisibility(
+                                visible = equalizerExpanded,
+                                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(190)),
+                                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(140)),
+                            ) {
                                 SettingsEqualizerControls()
                             }
                         SettingsRowDivider()

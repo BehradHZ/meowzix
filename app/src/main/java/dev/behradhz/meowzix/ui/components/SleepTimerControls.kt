@@ -112,8 +112,8 @@ fun SleepTimerGlassDialog(
             ) {
                 AnimatedVisibility(
                     visible = state.active && state.mode == SleepTimerMode.DURATION,
-                    enter = fadeIn(tween(180)) + expandHorizontally(tween(210), expandFrom = Alignment.End),
-                    exit = fadeOut(tween(140)) + shrinkHorizontally(tween(170), shrinkTowards = Alignment.End),
+                    enter = fadeIn(tween(180)) + expandVertically(tween(210), expandFrom = Alignment.Top),
+                    exit = fadeOut(tween(140)) + shrinkVertically(tween(170), shrinkTowards = Alignment.Top),
                 ) {
                     SleepTimerFooterAction(
                         label = "+15 min",
@@ -147,6 +147,7 @@ fun SleepTimerMenuContent(
     onExtend: () -> Unit,
     onSetEnabled: (Boolean) -> Unit,
     onShorten: () -> Unit = {},
+    showStatusHeader: Boolean = true,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -160,11 +161,12 @@ fun SleepTimerMenuContent(
             onSetMinutes = onSetMinutes,
             onEndOfTrack = onEndOfTrack,
             onSetEnabled = onSetEnabled,
+            showStatusHeader = showStatusHeader,
         )
         AnimatedVisibility(
             visible = state.active && state.mode == SleepTimerMode.DURATION,
-            enter = fadeIn(tween(180)) + expandVertically(tween(200)),
-            exit = fadeOut(tween(130)) + shrinkVertically(tween(160)),
+            enter = fadeIn(tween(180)) + expandVertically(tween(200), expandFrom = Alignment.Top),
+            exit = fadeOut(tween(130)) + shrinkVertically(tween(160), shrinkTowards = Alignment.Top),
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -198,6 +200,7 @@ fun SleepTimerControls(
     onEndOfTrack: () -> Unit,
     onSetEnabled: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    showStatusHeader: Boolean = true,
 ) {
     var customMinutes by remember(lastMinutes) {
         mutableFloatStateOf(lastMinutes.coerceIn(5, 180).toFloat())
@@ -211,6 +214,7 @@ fun SleepTimerControls(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        if (showStatusHeader) {
         Row(
             modifier = Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(14.dp))
@@ -257,6 +261,7 @@ fun SleepTimerControls(
                 },
                 modifier = Modifier.testTag("sleep-timer-enabled"),
             )
+        }
         }
 
         // Four always-visible actions. Only Custom reveals the duration controls.
@@ -310,7 +315,7 @@ fun SleepTimerControls(
                 animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
                 expandFrom = Alignment.Top,
             ),
-            exit = fadeOut(tween(140)) + shrinkVertically(tween(180)),
+            exit = fadeOut(tween(140)) + shrinkVertically(tween(180), shrinkTowards = Alignment.Top),
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth()

@@ -347,7 +347,7 @@ private fun SettingsLeadingIcon(icon: ImageVector, danger: Boolean = false) {
 }
 
 @Composable
-private fun SettingsRowLabel(title: String, subtitle: String?, modifier: Modifier = Modifier, danger: Boolean = false) {
+private fun SettingsRowLabel(title: String, subtitle: String?, modifier: Modifier = Modifier, danger: Boolean = false, alwaysShowSubtitle: Boolean = false) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             title,
@@ -357,11 +357,13 @@ private fun SettingsRowLabel(title: String, subtitle: String?, modifier: Modifie
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        if (!LocalSettingsCompactMode.current && !subtitle.isNullOrBlank()) {
+        if ((!LocalSettingsCompactMode.current || alwaysShowSubtitle) && !subtitle.isNullOrBlank()) {
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (alwaysShowSubtitle) 1 else Int.MAX_VALUE,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -375,6 +377,7 @@ internal fun SettingsToggleRow(
     checked: Boolean,
     onChecked: (Boolean) -> Unit,
     enabled: Boolean = true,
+    showSubtitle: Boolean = false,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 62.dp)
@@ -384,7 +387,7 @@ internal fun SettingsToggleRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         SettingsLeadingIcon(icon)
-        SettingsRowLabel(title, subtitle, Modifier.weight(1f))
+        SettingsRowLabel(title, subtitle, Modifier.weight(1f), alwaysShowSubtitle = showSubtitle)
         Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
