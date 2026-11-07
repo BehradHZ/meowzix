@@ -105,6 +105,32 @@ class SettingsGlassComponentsTest {
     }
 
     @Test
+    fun headerTitleWithSubtitleRemainsAlignedWithActionIcon() {
+        compose.setContent {
+            MeowzixTheme {
+                PlaylistGlassBackdrop { hazeState ->
+                    Box(Modifier.fillMaxWidth()) {
+                        MeowzixStickyHeader(
+                            title = "Library",
+                            subtitle = "Your music",
+                            hazeState = hazeState,
+                            actions = {
+                                MeowzixHeaderAction(
+                                    "Action", Icons.Rounded.Palette, onClick = {},
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        val title = compose.onNodeWithText("Library").fetchSemanticsNode().boundsInRoot
+        val action = compose.onNodeWithContentDescription("Action").fetchSemanticsNode().boundsInRoot
+        assertTrue(abs(title.center.y - action.center.y) < 5f)
+        compose.onNodeWithText("Your music").assertIsDisplayed()
+    }
+
+    @Test
     fun categoryIndexOpensOnlyTheSelectedSection() {
         var opened: SettingsCategory? = null
         compose.setContent {

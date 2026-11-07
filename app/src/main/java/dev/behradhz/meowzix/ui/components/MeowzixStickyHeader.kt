@@ -69,23 +69,29 @@ fun MeowzixStickyHeader(
         val rowContent: @Composable RowScope.() -> Unit = {
             // A leading action is pinned to the physical left for this header only.
             leadingActions?.invoke(this)
-            Column(
-                Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+            // Keep the title on the same vertical axis as the 44dp action icons.
+            // The secondary text occupies the lower line without lifting the title.
+            Box(
+                Modifier.weight(1f)
+                    .heightIn(min = if (subtitle.isBlank()) 60.dp else 68.dp),
             ) {
                 CompositionLocalProvider(LocalLayoutDirection provides contentLayoutDirection) {
                     Text(
-                        title, style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold, maxLines = 1,
+                        title,
+                        modifier = Modifier.align(Alignment.CenterStart),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    // An empty Text still reserves a line-height in some Compose versions,
-                    // which raises the title above the 44dp header-action centerline.
                     if (subtitle.isNotBlank()) {
                         Text(
-                            subtitle, style = MaterialTheme.typography.bodySmall,
+                            subtitle,
+                            modifier = Modifier.align(Alignment.BottomStart),
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
