@@ -67,6 +67,15 @@ enum class TelegramConnectionStatus {
     STARTING, WAITING_FOR_NETWORK, CONNECTING_TO_PROXY, CONNECTING, UPDATING, CONNECTED
 }
 
+enum class TelegramProxyBadge { DISABLED, CONNECTING, CONNECTED }
+
+/** A selected proxy is not necessarily connected. Trust the TDLib transport state. */
+fun telegramProxyBadge(enabled: Boolean, status: TelegramConnectionStatus): TelegramProxyBadge = when {
+    !enabled -> TelegramProxyBadge.DISABLED
+    status == TelegramConnectionStatus.CONNECTED -> TelegramProxyBadge.CONNECTED
+    else -> TelegramProxyBadge.CONNECTING
+}
+
 /** Reads only Telegram's documented proxy links, never arbitrary URLs or clipboard content. */
 object TelegramProxyLinkParser {
     private val candidate = Regex(
