@@ -2,7 +2,9 @@ package dev.behradhz.meowzix.domain.settings
 
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 data class NetworkPlaybackSettings(
     val offlineMode: Boolean = false,
@@ -65,6 +67,8 @@ enum class SleepTimerPresetMode { DURATION, END_OF_TRACK }
 
 data class PlaybackPreferenceSettings(
     val defaultMode: PlaybackMode = PlaybackMode.ORDERED,
+    val artistBalancedShuffle: Boolean = true,
+    val artistShuffleAlpha: Float = 0.8f,
     val defaultRepeat: RepeatMode = RepeatMode.OFF,
     val resumeOnLaunch: Boolean = true,
     val resumeAfterExternalAudio: Boolean = false,
@@ -95,6 +99,7 @@ interface SettingsRepository {
     val libraryDisplaySettings: Flow<LibraryDisplaySettings>
     val appearanceSettings: Flow<AppearanceSettings>
     val playbackPreferenceSettings: Flow<PlaybackPreferenceSettings>
+    val recentShuffleTrackIds: Flow<List<UUID>> get() = flowOf(emptyList())
     val recommendationPreferenceSettings: Flow<RecommendationPreferenceSettings>
 
     suspend fun setOfflineMode(enabled: Boolean)
@@ -116,6 +121,9 @@ interface SettingsRepository {
     suspend fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle)
     suspend fun setLauncherIconSource(source: LauncherIconColorSource) {}
     suspend fun setSpermerModeEnabled(enabled: Boolean) {}
+    suspend fun setArtistBalancedShuffle(enabled: Boolean) {}
+    suspend fun setArtistShuffleAlpha(alpha: Float) {}
+    suspend fun recordShuffleExposure(trackId: UUID) {}
     suspend fun setDefaultPlaybackMode(mode: PlaybackMode)
     suspend fun setDefaultRepeatMode(mode: RepeatMode)
     suspend fun setResumeOnLaunch(enabled: Boolean)

@@ -33,6 +33,7 @@ import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.settings.ThemePreference
 import java.io.IOException
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -97,6 +98,8 @@ class DataStoreSettingsRepository @Inject constructor(
     override val playbackPreferenceSettings: Flow<PlaybackPreferenceSettings> = safeData.map { values ->
         PlaybackPreferenceSettings(
             defaultMode = values[DEFAULT_PLAYBACK_MODE].enumOrDefault(PlaybackMode.ORDERED),
+            artistBalancedShuffle = values[ARTIST_BALANCED_SHUFFLE] ?: true,
+            artistShuffleAlpha = (values[ARTIST_SHUFFLE_ALPHA] ?: 0.8f).takeIf(Float::isFinite)?.coerceIn(0.7f, 1f) ?: 0.8f,
             defaultRepeat = values[DEFAULT_REPEAT_MODE].enumOrDefault(RepeatMode.OFF),
             resumeOnLaunch = values[RESUME_ON_LAUNCH] ?: true,
             resumeAfterExternalAudio = values[RESUME_AFTER_EXTERNAL_AUDIO] ?: false,
@@ -121,6 +124,26 @@ class DataStoreSettingsRepository @Inject constructor(
             audioAnalysisEnabled = values[AUDIO_ANALYSIS] ?: true,
             diagnosticsVisible = values[DIAGNOSTICS_VISIBLE] ?: false,
         )
+    }
+
+    override val recentShuffleTrackIds: Flow<List<UUID>> = safeData.map { values ->
+        (values[RECENT_SHUFFLE_TRACK_IDS] ?: "").split(',').mapNotNull {
+            runCatching { UUID.fromString(it) }.getOrNull()
+        }
+    }
+
+    override suspend fun recordShuffleExposure(trackId: UUID) {
+        context.settingsDataStore.edit { values ->
+            val recent = (values[RECENT_SHUFFLE_TRACK_IDS] ?: "").split(',')
+                .filter { it.isNotBlank() && it != trackId.toString() }
+            values[RECENT_SHUFFLE_TRACK_IDS] = (listOf(trackId.toString()) + recent.take(159)).joinToString(",")
+        }
+    }
+
+    override suspend fun setArtistBalancedShuffle(enabled: Boolean) = set(ARTIST_BALANCED_SHUFFLE, enabled)
+    override suspend fun setArtistShuffleAlpha(alpha: Float) {
+        if (!alpha.isFinite()) return
+        context.settingsDataStore.edit { it[ARTIST_SHUFFLE_ALPHA] = alpha.coerceIn(0.7f, 1f) }
     }
 
     override suspend fun setOfflineMode(enabled: Boolean) = set(OFFLINE_MODE, enabled)
@@ -229,6 +252,9 @@ class DataStoreSettingsRepository @Inject constructor(
         val LAUNCHER_ICON_SOURCE = stringPreferencesKey("launcher_icon_color_source")
         val SPERMER_MODE_ENABLED = booleanPreferencesKey("spermer_mode_enabled")
         val DEFAULT_PLAYBACK_MODE = stringPreferencesKey("default_playback_mode")
+        val ARTIST_BALANCED_SHUFFLE = booleanPreferencesKey("artist_balanced_shuffle")
+        val ARTIST_SHUFFLE_ALPHA = floatPreferencesKey("artist_shuffle_alpha")
+        val RECENT_SHUFFLE_TRACK_IDS = stringPreferencesKey("recent_shuffle_track_ids")
         val DEFAULT_REPEAT_MODE = stringPreferencesKey("default_repeat_mode")
         val RESUME_ON_LAUNCH = booleanPreferencesKey("resume_on_launch")
         val RESUME_AFTER_EXTERNAL_AUDIO = booleanPreferencesKey("resume_after_external_audio")

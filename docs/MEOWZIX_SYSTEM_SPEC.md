@@ -129,11 +129,11 @@ The application MUST therefore separate the logical `Track` entity from physical
 
 ## 3.5 Pure Shuffle and Smart Shuffle are separate features
 
-**Pure Shuffle MUST remain genuinely random and MUST NOT be personalized.**
+**Shuffle MUST remain genuinely randomized and MUST NOT use favorite status, listening affinity, skip counts, time-of-day preference, or ML scores.**
 
-No recommendation score, listening history, favorite status, time-of-day model, artist preference, or ML system may affect Pure Shuffle.
+The default Shuffle policy is **Artist-Balanced**, using seedable artist-weighted selection, per-artist randomized track bags, and a bounded log of actual-play exposure. Users can switch to **Standard Random**, the original uniform Fisher-Yates permutation, which ignores artist metadata and exposure memory.
 
-Smart Shuffle is a separate mode and may use personalized information.
+Smart Shuffle remains separate: only exploratory picks use the shared artist selector; exploitation is still model-ranked.
 
 ## 3.6 Offline playback is a first-class requirement
 
@@ -1303,39 +1303,23 @@ This section is strict.
 
 ## 16.1 Definition
 
-Pure Shuffle means every eligible track appears exactly once in a randomized cycle before the cycle repeats.
+The Shuffle playback mode defaults to Artist-Balanced with an optional Standard Random setting. Neither policy uses personalized preference scores, listening history statistics, or ML. Both are source-agnostic and operate on canonical Track IDs.
 
-Do not select a random track independently on each Next press because that creates premature repeats.
+A source collection is shuffled into a **without-replacement finite cycle**, i.e. each eligible track occurs once before that cycle ends. Artist-Balanced reduces the concentration of popular-by-track-count artists in the beginning of the queue. Mathematically it **cannot** change the complete-cycle artist fraction while keeping this no-repeat guarantee. Do not promise a fixed 5–7.5% share over a complete 1,000-track cycle when one artist owns 100 tracks.
 
 ## 16.2 Algorithm
 
-For a source collection of `N` eligible tracks:
-
-1. copy track IDs into an array;
-2. generate a high-quality random seed;
-3. apply Fisher-Yates shuffle;
-4. persist the generated order or persist enough state to restore it;
-5. play sequentially through the shuffled permutation.
-
-When the cycle ends:
-
-1. generate a new shuffle;
-2. if `N > 1`, prevent the first item of the new cycle from being identical to the last item of the previous cycle;
-3. otherwise do not bias the order.
+- Artist-Balanced is default. The probability of choosing an artist is proportional to the number of its *remaining* eligible tracks raised to alpha (default 0.8; user may adjust from 0.7 to 1.0), with a soft cooldown over recent artists.
+- Each artist owns a separately seeded, randomized bag. A bounded recent-track cooldown avoids replaying the user's recent Shuffle starts early in a newly generated queue when alternatives remain.
+- Artist metadata is normalized; an unknown artist must not group unrelated tracks into a single artificial mega-artist.
+- Explicit song selections anchor that track at the start. The rest of the eligible tracks are shuffled without replacement.
+- Standard Random retains the existing Fisher-Yates algorithm and does not inspect artist names or exposure history.
+- Queue seed and generated order are persisted so restore does not reshuffle. Actual playback starts (not queued-but-unplayed songs) update a bounded, on-device 160-track exposure log independent of personalized listening-history controls.
+- Smart Exploration may call the same weighted artist selector; Smart exploitation remains governed by its existing scorer.
 
 ## 16.3 No personalization
 
-Pure Shuffle MUST NOT consider:
-
-- favorite status;
-- play count;
-- skip count;
-- artist;
-- album;
-- time;
-- day;
-- listening history;
-- recommendation score.
+Neither Shuffle policy may consult favorites, skip/play counts, ML scores, or time-of-day affinity. Artist-Balanced may use **static** artist metadata, eligible track counts and **non-preferential** actual-play exposure solely to control repetition. No storage provider is favored.
 
 ## 16.4 Queue mutation
 

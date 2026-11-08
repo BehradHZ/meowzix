@@ -183,6 +183,8 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun extendSleepTimer(minutes: Int = 15) = launch { sleepTimer.extend(minutes.coerceAtLeast(1) * 60_000L) }
     fun shortenSleepTimer(minutes: Int = 15) = launch { sleepTimer.extend(-minutes.coerceAtLeast(1) * 60_000L) }
     fun cancelSleepTimer() = setSleepTimerEnabled(false)
+    fun setArtistBalancedShuffle(value: Boolean) = launch { settings.setArtistBalancedShuffle(value) }
+    fun setArtistShuffleAlpha(value: Float) = launch { settings.setArtistShuffleAlpha(value) }
     fun setSmart(value: Boolean) = launch { settings.setSmartRecommendationsEnabled(value) }
     fun setExploration(value: Int) = launch { settings.setExplorationPercent(value) }
     fun setAudioAnalysis(value: Boolean) = launch { settings.setAudioAnalysisEnabled(value) }

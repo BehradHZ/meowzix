@@ -20,6 +20,9 @@ import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueueSnapshot
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
+import dev.behradhz.meowzix.domain.playback.ArtistBalancedShuffleEngine
+import dev.behradhz.meowzix.domain.playback.ArtistShuffleItem
+import dev.behradhz.meowzix.domain.playback.ShuffleCycle
 import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueActionKind
 import dev.behradhz.meowzix.domain.playback.QueueItem
@@ -29,6 +32,7 @@ import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
@@ -41,6 +45,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -52,6 +58,7 @@ class AndroidPlaybackController @Inject constructor(
     private val recommendationEngine: RecommendationEngine,
     private val progressiveQueue: ProgressiveQueue,
     private val queueActionFeedbackBus: QueueActionFeedbackBus,
+    private val settings: SettingsRepository,
 ) : PlaybackController, QueueRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(PlaybackState(status = PlaybackStatus.PREPARING))
@@ -68,6 +75,7 @@ class AndroidPlaybackController @Inject constructor(
     private var seekRevision = 0L
     private var userSelectedOccurrence = false
     private var userInterruptedPrevious = false
+    private var lastRecordedExposureOccurrence: UUID? = null
 
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -429,17 +437,10 @@ class AndroidPlaybackController @Inject constructor(
             var tracks = when (mode) {
                 PlaybackMode.ORDERED -> requested
                 PlaybackMode.PURE_SHUFFLE -> {
-                    val requestedById = requested.associateBy { it.id }
-                    val ids = requested.map { it.id }
-                    val cycle = if (startTrackId == null) {
-                        PureShuffleEngine.newCycle(ids)
-                    } else {
-                        PureShuffleEngine.newCycleStartingWith(ids, startTrackId)
-                    }
-                    cycle.let { cycle ->
-                        shuffleSeed = cycle.seed
-                        cycle.order.mapNotNull(requestedById::get)
-                    }
+                    val byId = requested.associateBy { it.id }
+                    val cycle = makeShuffleCycle(requested, startTrackId)
+                    shuffleSeed = cycle.seed
+                    cycle.order.mapNotNull(byId::get)
                 }
                 PlaybackMode.SMART_SHUFFLE -> {
                     val smartQueue = recommendationEngine.generate(
@@ -639,9 +640,10 @@ class AndroidPlaybackController @Inject constructor(
                     future.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
                 }
                 PlaybackMode.PURE_SHUFFLE -> {
-                    PureShuffleEngine.newCycle(future.indices.toList()).let { cycle ->
+                    makeShuffleCycle(future, previousTrackId = currentTrack.id).let { cycle ->
                         seed = cycle.seed
-                        cycle.order.map(future::get)
+                        val byId = future.associateBy { it.id }
+                        cycle.order.mapNotNull(byId::get)
                     }
                 }
                 PlaybackMode.SMART_SHUFFLE -> {
@@ -662,6 +664,32 @@ class AndroidPlaybackController @Inject constructor(
                 pendingIds = desiredFuture.drop(ProgressiveQueue.GENERATED_BATCH_SIZE).map { it.id },
             )
             syncProgressiveFutureInPlace(connected)
+        }
+    }
+
+    /** Settings affect only newly generated queues; existing manual Queue entries are untouched. */
+    private suspend fun makeShuffleCycle(
+        tracks: List<PlayableTrack>,
+        selectedTrackId: UUID? = null,
+        previousTrackId: UUID? = null,
+    ): ShuffleCycle<UUID> {
+        val prefs = settings.playbackPreferenceSettings.first()
+        val recent = if (prefs.artistBalancedShuffle)
+            (listOfNotNull(previousTrackId) + settings.recentShuffleTrackIds.first()).distinct()
+        else emptyList()
+        return withContext(Dispatchers.Default) {
+            if (prefs.artistBalancedShuffle) {
+                val items = tracks.map { ArtistShuffleItem(it.id, it.artist) }
+                if (selectedTrackId == null) ArtistBalancedShuffleEngine.newCycle(
+                    items, recent, alpha = prefs.artistShuffleAlpha.toDouble(),
+                ) else ArtistBalancedShuffleEngine.newCycleStartingWith(
+                    items, selectedTrackId, recent, alpha = prefs.artistShuffleAlpha.toDouble(),
+                )
+            } else {
+                val ids = tracks.map { it.id }
+                if (selectedTrackId == null) PureShuffleEngine.newCycle(ids, previousTrackId)
+                else PureShuffleEngine.newCycleStartingWith(ids, selectedTrackId)
+            }
         }
     }
 
@@ -872,7 +900,19 @@ class AndroidPlaybackController @Inject constructor(
                 }
                 PlaybackMode.PURE_SHUFFLE -> {
                     val ids = existingIds.drop(currentIndex + 1)
-                    PureShuffleEngine.newCycle(ids.indices.toList()).order.map(ids::get)
+                    val byId = runCatching { catalog.availableTracks(ids.mapNotNull {
+                        runCatching { UUID.fromString(it) }.getOrNull()
+                    }) }.getOrDefault(emptyList()).associateBy { it.id.toString() }
+                    val preferences = settings.playbackPreferenceSettings.first()
+                    val order = if (preferences.artistBalancedShuffle) {
+                        val indexed = ids.mapIndexed { index, trackId ->
+                            ArtistShuffleItem(index, byId[trackId]?.artist)
+                        }
+                        withContext(Dispatchers.Default) {
+                            ArtistBalancedShuffleEngine.newCycle(indexed, alpha = preferences.artistShuffleAlpha.toDouble())
+                        }.order
+                    } else PureShuffleEngine.newCycle(ids.indices.toList()).order
+                    order.map(ids::get)
                 }
                 PlaybackMode.SMART_SHUFFLE -> {
                     val allowed = existingIds.drop(currentIndex + 1)
@@ -914,6 +954,14 @@ class AndroidPlaybackController @Inject constructor(
             ?: 0L
         val playbackMode = logical?.playbackMode ?: player.queuePlaybackMode()
         val repeatMode = logical?.repeatMode ?: player.queueRepeatMode()
+        // Track actual Shuffle starts, never pre-generated selections or position updates.
+        if (player.isPlaying && trackId != null &&
+            (playbackMode == PlaybackMode.PURE_SHUFFLE || playbackMode == PlaybackMode.SMART_SHUFFLE) &&
+            lastRecordedExposureOccurrence != playbackOccurrenceId
+        ) {
+            lastRecordedExposureOccurrence = playbackOccurrenceId
+            scope.launch { settings.recordShuffleExposure(trackId) }
+        }
         _state.value = PlaybackState(
             status = when {
                 errorMessage != null -> PlaybackStatus.ERROR

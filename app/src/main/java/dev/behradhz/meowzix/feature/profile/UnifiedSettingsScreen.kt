@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Downloading
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
@@ -309,6 +310,28 @@ fun UnifiedSettingsScreen(
                             selected = state.playback.defaultMode,
                             onSelect = viewModel::setDefaultMode,
                         )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Artist-balanced Shuffle",
+                            "Spread playback across artists. Turn off for uniform song-level random.",
+                            Icons.Rounded.Shuffle,
+                            state.playback.artistBalancedShuffle,
+                            viewModel::setArtistBalancedShuffle,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        if (state.playback.artistBalancedShuffle) {
+                            SettingsSliderRow(
+                                "Artist balance",
+                                "Lower values reduce artists' library-size advantage. Applies to new queues.",
+                                Icons.Rounded.Shuffle,
+                                String.format(java.util.Locale.US, "%.2f", state.playback.artistShuffleAlpha),
+                                state.playback.artistShuffleAlpha,
+                                0.7f..1f, 5, { viewModel.setArtistShuffleAlpha(it) },
+                                showSubtitle = true,
+                                subtitleMaxLines = 3,
+                            )
+                        }
                         SettingsRowDivider()
                         SettingsRepeatCycleRow(
                             selected = state.playback.defaultRepeat,
