@@ -244,7 +244,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
     private suspend fun fetchForwardFolders(forceRefresh: Boolean): List<TelegramForwardFolder> {
         if (!forceRefresh) cachedForwardFolders()?.let { return it }
         if (forceRefresh) {
-            telegramRepository.musicSourceState.value.accountId?.let(snapshots::clear)
+            // Keep the last-known disk snapshot until the replacement is valid.
             folderCache.clear()
             synchronized(folderRequestLock) { folderChatCaches.clear() }
         }
@@ -265,6 +265,9 @@ class TdLibTelegramForwardRepository @Inject constructor(
             val accountId = telegramRepository.musicSourceState.value.accountId
                 ?: return@withLock emptyList()
             val infos = awaitTelegramFolderSnapshot(client.chatFolders, timeoutMs = 1_500L)
+            if (forceRefresh && infos.isEmpty() && snapshots.folders(accountId)?.isNotEmpty() == true) {
+                error("Telegram hasn't returned an updated folder list yet. The cached folders were kept.")
+            }
             val folderRevision = client.chatFolderRevision
             // Publish names immediately. No GetChatFolder / LoadChats / GetChat fanout here.
             val folders = infos.map { info ->
@@ -284,6 +287,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 // A blank snapshot may mean UpdateChatFolders has not arrived yet.
                 // Do not cache that transient absence for five minutes.
                 if (folders.isNotEmpty() || forceRefresh) {
+                    if (forceRefresh) snapshots.clear(accountId)
                     folderCache.save(
                         accountId = accountId,
                         session = client,
