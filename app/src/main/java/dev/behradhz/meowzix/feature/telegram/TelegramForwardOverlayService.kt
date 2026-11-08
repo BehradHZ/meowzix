@@ -224,6 +224,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                                 foldersLoading = state.foldersLoading,
                                 foldersError = state.foldersError,
                                 onReloadFolders = ::reloadFolders,
+                                folderRefreshGeneration = state.folderRefreshGeneration,
                                 successfulForwardCount = state.successfulForwardCount,
                                 isSearching = state.isSearching,
                                 isSending = state.isSending,
@@ -265,9 +266,11 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                     if (it.track?.id == trackId) it.copy(
                         folders = folders,
                         foldersLoading = false,
+                        folderRefreshGeneration = it.folderRefreshGeneration + if (forceRefresh) 1 else 0,
                         foldersError = if (folders.isEmpty()) "Folders not available yet" else null,
                     ) else it
                 }
+                if (forceRefresh) search("")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
@@ -391,6 +394,7 @@ private data class OverlayForwardState(
     val dismissRequested: Boolean = false,
     val foldersLoading: Boolean = false,
     val foldersError: String? = null,
+    val folderRefreshGeneration: Int = 0,
     val isSearching: Boolean = false,
     val isSending: Boolean = false,
     val successfulForwardCount: Int = 0,
