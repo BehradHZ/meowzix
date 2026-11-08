@@ -139,6 +139,7 @@ fun TelegramForwardSheet(
     foldersLoading: Boolean = false,
     foldersError: String? = null,
     onReloadFolders: (() -> Unit)? = null,
+    folderRefreshGeneration: Int = 0,
     successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
@@ -162,6 +163,7 @@ fun TelegramForwardSheet(
     foldersError = foldersError,
 
     onReloadFolders = onReloadFolders,
+        folderRefreshGeneration = folderRefreshGeneration,
 
     successfulForwardCount = successfulForwardCount,
     isSearching = isSearching,
@@ -187,6 +189,7 @@ fun TelegramForwardSheet(
     foldersLoading: Boolean = false,
     foldersError: String? = null,
     onReloadFolders: (() -> Unit)? = null,
+    folderRefreshGeneration: Int = 0,
     successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
@@ -213,6 +216,7 @@ fun TelegramForwardSheet(
         foldersError = foldersError,
 
         onReloadFolders = onReloadFolders,
+        folderRefreshGeneration = folderRefreshGeneration,
 
         successfulForwardCount = successfulForwardCount,
         isSearching = isSearching,
@@ -240,6 +244,7 @@ private fun ForwardPickerBody(
     foldersLoading: Boolean = false,
     foldersError: String? = null,
     onReloadFolders: (() -> Unit)? = null,
+    folderRefreshGeneration: Int = 0,
     successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
@@ -260,6 +265,13 @@ private fun ForwardPickerBody(
         mutableStateOf(defaults.keepCaption)
     }
     var rememberDefaults by rememberSaveable(trackId.toString()) { mutableStateOf(false) }
+    var optionsEdited by remember(trackId) { mutableStateOf(false) }
+    LaunchedEffect(defaults.includeSourceAttribution, defaults.keepCaption) {
+        if (!optionsEdited) {
+            includeSourceAttribution = defaults.includeSourceAttribution
+            keepCaption = defaults.keepCaption
+        }
+    }
     var actionError by remember(trackId) { mutableStateOf<String?>(null) }
     val animationScope = rememberCoroutineScope()
     val latestOnDismiss by rememberUpdatedState(onDismiss)
@@ -320,21 +332,20 @@ private fun ForwardPickerBody(
         ).telegramForwardRepository()
     }
     var folderRetryKey by remember(trackId, selectedFolderId) { mutableIntStateOf(0) }
-    var loadedFolderChats by remember(trackId, selectedFolderId, folderRetryKey) {
+    var loadedFolderChats by remember(trackId, selectedFolderId, folderRefreshGeneration, folderRetryKey) {
         mutableStateOf(
             if (folderRetryKey == 0) selectedFolderId?.let(repository::cachedForwardFolderChats)
             else null
         )
     }
-    var folderLoadError by remember(trackId, selectedFolderId, folderRetryKey) {
+    var folderLoadError by remember(trackId, selectedFolderId, folderRefreshGeneration, folderRetryKey) {
         mutableStateOf(false)
     }
-    var folderLoadComplete by remember(trackId, selectedFolderId, folderRetryKey) {
+    var folderLoadComplete by remember(trackId, selectedFolderId, folderRefreshGeneration, folderRetryKey) {
         mutableStateOf(loadedFolderChats != null)
     }
-    LaunchedEffect(trackId, activeFolder?.id, folderRetryKey) {
+    LaunchedEffect(trackId, activeFolder?.id, folderRefreshGeneration, folderRetryKey) {
         val folderId = activeFolder?.id ?: return@LaunchedEffect
-        if (loadedFolderChats != null) return@LaunchedEffect
         try {
             repository.streamForwardFolderChats(folderId).collect { batch ->
                 loadedFolderChats = batch
@@ -475,10 +486,12 @@ private fun ForwardPickerBody(
                     keepCaption = keepCaption,
                     rememberDefaults = rememberDefaults,
                     onSourceAttributionChange = {
+                        optionsEdited = true
                         includeSourceAttribution = it
                         if (it) keepCaption = true
                     },
                     onKeepCaptionChange = {
+                        optionsEdited = true
                         keepCaption = it
                         // An attributed forward always includes its original caption.
                         if (!it) includeSourceAttribution = false
@@ -523,13 +536,27 @@ private fun ForwardPickerBody(
                 )
                 Spacer(Modifier.height(8.dp))
                 // Keep this row visible while TDLib publishes the folder list.
-                ForwardFolderNavigation(
-                    folders = folders,
-                    selectedFolderId = activeFolder?.id,
-                    loading = foldersLoading,
-                    onSelectFolder = { selectedFolderId = it },
-                )
-                if (folders.isEmpty() && !foldersLoading && onReloadFolders != null) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        ForwardFolderNavigation(
+                            folders = folders,
+                            selectedFolderId = activeFolder?.id,
+                            loading = foldersLoading,
+                            onSelectFolder = { selectedFolderId = it },
+                        )
+                    }
+                    if (onReloadFolders != null) {
+                        TextButton(
+                            onClick = onReloadFolders,
+                            enabled = !foldersLoading,
+                            modifier = Modifier.testTag("telegram-forward-refresh"),
+                        ) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = "Refresh Telegram chats and folders")
+                            Text("Refresh")
+                        }
+                    }
+                }
+                if (folders.isEmpty() && !foldersLoading) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -541,10 +568,7 @@ private fun ForwardPickerBody(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = onReloadFolders) {
-                            Icon(Icons.Rounded.Refresh, contentDescription = null)
-                            Text("Retry folders")
-                        }
+                        // The persistent Refresh action above also retries errors.
                     }
                 }
                 Spacer(Modifier.height(10.dp))
