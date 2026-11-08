@@ -37,12 +37,12 @@ class ForwardFolderMemoryCacheTest {
         assertEquals(listOf("Friends", "Channels"), cache.snapshot("account-a", session, 9L, 300L))
     }
 
-    @Test fun cacheExpiresAfterFiveMinutesAndManualRefreshReplacesValue() {
+    @Test fun cacheExpiresAfterOneDayAndManualRefreshReplacesValue() {
         val cache = ForwardFolderMemoryCache<String>()
         val session = Any()
         cache.save("account-a", session, 1L, 100L, listOf("Old"))
-        assertEquals(listOf("Old"), cache.snapshot("account-a", session, 1L, 300_099L))
-        assertNull(cache.snapshot("account-a", session, 1L, 300_100L))
+        assertEquals(listOf("Old"), cache.snapshot("account-a", session, 1L, 86_400_099L))
+        assertNull(cache.snapshot("account-a", session, 1L, 86_400_100L))
         cache.save("account-a", session, 1L, 301_000L, listOf("New"))
         assertEquals(listOf("New"), cache.snapshot("account-a", session, 1L, 302_000L))
     }
