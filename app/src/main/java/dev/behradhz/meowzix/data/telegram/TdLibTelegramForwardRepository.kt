@@ -220,7 +220,12 @@ class TdLibTelegramForwardRepository @Inject constructor(
             nowMillis = SystemClock.elapsedRealtime(),
         )?.let { return it }
         client.chatFolders.value.takeIf { it.isNotEmpty() }?.let { infos ->
-            return infos.map { TelegramForwardFolder(it.id, it.name?.text?.text?.ifBlank { "Folder" } ?: "Folder", emptyList()) }
+            val folders = infos.map {
+                TelegramForwardFolder(it.id, it.name?.text?.text?.ifBlank { "Folder" } ?: "Folder", emptyList())
+            }
+            folderCache.save(accountId, client, client.chatFolderRevision, SystemClock.elapsedRealtime(), folders)
+            snapshots.saveFolders(accountId, folders)
+            return folders
         }
         return snapshots.folders(accountId)
     }
