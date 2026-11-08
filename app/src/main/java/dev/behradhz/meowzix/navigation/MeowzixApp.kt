@@ -102,6 +102,7 @@ import dev.behradhz.meowzix.feature.search.SearchViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramProxyPanel
+import dev.behradhz.meowzix.domain.telegram.telegramProxyBadge
 import dev.behradhz.meowzix.ui.theme.LocalMeowzixLogoBackground
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.LocalMeowzixHeaderControls
@@ -144,6 +145,7 @@ fun MeowzixApp(
     val searchViewModel: SearchViewModel = hiltViewModel()
     val telegramProxyViewModel: TelegramAuthViewModel = hiltViewModel()
     val proxyState by telegramProxyViewModel.proxyState.collectAsStateWithLifecycle()
+    val telegramAuthState by telegramProxyViewModel.state.collectAsStateWithLifecycle()
     var openProxyRequest by remember { mutableIntStateOf(0) }
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
@@ -331,8 +333,12 @@ fun MeowzixApp(
         }
         CompositionLocalProvider(
             LocalMeowzixHeaderControls provides MeowzixHeaderControls(
-                onSettings = if (currentRoute == SETTINGS_ROUTE) null else ({ toggleSettings() }),
-                onProxy = if (currentRoute == SETTINGS_ROUTE) ({ openProxyRequest++ }) else null,
+                onSettings = { toggleSettings() },
+                onProxy = { openProxyRequest++ },
+                proxyBadge = telegramProxyBadge(
+                    proxyState.proxies.any { it.enabled },
+                    telegramAuthState.connectionStatus,
+                ),
             ),
             LocalDockLayout provides DockLayout(
                 compact = dockCompact && !searchActive,
