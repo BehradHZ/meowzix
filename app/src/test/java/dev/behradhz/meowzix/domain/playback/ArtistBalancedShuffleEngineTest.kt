@@ -32,6 +32,16 @@ class ArtistBalancedShuffleEngineTest {
         assertFalse(ArtistBalancedShuffleEngine.newCycle(tracks, recent, seed = 87)
             .order.take(25).any { it in recent })
     }
+    @Test fun `recent track stays last when alternatives exist`() {
+        val tracks = listOf(
+            ArtistShuffleItem(0, "A"), ArtistShuffleItem(1, "A"),
+            ArtistShuffleItem(2, "A"), ArtistShuffleItem(3, "B"),
+        )
+        repeat(100) { seed ->
+            val cycle = ArtistBalancedShuffleEngine.newCycle(tracks, listOf(0), seed = seed.toLong())
+            assertEquals(0, cycle.order.last())
+        }
+    }
     @Test fun `manual selections stay anchored and single artist queues work`() {
         val tracks = (0 until 10).map { ArtistShuffleItem(it, "one") }
         val cycle = ArtistBalancedShuffleEngine.newCycleStartingWith(tracks, 6, seed = 44)

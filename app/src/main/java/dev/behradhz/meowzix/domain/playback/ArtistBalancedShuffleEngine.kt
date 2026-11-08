@@ -20,6 +20,7 @@ object ArtistBalancedShuffleEngine {
         previousTrackIds: List<T> = emptyList(),
         seed: Long = secureRandom.nextLong(),
         alpha: Double = DEFAULT_ALPHA,
+        recentArtistKeys: List<String> = emptyList(),
     ): ShuffleCycle<T> {
         require(items.map { it.id }.distinct().size == items.size) { "Shuffle requires unique track IDs" }
         require(alpha.isFinite() && alpha in 0.0..1.0)
@@ -30,12 +31,14 @@ object ArtistBalancedShuffleEngine {
         items.forEach { bags.getOrPut(artistKey(it)) { arrayListOf() }.add(it.id) }
         bags.values.forEach { it.shuffle(random) }
         val lastArtists = ArrayDeque<String>(ARTIST_COOLDOWN)
-        previousTrackIds.take(ARTIST_COOLDOWN).mapNotNull(artistById::get)
-            .asReversed().forEach(lastArtists::addLast)
+        (recentArtistKeys + previousTrackIds.mapNotNull(artistById::get))
+            .take(ARTIST_COOLDOWN).asReversed().forEach(lastArtists::addLast)
         val cooldown = previousTrackIds.take(TRACK_COOLDOWN).toHashSet()
         val output = ArrayList<T>(items.size)
         while (output.size < items.size) {
-            val counts = bags.filterValues { it.isNotEmpty() }.mapValues { it.value.size }
+            val remaining = bags.filterValues { it.isNotEmpty() }
+            val fresh = remaining.filterValues { bag -> bag.any { it !in cooldown } }
+            val counts = (if (fresh.isNotEmpty()) fresh else remaining).mapValues { it.value.size }
             val artist = weightedArtist(counts, lastArtists.toList(), random, alpha)
             val bag = bags.getValue(artist)
             val index = bag.indices.lastOrNull { bag[it] !in cooldown } ?: bag.lastIndex
@@ -58,8 +61,9 @@ object ArtistBalancedShuffleEngine {
         require(items.any { it.id == selectedTrackId }) { "Selected track must be eligible" }
         require(items.map { it.id }.distinct().size == items.size) { "Shuffle requires unique track IDs" }
         val remaining = items.filterNot { it.id == selectedTrackId }
+        val selectedArtist = artistKey(items.first { it.id == selectedTrackId })
         return ShuffleCycle(listOf(selectedTrackId) + newCycle(
-            remaining, listOf(selectedTrackId) + previousTrackIds, seed, alpha
+            remaining, listOf(selectedTrackId) + previousTrackIds, seed, alpha, listOf(selectedArtist)
         ).order, seed)
     }
 
