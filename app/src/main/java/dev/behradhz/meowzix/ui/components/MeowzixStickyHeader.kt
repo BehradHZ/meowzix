@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.testTag
+import dev.behradhz.meowzix.domain.telegram.TelegramProxyBadge
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
@@ -36,6 +40,7 @@ import dev.chrisbanes.haze.HazeState
 data class MeowzixHeaderControls(
     val onSettings: (() -> Unit)? = null,
     val onProxy: (() -> Unit)? = null,
+    val proxyBadge: TelegramProxyBadge = TelegramProxyBadge.DISABLED,
 )
 
 val LocalMeowzixHeaderControls = compositionLocalOf<MeowzixHeaderControls?> { null }
@@ -103,7 +108,7 @@ fun MeowzixStickyHeader(
                     MeowzixHeaderAction("Open settings", Icons.Rounded.Settings, onSettings)
                 }
                 controls.onProxy?.let { onProxy ->
-                    MeowzixHeaderAction("Proxy settings", Icons.Rounded.Shield, onProxy)
+                    MeowzixProxyHeaderAction(controls.proxyBadge, onProxy)
                 }
             }
         }
@@ -148,4 +153,37 @@ fun MeowzixHeaderAction(
             .padding(10.dp),
         tint = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = 0.3f),
     )
+}
+
+/** Telegram-style shield: tick only when connected; a rotating ring while connecting. */
+@Composable
+private fun MeowzixProxyHeaderAction(badge: TelegramProxyBadge, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val label = when (badge) {
+        TelegramProxyBadge.DISABLED -> "Proxy settings: disabled"
+        TelegramProxyBadge.CONNECTING -> "Proxy settings: connecting"
+        TelegramProxyBadge.CONNECTED -> "Proxy settings: connected"
+    }
+    Box(
+        modifier = Modifier.size(44.dp)
+            .background(colors.primary.copy(alpha = 0.11f), RoundedCornerShape(15.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .testTag("telegram-proxy-status"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Rounded.Shield, contentDescription = label,
+            modifier = Modifier.size(26.dp), tint = colors.onSurface,
+        )
+        when (badge) {
+            TelegramProxyBadge.CONNECTED -> Icon(
+                Icons.Rounded.Check, contentDescription = null,
+                modifier = Modifier.size(12.dp), tint = colors.surface,
+            )
+            TelegramProxyBadge.CONNECTING -> CircularProgressIndicator(
+                modifier = Modifier.size(12.dp), strokeWidth = 1.8.dp, color = colors.surface,
+            )
+            TelegramProxyBadge.DISABLED -> Unit
+        }
+    }
 }
