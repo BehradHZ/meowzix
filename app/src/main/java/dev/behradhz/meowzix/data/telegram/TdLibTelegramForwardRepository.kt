@@ -74,6 +74,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
     private val queueMutex = Mutex()
     private val folderLoadMutex = Mutex()
     private val folderCache = ForwardFolderMemoryCache<TelegramForwardFolder>()
+    private val snapshots = ForwardDestinationSnapshotStore(context)
     private val folderRequestLock = Any()
     private var inFlightFolderRequest: Deferred<List<TelegramForwardFolder>>? = null
     private val folderChatCaches = mutableMapOf<Int, ForwardFolderMemoryCache<TelegramChatSummary>>()
@@ -102,10 +103,15 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
         scope.launch {
             telegramRepository.authState
-                .map { it.step is TelegramAuthStep.Ready }
+                .map { it.step }
                 .distinctUntilChanged()
-                .collect { ready ->
-                    if (ready) processPendingSends()
+                .collect { step ->
+                    if (step is TelegramAuthStep.Ready) processPendingSends()
+                    if (step is TelegramAuthStep.LoggingOut) {
+                        snapshots.clearAll()
+                        folderCache.clear()
+                        synchronized(folderRequestLock) { folderChatCaches.clear() }
+                    }
                 }
         }
     }
@@ -128,6 +134,9 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val ids = LinkedHashSet<Long>()
 
         if (term.isEmpty()) {
+            snapshots.recentChats(accountId)?.takeIf { it.isNotEmpty() }?.let { cached ->
+                return cached.take(safeLimit).map { it.copy(selected = it.chatId in telegramRepository.musicSourceState.value.selectedChatIds) }
+            }
             // The landing panel never walks Telegram's entire chat history.
             ids.addAll(client.send(TdApi.GetChats(null, safeLimit)).chatIds.toList())
             withTimeoutOrNull(400L) {
@@ -172,12 +181,14 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 }?.let { ids.add(it.id) }
             }
         }
-        return resolveForwardChats(
+        val result = resolveForwardChats(
             client = client,
             chatIds = ids.take(safeLimit),
             currentUserId = userId,
             selectedIds = telegramRepository.musicSourceState.value.selectedChatIds,
         )
+        if (term.isEmpty() && result.isNotEmpty()) snapshots.saveRecentChats(accountId, result)
+        return result
     }
 
     /** Bounded parallel TDLib metadata reads preserve search/list ordering. */
@@ -202,12 +213,16 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val client = TdLibClientAdapter.activeOrNull() ?: return null
         if (telegramRepository.authState.value.step !is TelegramAuthStep.Ready) return null
         val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
-        return folderCache.snapshot(
+        folderCache.snapshot(
             accountId = accountId,
             session = client,
             revision = client.chatFolderRevision,
             nowMillis = SystemClock.elapsedRealtime(),
-        )
+        )?.let { return it }
+        client.chatFolders.value.takeIf { it.isNotEmpty() }?.let { infos ->
+            return infos.map { TelegramForwardFolder(it.id, it.name?.text?.text?.ifBlank { "Folder" } ?: "Folder", emptyList()) }
+        }
+        return snapshots.folders(accountId)
     }
 
     override suspend fun loadForwardFolders(): List<TelegramForwardFolder> =
@@ -223,8 +238,13 @@ class TdLibTelegramForwardRepository @Inject constructor(
      */
     private suspend fun fetchForwardFolders(forceRefresh: Boolean): List<TelegramForwardFolder> {
         if (!forceRefresh) cachedForwardFolders()?.let { return it }
+        if (forceRefresh) {
+            telegramRepository.musicSourceState.value.accountId?.let(snapshots::clear)
+            folderCache.clear()
+            synchronized(folderRequestLock) { folderChatCaches.clear() }
+        }
         val request = synchronized(folderRequestLock) {
-            inFlightFolderRequest?.takeIf { it.isActive }
+            (if (forceRefresh) null else inFlightFolderRequest?.takeIf { it.isActive })
                 ?: scope.async { loadFolderSnapshot(forceRefresh) }.also { inFlightFolderRequest = it }
         }
         return request.await()
@@ -258,7 +278,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
             ) {
                 // A blank snapshot may mean UpdateChatFolders has not arrived yet.
                 // Do not cache that transient absence for five minutes.
-                if (folders.isNotEmpty()) {
+                if (folders.isNotEmpty() || forceRefresh) {
                     folderCache.save(
                         accountId = accountId,
                         session = client,
@@ -266,8 +286,8 @@ class TdLibTelegramForwardRepository @Inject constructor(
                         nowMillis = SystemClock.elapsedRealtime(),
                         folders = folders,
                     )
+                    snapshots.saveFolders(accountId, folders)
                 }
-                if (forceRefresh) synchronized(folderRequestLock) { folderChatCaches.clear() }
             }
             folders
         }
@@ -276,13 +296,15 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val client = TdLibClientAdapter.activeOrNull() ?: return null
         if (telegramRepository.authState.value.step !is TelegramAuthStep.Ready) return null
         val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
-        return synchronized(folderRequestLock) {
-            // An empty value can be a TDLib list still synchronizing. Never treat
-            // a cached empty snapshot as proof that a folder has no destinations.
+        val selectedIds = telegramRepository.musicSourceState.value.selectedChatIds
+        val memory = synchronized(folderRequestLock) {
             folderChatCaches[folderId]?.snapshot(
                 accountId, client, client.chatFolderRevision, SystemClock.elapsedRealtime(),
             )?.takeIf { it.isNotEmpty() }
         }
+        return (memory ?: snapshots.folderChats(accountId, folderId))
+            ?.takeIf { it.isNotEmpty() }
+            ?.map { it.copy(selected = it.chatId in selectedIds) }
     }
 
     override fun cachedForwardChat(chatId: Long): TelegramChatSummary? {
@@ -304,10 +326,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
      * work. Completed lists are retained in the existing account/revision-scoped cache.
      */
     override fun streamForwardFolderChats(folderId: Int): Flow<List<TelegramChatSummary>> = flow {
-        cachedForwardFolderChats(folderId)?.let {
-            emit(it)
-            return@flow
-        }
+        cachedForwardFolderChats(folderId)?.let { emit(it) }
 
         val client = TdLibClientAdapter.activeOrNull()
             ?: error("Telegram is not connected yet.")
@@ -320,6 +339,10 @@ class TdLibTelegramForwardRepository @Inject constructor(
             ?: error("Telegram account information is invalid.")
         val revision = client.chatFolderRevision
         val selectedIds = telegramRepository.musicSourceState.value.selectedChatIds
+        val freshMemory = synchronized(folderRequestLock) {
+            folderChatCaches[folderId]?.snapshot(accountId, client, revision, SystemClock.elapsedRealtime())
+        }
+        if (freshMemory != null) return@flow
         val chatList = TdApi.ChatListFolder(folderId)
         val orderedIds = LinkedHashSet<Long>()
         val resolved = LinkedHashMap<Long, TelegramChatSummary>()
@@ -368,14 +391,6 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
         hydrateLocal(FOLDER_FIRST_SCREEN_COUNT)
 
-        // For a cold folder, load one small page first. Emit every group of
-        // resolved destinations immediately rather than waiting for a 100-chat pass.
-        var reachedEnd = false
-        if (resolved.isEmpty()) {
-            reachedEnd = loadPage(FOLDER_FIRST_SCREEN_COUNT)
-            checkUpdatesAfterLoad(FOLDER_FIRST_SCREEN_COUNT)
-        }
-
         // Read the static definition separately. Explicit inclusions may have no
         // chat-list position yet, so they should not disappear when GetChats is empty.
         val definitionResult = runCatching {
@@ -390,6 +405,16 @@ class TdLibTelegramForwardRepository @Inject constructor(
         orderedIds.removeAll(excluded)
         excluded.forEach(resolved::remove)
         hydrateAndEmit(included.filterNot(excluded::contains))
+
+        // For a cold folder, load one small page first. Emit every group of
+        // resolved destinations immediately rather than waiting for a 100-chat pass.
+        var reachedEnd = false
+        if (orderedIds.size < FOLDER_FIRST_SCREEN_COUNT) {
+            reachedEnd = loadPage(FOLDER_FIRST_SCREEN_COUNT)
+            checkUpdatesAfterLoad(FOLDER_FIRST_SCREEN_COUNT)
+        }
+
+
 
         if (!reachedEnd && orderedIds.size < FOLDER_MAX_VISIBLE_COUNT) {
             // TDLib may load fewer chats than requested in each call. Retry a
@@ -428,8 +453,8 @@ class TdLibTelegramForwardRepository @Inject constructor(
             return@flow
         }
 
-        // Cache only a complete, validated snapshot. A partial 100-chat page
-        // must not suppress future loads of other folder members.
+        // Partial previews are durable, but only complete in-memory snapshots skip further pagination.
+        snapshots.saveFolderChats(accountId, folderId, final)
         if (shouldCacheForwardFolderChats(
                 knownChatCount = orderedIds.size,
                 resolvedChatCount = final.size,
@@ -883,8 +908,8 @@ class TdLibTelegramForwardRepository @Inject constructor(
     private companion object {
         const val FOLDER_FIRST_SCREEN_COUNT = 24
         const val FOLDER_CHAT_BATCH_SIZE = 6
-        const val FOLDER_MAX_VISIBLE_COUNT = 100
-        const val FOLDER_EXTRA_LOAD_PASSES = 3
+        const val FOLDER_MAX_VISIBLE_COUNT = 1000
+        const val FOLDER_EXTRA_LOAD_PASSES = 8
         const val FOLDER_LOAD_TIMEOUT_MS = 12_000L
         const val FOLDER_UPDATE_POLL_ATTEMPTS = 4
         const val FOLDER_UPDATE_POLL_DELAY_MS = 150L
