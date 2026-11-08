@@ -163,6 +163,7 @@ class TelegramForwardActivity : ComponentActivity() {
                         foldersLoading = forwardState.foldersLoading,
                         foldersError = forwardState.foldersError,
                         onReloadFolders = viewModel::reloadForwardFolders,
+            folderRefreshGeneration = forwardState.folderRefreshGeneration,
                         successfulForwardCount = forwardState.successfulForwardCount,
                         isSearching = forwardState.isSearching,
                         isSending = forwardState.isSending,
