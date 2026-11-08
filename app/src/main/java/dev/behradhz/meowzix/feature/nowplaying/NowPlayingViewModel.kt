@@ -51,6 +51,7 @@ data class TelegramForwardUiState(
     val folders: List<TelegramForwardFolder> = emptyList(),
     val foldersLoading: Boolean = false,
     val foldersError: String? = null,
+    val folderRefreshGeneration: Int = 0,
     val isSearching: Boolean = false,
     val isSending: Boolean = false,
     /** Counts newly accepted sends for this picker session; never counts retries/errors. */
@@ -353,9 +354,11 @@ class NowPlayingViewModel @Inject constructor(
                     if (it.isOpen && it.track?.id == trackId) it.copy(
                         folders = folders,
                         foldersLoading = false,
+                        folderRefreshGeneration = it.folderRefreshGeneration + if (forceRefresh) 1 else 0,
                         foldersError = if (folders.isEmpty()) "Folders not available yet" else null,
                     ) else it
                 }
+                if (forceRefresh) searchForwardChats("")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
