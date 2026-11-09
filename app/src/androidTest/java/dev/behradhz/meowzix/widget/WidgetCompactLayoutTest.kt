@@ -43,6 +43,11 @@ class WidgetCompactLayoutTest {
             assertNotNull("The 1-row widget must expose every core control", root.findViewById<View>(id))
         }
         assertEquals(View.GONE, root.findViewById<View>(R.id.widget_queue_section).visibility)
+        assertEquals(
+            "Cover art must remain square in the one-row widget",
+            root.findViewById<View>(R.id.widget_artwork).width,
+            root.findViewById<View>(R.id.widget_artwork).height,
+        )
         val minTouchWidth = (44 * density).roundToInt()
         listOf(R.id.widget_previous, R.id.widget_play_pause, R.id.widget_next, R.id.widget_more)
             .forEach { id ->
