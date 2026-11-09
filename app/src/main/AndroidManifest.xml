@@ -282,6 +282,22 @@
             </intent-filter>
         </receiver>
 
+        <!-- Square record widget; touch commands stay inside the app. -->
+        <receiver
+            android:name=".widget.VinylWidgetActionReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".widget.VinylWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/meowzix_vinyl_widget_info" />
+        </receiver>
+
         <receiver
             android:name=".widget.PlaybackWidgetProvider"
             android:exported="true">

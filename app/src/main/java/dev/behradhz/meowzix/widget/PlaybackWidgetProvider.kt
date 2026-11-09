@@ -34,6 +34,7 @@ data class PlaybackWidgetState(
     val artist: String?,
     val artworkRef: String?,
     val isPlaying: Boolean,
+    val isFavorite: Boolean = false,
 ) {
     val hasTrack: Boolean get() = !title.isNullOrBlank()
 

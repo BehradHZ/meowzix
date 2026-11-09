@@ -9,6 +9,7 @@ import android.media.AudioPlaybackConfiguration
 import android.media.AudioRecordingConfiguration
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -69,6 +70,7 @@ import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
 import dev.behradhz.meowzix.widget.PlaybackWidgetProvider
 import dev.behradhz.meowzix.widget.PlaybackWidgetState
+import dev.behradhz.meowzix.widget.VinylWidgetProvider
 import java.util.UUID
 import java.io.File
 import javax.inject.Inject
@@ -81,6 +83,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(markerClass = [UnstableApi::class])
 @AndroidEntryPoint
@@ -229,6 +232,7 @@ class PlaybackService : MediaLibraryService() {
     }
     private var persistJob: Job? = null
     private var widgetRefreshJob: Job? = null
+    private var vinylAnimationJob: Job? = null
     private var playbackRetryJob: Job? = null
     private var retryMediaId: String? = null
     private var remoteFallbackMediaId: String? = null
@@ -954,6 +958,7 @@ class PlaybackService : MediaLibraryService() {
         equalizer.release()
         normalizationRefreshJob?.cancel()
         widgetRefreshJob?.cancel()
+        vinylAnimationJob?.cancel()
         mediaSession.release()
         player.release()
         serviceScope.cancel()
@@ -1087,11 +1092,33 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun refreshPlaybackWidget() {
-        val state = PlaybackWidgetState.fromPlayer(player)
+        val state = PlaybackWidgetState.fromPlayer(player).copy(isFavorite = currentFavorite)
         widgetRefreshJob?.cancel()
         widgetRefreshJob = serviceScope.launch(Dispatchers.IO) {
-            runCatching {
-                PlaybackWidgetProvider.updateAll(this@PlaybackService.applicationContext, state)
+            runCatching { PlaybackWidgetProvider.updateAll(this@PlaybackService.applicationContext, state) }
+            runCatching { VinylWidgetProvider.updateAll(this@PlaybackService.applicationContext, state) }
+        }
+        refreshVinylAnimation()
+    }
+
+    /** Low-resolution rotation only while a visible screen can display an active widget. */
+    private fun refreshVinylAnimation() {
+        val context = applicationContext
+        if (!player.isPlaying || !VinylWidgetProvider.hasWidgets(context)) {
+            vinylAnimationJob?.cancel()
+            vinylAnimationJob = null
+            return
+        }
+        if (vinylAnimationJob?.isActive == true) return
+        vinylAnimationJob = serviceScope.launch {
+            val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+            while (isActive && player.isPlaying && VinylWidgetProvider.hasWidgets(context)) {
+                delay(if (power.isInteractive) 750L else 3_000L)
+                if (power.isInteractive) {
+                    withContext(Dispatchers.Default) {
+                        runCatching { VinylWidgetProvider.advanceRotation(context) }
+                    }
+                }
             }
         }
     }
@@ -2002,6 +2029,7 @@ class PlaybackService : MediaLibraryService() {
                     currentFavorite = favorite
                     refreshMediaButtons()
                     updateLiveSongCard()
+                    refreshPlaybackWidget()
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -2032,6 +2060,7 @@ class PlaybackService : MediaLibraryService() {
                 currentFavorite = favorite
                 refreshMediaButtons()
                 updateLiveSongCard()
+                refreshPlaybackWidget()
             }
         }
     }
