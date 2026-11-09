@@ -8,7 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,7 +36,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -94,7 +92,8 @@ internal fun SettingsColorPicker(
     val supportsWallpaper = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val context = LocalContext.current
     val wallpaperSwatch = if (supportsWallpaper) {
-        if (isSystemInDarkTheme()) dynamicDarkColorScheme(context).primaryContainer else dynamicLightColorScheme(context).primaryContainer
+        // Match the pastel wallpaper-themed launcher icon swatch, independent of dark UI.
+        dynamicLightColorScheme(context).primaryContainer
     } else Color(ColorThemePreference.MEOWZIX.seedArgb(appearance.customColorSeed))
     var showCustomPicker by remember { mutableStateOf(false) }
 

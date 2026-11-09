@@ -12,6 +12,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.util.SizeF
+import androidx.core.os.BundleCompat
 import android.view.View
 import android.widget.RemoteViews
 import androidx.annotation.OptIn
@@ -205,24 +206,30 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             val manager = AppWidgetManager.getInstance(context)
             widgetIds.forEach { id ->
                 val palette = widgetPalette(context, id)
+                fun layoutFor(width: Float, height: Float) = when {
+                    width < 88f -> narrowViews(context, id, state, artwork, palette)
+                    width < 185f -> mediumViews(context, id, state, artwork, palette)
+                    else -> buildViews(context, id, state, artwork, height >= 96f, palette)
+                }
+                val options = manager.getAppWidgetOptions(id)
                 val views = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    RemoteViews(
-                        mapOf(
-                            SizeF(48f, 48f) to narrowViews(context, id, state, artwork, palette),
-                            SizeF(136f, 48f) to mediumViews(context, id, state, artwork, palette),
-                            SizeF(240f, 48f) to buildViews(context, id, state, artwork, false, palette),
-                            SizeF(240f, 100f) to buildViews(context, id, state, artwork, true, palette),
-                        ),
+                    val sizes = BundleCompat.getParcelableArrayList(
+                        options, AppWidgetManager.OPTION_APPWIDGET_SIZES, SizeF::class.java,
+                    )?.filter { it.width > 0f && it.height > 0f }?.distinct()?.take(8)
+                    val layouts = if (!sizes.isNullOrEmpty()) {
+                        sizes.associateWith { layoutFor(it.width, it.height) }
+                    } else mapOf(
+                        SizeF(48f, 48f) to layoutFor(48f, 48f),
+                        SizeF(130f, 48f) to layoutFor(130f, 48f),
+                        SizeF(192f, 48f) to layoutFor(192f, 48f),
+                        SizeF(192f, 98f) to layoutFor(192f, 98f),
                     )
+                    RemoteViews(layouts)
                 } else {
-                    val opts = manager.getAppWidgetOptions(id)
-                    val width = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
-                    val height = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 55)
-                    when {
-                        width < 105 -> narrowViews(context, id, state, artwork, palette)
-                        width < 210 -> mediumViews(context, id, state, artwork, palette)
-                        else -> buildViews(context, id, state, artwork, height >= 97, palette)
-                    }
+                    layoutFor(
+                        options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250).toFloat(),
+                        options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 55).toFloat(),
+                    )
                 }
                 manager.updateAppWidget(id, views)
                 @Suppress("DEPRECATION")
