@@ -1,5 +1,12 @@
 package dev.behradhz.meowzix.feature.profile
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -239,16 +246,31 @@ internal fun SettingsLiveUpdatePreview(
                 trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
             )
             if (style == LiveSongCardStyle.CONTROLS) {
+                // Three equal-weight, centered icon surfaces. Transition only the
+                // icon, not the row, when Settings changes a side action.
                 Row(
                     modifier = Modifier.fillMaxWidth().testTag("settings-live-update-controls"),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(livePreviewActionIcon(leftAction), contentDescription = leftAction.name.lowercase(),
-                        modifier = Modifier.size(22.dp))
-                    Icon(Icons.Rounded.Pause, contentDescription = "Pause", modifier = Modifier.size(24.dp))
-                    Icon(livePreviewActionIcon(rightAction), contentDescription = rightAction.name.lowercase(),
-                        modifier = Modifier.size(22.dp))
+                    LivePreviewControl(action = leftAction, tag = "settings-live-left-icon")
+                    Box(
+                        modifier = Modifier.size(54.dp)
+                            .background(
+                                MaterialTheme.colorScheme.primary.copy(alpha = .19f),
+                                RoundedCornerShape(17.dp),
+                            )
+                            .testTag("settings-live-middle-icon"),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Rounded.Pause,
+                            contentDescription = "Pause",
+                            modifier = Modifier.size(29.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    LivePreviewControl(action = rightAction, tag = "settings-live-right-icon")
                 }
             }
         }
@@ -261,6 +283,37 @@ internal fun SettingsLiveUpdatePreview(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun LivePreviewControl(action: LiveSongSideAction, tag: String) {
+    Box(
+        modifier = Modifier.size(54.dp)
+            .background(
+                MaterialTheme.colorScheme.onSurface.copy(alpha = .055f),
+                RoundedCornerShape(17.dp),
+            )
+            .testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) {
+        AnimatedContent(
+            targetState = action,
+            transitionSpec = {
+                (fadeIn(tween(150)) + scaleIn(initialScale = .86f, animationSpec = tween(180)))
+                    .togetherWith(
+                        fadeOut(tween(110)) + scaleOut(targetScale = 1.08f, animationSpec = tween(130)),
+                    )
+            },
+            label = "live-update-icon-transition",
+        ) { current ->
+            Icon(
+                livePreviewActionIcon(current),
+                contentDescription = current.name.lowercase().replace('_', ' '),
+                modifier = Modifier.size(29.dp),
+                tint = MaterialTheme.colorScheme.onSurface,
+            )
+        }
     }
 }
 

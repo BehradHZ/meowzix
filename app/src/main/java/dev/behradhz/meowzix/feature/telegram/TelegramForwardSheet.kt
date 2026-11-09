@@ -508,54 +508,31 @@ private fun ForwardPickerBody(
                     modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
                 )
 
-                // Keep search immediately above the account/chat names.
-                TextField(
-                    value = query,
-                    onValueChange = {
+                // Separate glass surfaces: Search occupies the flexible left,
+                // Refresh is a fixed 56dp button to its RIGHT, never inside the field.
+                ForwardSearchToolbar(
+                    query = query,
+                    onQueryChange = {
                         lastTouchAtMillis = SystemClock.elapsedRealtime()
                         onQueryChange(it)
                     },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f))
+                    onReloadFolders = onReloadFolders?.let { reload ->
+                        {
+                            lastTouchAtMillis = SystemClock.elapsedRealtime()
+                            reload()
+                        }
                     },
-                    placeholder = { Text("Search accounts and chats") },
-                    shape = RoundedCornerShape(22.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = TelegramGlassFill,
-                        unfocusedContainerColor = TelegramGlassFill,
-                        disabledContainerColor = TelegramGlassFill,
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
-                        unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
-                    modifier = Modifier.fillMaxWidth().border(1.dp, TelegramGlassStroke, RoundedCornerShape(22.dp)),
+                    foldersLoading = foldersLoading,
+                    hazeState = hazeState,
                 )
                 Spacer(Modifier.height(8.dp))
-                // Keep this row visible while TDLib publishes the folder list.
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) {
-                        ForwardFolderNavigation(
-                            folders = folders,
-                            selectedFolderId = activeFolder?.id,
-                            loading = foldersLoading,
-                            onSelectFolder = { selectedFolderId = it },
-                        )
-                    }
-                    if (onReloadFolders != null) {
-                        TextButton(
-                            onClick = onReloadFolders,
-                            enabled = !foldersLoading,
-                            modifier = Modifier.testTag("telegram-forward-refresh"),
-                        ) {
-                            Icon(Icons.Rounded.Refresh, contentDescription = "Refresh Telegram chats and folders")
-                            Text("Refresh")
-                        }
-                    }
-                }
+                // Keep folder tabs on their own row, with the full available width.
+                ForwardFolderNavigation(
+                    folders = folders,
+                    selectedFolderId = activeFolder?.id,
+                    loading = foldersLoading,
+                    onSelectFolder = { selectedFolderId = it },
+                )
                 if (folders.isEmpty() && !foldersLoading) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -711,6 +688,89 @@ private fun ForwardPickerBody(
  * One bounded destination scroller below a fixed header.
  * Used by both the in-player sheet and the notification overlay.
  */
+/**
+ * Two independent glass-hit targets. On narrow overlays the search gets the
+ * remaining width while the refresh stays 56dp, never overlapping its text.
+ */
+@Composable
+internal fun ForwardSearchToolbar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onReloadFolders: (() -> Unit)?,
+    foldersLoading: Boolean,
+    hazeState: HazeState,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("telegram-forward-search-toolbar"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        TextField(
+            value = query,
+            onValueChange = onQueryChange,
+            singleLine = true,
+            leadingIcon = {
+                Icon(
+                    Icons.Rounded.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f),
+                )
+            },
+            placeholder = { Text("Search accounts and chats", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            shape = RoundedCornerShape(20.dp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = TelegramGlassFill,
+                unfocusedContainerColor = TelegramGlassFill,
+                disabledContainerColor = TelegramGlassFill,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .42f),
+                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .42f),
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+            ),
+            modifier = Modifier
+                .weight(1f)
+                .height(56.dp)
+                .border(1.dp, TelegramGlassStroke, RoundedCornerShape(20.dp))
+                .testTag("telegram-forward-search"),
+        )
+        if (onReloadFolders != null) {
+            val shape = RoundedCornerShape(20.dp)
+            GlassSurface(
+                hazeState = hazeState,
+                shape = shape,
+                modifier = Modifier.size(56.dp)
+                    .border(1.dp, TelegramGlassStroke, shape),
+                fallbackColor = TelegramGlassFill,
+                tint = TelegramGlassChrome.stroke,
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize()
+                        .clickable(enabled = !foldersLoading, role = Role.Button, onClick = onReloadFolders)
+                        .testTag("telegram-forward-refresh"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (foldersLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f),
+                        )
+                    } else {
+                        Icon(
+                            Icons.Rounded.Refresh,
+                            contentDescription = "Refresh Telegram chats and folders",
+                            modifier = Modifier.size(26.dp),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 internal fun ForwardPanelLayout(
     modifier: Modifier = Modifier,

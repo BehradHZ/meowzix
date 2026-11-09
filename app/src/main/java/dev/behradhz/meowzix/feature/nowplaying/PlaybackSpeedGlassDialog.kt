@@ -320,9 +320,24 @@ private fun SpeedStepButton(
     }
 }
 
-internal fun crossesHalfSpeedMark(before: Float, after: Float): Boolean =
-    (before.coerceIn(0.5f, 5f) * 2f + 0.0001f).toInt() !=
-        (after.coerceIn(0.5f, 5f) * 2f + 0.0001f).toInt()
+/**
+ * Trigger the same exact 0.5× detent in either drag direction.
+ *
+ * A floor-bucket comparison vibrated at 2.5 when increasing, but at 2.4
+ * when decreasing (2.5 -> 2.4 changed buckets). Compare the crossed marks
+ * instead: on a backward drag 2.6 -> 2.5 is the detent, not 2.5 -> 2.4.
+ */
+internal fun crossesHalfSpeedMark(before: Float, after: Float): Boolean {
+    val from = before.coerceIn(0.5f, 5f)
+    val to = after.coerceIn(0.5f, 5f)
+    val epsilon = 0.0001f
+    return (1..10).any { half ->
+        val mark = half * 0.5f
+        if (to > from) from < mark - epsilon && to >= mark - epsilon
+        else if (to < from) from > mark + epsilon && to <= mark + epsilon
+        else false
+    }
+}
 
 internal fun speedLabel(speed: Float): String {
     val formatted = String.format(Locale.US, if (speed % 1f == 0f) "%.0f" else "%.2f", speed)

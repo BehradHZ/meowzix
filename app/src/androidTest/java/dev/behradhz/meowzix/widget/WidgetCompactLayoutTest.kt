@@ -81,16 +81,19 @@ class WidgetCompactLayoutTest {
     }
 
     @Test fun everyUpcomingSongCardOccupiesExactlyOneIconHeight() {
-        val root = LayoutInflater.from(context).inflate(
-            R.layout.widget_playback_queue_row, FrameLayout(context), false,
+        val parent = FrameLayout(context)
+        val row = LayoutInflater.from(context).inflate(
+            R.layout.widget_playback_queue_row, parent, false,
         )
+        parent.addView(row)
         val density = context.resources.displayMetrics.density
-        root.measure(
+        parent.measure(
             View.MeasureSpec.makeMeasureSpec((340f * density).roundToInt(), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec((300f * density).roundToInt(), View.MeasureSpec.AT_MOST),
         )
-        assertEquals((56f * density).roundToInt(), root.measuredHeight)
-        assertEquals(View.GONE, root.findViewById<View>(R.id.widget_queue_position).visibility)
+        // As in ListView, the parent must honor the row's 56dp LayoutParams.
+        assertEquals((56f * density).roundToInt(), row.measuredHeight)
+        assertEquals(View.GONE, row.findViewById<View>(R.id.widget_queue_position).visibility)
     }
 
     @Test fun eachCompactWidthHasAnActualPlayControl() {

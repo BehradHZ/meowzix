@@ -16,7 +16,7 @@
     <!-- Retained for RemoteViews compatibility, intentionally not displayed. -->
     <TextView
         android:id="@+id/widget_queue_position"
-        android:layout_width="0dp"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:visibility="gone" />
 

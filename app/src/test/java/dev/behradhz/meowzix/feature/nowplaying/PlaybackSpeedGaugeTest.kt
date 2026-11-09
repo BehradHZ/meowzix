@@ -50,7 +50,14 @@ class PlaybackSpeedGaugeTest {
     @Test fun dialOnlyTicksAcrossHalfSpeedBoundaries() {
         assertEquals(false, crossesHalfSpeedMark(2.3f, 2.4f))
         assertEquals(true, crossesHalfSpeedMark(2.4f, 2.5f))
-        assertEquals(true, crossesHalfSpeedMark(2.5f, 2.4f))
+        assertEquals(false, crossesHalfSpeedMark(2.5f, 2.4f))
+        assertEquals(true, crossesHalfSpeedMark(2.6f, 2.5f))
+        assertEquals(false, crossesHalfSpeedMark(2.5f, 2.6f))
+        assertEquals(false, crossesHalfSpeedMark(2.4f, 2.3f))
+        assertEquals(true, crossesHalfSpeedMark(3.1f, 3.0f))
+        assertEquals(false, crossesHalfSpeedMark(3.0f, 2.9f))
+        assertEquals(true, crossesHalfSpeedMark(2.8f, 2.1f))
+        assertEquals(true, crossesHalfSpeedMark(2.1f, 2.8f))
         assertEquals(false, crossesHalfSpeedMark(3.7f, 3.8f))
         assertEquals(true, crossesHalfSpeedMark(3.9f, 4.0f))
     }

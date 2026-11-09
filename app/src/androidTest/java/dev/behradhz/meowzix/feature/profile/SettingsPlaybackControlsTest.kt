@@ -53,6 +53,28 @@ class SettingsPlaybackControlsTest {
         compose.runOnIdle { assertEquals(RepeatMode.OFF, result) }
     }
 
+    @Test fun switchingSideActionUpdatesAnAnimatedCenteredIconSurface() {
+        var setLeft: (() -> Unit)? = null
+        compose.setContent {
+            var left by remember { mutableStateOf(LiveSongSideAction.PREVIOUS) }
+            setLeft = { left = LiveSongSideAction.SHUFFLE }
+            MeowzixTheme {
+                SettingsLiveUpdatePreview(
+                    playback = PlaybackState(),
+                    style = LiveSongCardStyle.CONTROLS,
+                    leftAction = left,
+                    rightAction = LiveSongSideAction.NEXT,
+                )
+            }
+        }
+        compose.onNodeWithTag("settings-live-left-icon").assertIsDisplayed()
+        compose.onNodeWithTag("settings-live-middle-icon").assertIsDisplayed()
+        compose.onNodeWithTag("settings-live-right-icon").assertIsDisplayed()
+        compose.runOnIdle { setLeft?.invoke() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("settings-live-left-icon").assertIsDisplayed()
+    }
+
     @Test fun liveCardPreviewHasEmptyStateAndRespondsToLayout() {
         var setSong: (() -> Unit)? = null
         var setStyle: (() -> Unit)? = null

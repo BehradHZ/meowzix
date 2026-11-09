@@ -334,9 +334,9 @@ internal fun liveSongControls(
 }
 
 private fun liveSongActionIcon(action: LiveSongAction): Int = when (action) {
-    LiveSongAction.PREVIOUS -> R.drawable.widget_previous
-    LiveSongAction.PAUSE -> R.drawable.widget_pause
-    LiveSongAction.NEXT -> R.drawable.widget_next
+    LiveSongAction.PREVIOUS -> R.drawable.live_song_skip_previous
+    LiveSongAction.PAUSE -> R.drawable.live_song_pause_bold
+    LiveSongAction.NEXT -> R.drawable.live_song_skip_next
     LiveSongAction.FAVORITE -> R.drawable.live_song_favorite
     LiveSongAction.SHUFFLE -> R.drawable.live_song_shuffle
     LiveSongAction.REPEAT -> R.drawable.live_song_repeat
