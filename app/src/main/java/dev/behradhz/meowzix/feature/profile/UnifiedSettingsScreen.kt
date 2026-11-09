@@ -6,6 +6,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.expandVertically
@@ -86,6 +88,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,7 +110,6 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.settings.ThemePreference
-import dev.behradhz.meowzix.domain.settings.WidgetThemeMode
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
 import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
@@ -140,6 +142,7 @@ fun UnifiedSettingsScreen(
     val storageUsage by viewModel.storageUsage.collectAsStateWithLifecycle()
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val hasCurrentTrack by viewModel.hasCurrentTrack.collectAsStateWithLifecycle()
+    val widgetInstances by viewModel.widgetInstances.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var includeHistoryInBackup by remember { mutableStateOf(false) }
@@ -150,6 +153,9 @@ fun UnifiedSettingsScreen(
     var pendingIconSource by remember { mutableStateOf<LauncherIconColorSource?>(null) }
     var versionTaps by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(enabled = selectedCategory != null) { selectedCategory = null }
+    LaunchedEffect(selectedCategory) {
+        if (selectedCategory == SettingsCategory.APPEARANCE) viewModel.refreshWidgetInstances()
+    }
     val telegramConnected = telegramAuth.step is TelegramAuthStep.Ready
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -209,10 +215,15 @@ fun UnifiedSettingsScreen(
                 if (state.appearance.reduceMotion) {
                     fadeIn(tween(0)) togetherWith fadeOut(tween(0))
                 } else {
-                    (slideInVertically(tween(270), initialOffsetY = { -it / 8 }) +
-                        fadeIn(tween(240))) togetherWith
-                        (slideOutVertically(tween(220), targetOffsetY = { -it / 8 }) +
-                            fadeOut(tween(170)))
+                    // Match the main Settings push/pop: open from right and exit
+                    // left, then reverse the direction for Back.
+                    if (targetState != null) {
+                        slideInHorizontally(tween(300), initialOffsetX = { it }) togetherWith
+                            slideOutHorizontally(tween(300), targetOffsetX = { -it })
+                    } else {
+                        slideInHorizontally(tween(300), initialOffsetX = { -it }) togetherWith
+                            slideOutHorizontally(tween(300), targetOffsetX = { it })
+                    }
                 }
             },
             modifier = Modifier.fillMaxSize(),
@@ -263,63 +274,95 @@ fun UnifiedSettingsScreen(
             }
             if (page == SettingsCategory.APPEARANCE) {
                 item(key = "appearance") {
-                        SettingsGlassSection(hazeState, "Appearance", "Color, typography and motion", Icons.Rounded.Palette, showHeading = false) {
-                            SettingsChoiceRow("Theme", null, Icons.Rounded.DarkMode,
-                                state.appearance.theme.name.lowercase().replaceFirstChar(Char::uppercase),
-                                ThemePreference.entries.map { it.name }) { viewModel.setTheme(ThemePreference.valueOf(it)) }
+                    SettingsGlassSection(
+                        hazeState, "Appearance", "Color and motion",
+                        Icons.Rounded.Palette, showHeading = false,
+                    ) {
+                        SettingsChoiceRow(
+                            "Theme", null, Icons.Rounded.DarkMode,
+                            state.appearance.theme.name.lowercase().replaceFirstChar(Char::uppercase),
+                            ThemePreference.entries.map { it.name },
+                        ) { viewModel.setTheme(ThemePreference.valueOf(it)) }
+                        SettingsRowDivider()
+                        SettingsColorPicker(
+                            state.appearance, viewModel::setColorTheme, viewModel::setCustomColorSeed,
+                        )
+                        SettingsRowDivider()
+                        LauncherIconPreviews(state.appearance) { source ->
+                            pendingIconSource = source
+                        }
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Reduced motion",
+                            "Shorter, more restrained lyric and UI animations",
+                            Icons.Rounded.Animation,
+                            state.appearance.reduceMotion,
+                            viewModel::setReduceMotion,
+                        )
+                    }
+                }
+                item(key = "appearance-widget-settings") {
+                    SettingsGlassSection(
+                        hazeState,
+                        "Home screen widgets",
+                        "Set color theme and visual style for each widget independently",
+                        Icons.Rounded.Palette,
+                    ) {
+                        SettingsWidgetPreferences(
+                            installed = widgetInstances,
+                            onTheme = viewModel::setInstanceTheme,
+                            onStyle = viewModel::setInstanceStyle,
+                        )
+                    }
+                }
+                item(key = "appearance-full-player") {
+                    SettingsGlassSection(
+                        hazeState,
+                        "Full player",
+                        "Appearance of the expanded now-playing screen",
+                        Icons.Rounded.PlayCircle,
+                    ) {
+                        SettingsChoiceRow(
+                            "Accent",
+                            "Choose the color used for the full-screen player",
+                            Icons.Rounded.Palette,
+                            if (state.appearance.playerAccentSource == PlayerAccentSource.TRACK)
+                                "Track artwork" else "Global accent",
+                            listOf("Global accent", "Track artwork"),
+                            centerOptions = true,
+                        ) {
+                            viewModel.setPlayerAccentSource(
+                                if (it == "Track artwork") PlayerAccentSource.TRACK
+                                else PlayerAccentSource.GLOBAL,
+                            )
+                        }
+                        SettingsRowDivider()
+                        SettingsSliderRow(
+                            "Lyrics text size",
+                            "Changes the lyrics displayed in the full-screen player",
+                            Icons.Rounded.TextFields,
+                            "${state.appearance.lyricsTextScalePercent}%",
+                            state.appearance.lyricsTextScalePercent.toFloat(),
+                            80f..160f, 7,
+                            { viewModel.setLyricsScale(it.toInt()) },
+                            showSubtitle = true,
+                            subtitleMaxLines = 2,
+                        )
+                        SettingsPlayerPreview(state.appearance)
+                        if (state.appearance.spermerModeEnabled) {
                             SettingsRowDivider()
-                            SettingsColorPicker(state.appearance, viewModel::setColorTheme, viewModel::setCustomColorSeed)
-                            SettingsRowDivider()
-                            SettingsChoiceRow(
-                                "Widget settings",
-                                "Color style for the home-screen playback widget",
-                                Icons.Rounded.Palette,
-                                when (state.appearance.widgetTheme) {
-                                    WidgetThemeMode.APP -> "Follow app theme"
-                                    WidgetThemeMode.WALLPAPER -> "Follow wallpaper"
-                                    WidgetThemeMode.NOTHING -> "Nothing monochrome"
-                                },
-                                listOf("Follow app theme", "Follow wallpaper", "Nothing monochrome"),
-                            ) { selected ->
-                                viewModel.setWidgetTheme(when (selected) {
-                                    "Follow wallpaper" -> WidgetThemeMode.WALLPAPER
-                                    "Nothing monochrome" -> WidgetThemeMode.NOTHING
-                                    else -> WidgetThemeMode.APP
-                                })
-                            }
-                            SettingsRowDivider()
-                            LauncherIconPreviews(state.appearance) { source ->
-                                pendingIconSource = source
-                            }
-                            SettingsRowDivider()
-                            SettingsChoiceRow(
-                                "Full player accent", "Choose the track cover's color or the global app accent",
-                                Icons.Rounded.Palette,
-                                if (state.appearance.playerAccentSource == PlayerAccentSource.TRACK) "Track artwork" else "Global accent",
-                                listOf("Global accent", "Track artwork"),
-                            ) { viewModel.setPlayerAccentSource(if (it == "Track artwork") PlayerAccentSource.TRACK else PlayerAccentSource.GLOBAL) }
-                            SettingsRowDivider()
-                            SettingsSliderRow("Lyrics text size", null, Icons.Rounded.TextFields,
-                                "${state.appearance.lyricsTextScalePercent}%", state.appearance.lyricsTextScalePercent.toFloat(),
-                                80f..160f, 7, { viewModel.setLyricsScale(it.toInt()) })
-                            SettingsPlayerPreview(state.appearance)
-                            SettingsRowDivider()
-                            SettingsToggleRow("Reduced motion", "Shorter, more restrained lyric and UI animations",
-                                Icons.Rounded.Animation, state.appearance.reduceMotion, viewModel::setReduceMotion)
-                            if (state.appearance.spermerModeEnabled) {
-                                SettingsRowDivider()
-                                val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()
-                                SettingsSeekBarStylePicker(
-                                    selected = state.appearance.playerSeekBarStyle,
-                                    onSelect = viewModel::setPlayerSeekBarStyle,
-                                    playback = previewPlayback,
-                                    spectrumFlow = viewModel.seekBarPreviewSpectrum,
-                                    reduceMotion = state.appearance.reduceMotion,
-                                    onPreviewCaptureChange = viewModel::setSettingsPreviewCaptureEnabled,
-                                )
-                            }
+                            val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()
+                            SettingsSeekBarStylePicker(
+                                selected = state.appearance.playerSeekBarStyle,
+                                onSelect = viewModel::setPlayerSeekBarStyle,
+                                playback = previewPlayback,
+                                spectrumFlow = viewModel.seekBarPreviewSpectrum,
+                                reduceMotion = state.appearance.reduceMotion,
+                                onPreviewCaptureChange = viewModel::setSettingsPreviewCaptureEnabled,
+                            )
                         }
                     }
+                }
             }
             if (page == SettingsCategory.PLAYBACK) {
                 item(key = "playback") {

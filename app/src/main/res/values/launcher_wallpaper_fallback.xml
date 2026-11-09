@@ -1,0 +1,5 @@
+<resources>
+    <!-- Pre-Android 12 fallback; wallpaper alias is only selectable on Android 12+. -->
+    <color name="launcher_icon_bg_wallpaper_light">#F4E6DF</color>
+    <color name="launcher_icon_bg_wallpaper_dark">#352D2A</color>
+</resources>

@@ -6,6 +6,8 @@ import android.graphics.BitmapFactory
 import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
@@ -31,6 +33,8 @@ internal object VinylRecordArtwork {
     private var base: Bitmap? = null
     private var angle = 0f
     private var lastArtworkRef: String? = null
+    private var coverArtworkRef: String? = null
+    private var coverBase: Bitmap? = null
 
     suspend fun prepare(context: Context, artworkRef: String?): Bitmap =
         withContext(Dispatchers.IO) {
@@ -47,6 +51,68 @@ internal object VinylRecordArtwork {
             }
             record
         }
+
+    /** Alternative minimalist style: an edge-to-edge circular album cover, no grooves. */
+    suspend fun prepareCover(context: Context, artworkRef: String?): Bitmap =
+        withContext(Dispatchers.IO) {
+            synchronized(lock) {
+                if (coverBase != null && coverArtworkRef == artworkRef) return@withContext requireNotNull(coverBase)
+            }
+            val cover = artworkRef?.let { decode(context, it) }
+            val output = drawCoverCircle(cover)
+            synchronized(lock) {
+                coverBase = output
+                coverArtworkRef = artworkRef
+            }
+            output
+        }
+
+    fun snapshotCover(): Bitmap? = synchronized(lock) { coverBase }
+
+    /** Apply the independent widget's theme without changing the source artwork. */
+    fun themedFrame(source: Bitmap, palette: WidgetPalette): Bitmap {
+        val result = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        val artPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        if (palette.monochrome) {
+            artPaint.colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
+        }
+        canvas.drawBitmap(source, 0f, 0f, artPaint)
+        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = palette.accent
+            alpha = if (palette.monochrome) 190 else 125
+            strokeWidth = SIZE * .012f
+            style = Paint.Style.STROKE
+        }
+        canvas.drawCircle(SIZE / 2f, SIZE / 2f, SIZE * .482f, ring)
+        return result
+    }
+
+    private fun drawCoverCircle(cover: Bitmap?): Bitmap {
+        val bitmap = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val radius = SIZE * .485f
+        val center = SIZE / 2f
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        if (cover == null) {
+            paint.color = Color.rgb(38, 41, 55)
+            canvas.drawCircle(center, center, radius, paint)
+            return bitmap
+        }
+        val side = min(cover.width, cover.height)
+        val shader = BitmapShader(cover, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        shader.setLocalMatrix(Matrix().apply {
+            setRectToRect(
+                RectF(((cover.width - side) / 2).toFloat(), ((cover.height - side) / 2).toFloat(),
+                    ((cover.width + side) / 2).toFloat(), ((cover.height + side) / 2).toFloat()),
+                RectF(center - radius, center - radius, center + radius, center + radius),
+                Matrix.ScaleToFit.CENTER,
+            )
+        })
+        paint.shader = shader
+        canvas.drawCircle(center, center, radius, paint)
+        return bitmap
+    }
 
     fun snapshotFrame(): Bitmap? = synchronized(lock) {
         if (base == null) null else currentFrameLocked()

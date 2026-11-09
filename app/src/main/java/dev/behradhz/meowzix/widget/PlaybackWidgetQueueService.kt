@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.widget
 
+import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
@@ -21,11 +22,16 @@ class PlaybackWidgetQueueService : RemoteViewsService() {
     @Inject lateinit var progressiveQueue: ProgressiveQueue
 
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory =
-        QueueFactory(applicationContext, progressiveQueue)
+        QueueFactory(
+            applicationContext,
+            progressiveQueue,
+            intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1),
+        )
 
     private class QueueFactory(
         private val context: Context,
         private val progressiveQueue: ProgressiveQueue,
+        private val widgetId: Int,
     ) : RemoteViewsFactory {
         private var snapshot: ProgressiveQueueSnapshot? = null
         private var fallbackState = PlaybackWidgetState.Empty
@@ -41,7 +47,7 @@ class PlaybackWidgetQueueService : RemoteViewsService() {
         override fun onDataSetChanged() {
             snapshot = progressiveQueue.snapshot()
             fallbackState = PlaybackWidgetSnapshotStore.load(context)
-            palette = runBlocking { widgetPalette(context) }
+            palette = runBlocking { widgetPalette(context, widgetId) }
         }
 
         override fun onDestroy() {
@@ -50,13 +56,13 @@ class PlaybackWidgetQueueService : RemoteViewsService() {
         }
 
         override fun getCount(): Int = snapshot?.let {
-            (it.tracks.size - it.currentIndex.coerceAtLeast(0)).coerceAtLeast(0)
-        } ?: fallbackState.queue.count { it.index >= fallbackState.queueIndex.coerceAtLeast(0) }
+            (it.tracks.size - it.currentIndex.coerceAtLeast(0) - 1).coerceAtLeast(0)
+        } ?: fallbackState.queue.count { it.index > fallbackState.queueIndex.coerceAtLeast(0) }
 
         private fun rowAt(position: Int): WidgetQueueTrack? {
             val active = snapshot
             if (active != null) {
-                val index = active.currentIndex.coerceAtLeast(0) + position
+                val index = active.currentIndex.coerceAtLeast(-1) + 1 + position
                 val track = active.tracks.getOrNull(index) ?: return null
                 return WidgetQueueTrack(
                     index = index,
@@ -68,7 +74,7 @@ class PlaybackWidgetQueueService : RemoteViewsService() {
                 )
             }
             return fallbackState.queue.filter {
-                it.index >= fallbackState.queueIndex.coerceAtLeast(0)
+                it.index > fallbackState.queueIndex.coerceAtLeast(0)
             }.getOrNull(position)
         }
 

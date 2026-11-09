@@ -34,6 +34,11 @@ import dev.behradhz.meowzix.domain.settings.RecommendationPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
 import dev.behradhz.meowzix.domain.settings.ThemePreference
+import dev.behradhz.meowzix.domain.settings.WidgetThemeMode
+import dev.behradhz.meowzix.widget.WidgetInstance
+import dev.behradhz.meowzix.widget.WidgetInstancePreferences
+import dev.behradhz.meowzix.widget.WidgetKind
+import dev.behradhz.meowzix.widget.WidgetVisualStyle
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import java.time.Instant
 import java.util.UUID
@@ -125,10 +130,28 @@ class UnifiedSettingsViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DownloadSettingsSummary())
 
+    private val _widgetInstances = MutableStateFlow<List<WidgetInstance>>(emptyList())
+    val widgetInstances = _widgetInstances.asStateFlow()
+
+    fun refreshWidgetInstances() {
+        _widgetInstances.value = WidgetInstancePreferences.installed(appContext)
+    }
+
+    fun setInstanceTheme(instance: WidgetInstance, theme: WidgetThemeMode) {
+        WidgetInstancePreferences.setTheme(appContext, instance.kind, instance.id, theme)
+        refreshWidgetInstances()
+    }
+
+    fun setInstanceStyle(instance: WidgetInstance, style: WidgetVisualStyle) {
+        WidgetInstancePreferences.setStyle(appContext, instance.kind, instance.id, style)
+        refreshWidgetInstances()
+    }
+
     private val _storageUsage = MutableStateFlow<ManagedStorageUsage?>(null)
     val storageUsage = _storageUsage.asStateFlow()
 
     init {
+        refreshWidgetInstances()
         refreshStorageUsage()
         launch { sleepTimer.restore() }
     }
@@ -137,10 +160,7 @@ class UnifiedSettingsViewModel @Inject constructor(
         settings.setThemePreference(value)
         dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)
     }
-    fun setWidgetTheme(value: dev.behradhz.meowzix.domain.settings.WidgetThemeMode) = launch {
-        settings.setWidgetTheme(value)
-        dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)
-    }
+    // Appearance of each installed widget is configured independently via WidgetInstancePreferences.
     fun setColorTheme(value: ColorThemePreference) = launch {
         settings.setColorThemePreference(value)
         dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)

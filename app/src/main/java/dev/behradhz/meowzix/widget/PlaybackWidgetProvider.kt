@@ -58,7 +58,7 @@ data class PlaybackWidgetState(
                 mediaId = item?.mediaId,
                 queueIndex = player.currentMediaItemIndex,
                 queue = player.widgetQueue(),
-                queueTotal = (player.mediaItemCount - player.currentMediaItemIndex.coerceAtLeast(0)).coerceAtLeast(0),
+                queueTotal = (player.mediaItemCount - player.currentMediaItemIndex.coerceAtLeast(0) - 1).coerceAtLeast(0),
             )
         }
 
@@ -100,19 +100,21 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        WidgetInstancePreferences.remove(context, appWidgetIds)
         PlaybackWidgetSnapshotStore.clearMenu(context, appWidgetIds)
         super.onDeleted(context, appWidgetIds)
     }
 
     companion object {
         fun requestAppearanceRefresh(context: Context) {
-            val manager = AppWidgetManager.getInstance(context)
-            val ids = manager.getAppWidgetIds(ComponentName(context, PlaybackWidgetProvider::class.java))
-            if (ids.isEmpty()) return
-            context.sendBroadcast(Intent(context, PlaybackWidgetProvider::class.java).apply {
-                action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-                putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
-            })
+            for (provider in listOf(PlaybackWidgetProvider::class.java, VinylWidgetProvider::class.java)) {
+                val ids = AppWidgetManager.getInstance(context)
+                    .getAppWidgetIds(ComponentName(context, provider))
+                if (ids.isNotEmpty()) context.sendBroadcast(Intent(context, provider).apply {
+                    action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+                })
+            }
         }
 
         private fun ids(context: Context) = AppWidgetManager.getInstance(context).getAppWidgetIds(
@@ -178,7 +180,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                         isFavorite = favorite,
                         queueIndex = logical?.currentIndex ?: live.queueIndex,
                         queueTotal = logical?.let {
-                            (it.tracks.size - it.currentIndex.coerceAtLeast(0)).coerceAtLeast(0)
+                            (it.tracks.size - it.currentIndex.coerceAtLeast(0) - 1).coerceAtLeast(0)
                         } ?: live.queueTotal,
                     )
                     PlaybackWidgetSnapshotStore.save(context, state)
@@ -197,26 +199,30 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
         }
 
         private suspend fun render(context: Context, widgetIds: IntArray, state: PlaybackWidgetState) {
-            val palette = widgetPalette(context)
             val artwork = withContext(Dispatchers.IO) {
                 state.artworkRef?.let { decodeArtwork(context, it, 192) }
             }
             val manager = AppWidgetManager.getInstance(context)
             widgetIds.forEach { id ->
+                val palette = widgetPalette(context, id)
                 val views = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     RemoteViews(
                         mapOf(
-                            SizeF(40f, 70f) to narrowViews(context, id, state, artwork, palette),
-                            SizeF(190f, 105f) to buildViews(context, id, state, artwork, false, palette),
-                            SizeF(190f, 190f) to buildViews(context, id, state, artwork, true, palette),
+                            SizeF(48f, 48f) to narrowViews(context, id, state, artwork, palette),
+                            SizeF(136f, 48f) to mediumViews(context, id, state, artwork, palette),
+                            SizeF(240f, 48f) to buildViews(context, id, state, artwork, false, palette),
+                            SizeF(240f, 100f) to buildViews(context, id, state, artwork, true, palette),
                         ),
                     )
                 } else {
                     val opts = manager.getAppWidgetOptions(id)
                     val width = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
-                    val height = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 118)
-                    if (width < 190) narrowViews(context, id, state, artwork, palette)
-                    else buildViews(context, id, state, artwork, height >= 190, palette)
+                    val height = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 55)
+                    when {
+                        width < 105 -> narrowViews(context, id, state, artwork, palette)
+                        width < 210 -> mediumViews(context, id, state, artwork, palette)
+                        else -> buildViews(context, id, state, artwork, height >= 97, palette)
+                    }
                 }
                 manager.updateAppWidget(id, views)
                 @Suppress("DEPRECATION")
@@ -239,7 +245,28 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             setImageViewResource(R.id.widget_play_pause, model.playPauseIcon)
             setContentDescription(R.id.widget_play_pause, model.playPauseDescription)
             setContentDescription(R.id.widget_artwork, "${model.title} – ${model.artist}. Open player")
-            applyPalette(palette, narrow = true)
+            applyPalette(palette, R.layout.widget_playback_narrow)
+        }
+
+        private fun mediumViews(
+            context: Context,
+            widgetId: Int,
+            state: PlaybackWidgetState,
+            artwork: Bitmap?,
+            palette: WidgetPalette,
+        ) = RemoteViews(context.packageName, R.layout.widget_playback_medium).apply {
+            val model = state.toRenderModel()
+            setOnClickPendingIntent(R.id.widget_artwork, openAppIntent(context))
+            setOnClickPendingIntent(R.id.widget_title, openAppIntent(context))
+            setOnClickPendingIntent(R.id.widget_artist, openAppIntent(context))
+            setOnClickPendingIntent(R.id.widget_play_pause, control(context, widgetId, WidgetAction.PLAY_PAUSE))
+            if (artwork != null) setImageViewBitmap(R.id.widget_artwork, artwork)
+            else setImageViewResource(R.id.widget_artwork, R.drawable.meowzix_logo)
+            setTextViewText(R.id.widget_title, widgetStyledText(model.title, palette))
+            setTextViewText(R.id.widget_artist, widgetStyledText(model.artist, palette))
+            setImageViewResource(R.id.widget_play_pause, model.playPauseIcon)
+            setContentDescription(R.id.widget_play_pause, model.playPauseDescription)
+            applyPalette(palette, R.layout.widget_playback_medium)
         }
 
         private fun buildViews(
@@ -312,20 +339,31 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                     },
                 )
             }
-            applyPalette(palette, narrow = false)
+            applyPalette(palette, R.layout.widget_playback)
         }
 
-        private fun RemoteViews.applyPalette(palette: WidgetPalette, narrow: Boolean) {
+        private fun RemoteViews.applyPalette(palette: WidgetPalette, layoutId: Int) {
+            setInt(
+                R.id.widget_root,
+                "setBackgroundResource",
+                if (palette.style == WidgetVisualStyle.MINIMAL)
+                    R.drawable.widget_playback_background_flat else R.drawable.widget_playback_background,
+            )
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 setColorStateList(
                     R.id.widget_root,
                     "setBackgroundTintList",
                     ColorStateList.valueOf(palette.background),
                 )
-                listOf(R.id.widget_play_pause).forEach { id ->
-                    setColorStateList(id, "setImageTintList", ColorStateList.valueOf(palette.accent))
-                }
-                if (!narrow) {
+                setColorStateList(
+                    R.id.widget_play_pause, "setImageTintList",
+                    ColorStateList.valueOf(palette.accent),
+                )
+                setColorStateList(
+                    R.id.widget_play_pause, "setBackgroundTintList",
+                    ColorStateList.valueOf(palette.controlBackground),
+                )
+                if (layoutId == R.layout.widget_playback) {
                     listOf(
                         R.id.widget_previous, R.id.widget_next, R.id.widget_more,
                         R.id.widget_favorite, R.id.widget_forward,
@@ -333,11 +371,21 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                     ).forEach { id ->
                         setColorStateList(id, "setImageTintList", ColorStateList.valueOf(palette.accent))
                     }
+                    setColorStateList(
+                        R.id.widget_more, "setBackgroundTintList",
+                        ColorStateList.valueOf(palette.controlBackground),
+                    )
                 }
+            } else {
+                // Legacy RemoteViews lacks ColorStateList actions; preserve the
+                // actual palette even when the launcher can't tint a rounded shape.
+                setInt(R.id.widget_root, "setBackgroundColor", palette.background)
             }
-            if (!narrow) {
+            if (layoutId != R.layout.widget_playback_narrow) {
                 setTextColor(R.id.widget_title, palette.primary)
                 setTextColor(R.id.widget_artist, palette.secondary)
+            }
+            if (layoutId == R.layout.widget_playback) {
                 setTextColor(R.id.widget_queue_heading, palette.accent)
                 setTextColor(R.id.widget_queue_empty, palette.secondary)
             }

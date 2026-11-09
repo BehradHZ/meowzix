@@ -13,6 +13,8 @@ internal enum class LauncherIconPalette(val aliasSuffix: String, val seedArgb: I
     MINT("Mint", 0xFF16856F.toInt()),
     VIOLET("Violet", 0xFF8257D4.toInt()),
     ROSE("Rose", 0xFFBB4D8D.toInt()),
+    /** Background is resolved from the OS Material You resource, not a bundled hue. */
+    WALLPAPER("Wallpaper", 0),
 }
 
 internal data class LauncherIconVariant(
@@ -25,7 +27,8 @@ internal data class LauncherIconVariant(
 
 /**
  * Launcher resources are packaged at build time. For CUSTOM and WALLPAPER, use the
- * closest bundled hue; arbitrary runtime colors cannot be supplied to a launcher icon.
+ * closest bundled hue. WALLPAPER has its own dynamic adaptive-icon resource, so
+ * system tonal choices never get approximated to one of the saturated presets.
  */
 internal fun selectLauncherIconVariant(
     theme: ColorThemePreference,
@@ -42,7 +45,7 @@ internal fun selectLauncherIconVariant(
         ColorThemePreference.VIOLET -> LauncherIconPalette.VIOLET
         ColorThemePreference.ROSE -> LauncherIconPalette.ROSE
         ColorThemePreference.CUSTOM -> nearestLauncherPalette(customColor)
-        ColorThemePreference.WALLPAPER -> nearestLauncherPalette(wallpaperPrimary)
+        ColorThemePreference.WALLPAPER -> LauncherIconPalette.WALLPAPER
     }
     return LauncherIconVariant(palette, dark)
 }

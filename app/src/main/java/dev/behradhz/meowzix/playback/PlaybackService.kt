@@ -1189,8 +1189,8 @@ class PlaybackService : MediaLibraryService() {
             // QueueRoute uses this same logical snapshot. Media3 only exposes a
             // small physical window and cannot serve as the widget's Queue source.
             queueIndex = logical?.currentIndex ?: player.currentMediaItemIndex,
-            queueTotal = logical?.let { (it.tracks.size - it.currentIndex).coerceAtLeast(0) }
-                ?: (player.mediaItemCount - player.currentMediaItemIndex.coerceAtLeast(0)).coerceAtLeast(0),
+            queueTotal = logical?.let { (it.tracks.size - it.currentIndex - 1).coerceAtLeast(0) }
+                ?: (player.mediaItemCount - player.currentMediaItemIndex.coerceAtLeast(0) - 1).coerceAtLeast(0),
         )
         widgetRefreshJob?.cancel()
         widgetRefreshJob = serviceScope.launch(Dispatchers.IO) {

@@ -342,11 +342,10 @@ private fun liveSongActionIcon(action: LiveSongAction): Int = when (action) {
     LiveSongAction.REPEAT -> R.drawable.live_song_repeat
 }
 
-private fun liveSongActionLabel(action: LiveSongAction): String = when (action) {
-    LiveSongAction.PREVIOUS -> "⏮ Previous"
-    LiveSongAction.PAUSE -> "⏸"
-    LiveSongAction.NEXT -> "⏭ Next"
-    LiveSongAction.FAVORITE -> "♥ Favorite"
-    LiveSongAction.SHUFFLE -> "⇄ Shuffle"
-    LiveSongAction.REPEAT -> "↻ Repeat"
-}
+/**
+ * The visual control is the vector asset returned by liveSongActionIcon.
+ * Notification action titles are normally rendered by SystemUI; a word-joiner
+ * avoids a second textual/emoji label beside the real icon on hosts supporting
+ * icon actions. SystemUI/OEM layout remains authoritative.
+ */
+internal fun liveSongActionLabel(@Suppress("UNUSED_PARAMETER") action: LiveSongAction): String = "\u2060"

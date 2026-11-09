@@ -8,6 +8,12 @@ import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import org.junit.Test
 
 class LiveSongContentTest {
+    @Test fun liveUpdateActionsHaveOnlyInvisibleVisualLabelsNotEmojiOrText() {
+        LiveSongAction.entries.forEach { action ->
+            assertEquals("\u2060", liveSongActionLabel(action))
+        }
+    }
+
     @Test fun onlyPlayingTrackCanProduceACard() {
         assertNull(liveSongContent(false, false, "Track", "Artist"))
         assertNull(liveSongContent(true, true, "Track", "Artist"))

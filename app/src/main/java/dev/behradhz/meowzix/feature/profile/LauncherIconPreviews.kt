@@ -48,7 +48,7 @@ internal fun LauncherIconPreviews(
 ) {
     val context = LocalContext.current
     val supportsWallpaper = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val wallpaperAccent = if (supportsWallpaper) dynamicLightColorScheme(context).primary.toArgb()
+    val wallpaperAccent = if (supportsWallpaper) dynamicLightColorScheme(context).primaryContainer.toArgb()
         else 0xFFE5948A.toInt()
     val old = remember(context) { LauncherIconManager.activeVariant(context) }
     // Use the light full-color artwork even in dark mode, as selected in Appearance.
@@ -79,7 +79,7 @@ internal fun LauncherIconPreviews(
         }
         if (appearance.colorTheme.name == "CUSTOM" || appearance.colorTheme.name == "WALLPAPER") {
             Text(
-                "Custom and wallpaper colors use the nearest packaged icon color.",
+                "Custom RGB uses the closest packaged icon. Wallpaper uses the Android Material You palette; themed icons depend on your launcher.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -137,6 +137,7 @@ internal fun launcherIconResource(variant: LauncherIconVariant): Int =
         LauncherIconPalette.MINT -> if (variant.dark) R.mipmap.ic_launcher_mint_dark else R.mipmap.ic_launcher_mint_light
         LauncherIconPalette.VIOLET -> if (variant.dark) R.mipmap.ic_launcher_violet_dark else R.mipmap.ic_launcher_violet_light
         LauncherIconPalette.ROSE -> if (variant.dark) R.mipmap.ic_launcher_rose_dark else R.mipmap.ic_launcher_rose_light
+        LauncherIconPalette.WALLPAPER -> if (variant.dark) R.mipmap.ic_launcher_wallpaper_dark else R.mipmap.ic_launcher_wallpaper_light
     }
 
 internal fun launcherBackgroundResource(variant: LauncherIconVariant): Int =
@@ -148,4 +149,5 @@ internal fun launcherBackgroundResource(variant: LauncherIconVariant): Int =
         LauncherIconPalette.MINT -> if (variant.dark) R.color.launcher_icon_bg_mint_dark else R.color.launcher_icon_bg_mint_light
         LauncherIconPalette.VIOLET -> if (variant.dark) R.color.launcher_icon_bg_violet_dark else R.color.launcher_icon_bg_violet_light
         LauncherIconPalette.ROSE -> if (variant.dark) R.color.launcher_icon_bg_rose_dark else R.color.launcher_icon_bg_rose_light
+        LauncherIconPalette.WALLPAPER -> if (variant.dark) R.color.launcher_icon_bg_wallpaper_dark else R.color.launcher_icon_bg_wallpaper_light
     }

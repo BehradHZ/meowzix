@@ -94,7 +94,7 @@ internal fun SettingsColorPicker(
     val supportsWallpaper = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val context = LocalContext.current
     val wallpaperSwatch = if (supportsWallpaper) {
-        if (isSystemInDarkTheme()) dynamicDarkColorScheme(context).primary else dynamicLightColorScheme(context).primary
+        if (isSystemInDarkTheme()) dynamicDarkColorScheme(context).primaryContainer else dynamicLightColorScheme(context).primaryContainer
     } else Color(ColorThemePreference.MEOWZIX.seedArgb(appearance.customColorSeed))
     var showCustomPicker by remember { mutableStateOf(false) }
 

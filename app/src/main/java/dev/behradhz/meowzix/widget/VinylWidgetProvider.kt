@@ -69,6 +69,11 @@ class VinylWidgetProvider : AppWidgetProvider() {
         }
     }
 
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        WidgetInstancePreferences.remove(context, appWidgetIds)
+        super.onDeleted(context, appWidgetIds)
+    }
+
     override fun onAppWidgetOptionsChanged(
         context: Context,
         appWidgetManager: AppWidgetManager,
@@ -81,6 +86,7 @@ class VinylWidgetProvider : AppWidgetProvider() {
 
     companion object {
         @Volatile private var latestState = PlaybackWidgetState.Empty
+        @Volatile private var latestPalettes: Map<Int, WidgetPalette> = emptyMap()
 
         private fun ids(context: Context) = AppWidgetManager.getInstance(context)
             .getAppWidgetIds(ComponentName(context, VinylWidgetProvider::class.java))
@@ -91,11 +97,15 @@ class VinylWidgetProvider : AppWidgetProvider() {
             val widgetIds = ids(context)
             if (widgetIds.isEmpty()) return
             val record = VinylRecordArtwork.prepare(context, state.artworkRef)
+            if (widgetIds.any { WidgetInstancePreferences.style(context, it) == WidgetVisualStyle.MINIMAL }) {
+                VinylRecordArtwork.prepareCover(context, state.artworkRef)
+            }
+            latestPalettes = widgetIds.associateWith { id -> widgetPalette(context, id) }
             val logical = widgetLogicalQueue(context)
             val completeState = state.copy(
                 queueIndex = logical?.currentIndex ?: state.queueIndex,
                 queueTotal = logical?.let {
-                    (it.tracks.size - it.currentIndex.coerceAtLeast(0)).coerceAtLeast(0)
+                    (it.tracks.size - it.currentIndex.coerceAtLeast(0) - 1).coerceAtLeast(0)
                 } ?: state.queueTotal,
             )
             PlaybackWidgetSnapshotStore.save(context, completeState)
@@ -113,7 +123,12 @@ class VinylWidgetProvider : AppWidgetProvider() {
             val state = latestState
             val manager = AppWidgetManager.getInstance(context)
             // Full updates release previously cached bitmaps on Android 17+.
-            widgetIds.forEach { id -> manager.updateAppWidget(id, responsiveViews(context, id, state, frame)) }
+            widgetIds.forEach { id ->
+                // Circular cover style stays still. Only the record style rotates.
+                if (WidgetInstancePreferences.style(context, id) == WidgetVisualStyle.CLASSIC) {
+                    manager.updateAppWidget(id, responsiveViews(context, id, state, frame))
+                }
+            }
         }
 
         /**
@@ -126,6 +141,12 @@ class VinylWidgetProvider : AppWidgetProvider() {
             state: PlaybackWidgetState,
             record: Bitmap?,
         ): RemoteViews {
+            val artwork = if (WidgetInstancePreferences.style(context, widgetId) == WidgetVisualStyle.MINIMAL) {
+                VinylRecordArtwork.snapshotCover() ?: record
+            } else record
+            val styledArtwork = artwork?.let { bitmap ->
+                latestPalettes[widgetId]?.let { VinylRecordArtwork.themedFrame(bitmap, it) } ?: bitmap
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId)
                 val sizes = BundleCompat.getParcelableArrayList(
@@ -133,13 +154,13 @@ class VinylWidgetProvider : AppWidgetProvider() {
                 )?.filter { it.width > 0f && it.height > 0f }?.distinct()?.take(8)
                 val viewsBySize = if (!sizes.isNullOrEmpty()) {
                     sizes.associateWith { size ->
-                        views(context, widgetId, state, record, vinylDiameter(size.width, size.height))
+                        views(context, widgetId, state, styledArtwork, vinylDiameter(size.width, size.height))
                     }
                 } else mapOf(
-                    SizeF(40f, 40f) to views(context, widgetId, state, record, 32f),
-                    SizeF(104f, 104f) to views(context, widgetId, state, record, 96f),
-                    SizeF(176f, 176f) to views(context, widgetId, state, record, 168f),
-                    SizeF(252f, 252f) to views(context, widgetId, state, record, 244f),
+                    SizeF(40f, 40f) to views(context, widgetId, state, styledArtwork, 32f),
+                    SizeF(104f, 104f) to views(context, widgetId, state, styledArtwork, 96f),
+                    SizeF(176f, 176f) to views(context, widgetId, state, styledArtwork, 168f),
+                    SizeF(252f, 252f) to views(context, widgetId, state, styledArtwork, 244f),
                 )
                 return RemoteViews(viewsBySize)
             }
@@ -147,7 +168,7 @@ class VinylWidgetProvider : AppWidgetProvider() {
             val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 110)
             val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 110)
             val side = vinylDiameter(width.toFloat(), height.toFloat())
-            return views(context, widgetId, state, record, side)
+            return views(context, widgetId, state, styledArtwork, side)
         }
 
         private fun views(

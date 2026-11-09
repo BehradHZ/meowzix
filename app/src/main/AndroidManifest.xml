@@ -236,6 +236,36 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- Dynamic wallpaper-backed adaptive icons. Their backgrounds resolve
+             from the OS Material You overlay, unlike nearest-preset color aliases. -->
+        <activity-alias
+            android:name=".LauncherIconWallpaperLight"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_wallpaper_light"
+            android:roundIcon="@mipmap/ic_launcher_wallpaper_light">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconWallpaperDark"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Meowzix"
+            android:icon="@mipmap/ic_launcher_wallpaper_dark"
+            android:roundIcon="@mipmap/ic_launcher_wallpaper_dark">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <!-- No visible app screen: notification click uses the normal system activity transition. -->
         <activity
             android:name=".feature.telegram.TelegramForwardLaunchActivity"

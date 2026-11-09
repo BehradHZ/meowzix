@@ -37,7 +37,7 @@ fun MeowzixTheme(
 
     val logoBackground = if (colorTheme == ColorThemePreference.WALLPAPER &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    ) palette.primary else Color(colorTheme.logoBackgroundArgb(customColorSeed))
+    ) palette.primaryContainer else Color(colorTheme.logoBackgroundArgb(customColorSeed))
 
     CompositionLocalProvider(LocalMeowzixLogoBackground provides logoBackground) {
         MaterialTheme(

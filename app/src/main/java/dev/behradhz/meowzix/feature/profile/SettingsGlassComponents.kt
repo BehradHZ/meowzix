@@ -400,6 +400,7 @@ internal fun SettingsChoiceRow(
     icon: ImageVector,
     current: String,
     options: List<String>,
+    centerOptions: Boolean = false,
     onChoice: (String) -> Unit,
 ) {
     Column(
@@ -413,19 +414,24 @@ internal fun SettingsChoiceRow(
             SettingsLeadingIcon(icon)
             SettingsRowLabel(title, subtitle, Modifier.weight(1f))
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                .padding(start = 50.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Box(
+            Modifier.fillMaxWidth(),
+            contentAlignment = if (centerOptions) Alignment.Center else Alignment.CenterStart,
         ) {
-            options.forEach { option ->
-                val label = option.lowercase().replace('_', ' ')
-                    .replaceFirstChar(Char::uppercase)
-                FilterChip(
-                    selected = option.equals(current, ignoreCase = true),
-                    onClick = { onChoice(option) },
-                    label = { Text(label, maxLines = 1) },
-                )
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState())
+                    .then(if (centerOptions) Modifier else Modifier.padding(start = 50.dp)),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                options.forEach { option ->
+                    val label = option.lowercase().replace('_', ' ')
+                        .replaceFirstChar(Char::uppercase)
+                    FilterChip(
+                        selected = option.equals(current, ignoreCase = true),
+                        onClick = { onChoice(option) },
+                        label = { Text(label, maxLines = 1) },
+                    )
+                }
             }
         }
     }

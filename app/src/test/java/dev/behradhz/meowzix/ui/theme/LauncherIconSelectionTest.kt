@@ -25,13 +25,13 @@ class LauncherIconSelectionTest {
         assertEquals("LauncherIconRoseDark", variants.last().aliasName)
     }
 
-    @Test fun customAndWallpaperChooseClosestBundledHue() {
+    @Test fun customUsesNearestBundledHueButWallpaperUsesDynamicIcon() {
         assertEquals(
             LauncherIconPalette.VIOLET,
             selectLauncherIconVariant(ColorThemePreference.CUSTOM, custom, false, wallpaper).palette,
         )
         assertEquals(
-            LauncherIconPalette.OCEAN,
+            LauncherIconPalette.WALLPAPER,
             selectLauncherIconVariant(ColorThemePreference.WALLPAPER, custom, true, wallpaper).palette,
         )
         assertEquals(
@@ -50,7 +50,7 @@ class LauncherIconSelectionTest {
             ColorThemePreference.ROSE, custom, false, wallpaper,
         )
         assertEquals(LauncherIconPalette.ROSE, appVariant.palette)
-        assertEquals(LauncherIconPalette.OCEAN, wallpaperVariant.palette)
+        assertEquals(LauncherIconPalette.WALLPAPER, wallpaperVariant.palette)
         assertEquals(false, wallpaperVariant.dark)
     }
 
