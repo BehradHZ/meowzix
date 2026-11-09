@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.widget
 
+import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
@@ -35,10 +36,13 @@ class PlaybackWidgetRegistrationTest {
                     "dev.behradhz.meowzix.widget.WidgetConfigurationActivity",
                     xml.getAttributeValue(androidNamespace, "configure"),
                 )
-                val features = xml.getAttributeValue(androidNamespace, "widgetFeatures")
-                assertNotNull(features)
-                assertTrue(features.contains("reconfigurable"))
-                assertTrue(features.contains("configuration_optional"))
+                val features = xml.getAttributeIntValue(androidNamespace, "widgetFeatures", 0)
+                assertTrue(
+                    features and AppWidgetProviderInfo.WIDGET_FEATURE_RECONFIGURABLE != 0,
+                )
+                assertTrue(
+                    features and AppWidgetProviderInfo.WIDGET_FEATURE_CONFIGURATION_OPTIONAL != 0,
+                )
             } finally {
                 xml.close()
             }
