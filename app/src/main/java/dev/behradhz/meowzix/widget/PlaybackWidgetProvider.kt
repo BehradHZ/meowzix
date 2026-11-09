@@ -209,7 +209,10 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                 fun layoutFor(width: Float, height: Float) = when {
                     width < 88f -> narrowViews(context, id, state, artwork, palette)
                     width < 185f -> mediumViews(context, id, state, artwork, palette)
-                    else -> buildViews(context, id, state, artwork, height >= 96f, palette)
+                    else -> buildViews(
+                        context, id, state, artwork, height >= 90f, palette,
+                        showQueueHeading = height >= 150f,
+                    )
                 }
                 val options = manager.getAppWidgetOptions(id)
                 val views = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -283,6 +286,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             artwork: Bitmap?,
             expanded: Boolean,
             palette: WidgetPalette,
+            showQueueHeading: Boolean,
         ): RemoteViews = RemoteViews(context.packageName, R.layout.widget_playback).apply {
             val model = state.toRenderModel()
             val menu = PlaybackWidgetSnapshotStore.menuExpanded(context, widgetId)
@@ -318,6 +322,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             setViewVisibility(R.id.widget_overflow_actions, if (menu) View.VISIBLE else View.GONE)
 
             setViewVisibility(R.id.widget_queue_section, if (expanded) View.VISIBLE else View.GONE)
+            setViewVisibility(R.id.widget_queue_heading, if (showQueueHeading) View.VISIBLE else View.GONE)
             val total = state.queueTotal
             setTextViewText(
                 R.id.widget_queue_heading,
