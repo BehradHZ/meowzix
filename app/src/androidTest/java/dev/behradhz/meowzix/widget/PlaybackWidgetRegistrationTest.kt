@@ -8,11 +8,43 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotNull
 import org.junit.runner.RunWith
 import org.junit.Test
 
 @RunWith(AndroidJUnit4::class)
 class PlaybackWidgetRegistrationTest {
+    @Test
+    fun launcherCanReconfigureBothWidgetKindsIndependently() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val activity = context.packageManager.getActivityInfo(
+            ComponentName(context, WidgetConfigurationActivity::class.java), 0,
+        )
+        assertTrue(activity.exported)
+
+        val androidNamespace = "http://schemas.android.com/apk/res/android"
+        listOf(R.xml.meowzix_playback_widget_info, R.xml.meowzix_vinyl_widget_info).forEach { id ->
+            val xml = context.resources.getXml(id)
+            try {
+                while (xml.eventType != org.xmlpull.v1.XmlPullParser.START_TAG &&
+                    xml.eventType != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                    xml.next()
+                }
+                assertEquals(
+                    "dev.behradhz.meowzix.widget.WidgetConfigurationActivity",
+                    xml.getAttributeValue(androidNamespace, "configure"),
+                )
+                val features = xml.getAttributeValue(androidNamespace, "widgetFeatures")
+                assertNotNull(features)
+                assertTrue(features.contains("reconfigurable"))
+                assertTrue(features.contains("configuration_optional"))
+            } finally {
+                xml.close()
+            }
+        }
+    }
+
     @Test
     fun bothWidgetsAndCollectionProviderAreRegistered() {
         val context = ApplicationProvider.getApplicationContext<Context>()

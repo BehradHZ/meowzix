@@ -208,7 +208,9 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                 val palette = widgetPalette(context, id)
                 fun layoutFor(width: Float, height: Float) = when {
                     width < 88f -> narrowViews(context, id, state, artwork, palette)
-                    width < 185f -> mediumViews(context, id, state, artwork, palette)
+                    // Allow a 44dp hit area for each control and space for the
+                    // track title; narrower widgets use the compact view.
+                    width < 285f -> mediumViews(context, id, state, artwork, palette)
                     else -> buildViews(
                         context, id, state, artwork, height >= 90f, palette,
                         showQueueHeading = height >= 150f,

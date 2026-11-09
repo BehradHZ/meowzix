@@ -343,9 +343,16 @@ private fun liveSongActionIcon(action: LiveSongAction): Int = when (action) {
 }
 
 /**
- * The visual control is the vector asset returned by liveSongActionIcon.
- * Notification action titles are normally rendered by SystemUI; a word-joiner
- * avoids a second textual/emoji label beside the real icon on hosts supporting
- * icon actions. SystemUI/OEM layout remains authoritative.
+ * Standard Android notification actions require a visible, nonempty title on
+ * some OEM SystemUI builds. An invisible word-joiner made the entire action row
+ * disappear. Use a single typographic symbol, never an emoji or word label,
+ * alongside each real vector drawable. SystemUI controls final presentation.
  */
-internal fun liveSongActionLabel(@Suppress("UNUSED_PARAMETER") action: LiveSongAction): String = "\u2060"
+internal fun liveSongActionLabel(action: LiveSongAction): String = when (action) {
+    LiveSongAction.PREVIOUS -> "‹"
+    LiveSongAction.PAUSE -> "Ⅱ"
+    LiveSongAction.NEXT -> "›"
+    LiveSongAction.FAVORITE -> "♥"
+    LiveSongAction.SHUFFLE -> "⇄"
+    LiveSongAction.REPEAT -> "↻"
+}

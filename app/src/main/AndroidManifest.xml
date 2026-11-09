@@ -312,6 +312,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- Android launcher Reconfigure / Widget settings for either widget type.
+             Changes are allowed only for a bound widget ID belonging to Meowzix. -->
+        <activity
+            android:name=".widget.WidgetConfigurationActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <!-- Square record widget; touch commands stay inside the app. -->
         <receiver
             android:name=".widget.VinylWidgetActionReceiver"

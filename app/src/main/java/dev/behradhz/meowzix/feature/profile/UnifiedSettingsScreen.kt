@@ -322,6 +322,8 @@ fun UnifiedSettingsScreen(
                         "Appearance of the expanded now-playing screen",
                         Icons.Rounded.PlayCircle,
                     ) {
+                        SettingsPlayerPreview(state.appearance)
+                        SettingsRowDivider()
                         SettingsChoiceRow(
                             "Accent",
                             "Choose the color used for the full-screen player",
@@ -348,7 +350,6 @@ fun UnifiedSettingsScreen(
                             showSubtitle = true,
                             subtitleMaxLines = 2,
                         )
-                        SettingsPlayerPreview(state.appearance)
                         if (state.appearance.spermerModeEnabled) {
                             SettingsRowDivider()
                             val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()

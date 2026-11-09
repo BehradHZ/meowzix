@@ -8,10 +8,15 @@ import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import org.junit.Test
 
 class LiveSongContentTest {
-    @Test fun liveUpdateActionsHaveOnlyInvisibleVisualLabelsNotEmojiOrText() {
-        LiveSongAction.entries.forEach { action ->
-            assertEquals("\u2060", liveSongActionLabel(action))
+    @Test fun liveUpdateActionsHaveVisibleOneSymbolTitlesNotHiddenWordJoiners() {
+        val labels = LiveSongAction.entries.map(::liveSongActionLabel)
+        assertEquals(LiveSongAction.entries.size, labels.distinct().size)
+        labels.forEach { label ->
+            assertEquals(1, label.codePointCount(0, label.length))
+            assertEquals(false, label.contains('\u2060'))
+            assertEquals(false, label.isBlank())
         }
+        assertEquals("Ⅱ", liveSongActionLabel(LiveSongAction.PAUSE))
     }
 
     @Test fun onlyPlayingTrackCanProduceACard() {
