@@ -8,6 +8,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Paint
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import java.io.File
+import java.io.FileInputStream
 import android.os.Build
 import android.text.TextPaint
 import android.util.TypedValue
@@ -32,6 +37,8 @@ internal class NowPlayingLiveCard(
 ) {
     private val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private var lastState: LiveSongCardSnapshot? = null
+    private var cachedArtRef: String? = null
+    private var cachedArtwork: Bitmap? = null
 
     fun update(
         player: Player,
@@ -67,7 +74,9 @@ internal class NowPlayingLiveCard(
             durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0L }
                 ?: metadata?.durationMs?.takeIf { it > 0L },
         )
-        val snapshot = LiveSongCardSnapshot(player.currentMediaItem?.mediaId.orEmpty(), content, actions, isFavorite, progress)
+        // SystemUI owns chip animation. Minimize unnecessary notification refreshes.
+        val displayedProgress = progress.copy(positionMs = progress.positionMs / 5_000L * 5_000L)
+        val snapshot = LiveSongCardSnapshot(player.currentMediaItem?.mediaId.orEmpty(), content, actions, isFavorite, displayedProgress)
         if (!shouldPublishLiveSongCard(lastState, snapshot, forceRefresh)) return
 
         manager.createNotificationChannel(
@@ -86,7 +95,7 @@ internal class NowPlayingLiveCard(
             .setContentTitle(content.title)
             // Standard ProgressStyle controls the bar position; content text is the nearest
             // system-managed row above it. Subtext is a *header* field, never put time there.
-            .setContentText(liveSongDetailLine(content.artist, progress))
+            .setContentText(liveSongDetailLine(content.artist, displayedProgress))
             .setSubText(if (isFavorite) "♥ Liked" else "♡ Not liked")
             .setContentIntent(openPlayerIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -95,6 +104,9 @@ internal class NowPlayingLiveCard(
             .setOngoing(true)
             .setShowWhen(false)
 
+        player.currentMediaItem?.mediaMetadata?.artworkUri?.toString()?.let(::artworkThumbnail)
+            ?.let { artwork -> builder.setLargeIcon(artwork) }
+
         // Android 16+ renders a real promoted ProgressStyle bar. Earlier Android
         // versions use the standard notification progress indicator instead.
         // Neither is draggable; scrubbing remains in Android's MediaSession player.
@@ -102,14 +114,14 @@ internal class NowPlayingLiveCard(
             builder.setStyle(
                 NotificationCompat.ProgressStyle()
                     .addProgressSegment(NotificationCompat.ProgressStyle.Segment(LIVE_PROGRESS_MAX))
-                    .setProgress(progress.progressValue)
+                    .setProgress(displayedProgress.progressValue)
             )
         } else {
             builder.setStyle(NotificationCompat.BigTextStyle().bigText(
-                "${content.artist}\n${progress.label}"
+                "${content.artist}\n${displayedProgress.label}"
             ))
             if (progress.durationMs != null) {
-                builder.setProgress(LIVE_PROGRESS_MAX, progress.progressValue, false)
+                builder.setProgress(LIVE_PROGRESS_MAX, displayedProgress.progressValue, false)
             }
         }
 
@@ -146,6 +158,26 @@ internal class NowPlayingLiveCard(
             manager.cancel(NOTIFICATION_ID)
             lastState = null
         }
+    }
+
+    private fun artworkThumbnail(ref: String): Bitmap? {
+        if (ref == cachedArtRef) return cachedArtwork
+        cachedArtRef = ref
+        cachedArtwork = runCatching {
+            val uri = Uri.parse(ref)
+            fun open() = when (uri.scheme) {
+                "content", "android.resource" -> context.contentResolver.openInputStream(uri)
+                "file" -> uri.path?.let(::File)?.takeIf(File::isFile)?.let(::FileInputStream)
+                else -> null
+            }
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            open()?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+            var sample = 1
+            while (bounds.outWidth / sample > 128 || bounds.outHeight / sample > 128) sample *= 2
+            open()?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
+        }.getOrNull()
+        return cachedArtwork
     }
 
     private fun chipTitle(title: String): String {
@@ -292,4 +324,5 @@ private fun liveSongActionIcon(action: LiveSongAction): Int = when (action) {
 }
 
 private fun liveSongActionLabel(action: LiveSongAction): String =
-    action.name.lowercase().replaceFirstChar(Char::uppercase)
+    if (action == LiveSongAction.PAUSE) "⏸"
+    else action.name.lowercase().replaceFirstChar(Char::uppercase)

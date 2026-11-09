@@ -8,6 +8,16 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import androidx.core.os.BundleCompat
+import android.util.SizeF
+import android.util.TypedValue
+import kotlin.math.min
+
+/** Always fit a centered circle within the actual widget bounds, including 1x1 and 3x4. */
+internal fun vinylDiameter(widthDp: Float, heightDp: Float): Float =
+    (min(widthDp, heightDp) - 8f).coerceAtLeast(32f)
 import android.widget.RemoteViews
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
@@ -30,7 +40,7 @@ class VinylWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         val saved = PlaybackWidgetSnapshotStore.load(context)
         ids.forEach { id ->
-            manager.updateAppWidget(id, views(context, id, saved, null))
+            manager.updateAppWidget(id, responsiveViews(context, id, saved, VinylRecordArtwork.snapshotFrame()))
         }
         val pending = goAsync()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -58,6 +68,16 @@ class VinylWidgetProvider : AppWidgetProvider() {
         }
     }
 
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle,
+    ) {
+        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
+        onUpdate(context, appWidgetManager, intArrayOf(appWidgetId))
+    }
+
     companion object {
         @Volatile private var latestState = PlaybackWidgetState.Empty
 
@@ -74,7 +94,7 @@ class VinylWidgetProvider : AppWidgetProvider() {
             latestState = state
             val manager = AppWidgetManager.getInstance(context)
             widgetIds.forEach { id ->
-                manager.updateAppWidget(id, views(context, id, state, record))
+                manager.updateAppWidget(id, responsiveViews(context, id, state, record))
             }
         }
 
@@ -85,7 +105,41 @@ class VinylWidgetProvider : AppWidgetProvider() {
             val state = latestState
             val manager = AppWidgetManager.getInstance(context)
             // Full updates release previously cached bitmaps on Android 17+.
-            widgetIds.forEach { id -> manager.updateAppWidget(id, views(context, id, state, frame)) }
+            widgetIds.forEach { id -> manager.updateAppWidget(id, responsiveViews(context, id, state, frame)) }
+        }
+
+        /**
+         * Android 12+ lets the launcher choose the correct layout for its exact cells.
+         * A 3x4 host therefore contains a centered 3x3 disc, not a stretched oval.
+         */
+        private fun responsiveViews(
+            context: Context,
+            widgetId: Int,
+            state: PlaybackWidgetState,
+            record: Bitmap?,
+        ): RemoteViews {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId)
+                val sizes = BundleCompat.getParcelableArrayList(
+                    options, AppWidgetManager.OPTION_APPWIDGET_SIZES, SizeF::class.java,
+                )?.filter { it.width > 0f && it.height > 0f }?.distinct()?.take(8)
+                val viewsBySize = if (!sizes.isNullOrEmpty()) {
+                    sizes.associateWith { size ->
+                        views(context, widgetId, state, record, vinylDiameter(size.width, size.height))
+                    }
+                } else mapOf(
+                    SizeF(40f, 40f) to views(context, widgetId, state, record, 32f),
+                    SizeF(104f, 104f) to views(context, widgetId, state, record, 96f),
+                    SizeF(176f, 176f) to views(context, widgetId, state, record, 168f),
+                    SizeF(252f, 252f) to views(context, widgetId, state, record, 244f),
+                )
+                return RemoteViews(viewsBySize)
+            }
+            val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId)
+            val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 110)
+            val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 110)
+            val side = vinylDiameter(width.toFloat(), height.toFloat())
+            return views(context, widgetId, state, record, side)
         }
 
         private fun views(
@@ -93,7 +147,12 @@ class VinylWidgetProvider : AppWidgetProvider() {
             widgetId: Int,
             state: PlaybackWidgetState,
             record: Bitmap?,
+            discSizeDp: Float,
         ) = RemoteViews(context.packageName, R.layout.widget_vinyl_disc_only).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setViewLayoutWidth(R.id.vinyl_widget_disc_frame, discSizeDp, TypedValue.COMPLEX_UNIT_DIP)
+                setViewLayoutHeight(R.id.vinyl_widget_disc_frame, discSizeDp, TypedValue.COMPLEX_UNIT_DIP)
+            }
             // Do not bind a click to the root or disc: some launchers route every
             // child touch to the root activity PendingIntent, swallowing controls.
             // The nine transparent cells in widget_vinyl.xml own every hit region.

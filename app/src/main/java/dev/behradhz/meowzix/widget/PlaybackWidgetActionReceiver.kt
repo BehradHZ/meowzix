@@ -41,7 +41,9 @@ class PlaybackWidgetActionReceiver : BroadcastReceiver() {
             if (index < 0) return
             ExternalPlaybackDispatcher.enqueue(
                 context,
-                ExternalPlaybackAction.QueueSelection(index, mediaId),
+                ExternalPlaybackAction.QueueSelection(
+                    index, mediaId, intent.getStringExtra(EXTRA_OCCURRENCE_ID),
+                ),
                 goAsync(),
             )
             return
@@ -74,5 +76,6 @@ class PlaybackWidgetActionReceiver : BroadcastReceiver() {
         const val EXTRA_ACTION = "widget_control"
         const val EXTRA_QUEUE_INDEX = "queue_index"
         const val EXTRA_MEDIA_ID = "queue_media_id"
+        const val EXTRA_OCCURRENCE_ID = "queue_occurrence_id"
     }
 }

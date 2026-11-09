@@ -42,7 +42,7 @@ internal sealed interface ExternalPlaybackAction {
     data object Shuffle : ExternalPlaybackAction
     data object Repeat : ExternalPlaybackAction
     data object Forward : ExternalPlaybackAction
-    data class QueueSelection(val index: Int, val mediaId: String) : ExternalPlaybackAction
+    data class QueueSelection(val index: Int, val mediaId: String, val occurrenceId: String? = null) : ExternalPlaybackAction
 }
 
 internal object PlaybackServiceBridge {
@@ -106,7 +106,12 @@ internal object ExternalPlaybackDispatcher {
             ).buildAsync()
             future = connecting
             controller = withTimeout(5_000L) { connecting.await() }
-            dispatchToController(controller, action)
+            if (!PlaybackServiceBridge.dispatchIfRunning(action)) {
+                // A logical occurrence must never silently resolve to a different
+                // physical Media3 window index after process restoration.
+                if (action !is ExternalPlaybackAction.QueueSelection || action.occurrenceId == null)
+                    dispatchToController(controller, action)
+            }
         } catch (error: Exception) {
             Log.w(TAG, "Media3 controller command failed: ${action.javaClass.simpleName}", error)
         } finally {

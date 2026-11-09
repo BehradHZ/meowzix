@@ -68,6 +68,7 @@ data class DownloadSettingsSummary(
 
 @HiltViewModel
 class UnifiedSettingsViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val settings: SettingsRepository,
     private val history: ListeningHistoryRepository,
     private val feedback: RecommendationFeedbackRepository,
@@ -132,9 +133,22 @@ class UnifiedSettingsViewModel @Inject constructor(
         launch { sleepTimer.restore() }
     }
 
-    fun setTheme(value: ThemePreference) = launch { settings.setThemePreference(value) }
-    fun setColorTheme(value: ColorThemePreference) = launch { settings.setColorThemePreference(value) }
-    fun setCustomColorSeed(argb: Int) = launch { settings.setCustomColorSeed(argb) }
+    fun setTheme(value: ThemePreference) = launch {
+        settings.setThemePreference(value)
+        dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)
+    }
+    fun setWidgetTheme(value: dev.behradhz.meowzix.domain.settings.WidgetThemeMode) = launch {
+        settings.setWidgetTheme(value)
+        dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)
+    }
+    fun setColorTheme(value: ColorThemePreference) = launch {
+        settings.setColorThemePreference(value)
+        dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)
+    }
+    fun setCustomColorSeed(argb: Int) = launch {
+        settings.setCustomColorSeed(argb)
+        dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)
+    }
     fun setLyricsScale(value: Int) = launch { settings.setLyricsTextScalePercent(value) }
     fun setReduceMotion(value: Boolean) = launch { settings.setReduceMotion(value) }
     fun setPlayerAccentSource(source: PlayerAccentSource) = launch { settings.setPlayerAccentSource(source) }

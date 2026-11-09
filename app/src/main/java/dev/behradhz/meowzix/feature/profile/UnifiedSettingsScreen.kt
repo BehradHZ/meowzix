@@ -107,6 +107,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.settings.ThemePreference
+import dev.behradhz.meowzix.domain.settings.WidgetThemeMode
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
 import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
@@ -268,6 +269,24 @@ fun UnifiedSettingsScreen(
                                 ThemePreference.entries.map { it.name }) { viewModel.setTheme(ThemePreference.valueOf(it)) }
                             SettingsRowDivider()
                             SettingsColorPicker(state.appearance, viewModel::setColorTheme, viewModel::setCustomColorSeed)
+                            SettingsRowDivider()
+                            SettingsChoiceRow(
+                                "Widget settings",
+                                "Color style for the home-screen playback widget",
+                                Icons.Rounded.Palette,
+                                when (state.appearance.widgetTheme) {
+                                    WidgetThemeMode.APP -> "Follow app theme"
+                                    WidgetThemeMode.WALLPAPER -> "Follow wallpaper"
+                                    WidgetThemeMode.NOTHING -> "Nothing monochrome"
+                                },
+                                listOf("Follow app theme", "Follow wallpaper", "Nothing monochrome"),
+                            ) { selected ->
+                                viewModel.setWidgetTheme(when (selected) {
+                                    "Follow wallpaper" -> WidgetThemeMode.WALLPAPER
+                                    "Nothing monochrome" -> WidgetThemeMode.NOTHING
+                                    else -> WidgetThemeMode.APP
+                                })
+                            }
                             SettingsRowDivider()
                             LauncherIconPreviews(state.appearance) { source ->
                                 pendingIconSource = source

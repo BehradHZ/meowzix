@@ -48,6 +48,10 @@ internal object VinylRecordArtwork {
             record
         }
 
+    fun snapshotFrame(): Bitmap? = synchronized(lock) {
+        if (base == null) null else currentFrameLocked()
+    }
+
     /** Frames are sent only while the real playback service is playing and the screen is on. */
     fun nextFrame(): Bitmap? = synchronized(lock) {
         val record = base ?: return@synchronized null

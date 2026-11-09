@@ -7,6 +7,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- The touch grid and the artwork occupy one centered square, not the
+         full rectangular widget host. All remaining host area is transparent. -->
+    <FrameLayout
+        android:id="@+id/vinyl_widget_disc_frame"
+        android:layout_width="110dp"
+        android:layout_height="110dp"
+        android:layout_gravity="center">
+
     <ImageView
         android:id="@+id/vinyl_widget_disc"
         android:layout_width="match_parent"
@@ -105,4 +113,5 @@
                 android:contentDescription="Open Meowzix player" />
         </LinearLayout>
     </LinearLayout>
+    </FrameLayout>
 </FrameLayout>

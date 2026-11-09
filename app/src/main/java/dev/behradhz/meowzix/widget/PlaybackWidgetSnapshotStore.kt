@@ -7,7 +7,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** The visible materialized Media3 queue, with stable positions for guarded row selection. */
-data class WidgetQueueTrack(val index: Int, val mediaId: String, val title: String, val artist: String?)
+data class WidgetQueueTrack(
+    val index: Int,
+    val mediaId: String,
+    val title: String,
+    val artist: String?,
+    val occurrenceId: String? = null,
+    val origin: String = "GENERATED",
+)
 
 /**
  * Bound the home-screen collection to a manageable portion of the materialized
@@ -51,6 +58,7 @@ internal object PlaybackWidgetSnapshotStore {
             put("playing", state.isPlaying)
             put("favorite", state.isFavorite)
             put("position", state.queueIndex)
+            put("total", state.queueTotal)
             put("queue", JSONArray().apply {
                 state.queue.forEach { item ->
                     put(JSONObject().apply {
@@ -58,6 +66,8 @@ internal object PlaybackWidgetSnapshotStore {
                         put("mediaId", item.mediaId)
                         put("title", item.title)
                         put("artist", item.artist)
+                        put("occurrenceId", item.occurrenceId)
+                        put("origin", item.origin)
                     })
                 }
             })
@@ -77,6 +87,7 @@ internal object PlaybackWidgetSnapshotStore {
             isFavorite = data.optBoolean("favorite"),
             mediaId = data.optString("mediaId").takeIf { it != "null" && it.isNotBlank() },
             queueIndex = data.optInt("position", -1),
+            queueTotal = data.optInt("total", 0),
             queue = (0 until queue.length()).mapNotNull { idx ->
                 val item = queue.optJSONObject(idx) ?: return@mapNotNull null
                 val id = item.optString("mediaId").takeIf(String::isNotBlank) ?: return@mapNotNull null
@@ -85,6 +96,8 @@ internal object PlaybackWidgetSnapshotStore {
                     id,
                     item.optString("title").ifBlank { "Unknown track" },
                     item.optString("artist").takeIf { it != "null" && it.isNotBlank() },
+                    item.optString("occurrenceId").takeIf { it != "null" && it.isNotBlank() },
+                    item.optString("origin").ifBlank { "GENERATED" },
                 )
             },
         )

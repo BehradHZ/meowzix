@@ -1123,18 +1123,7 @@ class PlaybackService : MediaLibraryService() {
             ExternalPlaybackAction.Next -> {
                 if (player.hasNextMediaItem()) player.seekToNextMediaItem()
             }
-            is ExternalPlaybackAction.QueueSelection -> {
-                // The queue may have changed while a launcher was displaying an old
-                // row. Never seek to a different song at the same stale index.
-                if (action.mediaId.isNotBlank() &&
-                    action.index in 0 until player.mediaItemCount &&
-                    player.getMediaItemAt(action.index).mediaId == action.mediaId
-                ) {
-                    player.seekTo(action.index, 0L)
-                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
-                    player.play()
-                }
-            }
+            is ExternalPlaybackAction.QueueSelection -> playWidgetQueueOccurrence(action)
             ExternalPlaybackAction.Favorite ->
                 if (player.currentMediaItem != null) toggleSystemFavorite()
             ExternalPlaybackAction.Shuffle ->
@@ -1148,8 +1137,61 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    private fun playWidgetQueueOccurrence(action: ExternalPlaybackAction.QueueSelection) {
+        val logical = progressiveQueue.snapshot()
+        if (logical != null) {
+            val index = action.index
+            if (index !in logical.tracks.indices ||
+                logical.tracks[index].id.toString() != action.mediaId ||
+                logical.occurrenceIds.getOrNull(index)?.toString() != action.occurrenceId
+            ) return
+            if (activeCrossfade != null) cancelCrossfade("widget queue selection")
+            // Mirror QueueRepository.playAt: selecting a later manual Queue entry
+            // moves it to the next slot and preserves other pending manual songs.
+            val selectedIndex = if (
+                index > logical.currentIndex + 1 && progressiveQueue.isFixedOccurrence(index)
+            ) {
+                if (!progressiveQueue.move(index, logical.currentIndex + 1)) return
+                logical.currentIndex + 1
+            } else index
+            val plan = if (
+                selectedIndex > logical.currentIndex &&
+                logical.origins.getOrNull(index) ==
+                    dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
+            ) {
+                progressiveQueue.selectUpcomingNext(selectedIndex)
+            } else progressiveQueue.jumpTo(selectedIndex)
+            val now = progressiveQueue.snapshot() ?: return
+            if (plan == null) return
+            player.repeatMode = now.repeatMode.toPlayerRepeatMode(progressive = true)
+            player.setMediaItems(now.mediaItems(), plan.startIndexInWindow, 0L)
+            player.prepare()
+            player.play()
+            schedulePersist()
+            refreshPlaybackWidget()
+            return
+        }
+        // Non-progressive queues use direct Media3 positions only.
+        if (action.index in 0 until player.mediaItemCount &&
+            player.getMediaItemAt(action.index).mediaId == action.mediaId &&
+            action.occurrenceId == null
+        ) {
+            player.seekTo(action.index, 0L)
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            player.play()
+        }
+    }
+
     private fun refreshPlaybackWidget() {
-        val state = PlaybackWidgetState.fromPlayer(player).copy(isFavorite = currentFavorite)
+        val logical = progressiveQueue.snapshot()
+        val state = PlaybackWidgetState.fromPlayer(player).copy(
+            isFavorite = currentFavorite,
+            // QueueRoute uses this same logical snapshot. Media3 only exposes a
+            // small physical window and cannot serve as the widget's Queue source.
+            queueIndex = logical?.currentIndex ?: player.currentMediaItemIndex,
+            queueTotal = logical?.let { (it.tracks.size - it.currentIndex).coerceAtLeast(0) }
+                ?: (player.mediaItemCount - player.currentMediaItemIndex.coerceAtLeast(0)).coerceAtLeast(0),
+        )
         widgetRefreshJob?.cancel()
         widgetRefreshJob = serviceScope.launch(Dispatchers.IO) {
             runCatching { PlaybackWidgetProvider.updateAll(this@PlaybackService.applicationContext, state) }

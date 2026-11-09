@@ -41,6 +41,8 @@ enum class ColorThemePreference {
 }
 
 enum class LauncherIconColorSource { APP_THEME, WALLPAPER }
+/** Separate system-widget palette; APP follows the in-app appearance settings. */
+enum class WidgetThemeMode { APP, WALLPAPER, NOTHING }
 enum class PlayerAccentSource { GLOBAL, TRACK }
 enum class PlayerSeekBarStyle { WAVEFORM, CLASSIC }
 
@@ -60,6 +62,7 @@ data class AppearanceSettings(
     val playerSeekBarStyle: PlayerSeekBarStyle = PlayerSeekBarStyle.WAVEFORM,
     val launcherIconSource: LauncherIconColorSource = LauncherIconColorSource.APP_THEME,
     val spermerModeEnabled: Boolean = false,
+    val widgetTheme: WidgetThemeMode = WidgetThemeMode.APP,
 )
 
 /** Remembers the user's last Sleep Timer mode independently from the running timer. */
@@ -111,6 +114,7 @@ interface SettingsRepository {
     suspend fun setTelegramForwardDefaults(includeSourceAttribution: Boolean, keepCaption: Boolean)
     suspend fun setLibrarySortMode(mode: LibrarySortMode)
     suspend fun setLibraryGroupMode(mode: LibraryGroupMode)
+    suspend fun setWidgetTheme(mode: WidgetThemeMode)
     suspend fun setThemePreference(theme: ThemePreference)
     suspend fun setColorThemePreference(colorTheme: ColorThemePreference)
     /** Saves the opaque RGB seed and selects CUSTOM atomically. */

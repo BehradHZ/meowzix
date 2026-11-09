@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -42,6 +43,7 @@ data class PlaybackWidgetState(
     val mediaId: String? = null,
     val queueIndex: Int = -1,
     val queue: List<WidgetQueueTrack> = emptyList(),
+    val queueTotal: Int = queue.size,
 ) {
     val hasTrack: Boolean get() = !title.isNullOrBlank()
 
@@ -56,6 +58,7 @@ data class PlaybackWidgetState(
                 mediaId = item?.mediaId,
                 queueIndex = player.currentMediaItemIndex,
                 queue = player.widgetQueue(),
+                queueTotal = (player.mediaItemCount - player.currentMediaItemIndex.coerceAtLeast(0)).coerceAtLeast(0),
             )
         }
 
@@ -102,6 +105,16 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
+        fun requestAppearanceRefresh(context: Context) {
+            val manager = AppWidgetManager.getInstance(context)
+            val ids = manager.getAppWidgetIds(ComponentName(context, PlaybackWidgetProvider::class.java))
+            if (ids.isEmpty()) return
+            context.sendBroadcast(Intent(context, PlaybackWidgetProvider::class.java).apply {
+                action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+            })
+        }
+
         private fun ids(context: Context) = AppWidgetManager.getInstance(context).getAppWidgetIds(
             ComponentName(context, PlaybackWidgetProvider::class.java),
         )
@@ -160,7 +173,14 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                     controller = withTimeout(6_000L) { connecting.await() }
                     val live = PlaybackWidgetState.fromPlayer(controller)
                     val favorite = cached.mediaId == live.mediaId && cached.isFavorite
-                    val state = live.copy(isFavorite = favorite)
+                    val logical = widgetLogicalQueue(context)
+                    val state = live.copy(
+                        isFavorite = favorite,
+                        queueIndex = logical?.currentIndex ?: live.queueIndex,
+                        queueTotal = logical?.let {
+                            (it.tracks.size - it.currentIndex.coerceAtLeast(0)).coerceAtLeast(0)
+                        } ?: live.queueTotal,
+                    )
                     PlaybackWidgetSnapshotStore.save(context, state)
                     render(context, widgetIds, state)
                 } catch (_: Exception) {
@@ -177,6 +197,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
         }
 
         private suspend fun render(context: Context, widgetIds: IntArray, state: PlaybackWidgetState) {
+            val palette = widgetPalette(context)
             val artwork = withContext(Dispatchers.IO) {
                 state.artworkRef?.let { decodeArtwork(context, it, 192) }
             }
@@ -185,21 +206,40 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                 val views = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     RemoteViews(
                         mapOf(
-                            SizeF(250f, 118f) to buildViews(context, id, state, artwork, false),
-                            SizeF(250f, 205f) to buildViews(context, id, state, artwork, true),
+                            SizeF(40f, 70f) to narrowViews(context, id, state, artwork, palette),
+                            SizeF(190f, 105f) to buildViews(context, id, state, artwork, false, palette),
+                            SizeF(190f, 190f) to buildViews(context, id, state, artwork, true, palette),
                         ),
                     )
                 } else {
                     val opts = manager.getAppWidgetOptions(id)
+                    val width = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
                     val height = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 118)
-                    buildViews(context, id, state, artwork, height >= 190)
+                    if (width < 190) narrowViews(context, id, state, artwork, palette)
+                    else buildViews(context, id, state, artwork, height >= 190, palette)
                 }
                 manager.updateAppWidget(id, views)
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                    @Suppress("DEPRECATION")
-                    manager.notifyAppWidgetViewDataChanged(id, R.id.widget_queue)
-                }
+                @Suppress("DEPRECATION")
+                manager.notifyAppWidgetViewDataChanged(id, R.id.widget_queue)
             }
+        }
+
+        private fun narrowViews(
+            context: Context,
+            widgetId: Int,
+            state: PlaybackWidgetState,
+            artwork: Bitmap?,
+            palette: WidgetPalette,
+        ) = RemoteViews(context.packageName, R.layout.widget_playback_narrow).apply {
+            setOnClickPendingIntent(R.id.widget_artwork, openAppIntent(context))
+            setOnClickPendingIntent(R.id.widget_play_pause, control(context, widgetId, WidgetAction.PLAY_PAUSE))
+            if (artwork != null) setImageViewBitmap(R.id.widget_artwork, artwork)
+            else setImageViewResource(R.id.widget_artwork, R.drawable.meowzix_logo)
+            val model = state.toRenderModel()
+            setImageViewResource(R.id.widget_play_pause, model.playPauseIcon)
+            setContentDescription(R.id.widget_play_pause, model.playPauseDescription)
+            setContentDescription(R.id.widget_artwork, "${model.title} – ${model.artist}. Open player")
+            applyPalette(palette, narrow = true)
         }
 
         private fun buildViews(
@@ -208,6 +248,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             state: PlaybackWidgetState,
             artwork: Bitmap?,
             expanded: Boolean,
+            palette: WidgetPalette,
         ): RemoteViews = RemoteViews(context.packageName, R.layout.widget_playback).apply {
             val model = state.toRenderModel()
             val menu = PlaybackWidgetSnapshotStore.menuExpanded(context, widgetId)
@@ -243,11 +284,11 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             setViewVisibility(R.id.widget_overflow_actions, if (menu) View.VISIBLE else View.GONE)
 
             setViewVisibility(R.id.widget_queue_section, if (expanded) View.VISIBLE else View.GONE)
-            val items = state.queue
-            setTextViewText(R.id.widget_queue_heading, "QUEUE  ·  ${items.size} tracks")
-            setViewVisibility(R.id.widget_queue, if (items.isEmpty()) View.GONE else View.VISIBLE)
-            setViewVisibility(R.id.widget_queue_empty, if (items.isEmpty()) View.VISIBLE else View.GONE)
-            if (expanded && items.isNotEmpty()) {
+            val total = state.queueTotal
+            setTextViewText(R.id.widget_queue_heading, "QUEUE  ·  $total tracks")
+            setViewVisibility(R.id.widget_queue, if (total == 0) View.GONE else View.VISIBLE)
+            setViewVisibility(R.id.widget_queue_empty, if (total == 0) View.VISIBLE else View.GONE)
+            if (expanded && total > 0) {
                 val template = PendingIntent.getBroadcast(
                     context, 61000 + widgetId,
                     Intent(context, PlaybackWidgetActionReceiver::class.java).apply {
@@ -257,36 +298,72 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
                 )
                 setPendingIntentTemplate(R.id.widget_queue, template)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val builder = RemoteViews.RemoteCollectionItems.Builder()
-                        .setViewTypeCount(1)
-                        .setHasStableIds(true)
-                    items.forEach { item -> builder.addItem(item.index.toLong(), queueRow(context, state, item)) }
-                    setRemoteAdapter(R.id.widget_queue, builder.build())
-                } else {
-                    @Suppress("DEPRECATION")
-                    setRemoteAdapter(
-                        R.id.widget_queue,
-                        Intent(context, PlaybackWidgetQueueService::class.java).apply {
-                            data = Uri.parse("meowzix://widget/$widgetId/rows")
-                            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
-                        },
-                    )
+                // The service supplies the entire logical queue lazily, not only
+                // Media3's short materialized playback window.
+                @Suppress("DEPRECATION")
+                setRemoteAdapter(
+                    R.id.widget_queue,
+                    Intent(context, PlaybackWidgetQueueService::class.java).apply {
+                        data = Uri.parse("meowzix://widget/$widgetId/rows")
+                        putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+                    },
+                )
+            }
+            applyPalette(palette, narrow = false)
+        }
+
+        private fun RemoteViews.applyPalette(palette: WidgetPalette, narrow: Boolean) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setColorStateList(
+                    R.id.widget_root,
+                    "setBackgroundTintList",
+                    ColorStateList.valueOf(palette.background),
+                )
+                listOf(R.id.widget_play_pause).forEach { id ->
+                    setColorStateList(id, "setImageTintList", ColorStateList.valueOf(palette.accent))
                 }
+                if (!narrow) {
+                    listOf(
+                        R.id.widget_previous, R.id.widget_next, R.id.widget_more,
+                        R.id.widget_favorite, R.id.widget_forward,
+                        R.id.widget_shuffle, R.id.widget_repeat,
+                    ).forEach { id ->
+                        setColorStateList(id, "setImageTintList", ColorStateList.valueOf(palette.accent))
+                    }
+                }
+            }
+            if (!narrow) {
+                setTextColor(R.id.widget_title, palette.primary)
+                setTextColor(R.id.widget_artist, palette.secondary)
+                setTextColor(R.id.widget_queue_heading, palette.accent)
+                setTextColor(R.id.widget_queue_empty, palette.secondary)
             }
         }
 
-        internal fun queueRow(context: Context, state: PlaybackWidgetState, item: WidgetQueueTrack) =
+        internal fun queueRow(context: Context, currentIndex: Int, item: WidgetQueueTrack, palette: WidgetPalette) =
             RemoteViews(context.packageName, R.layout.widget_playback_queue_row).apply {
-                val current = item.index == state.queueIndex && item.mediaId == state.mediaId
+                val current = item.index == currentIndex
                 setTextViewText(R.id.widget_queue_position, if (current) "▶" else "${item.index + 1}")
                 setTextViewText(R.id.widget_queue_title, item.title)
-                setTextViewText(R.id.widget_queue_artist, if (current) "NOW PLAYING" else item.artist ?: "Unknown artist")
+                val label = if (current) "NOW PLAYING" else if (item.origin == "MANUAL") "QUEUE" else "NEXT"
+                setTextViewText(
+                    R.id.widget_queue_artist,
+                    if (current) label else "$label · ${item.artist ?: "Unknown artist"}",
+                )
+                setTextColor(R.id.widget_queue_title, palette.primary)
+                setTextColor(R.id.widget_queue_position, palette.accent)
+                setTextColor(R.id.widget_queue_artist, palette.secondary)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setColorStateList(R.id.widget_queue_row, "setBackgroundTintList", ColorStateList.valueOf(palette.background))
+                }
                 setOnClickFillInIntent(
                     R.id.widget_queue_row,
                     Intent().apply {
                         putExtra(PlaybackWidgetActionReceiver.EXTRA_QUEUE_INDEX, item.index)
                         putExtra(PlaybackWidgetActionReceiver.EXTRA_MEDIA_ID, item.mediaId)
+                        item.occurrenceId?.let {
+                            putExtra(PlaybackWidgetActionReceiver.EXTRA_OCCURRENCE_ID, it)
+                        }
                     },
                 )
             }

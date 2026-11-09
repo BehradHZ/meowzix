@@ -32,6 +32,7 @@ import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.settings.ThemePreference
+import dev.behradhz.meowzix.domain.settings.WidgetThemeMode
 import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
@@ -84,6 +85,7 @@ class DataStoreSettingsRepository @Inject constructor(
     override val appearanceSettings: Flow<AppearanceSettings> = safeData.map { values ->
         AppearanceSettings(
             theme = values[THEME].enumOrDefault(ThemePreference.SYSTEM),
+            widgetTheme = values[WIDGET_THEME].enumOrDefault(WidgetThemeMode.APP),
             colorTheme = values[COLOR_THEME].enumOrDefault(ColorThemePreference.MEOWZIX),
             customColorSeed = (values[CUSTOM_COLOR_SEED] ?: DEFAULT_CUSTOM_COLOR_SEED) or (0xFF shl 24),
             lyricsTextScalePercent = (values[LYRICS_TEXT_SCALE] ?: 100).coerceIn(80, 160),
@@ -204,6 +206,7 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setLibrarySortMode(mode: LibrarySortMode) = setEnum(LIBRARY_SORT_MODE, mode)
     override suspend fun setLibraryGroupMode(mode: LibraryGroupMode) = setEnum(LIBRARY_GROUP_MODE, mode)
+    override suspend fun setWidgetTheme(mode: WidgetThemeMode) = setEnum(WIDGET_THEME, mode)
     override suspend fun setThemePreference(theme: ThemePreference) = setEnum(THEME, theme)
     override suspend fun setColorThemePreference(colorTheme: ColorThemePreference) = setEnum(COLOR_THEME, colorTheme)
     override suspend fun setCustomColorSeed(argb: Int) {
@@ -243,6 +246,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val LIBRARY_SORT_MODE = stringPreferencesKey("library_sort_mode")
         val LIBRARY_GROUP_MODE = stringPreferencesKey("library_group_mode")
         val THEME = stringPreferencesKey("theme_preference")
+        val WIDGET_THEME = stringPreferencesKey("widget_theme_mode")
         val COLOR_THEME = stringPreferencesKey("color_theme_preference")
         val CUSTOM_COLOR_SEED = intPreferencesKey("custom_color_seed")
         val LYRICS_TEXT_SCALE = intPreferencesKey("lyrics_text_scale_percent")

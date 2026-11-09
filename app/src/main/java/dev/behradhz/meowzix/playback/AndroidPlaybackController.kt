@@ -60,6 +60,7 @@ class AndroidPlaybackController @Inject constructor(
     private val queueActionFeedbackBus: QueueActionFeedbackBus,
     private val settings: SettingsRepository,
 ) : PlaybackController, QueueRepository {
+    private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(PlaybackState(status = PlaybackStatus.PREPARING))
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
@@ -1014,6 +1015,9 @@ class AndroidPlaybackController @Inject constructor(
                     repeatMode = logical.repeatMode,
                 )
                 lastPublishedLogicalQueue = logical
+                // QueueRoute and the widget must consume the same revision, including
+                // manual/Next changes beyond Media3's short physical timeline.
+                dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)
             }
         } else {
             lastPublishedLogicalQueue = null
