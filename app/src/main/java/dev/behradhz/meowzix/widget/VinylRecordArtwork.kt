@@ -8,7 +8,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.net.Uri
@@ -22,11 +21,11 @@ import kotlinx.coroutines.withContext
  * Draw the user's artwork as a circular record: dark outer rim, etched grooves,
  * glossy highlights and a central spindle. The entire composited bitmap rotates.
  *
- * At 192x192, partial widget updates stay bounded to a small Binder payload.
+ * At 288x288, widget updates stay bounded to a moderate Binder payload.
  * Rendering and artwork decoding never run on the UI thread.
  */
 internal object VinylRecordArtwork {
-    private const val SIZE = 192
+    private const val SIZE = 288
     private const val STEP_DEGREES = 16f
     private val lock = Any()
     private var base: Bitmap? = null

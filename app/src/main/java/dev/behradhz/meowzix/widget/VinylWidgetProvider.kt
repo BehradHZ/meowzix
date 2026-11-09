@@ -28,8 +28,9 @@ import kotlinx.coroutines.withTimeout
 @OptIn(markerClass = [UnstableApi::class])
 class VinylWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        val saved = PlaybackWidgetSnapshotStore.load(context)
         ids.forEach { id ->
-            manager.updateAppWidget(id, views(context, id, PlaybackWidgetState.Empty, null))
+            manager.updateAppWidget(id, views(context, id, saved, null))
         }
         val pending = goAsync()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -42,10 +43,13 @@ class VinylWidgetProvider : AppWidgetProvider() {
                     SessionToken(context, ComponentName(context, PlaybackService::class.java)),
                 ).buildAsync()
                 future = connecting
-                controller = withTimeout(5_000L) { connecting.await() }
-                updateAll(context, PlaybackWidgetState.fromPlayer(controller))
+                controller = withTimeout(6_000L) { connecting.await() }
+                val state = PlaybackWidgetState.fromPlayer(controller)
+                updateAll(context, state.copy(
+                    isFavorite = saved.mediaId == state.mediaId && saved.isFavorite,
+                ))
             } catch (_: Exception) {
-                // A disconnected session leaves a safe open-player fallback.
+                // Keep the last usable record instead of blanking the widget.
             } finally {
                 if (controller != null) controller.release() else future?.let(MediaController::releaseFuture)
                 pending.finish()
@@ -66,6 +70,7 @@ class VinylWidgetProvider : AppWidgetProvider() {
             val widgetIds = ids(context)
             if (widgetIds.isEmpty()) return
             val record = VinylRecordArtwork.prepare(context, state.artworkRef)
+            PlaybackWidgetSnapshotStore.save(context, state)
             latestState = state
             val manager = AppWidgetManager.getInstance(context)
             widgetIds.forEach { id ->
@@ -88,20 +93,26 @@ class VinylWidgetProvider : AppWidgetProvider() {
             widgetId: Int,
             state: PlaybackWidgetState,
             record: Bitmap?,
-        ) = RemoteViews(context.packageName, R.layout.widget_vinyl).apply {
-            setOnClickPendingIntent(R.id.vinyl_widget_root, openPlayer(context))
+        ) = RemoteViews(context.packageName, R.layout.widget_vinyl_disc_only).apply {
+            // Do not bind a click to the root or disc: some launchers route every
+            // child touch to the root activity PendingIntent, swallowing controls.
+            // The nine transparent cells in widget_vinyl.xml own every hit region.
+            val open = openPlayer(context)
+            setOnClickPendingIntent(R.id.vinyl_widget_open_top_left, open)
+            setOnClickPendingIntent(R.id.vinyl_widget_open_top_right, open)
+            setOnClickPendingIntent(R.id.vinyl_widget_open_bottom_left, open)
+            setOnClickPendingIntent(R.id.vinyl_widget_open_bottom_right, open)
             setOnClickPendingIntent(R.id.vinyl_widget_center, tap(context, widgetId, VinylZone.CENTER))
             setOnClickPendingIntent(R.id.vinyl_widget_left, tap(context, widgetId, VinylZone.LEFT))
             setOnClickPendingIntent(R.id.vinyl_widget_right, tap(context, widgetId, VinylZone.RIGHT))
             setOnClickPendingIntent(R.id.vinyl_widget_top, tap(context, widgetId, VinylZone.TOP))
             setOnClickPendingIntent(R.id.vinyl_widget_bottom, tap(context, widgetId, VinylZone.BOTTOM))
             if (record != null) setImageViewBitmap(R.id.vinyl_widget_disc, record)
-            else setImageViewResource(R.id.vinyl_widget_disc, R.drawable.meowzix_logo)
-            setImageViewResource(
+            else setImageViewResource(R.id.vinyl_widget_disc, R.drawable.widget_vinyl_placeholder)
+            setContentDescription(
                 R.id.vinyl_widget_center,
-                if (state.isPlaying) R.drawable.widget_pause else R.drawable.widget_play,
+                if (state.isPlaying) "Pause" else "Play",
             )
-            setContentDescription(R.id.vinyl_widget_center, if (state.isPlaying) "Pause" else "Play")
             setContentDescription(
                 R.id.vinyl_widget_disc,
                 state.title?.let { "$it vinyl record" } ?: "Meowzix vinyl record",

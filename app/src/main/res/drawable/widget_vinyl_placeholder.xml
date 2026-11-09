@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Circular placeholder until album art is available; transparent everywhere else. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="192dp"
+    android:height="192dp"
+    android:viewportWidth="192"
+    android:viewportHeight="192">
+    <path android:fillColor="#151821"
+        android:pathData="M96,3 A93,93 0,1 1,96 189 A93,93 0,1 1,96 3 Z" />
+    <path android:strokeColor="#71808B9C"
+        android:strokeWidth="1.1"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M96,8 A88,88 0,1 1,96 184 A88,88 0,1 1,96 8 Z
+                         M96,15 A81,81 0,1 1,96 177 A81,81 0,1 1,96 15 Z
+                         M96,22 A74,74 0,1 1,96 170 A74,74 0,1 1,96 22 Z
+                         M96,29 A67,67 0,1 1,96 163 A67,67 0,1 1,96 29 Z" />
+    <path android:fillColor="#2F394F"
+        android:pathData="M96,56 A40,40 0,1 1,96 136 A40,40 0,1 1,96 56 Z" />
+    <path android:fillColor="#C4CDD8"
+        android:pathData="M96,90 A6,6 0,1 1,96 102 A6,6 0,1 1,96 90 Z" />
+    <path android:fillColor="#151821"
+        android:pathData="M96,94 A2,2 0,1 1,96 98 A2,2 0,1 1,96 94 Z" />
+</vector>

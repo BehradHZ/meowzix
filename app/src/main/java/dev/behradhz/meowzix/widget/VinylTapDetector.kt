@@ -5,7 +5,7 @@ package dev.behradhz.meowzix.widget
  * hotspot within the threshold count as one double tap. A single directional tap
  * deliberately does nothing, so it cannot accidentally skip or favorite a song.
  */
-internal class VinylTapDetector(private val maxIntervalMs: Long = 450L) {
+internal class VinylTapDetector(private val maxIntervalMs: Long = 650L) {
     private var previousWidgetId: Int = -1
     private var previousZone: String? = null
     private var previousTimeMs: Long = Long.MIN_VALUE

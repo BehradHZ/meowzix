@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -35,7 +36,10 @@ class VinylWidgetActionReceiver : BroadcastReceiver() {
             it.name == intent.getStringExtra(EXTRA_ZONE)
         } ?: return
         val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1)
-        if (id < 0 || !VinylWidgetProvider.hasWidgets(context)) return
+        val validWidgets = AppWidgetManager.getInstance(context).getAppWidgetIds(
+            ComponentName(context, VinylWidgetProvider::class.java),
+        )
+        if (id !in validWidgets) return
 
         val doubleTap = detector.register(id, zone.name, SystemClock.elapsedRealtime())
         if (zone != VinylZone.CENTER && !doubleTap) return
@@ -51,10 +55,12 @@ class VinylWidgetActionReceiver : BroadcastReceiver() {
                     SessionToken(context, ComponentName(context, PlaybackService::class.java)),
                 ).buildAsync()
                 future = connecting
-                controller = withTimeout(5_000L) { connecting.await() }
+                controller = withTimeout(6_000L) { connecting.await() }
                 when (zone) {
                     VinylZone.CENTER -> if (controller.isCommandAvailable(Player.COMMAND_PLAY_PAUSE)) {
-                        if (controller.isPlaying) controller.pause() else controller.play()
+                        if (controller.playWhenReady &&
+                            controller.playbackState != Player.STATE_ENDED
+                        ) controller.pause() else controller.play()
                     }
                     VinylZone.LEFT ->
                         if (controller.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) &&
@@ -69,8 +75,9 @@ class VinylWidgetActionReceiver : BroadcastReceiver() {
                         if (controller.currentMediaItem != null)
                             controller.dispatchVinylCommand(ACTION_FORWARD)
                 }
-            } catch (_: Exception) {
-                // Session unavailable: no phantom playback commands.
+            } catch (error: Exception) {
+                // A failed gesture must never open the app in place of its action.
+                Log.w(TAG, "Vinyl widget action failed: $zone", error)
             } finally {
                 if (controller != null) controller.release() else future?.let(MediaController::releaseFuture)
                 pending.finish()
@@ -83,6 +90,7 @@ class VinylWidgetActionReceiver : BroadcastReceiver() {
         const val ACTION_TAP = "dev.behradhz.meowzix.widget.VINYL_TAP"
         const val EXTRA_ZONE = "vinyl_zone"
         private const val ACTION_FORWARD = "dev.behradhz.meowzix.action.OPEN_TELEGRAM_FORWARD"
+        private const val TAG = "MeowzixVinylWidget"
         private val detector = VinylTapDetector()
     }
 }

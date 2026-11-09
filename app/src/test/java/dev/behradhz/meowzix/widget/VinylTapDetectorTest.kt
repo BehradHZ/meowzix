@@ -22,6 +22,14 @@ class VinylTapDetectorTest {
         assertTrue(detector.register(2, "RIGHT", 1400L))
     }
 
+    @Test fun slowerLauncherTapsCanStillBeRecognized() {
+        val detector = VinylTapDetector()
+        assertFalse(detector.register(12, "BOTTOM", 10_000L))
+        assertTrue(detector.register(12, "BOTTOM", 10_590L))
+        assertFalse(detector.register(12, "BOTTOM", 11_000L))
+        assertFalse(detector.register(12, "BOTTOM", 11_651L))
+    }
+
     @Test fun clockResetCannotTriggerAnAccidentalAction() {
         val detector = VinylTapDetector()
         assertFalse(detector.register(1, "TOP", 1000L))
