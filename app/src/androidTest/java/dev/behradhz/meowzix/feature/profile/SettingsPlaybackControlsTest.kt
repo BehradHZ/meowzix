@@ -4,7 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -74,7 +74,7 @@ class SettingsPlaybackControlsTest {
             }
         }
         compose.onNodeWithTag("settings-live-update-placeholder").assertIsDisplayed()
-        compose.onNodeWithTag("settings-live-update-controls").assertDoesNotExist()
+        assertEquals(0, compose.onAllNodesWithTag("settings-live-update-controls").fetchSemanticsNodes().size)
         compose.runOnIdle { setSong?.invoke(); setStyle?.invoke() }
         compose.onNodeWithTag("settings-live-update-track").assertIsDisplayed()
         compose.onNodeWithTag("settings-live-update-controls").assertIsDisplayed()
