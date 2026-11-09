@@ -265,8 +265,8 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             setOnClickPendingIntent(R.id.widget_shuffle, control(context, widgetId, WidgetAction.SHUFFLE))
             setOnClickPendingIntent(R.id.widget_repeat, control(context, widgetId, WidgetAction.REPEAT))
 
-            setTextViewText(R.id.widget_title, model.title)
-            setTextViewText(R.id.widget_artist, model.artist)
+            setTextViewText(R.id.widget_title, widgetStyledText(model.title, palette))
+            setTextViewText(R.id.widget_artist, widgetStyledText(model.artist, palette))
             if (artwork != null) setImageViewBitmap(R.id.widget_artwork, artwork)
             else setImageViewResource(R.id.widget_artwork, R.drawable.meowzix_logo)
             setImageViewResource(R.id.widget_play_pause, model.playPauseIcon)
@@ -285,7 +285,10 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
 
             setViewVisibility(R.id.widget_queue_section, if (expanded) View.VISIBLE else View.GONE)
             val total = state.queueTotal
-            setTextViewText(R.id.widget_queue_heading, "QUEUE  ·  $total tracks")
+            setTextViewText(
+                R.id.widget_queue_heading,
+                widgetStyledText(if (palette.monochrome) "●  QUEUE  $total" else "QUEUE  ·  $total tracks", palette),
+            )
             setViewVisibility(R.id.widget_queue, if (total == 0) View.GONE else View.VISIBLE)
             setViewVisibility(R.id.widget_queue_empty, if (total == 0) View.VISIBLE else View.GONE)
             if (expanded && total > 0) {
@@ -344,11 +347,14 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             RemoteViews(context.packageName, R.layout.widget_playback_queue_row).apply {
                 val current = item.index == currentIndex
                 setTextViewText(R.id.widget_queue_position, if (current) "▶" else "${item.index + 1}")
-                setTextViewText(R.id.widget_queue_title, item.title)
+                setTextViewText(R.id.widget_queue_title, widgetStyledText(item.title, palette))
                 val label = if (current) "NOW PLAYING" else if (item.origin == "MANUAL") "QUEUE" else "NEXT"
                 setTextViewText(
                     R.id.widget_queue_artist,
-                    if (current) label else "$label · ${item.artist ?: "Unknown artist"}",
+                    widgetStyledText(
+                        if (current) label else "$label · ${item.artist ?: "Unknown artist"}",
+                        palette,
+                    ),
                 )
                 setTextColor(R.id.widget_queue_title, palette.primary)
                 setTextColor(R.id.widget_queue_position, palette.accent)

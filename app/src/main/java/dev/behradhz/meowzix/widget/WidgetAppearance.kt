@@ -3,6 +3,9 @@ package dev.behradhz.meowzix.widget
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.TypefaceSpan
 import android.os.Build
 import androidx.core.graphics.ColorUtils
 import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
@@ -17,6 +20,7 @@ internal data class WidgetPalette(
     val primary: Int,
     val secondary: Int,
     val accent: Int,
+    val monochrome: Boolean = false,
 )
 
 internal suspend fun widgetPalette(context: Context): WidgetPalette =
@@ -33,6 +37,7 @@ internal fun deriveWidgetPalette(context: Context, settings: AppearanceSettings)
             primary = Color.WHITE,
             secondary = Color.rgb(194, 194, 194),
             accent = Color.WHITE,
+            monochrome = true,
         )
     }
     val useWallpaper = settings.widgetTheme == WidgetThemeMode.WALLPAPER ||
@@ -73,3 +78,9 @@ internal fun deriveWidgetPalette(context: Context, settings: AppearanceSettings)
         )
     }
 }
+
+/** Nothing-style compact typography without custom system font files. */
+internal fun widgetStyledText(text: String, palette: WidgetPalette): CharSequence =
+    if (!palette.monochrome) text else SpannableString(text).apply {
+        setSpan(TypefaceSpan("monospace"), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }

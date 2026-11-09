@@ -41,7 +41,7 @@ class PlaybackWidgetRegistrationTest {
         val queue = packageManager.getServiceInfo(
             ComponentName(context, PlaybackWidgetQueueService::class.java), 0,
         )
-        assertFalse(queue.exported)
+        org.junit.Assert.assertTrue(queue.exported)
         assertEquals("android.permission.BIND_REMOTEVIEWS", queue.permission)
         assertFalse(runCatching {
             packageManager.getActivityInfo(

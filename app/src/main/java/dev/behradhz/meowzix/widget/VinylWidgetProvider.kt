@@ -15,9 +15,6 @@ import android.util.SizeF
 import android.util.TypedValue
 import kotlin.math.min
 
-/** Always fit a centered circle within the actual widget bounds, including 1x1 and 3x4. */
-internal fun vinylDiameter(widthDp: Float, heightDp: Float): Float =
-    (min(widthDp, heightDp) - 8f).coerceAtLeast(32f)
 import android.widget.RemoteViews
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
@@ -34,6 +31,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+
+/** Always fit a centered circle within the actual widget bounds, including 1x1 and 3x4. */
+internal fun vinylDiameter(widthDp: Float, heightDp: Float): Float =
+    (min(widthDp, heightDp) - 8f).coerceAtLeast(32f)
 
 @OptIn(markerClass = [UnstableApi::class])
 class VinylWidgetProvider : AppWidgetProvider() {
@@ -90,11 +91,18 @@ class VinylWidgetProvider : AppWidgetProvider() {
             val widgetIds = ids(context)
             if (widgetIds.isEmpty()) return
             val record = VinylRecordArtwork.prepare(context, state.artworkRef)
-            PlaybackWidgetSnapshotStore.save(context, state)
-            latestState = state
+            val logical = widgetLogicalQueue(context)
+            val completeState = state.copy(
+                queueIndex = logical?.currentIndex ?: state.queueIndex,
+                queueTotal = logical?.let {
+                    (it.tracks.size - it.currentIndex.coerceAtLeast(0)).coerceAtLeast(0)
+                } ?: state.queueTotal,
+            )
+            PlaybackWidgetSnapshotStore.save(context, completeState)
+            latestState = completeState
             val manager = AppWidgetManager.getInstance(context)
             widgetIds.forEach { id ->
-                manager.updateAppWidget(id, responsiveViews(context, id, state, record))
+                manager.updateAppWidget(id, responsiveViews(context, id, completeState, record))
             }
         }
 

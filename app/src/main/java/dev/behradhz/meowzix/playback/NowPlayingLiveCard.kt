@@ -104,8 +104,11 @@ internal class NowPlayingLiveCard(
             .setOngoing(true)
             .setShowWhen(false)
 
-        player.currentMediaItem?.mediaMetadata?.artworkUri?.toString()?.let(::artworkThumbnail)
-            ?.let { artwork -> builder.setLargeIcon(artwork) }
+        val cover = metadata?.artworkUri?.toString()?.let(::artworkThumbnail)
+            ?: metadata?.artworkData?.let { bytes ->
+                artworkDataThumbnail(player.currentMediaItem?.mediaId.orEmpty(), bytes)
+            }
+        cover?.let { artwork -> builder.setLargeIcon(artwork) }
 
         // Android 16+ renders a real promoted ProgressStyle bar. Earlier Android
         // versions use the standard notification progress indicator instead.
@@ -158,6 +161,22 @@ internal class NowPlayingLiveCard(
             manager.cancel(NOTIFICATION_ID)
             lastState = null
         }
+    }
+
+    private fun artworkDataThumbnail(mediaId: String, bytes: ByteArray): Bitmap? {
+        val key = "embedded:$mediaId"
+        if (key == cachedArtRef) return cachedArtwork
+        cachedArtRef = key
+        cachedArtwork = runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+            var sample = 1
+            while (bounds.outWidth / sample > 128 || bounds.outHeight / sample > 128) sample *= 2
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
+                BitmapFactory.Options().apply { inSampleSize = sample })
+        }.getOrNull()
+        return cachedArtwork
     }
 
     private fun artworkThumbnail(ref: String): Bitmap? {
@@ -323,6 +342,11 @@ private fun liveSongActionIcon(action: LiveSongAction): Int = when (action) {
     LiveSongAction.REPEAT -> R.drawable.live_song_repeat
 }
 
-private fun liveSongActionLabel(action: LiveSongAction): String =
-    if (action == LiveSongAction.PAUSE) "⏸"
-    else action.name.lowercase().replaceFirstChar(Char::uppercase)
+private fun liveSongActionLabel(action: LiveSongAction): String = when (action) {
+    LiveSongAction.PREVIOUS -> "⏮ Previous"
+    LiveSongAction.PAUSE -> "⏸"
+    LiveSongAction.NEXT -> "⏭ Next"
+    LiveSongAction.FAVORITE -> "♥ Favorite"
+    LiveSongAction.SHUFFLE -> "⇄ Shuffle"
+    LiveSongAction.REPEAT -> "↻ Repeat"
+}
