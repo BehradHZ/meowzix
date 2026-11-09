@@ -113,6 +113,27 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             render(context, ids(context), state)
         }
 
+        fun hasWidgets(context: Context) = ids(context).isNotEmpty()
+
+        /**
+         * Lightweight text-only ticker for long track titles. RemoteViews marquee cannot
+         * reliably acquire focus from launcher hosts; this works without custom views.
+         */
+        fun advanceTitle(context: Context) {
+            val active = ids(context)
+            if (active.isEmpty()) return
+            val state = PlaybackWidgetSnapshotStore.load(context, assumePaused = false)
+            val title = state.title?.takeIf(String::isNotBlank) ?: return
+            if (!state.isPlaying) return
+            val window = PlaybackWidgetTitleTicker.next(state.mediaId, title)
+            if (window == title) return
+            val update = RemoteViews(context.packageName, R.layout.widget_playback).apply {
+                setTextViewText(R.id.widget_title, window)
+            }
+            // Text-only partial actions are safe; bitmap updates always use full updates.
+            AppWidgetManager.getInstance(context).partiallyUpdateAppWidget(active, update)
+        }
+
         suspend fun refreshCached(context: Context, widgetId: Int) {
             render(context, intArrayOf(widgetId), PlaybackWidgetSnapshotStore.load(context, assumePaused = false))
         }

@@ -233,6 +233,7 @@ class PlaybackService : MediaLibraryService() {
     private var persistJob: Job? = null
     private var widgetRefreshJob: Job? = null
     private var vinylAnimationJob: Job? = null
+    private var widgetTitleScrollJob: Job? = null
     private var playbackRetryJob: Job? = null
     private var retryMediaId: String? = null
     private var remoteFallbackMediaId: String? = null
@@ -964,6 +965,7 @@ class PlaybackService : MediaLibraryService() {
         normalizationRefreshJob?.cancel()
         widgetRefreshJob?.cancel()
         vinylAnimationJob?.cancel()
+        widgetTitleScrollJob?.cancel()
         mediaSession.release()
         player.release()
         serviceScope.cancel()
@@ -1104,6 +1106,28 @@ class PlaybackService : MediaLibraryService() {
             runCatching { VinylWidgetProvider.updateAll(this@PlaybackService.applicationContext, state) }
         }
         refreshVinylAnimation()
+        refreshWidgetTitleTicker()
+    }
+
+    private fun refreshWidgetTitleTicker() {
+        val context = applicationContext
+        if (!player.isPlaying || !PlaybackWidgetProvider.hasWidgets(context)) {
+            widgetTitleScrollJob?.cancel()
+            widgetTitleScrollJob = null
+            return
+        }
+        if (widgetTitleScrollJob?.isActive == true) return
+        widgetTitleScrollJob = serviceScope.launch {
+            val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+            while (isActive && player.isPlaying && PlaybackWidgetProvider.hasWidgets(context)) {
+                delay(3_800L)
+                if (power.isInteractive) {
+                    withContext(Dispatchers.Default) {
+                        runCatching { PlaybackWidgetProvider.advanceTitle(context) }
+                    }
+                }
+            }
+        }
     }
 
     /** Low-resolution rotation only while a visible screen can display an active widget. */
