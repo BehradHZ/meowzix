@@ -30,7 +30,21 @@ internal data class WidgetPalette(
     val monochrome: Boolean = false,
     val style: WidgetVisualStyle = WidgetVisualStyle.CLASSIC,
     val controlBackground: Int = background,
+    val opacityPercent: Int = 100,
 )
+
+/** Apply alpha only to the widget's surface, never to its icons or text. */
+internal fun widgetSurfaceColor(color: Int, opacityPercent: Int): Int {
+    val alpha = ((opacityPercent.coerceIn(0, 100) * 255) + 50) / 100
+    return (color and 0x00FFFFFF) or (alpha shl 24)
+}
+
+internal val WidgetPalette.surfaceColor: Int
+    get() = widgetSurfaceColor(background, opacityPercent)
+
+/** A subtle row surface that respects the parent's independently configured alpha. */
+internal val WidgetPalette.rowSurfaceColor: Int
+    get() = widgetSurfaceColor(controlBackground, opacityPercent * 14 / 100)
 
 /**
  * Resolve the EXACT same Material 3 color roles as MeowzixTheme.
@@ -93,7 +107,7 @@ internal suspend fun widgetPalette(context: Context, widgetId: Int): WidgetPalet
         settings,
         WidgetInstancePreferences.theme(context, widgetId),
         WidgetInstancePreferences.style(context, widgetId),
-    )
+    ).copy(opacityPercent = WidgetInstancePreferences.opacity(context, widgetId))
 }
 
 /** Nothing-style typography uses the system monospace font, not a bundled font file. */

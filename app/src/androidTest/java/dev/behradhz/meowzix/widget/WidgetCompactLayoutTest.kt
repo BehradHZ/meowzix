@@ -28,8 +28,8 @@ class WidgetCompactLayoutTest {
             R.layout.widget_playback, FrameLayout(context), false,
         )
         val density = context.resources.displayMetrics.density
-        val width = (260f * density).roundToInt()
-        val height = (48f * density).roundToInt()
+        val width = (360f * density).roundToInt()
+        val height = (64f * density).roundToInt()
         root.measure(
             View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
@@ -54,6 +54,43 @@ class WidgetCompactLayoutTest {
                 assertTrue("Transport control must provide a 44dp click target",
                     root.findViewById<View>(id).width >= minTouchWidth)
             }
+    }
+
+    @Test fun mainTransportKeepsItsHeightAcrossWidgetResizes() {
+        val density = context.resources.displayMetrics.density
+        val width = (380f * density).roundToInt()
+        val expected = (56f * density).roundToInt()
+        for (heightDp in listOf(68f, 130f, 260f)) {
+            val root = LayoutInflater.from(context).inflate(
+                R.layout.widget_playback, FrameLayout(context), false,
+            )
+            root.findViewById<View>(R.id.widget_queue_section).visibility =
+                if (heightDp >= 130f) View.VISIBLE else View.GONE
+            val height = (heightDp * density).roundToInt()
+            root.measure(
+                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+            )
+            root.layout(0, 0, width, height)
+            assertEquals(
+                "The primary transport row must not shrink as queue height grows",
+                expected,
+                root.findViewById<View>(R.id.widget_primary_row).height,
+            )
+        }
+    }
+
+    @Test fun everyUpcomingSongCardOccupiesExactlyOneIconHeight() {
+        val root = LayoutInflater.from(context).inflate(
+            R.layout.widget_playback_queue_row, FrameLayout(context), false,
+        )
+        val density = context.resources.displayMetrics.density
+        root.measure(
+            View.MeasureSpec.makeMeasureSpec((340f * density).roundToInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((300f * density).roundToInt(), View.MeasureSpec.AT_MOST),
+        )
+        assertEquals((56f * density).roundToInt(), root.measuredHeight)
+        assertEquals(View.GONE, root.findViewById<View>(R.id.widget_queue_position).visibility)
     }
 
     @Test fun eachCompactWidthHasAnActualPlayControl() {

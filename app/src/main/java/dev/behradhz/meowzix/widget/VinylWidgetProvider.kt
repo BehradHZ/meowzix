@@ -40,15 +40,21 @@ internal fun vinylDiameter(widthDp: Float, heightDp: Float): Float =
 class VinylWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         val saved = PlaybackWidgetSnapshotStore.load(context)
-        ids.forEach { id ->
-            manager.updateAppWidget(id, responsiveViews(context, id, saved, VinylRecordArtwork.snapshotFrame()))
-        }
         val pending = goAsync()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         scope.launch {
             var controller: MediaController? = null
             var future: ListenableFuture<MediaController>? = null
             try {
+                // A settings change must redraw the cached record even when
+                // connecting a paused MediaController times out.
+                val palettes = ids.associateWith { id -> widgetPalette(context, id) }
+                latestPalettes = latestPalettes + palettes
+                ids.forEach { id ->
+                    manager.updateAppWidget(
+                        id, responsiveViews(context, id, saved, VinylRecordArtwork.snapshotFrame()),
+                    )
+                }
                 val connecting = MediaController.Builder(
                     context,
                     SessionToken(context, ComponentName(context, PlaybackService::class.java)),
@@ -197,6 +203,12 @@ class VinylWidgetProvider : AppWidgetProvider() {
             setOnClickPendingIntent(R.id.vinyl_widget_bottom, tap(context, widgetId, VinylZone.BOTTOM))
             if (record != null) setImageViewBitmap(R.id.vinyl_widget_disc, record)
             else setImageViewResource(R.id.vinyl_widget_disc, R.drawable.widget_vinyl_placeholder)
+            // The vinyl has no rectangular surface; opacity controls only the
+            // disc artwork. Its invisible touch zones remain fully interactive.
+            setInt(
+                R.id.vinyl_widget_disc, "setImageAlpha",
+                ((WidgetInstancePreferences.opacity(context, widgetId) * 255) + 50) / 100,
+            )
             setContentDescription(
                 R.id.vinyl_widget_center,
                 if (state.isPlaying) "Pause" else "Play",

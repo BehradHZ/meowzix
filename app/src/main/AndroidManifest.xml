@@ -316,6 +316,7 @@
              Changes are allowed only for a bound widget ID belonging to Meowzix. -->
         <activity
             android:name=".widget.WidgetConfigurationActivity"
+            android:theme="@style/Theme.Meowzix.WidgetConfiguration"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />

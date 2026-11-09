@@ -15,6 +15,7 @@ data class WidgetInstance(
     val kind: WidgetKind,
     val theme: WidgetThemeMode,
     val style: WidgetVisualStyle,
+    val opacityPercent: Int = 100,
 )
 
 object WidgetInstancePreferences {
@@ -32,13 +33,17 @@ object WidgetInstancePreferences {
         return WidgetVisualStyle.entries.firstOrNull { it.name == stored } ?: WidgetVisualStyle.CLASSIC
     }
 
+    /** 0 = fully transparent background, 100 = opaque; individual widgets differ. */
+    fun opacity(context: Context, widgetId: Int): Int =
+        prefs(context).getInt("opacity_$widgetId", 100).coerceIn(0, 100)
+
     fun installed(context: Context): List<WidgetInstance> {
         val manager = AppWidgetManager.getInstance(context)
         return WidgetKind.entries.flatMap { kind ->
             val provider = if (kind == WidgetKind.VINYL)
                 VinylWidgetProvider::class.java else PlaybackWidgetProvider::class.java
             manager.getAppWidgetIds(ComponentName(context, provider)).map { id ->
-                WidgetInstance(id, kind, theme(context, id), style(context, id))
+                WidgetInstance(id, kind, theme(context, id), style(context, id), opacity(context, id))
             }
         }.sortedWith(compareBy(WidgetInstance::kind, WidgetInstance::id))
     }
@@ -55,11 +60,36 @@ object WidgetInstancePreferences {
         refresh(context, kind, id)
     }
 
+    fun setOpacity(context: Context, kind: WidgetKind, id: Int, percent: Int) {
+        if (installed(context).none { it.id == id && it.kind == kind }) return
+        prefs(context).edit().putInt("opacity_$id", percent.coerceIn(0, 100)).apply()
+        refresh(context, kind, id)
+    }
+
+    /** Save all controls together to avoid three consecutive launcher redraws. */
+    fun saveAppearance(
+        context: Context,
+        kind: WidgetKind,
+        id: Int,
+        theme: WidgetThemeMode,
+        style: WidgetVisualStyle,
+        opacityPercent: Int,
+    ) {
+        if (installed(context).none { it.id == id && it.kind == kind }) return
+        prefs(context).edit()
+            .putString("theme_$id", theme.name)
+            .putString("style_$id", style.name)
+            .putInt("opacity_$id", opacityPercent.coerceIn(0, 100))
+            .apply()
+        refresh(context, kind, id)
+    }
+
     fun remove(context: Context, ids: IntArray) {
         val editor = prefs(context).edit()
         ids.forEach { id ->
             editor.remove("theme_$id")
             editor.remove("style_$id")
+            editor.remove("opacity_$id")
         }
         editor.apply()
     }

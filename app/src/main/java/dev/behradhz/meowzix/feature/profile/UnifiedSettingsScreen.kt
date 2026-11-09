@@ -312,6 +312,7 @@ fun UnifiedSettingsScreen(
                             installed = widgetInstances,
                             onTheme = viewModel::setInstanceTheme,
                             onStyle = viewModel::setInstanceStyle,
+                            onOpacity = viewModel::setInstanceOpacity,
                         )
                     }
                 }

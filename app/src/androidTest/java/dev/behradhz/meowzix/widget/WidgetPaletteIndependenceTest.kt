@@ -40,6 +40,20 @@ class WidgetPaletteIndependenceTest {
         assertEquals(WidgetVisualStyle.MINIMAL, nothing.style)
     }
 
+    @Test fun widgetOpacityChangesOnlySurfaceAlphaNotForegroundColors() {
+        val base = deriveWidgetPalette(
+            context,
+            AppearanceSettings(theme = ThemePreference.DARK),
+            WidgetThemeMode.NOTHING,
+        )
+        assertEquals(255, Color.alpha(base.copy(opacityPercent = 100).surfaceColor))
+        assertEquals(128, Color.alpha(base.copy(opacityPercent = 50).surfaceColor))
+        assertEquals(0, Color.alpha(base.copy(opacityPercent = 0).surfaceColor))
+        assertEquals(base.primary, base.copy(opacityPercent = 0).primary)
+        assertEquals(base.accent, base.copy(opacityPercent = 0).accent)
+        assertEquals(0, Color.alpha(base.copy(opacityPercent = 0).rowSurfaceColor))
+    }
+
     @Test fun twoWidgetIdsReadTheirOwnPersistedSettings() {
         val first = 91453
         val second = 91454
@@ -49,11 +63,15 @@ class WidgetPaletteIndependenceTest {
                 .putString("theme_$second", WidgetThemeMode.WALLPAPER.name)
                 .putString("style_$first", WidgetVisualStyle.MINIMAL.name)
                 .putString("style_$second", WidgetVisualStyle.CLASSIC.name)
+                .putInt("opacity_$first", 30)
+                .putInt("opacity_$second", 85)
                 .commit()
             assertEquals(WidgetThemeMode.NOTHING, WidgetInstancePreferences.theme(context, first))
             assertEquals(WidgetThemeMode.WALLPAPER, WidgetInstancePreferences.theme(context, second))
             assertEquals(WidgetVisualStyle.MINIMAL, WidgetInstancePreferences.style(context, first))
             assertEquals(WidgetVisualStyle.CLASSIC, WidgetInstancePreferences.style(context, second))
+            assertEquals(30, WidgetInstancePreferences.opacity(context, first))
+            assertEquals(85, WidgetInstancePreferences.opacity(context, second))
         } finally {
             WidgetInstancePreferences.remove(context, intArrayOf(first, second))
         }

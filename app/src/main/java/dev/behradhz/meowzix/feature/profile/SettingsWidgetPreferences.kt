@@ -3,11 +3,20 @@ package dev.behradhz.meowzix.feature.profile
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Slider
+import androidx.compose.ui.Alignment
+import kotlin.math.roundToInt
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -23,6 +32,7 @@ internal fun SettingsWidgetPreferences(
     installed: List<WidgetInstance>,
     onTheme: (WidgetInstance, WidgetThemeMode) -> Unit,
     onStyle: (WidgetInstance, WidgetVisualStyle) -> Unit,
+    onOpacity: (WidgetInstance, Int) -> Unit,
 ) {
     if (installed.isEmpty()) {
         Text(
@@ -77,6 +87,34 @@ internal fun SettingsWidgetPreferences(
                     if (selected == classic) WidgetVisualStyle.CLASSIC else WidgetVisualStyle.MINIMAL,
                 )
             }
+            SettingsRowDivider()
+            var opacityDraft by remember(instance.id, instance.opacityPercent) {
+                mutableIntStateOf(instance.opacityPercent)
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (instance.kind == WidgetKind.VINYL) "Vinyl opacity" else "Background opacity",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    "${opacityDraft}%",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Slider(
+                value = opacityDraft.toFloat(),
+                onValueChange = { opacityDraft = (it / 5f).roundToInt().coerceIn(0, 20) * 5 },
+                onValueChangeFinished = { onOpacity(instance, opacityDraft) },
+                valueRange = 0f..100f,
+                steps = 19,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            )
         }
     }
 }

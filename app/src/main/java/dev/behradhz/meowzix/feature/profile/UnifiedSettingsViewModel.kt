@@ -146,6 +146,12 @@ class UnifiedSettingsViewModel @Inject constructor(
         WidgetInstancePreferences.setStyle(appContext, instance.kind, instance.id, style)
         refreshWidgetInstances()
     }
+    fun setInstanceOpacity(instance: WidgetInstance, opacityPercent: Int) {
+        WidgetInstancePreferences.setOpacity(
+            appContext, instance.kind, instance.id, opacityPercent,
+        )
+        refreshWidgetInstances()
+    }
 
     private val _storageUsage = MutableStateFlow<ManagedStorageUsage?>(null)
     val storageUsage = _storageUsage.asStateFlow()

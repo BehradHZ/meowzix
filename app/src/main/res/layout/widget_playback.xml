@@ -6,24 +6,26 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:gravity="center_vertical"
+    android:clipToOutline="true"
+    android:clipChildren="true"
     android:background="@drawable/widget_playback_background"
-    android:paddingStart="7dp"
-    android:paddingEnd="7dp"
-    android:paddingTop="2dp"
-    android:paddingBottom="2dp">
+    android:paddingStart="9dp"
+    android:paddingEnd="9dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
 
     <LinearLayout
         android:id="@+id/widget_primary_row"
         android:layout_width="match_parent"
-        android:layout_height="44dp"
+        android:layout_height="56dp"
+        android:baselineAligned="false"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
         <ImageView
             android:id="@+id/widget_artwork"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="@drawable/widget_artwork_frame"
             android:clipToOutline="true"
             android:contentDescription="Open player"
@@ -48,7 +50,7 @@
                 android:singleLine="true"
                 android:text="Nothing playing"
                 android:textColor="#FFFFFFFF"
-                android:textSize="13sp"
+                android:textSize="12sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -59,7 +61,7 @@
                 android:singleLine="true"
                 android:text="Open Meowzix"
                 android:textColor="#CDFFFFFF"
-                android:textSize="11sp" />
+                android:textSize="10sp" />
         </LinearLayout>
 
         <FrameLayout
@@ -154,7 +156,9 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:paddingTop="2dp"
+        android:paddingTop="4dp"
+        android:clipChildren="true"
+        android:clipToPadding="true"
         android:visibility="gone">
         <TextView
             android:id="@+id/widget_queue_heading"
@@ -173,9 +177,9 @@
             android:layout_weight="1"
             android:background="@android:color/transparent"
             android:cacheColorHint="@android:color/transparent"
-            android:clipToPadding="false"
+            android:clipToPadding="true"
             android:divider="@android:color/transparent"
-            android:dividerHeight="2dp"
+            android:dividerHeight="0dp"
             android:fadeScrollbars="true"
             android:scrollbars="vertical" />
         <TextView

@@ -212,8 +212,8 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                     // track title; narrower widgets use the compact view.
                     width < 285f -> mediumViews(context, id, state, artwork, palette)
                     else -> buildViews(
-                        context, id, state, artwork, height >= 90f, palette,
-                        showQueueHeading = height >= 150f,
+                        context, id, state, artwork, height >= 124f, palette,
+                        showQueueHeading = height >= 180f,
                     )
                 }
                 val options = manager.getAppWidgetOptions(id)
@@ -328,7 +328,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             val total = state.queueTotal
             setTextViewText(
                 R.id.widget_queue_heading,
-                widgetStyledText(if (palette.monochrome) "●  QUEUE  $total" else "QUEUE  ·  $total tracks", palette),
+                widgetStyledText("UP NEXT  ·  $total", palette),
             )
             setViewVisibility(R.id.widget_queue, if (total == 0) View.GONE else View.VISIBLE)
             setViewVisibility(R.id.widget_queue_empty, if (total == 0) View.VISIBLE else View.GONE)
@@ -367,7 +367,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
                 setColorStateList(
                     R.id.widget_root,
                     "setBackgroundTintList",
-                    ColorStateList.valueOf(palette.background),
+                    ColorStateList.valueOf(palette.surfaceColor),
                 )
                 setColorStateList(
                     R.id.widget_play_pause, "setImageTintList",
@@ -393,7 +393,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             } else {
                 // Legacy RemoteViews lacks ColorStateList actions; preserve the
                 // actual palette even when the launcher can't tint a rounded shape.
-                setInt(R.id.widget_root, "setBackgroundColor", palette.background)
+                setInt(R.id.widget_root, "setBackgroundColor", palette.surfaceColor)
             }
             if (layoutId != R.layout.widget_playback_narrow) {
                 setTextColor(R.id.widget_title, palette.primary)
@@ -407,22 +407,22 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
 
         internal fun queueRow(context: Context, currentIndex: Int, item: WidgetQueueTrack, palette: WidgetPalette) =
             RemoteViews(context.packageName, R.layout.widget_playback_queue_row).apply {
-                val current = item.index == currentIndex
-                setTextViewText(R.id.widget_queue_position, if (current) "▶" else "${item.index + 1}")
                 setTextViewText(R.id.widget_queue_title, widgetStyledText(item.title, palette))
-                val label = if (current) "NOW PLAYING" else if (item.origin == "MANUAL") "QUEUE" else "NEXT"
+                // This row is always an upcoming song; repeat origin/position labels
+                // consume width without adding useful information.
                 setTextViewText(
                     R.id.widget_queue_artist,
-                    widgetStyledText(
-                        if (current) label else "$label · ${item.artist ?: "Unknown artist"}",
-                        palette,
-                    ),
+                    widgetStyledText(item.artist ?: "Unknown artist", palette),
                 )
                 setTextColor(R.id.widget_queue_title, palette.primary)
                 setTextColor(R.id.widget_queue_position, palette.accent)
                 setTextColor(R.id.widget_queue_artist, palette.secondary)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    setColorStateList(R.id.widget_queue_row, "setBackgroundTintList", ColorStateList.valueOf(palette.background))
+                    setColorStateList(
+                        R.id.widget_queue_row,
+                        "setBackgroundTintList",
+                        ColorStateList.valueOf(palette.rowSurfaceColor),
+                    )
                 }
                 setOnClickFillInIntent(
                     R.id.widget_queue_row,
