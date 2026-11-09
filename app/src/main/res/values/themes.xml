@@ -8,7 +8,6 @@
     <!-- Do not inherit the light Status Bar flags while the Compose widget UI is dark. -->
     <style name="Theme.Meowzix.WidgetConfiguration" parent="Theme.Meowzix">
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:statusBarColor">#121212</item>
         <item name="android:navigationBarColor">#121212</item>
     </style>
