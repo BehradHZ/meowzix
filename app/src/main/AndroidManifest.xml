@@ -299,6 +299,15 @@
         </receiver>
 
         <receiver
+            android:name=".widget.PlaybackWidgetActionReceiver"
+            android:exported="false" />
+
+        <service
+            android:name=".widget.PlaybackWidgetQueueService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
+
+        <receiver
             android:name=".widget.PlaybackWidgetProvider"
             android:exported="true">
             <intent-filter>

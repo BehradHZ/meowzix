@@ -14,7 +14,7 @@ import org.junit.Test
 @RunWith(AndroidJUnit4::class)
 class PlaybackWidgetRegistrationTest {
     @Test
-    fun compactPlaybackWidgetRemainsAndVinylIsUnregistered() {
+    fun bothWidgetsAndCollectionProviderAreRegistered() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val packageManager = context.packageManager
         val playback = packageManager.getReceiverInfo(
@@ -26,13 +26,23 @@ class PlaybackWidgetRegistrationTest {
             playback.metaData.getInt("android.appwidget.provider"),
         )
 
-        // These class names must no longer be exposed to Android after app upgrade.
-        assertFalse(runCatching {
-            packageManager.getReceiverInfo(
-                ComponentName(context.packageName, "${context.packageName}.widget.VinylWidgetProvider"),
-                PackageManager.GET_META_DATA,
-            )
-        }.isSuccess)
+        val vinyl = packageManager.getReceiverInfo(
+            ComponentName(context, VinylWidgetProvider::class.java),
+            PackageManager.GET_META_DATA,
+        )
+        assertEquals(
+            R.xml.meowzix_vinyl_widget_info,
+            vinyl.metaData.getInt("android.appwidget.provider"),
+        )
+        val actions = packageManager.getReceiverInfo(
+            ComponentName(context, PlaybackWidgetActionReceiver::class.java), 0,
+        )
+        assertFalse(actions.exported)
+        val queue = packageManager.getServiceInfo(
+            ComponentName(context, PlaybackWidgetQueueService::class.java), 0,
+        )
+        assertFalse(queue.exported)
+        assertEquals("android.permission.BIND_REMOTEVIEWS", queue.permission)
         assertFalse(runCatching {
             packageManager.getActivityInfo(
                 ComponentName(context.packageName, "${context.packageName}.widget.VinylGestureActivity"),
