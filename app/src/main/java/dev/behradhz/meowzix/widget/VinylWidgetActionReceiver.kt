@@ -5,30 +5,21 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.os.Bundle
 import android.os.SystemClock
-import android.util.Log
-import androidx.annotation.OptIn
-import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionToken
-import com.google.common.util.concurrent.ListenableFuture
-import dev.behradhz.meowzix.playback.LiveSongSessionActions
-import dev.behradhz.meowzix.playback.PlaybackService
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.guava.await
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
+import dev.behradhz.meowzix.playback.ExternalPlaybackAction
+import dev.behradhz.meowzix.playback.ExternalPlaybackDispatcher
 
 internal enum class VinylZone { CENTER, LEFT, RIGHT, TOP, BOTTOM }
 
-/** Explicit, non-exported receiver: no separate player or direct database writes. */
-@OptIn(markerClass = [UnstableApi::class])
+internal fun VinylZone.toExternalPlaybackAction(): ExternalPlaybackAction = when (this) {
+    VinylZone.CENTER -> ExternalPlaybackAction.TogglePlayPause
+    VinylZone.LEFT -> ExternalPlaybackAction.Previous
+    VinylZone.RIGHT -> ExternalPlaybackAction.Next
+    VinylZone.TOP -> ExternalPlaybackAction.Favorite
+    VinylZone.BOTTOM -> ExternalPlaybackAction.Forward
+}
+
+/** Explicit, non-exported receiver; gesture zones are invisible but independently clickable. */
 class VinylWidgetActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != ACTION_TAP) return
@@ -36,68 +27,20 @@ class VinylWidgetActionReceiver : BroadcastReceiver() {
             it.name == intent.getStringExtra(EXTRA_ZONE)
         } ?: return
         val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1)
-        val validWidgets = AppWidgetManager.getInstance(context).getAppWidgetIds(
+        val validIds = AppWidgetManager.getInstance(context).getAppWidgetIds(
             ComponentName(context, VinylWidgetProvider::class.java),
         )
-        if (id !in validWidgets) return
+        if (id !in validIds) return
 
         val doubleTap = detector.register(id, zone.name, SystemClock.elapsedRealtime())
         if (zone != VinylZone.CENTER && !doubleTap) return
 
-        val pending = goAsync()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-        scope.launch {
-            var controller: MediaController? = null
-            var future: ListenableFuture<MediaController>? = null
-            try {
-                val connecting = MediaController.Builder(
-                    context,
-                    SessionToken(context, ComponentName(context, PlaybackService::class.java)),
-                ).buildAsync()
-                future = connecting
-                controller = withTimeout(6_000L) { connecting.await() }
-                when (zone) {
-                    VinylZone.CENTER -> if (controller.isCommandAvailable(Player.COMMAND_PLAY_PAUSE)) {
-                        if (controller.playWhenReady &&
-                            controller.playbackState != Player.STATE_ENDED
-                        ) controller.pause() else controller.play()
-                    }
-                    VinylZone.LEFT ->
-                        if (controller.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) &&
-                            controller.hasPreviousMediaItem()) controller.seekToPreviousMediaItem()
-                    VinylZone.RIGHT ->
-                        if (controller.isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) &&
-                            controller.hasNextMediaItem()) controller.seekToNextMediaItem()
-                    VinylZone.TOP ->
-                        if (controller.currentMediaItem != null)
-                            controller.dispatchVinylCommand(LiveSongSessionActions.FAVORITE)
-                    VinylZone.BOTTOM ->
-                        if (controller.currentMediaItem != null)
-                            controller.dispatchVinylCommand(ACTION_FORWARD)
-                }
-            } catch (error: Exception) {
-                // A failed gesture must never open the app in place of its action.
-                Log.w(TAG, "Vinyl widget action failed: $zone", error)
-            } finally {
-                if (controller != null) controller.release() else future?.let(MediaController::releaseFuture)
-                pending.finish()
-                scope.cancel()
-            }
-        }
+        ExternalPlaybackDispatcher.enqueue(context, zone.toExternalPlaybackAction(), goAsync())
     }
 
     companion object {
         const val ACTION_TAP = "dev.behradhz.meowzix.widget.VINYL_TAP"
         const val EXTRA_ZONE = "vinyl_zone"
-        private const val ACTION_FORWARD = "dev.behradhz.meowzix.action.OPEN_TELEGRAM_FORWARD"
-        private const val TAG = "MeowzixVinylWidget"
         private val detector = VinylTapDetector()
-    }
-}
-
-private suspend fun MediaController.dispatchVinylCommand(action: String) {
-    val command = SessionCommand(action, Bundle.EMPTY)
-    if (isSessionCommandAvailable(command)) {
-        withTimeout(5_000L) { sendCustomCommand(command, Bundle.EMPTY).await() }
     }
 }

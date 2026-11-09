@@ -770,6 +770,7 @@ class PlaybackService : MediaLibraryService() {
             .setSessionActivity(openPlayerIntent)
             .setMediaButtonPreferences(mediaButtons())
             .build()
+        PlaybackServiceBridge.register(this)
 
         // Always monitor for the first frame of another app's MEDIA/GAME playback.
         // Automatic restart remains opt-in, but the early pause is unconditional.
@@ -950,6 +951,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: ControllerInfo): MediaLibrarySession = mediaSession
 
     override fun onDestroy() {
+        PlaybackServiceBridge.unregister(this)
         liveSongTransitionRetry.cancel()
         liveSongCard?.cancel()
         audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
@@ -1096,6 +1098,54 @@ class PlaybackService : MediaLibraryService() {
             player, liveSongCardEnabled, liveSongCardStyle, liveSongLeftAction,
             liveSongRightAction, currentFavorite, forceRefresh = forceRefresh,
         )
+    }
+
+    /**
+     * Single in-process control entry point for the two widgets and the Live Song card.
+     * Always runs on the application's main looper; uses the same authoritative
+     * ExoPlayer and business actions as the MediaSession.
+     */
+    internal fun executeExternalPlaybackAction(action: ExternalPlaybackAction) {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        when (action) {
+            ExternalPlaybackAction.TogglePlayPause -> {
+                if (player.playWhenReady && player.playbackState != Player.STATE_ENDED) {
+                    player.pause()
+                } else if (player.currentMediaItem != null) {
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                    player.play()
+                }
+            }
+            ExternalPlaybackAction.Pause -> player.pause()
+            ExternalPlaybackAction.Previous -> {
+                if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem()
+            }
+            ExternalPlaybackAction.Next -> {
+                if (player.hasNextMediaItem()) player.seekToNextMediaItem()
+            }
+            is ExternalPlaybackAction.QueueSelection -> {
+                // The queue may have changed while a launcher was displaying an old
+                // row. Never seek to a different song at the same stale index.
+                if (action.mediaId.isNotBlank() &&
+                    action.index in 0 until player.mediaItemCount &&
+                    player.getMediaItemAt(action.index).mediaId == action.mediaId
+                ) {
+                    player.seekTo(action.index, 0L)
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                    player.play()
+                }
+            }
+            ExternalPlaybackAction.Favorite ->
+                if (player.currentMediaItem != null) toggleSystemFavorite()
+            ExternalPlaybackAction.Shuffle ->
+                if (player.currentMediaItem != null) toggleSystemShuffle()
+            ExternalPlaybackAction.Repeat ->
+                if (player.currentMediaItem != null) cycleSystemRepeat()
+            ExternalPlaybackAction.Forward ->
+                if (player.currentMediaItem != null && !openTelegramForwardPicker()) {
+                    Log.w(TAG, "Forward control could not open Telegram picker")
+                }
+        }
     }
 
     private fun refreshPlaybackWidget() {
