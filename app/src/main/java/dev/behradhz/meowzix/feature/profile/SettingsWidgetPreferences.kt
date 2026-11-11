@@ -55,9 +55,9 @@ internal fun SettingsWidgetPreferences(
                 style = MaterialTheme.typography.titleSmall,
             )
             // Keep legacy in-app controls compatible with launcher configuration:
-            // Vinyl has three color treatments and only the record visual style.
+            // Vinyl has four color treatments and only the record visual style.
             val modes = if (instance.kind == WidgetKind.VINYL)
-                listOf("App accent", "Wallpaper accent", "Full color")
+                listOf("App accent", "Wallpaper accent", "Full color", "Black & white")
             else listOf("App theme", "Wallpaper", "Nothing monochrome")
             SettingsChoiceRow(
                 "Color theme",
@@ -67,14 +67,14 @@ internal fun SettingsWidgetPreferences(
                     WidgetThemeMode.APP -> modes[0]
                     WidgetThemeMode.WALLPAPER -> modes[1]
                     WidgetThemeMode.NOTHING -> modes.last()
-                    WidgetThemeMode.FULL_COLOR -> modes.last()
+                    WidgetThemeMode.FULL_COLOR -> if (instance.kind == WidgetKind.VINYL) modes[2] else modes[0]
                 },
                 modes,
             ) { selected ->
                 onTheme(instance, when (selected) {
                     modes[1] -> WidgetThemeMode.WALLPAPER
-                    modes.last() -> if (instance.kind == WidgetKind.VINYL)
-                        WidgetThemeMode.FULL_COLOR else WidgetThemeMode.NOTHING
+                    modes.last() -> WidgetThemeMode.NOTHING
+                    "Full color" -> WidgetThemeMode.FULL_COLOR
                     else -> WidgetThemeMode.APP
                 })
             }
