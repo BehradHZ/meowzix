@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -45,11 +46,16 @@ class SettingsPlaybackControlsTest {
             var selected by remember { mutableStateOf(RepeatMode.OFF) }
             MeowzixTheme { SettingsRepeatCycleRow(selected) { selected = it; result = it } }
         }
+        compose.onNodeWithTag("settings-repeat-icon-OFF").assertIsDisplayed()
+        compose.onNodeWithText("Tap to cycle: Off · One · All").assertDoesNotExist()
         compose.onNodeWithTag("settings-repeat-cycle").performClick()
+        compose.onNodeWithTag("settings-repeat-icon-ONE").assertIsDisplayed()
         compose.runOnIdle { assertEquals(RepeatMode.ONE, result) }
         compose.onNodeWithTag("settings-repeat-cycle").performClick()
+        compose.onNodeWithTag("settings-repeat-icon-ALL").assertIsDisplayed()
         compose.runOnIdle { assertEquals(RepeatMode.ALL, result) }
         compose.onNodeWithTag("settings-repeat-cycle").performClick()
+        compose.onNodeWithTag("settings-repeat-icon-OFF").assertIsDisplayed()
         compose.runOnIdle { assertEquals(RepeatMode.OFF, result) }
     }
 
