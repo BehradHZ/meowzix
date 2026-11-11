@@ -431,9 +431,9 @@ internal fun SettingsChoiceRow(
                         selected = option.equals(current, ignoreCase = true),
                         onClick = { onChoice(option) },
                         label = { Text(label, maxLines = 1) },
-                        leadingIcon = optionIcon?.let { iconFor ->
-                            { Icon(iconFor(option), contentDescription = null, modifier = Modifier.size(17.dp)) }
-                        },
+                        leadingIcon = if (optionIcon != null) {
+                            { Icon(optionIcon(option), contentDescription = null, modifier = Modifier.size(17.dp)) }
+                        } else null,
                     )
                 }
             }
