@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Favorite
@@ -42,6 +41,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -113,32 +115,66 @@ internal fun SettingsPlaybackModeSelector(selected: PlaybackMode, onSelect: (Pla
 
 @Composable
 internal fun SettingsRepeatCycleRow(selected: RepeatMode, onSelect: (RepeatMode) -> Unit) {
+    val off = selected == RepeatMode.OFF
     val icon = if (selected == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat
-    val name = selected.name.lowercase().replaceFirstChar(Char::uppercase)
+    val label = selected.name.lowercase().replaceFirstChar(Char::uppercase)
+    val tint = if (off) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.52f)
+        else MaterialTheme.colorScheme.primary
+
+    // Keep the whole row tappable while treating Off as visually inactive.
     Surface(
         onClick = { onSelect(nextRepeatMode(selected)) },
         modifier = Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 11.dp)
-            .heightIn(min = 58.dp).testTag("settings-repeat-cycle"),
+            .heightIn(min = 58.dp).testTag("settings-repeat-cycle")
+            .semantics { stateDescription = label },
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.17f)),
+        color = if (off) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.20f)
+            else MaterialTheme.colorScheme.primary.copy(alpha = 0.11f),
+        border = BorderStroke(
+            1.dp,
+            if (off) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
+            else MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+        ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(23.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Default repeat", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Text("Tap to cycle: Off · One · All", fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Text(name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("settings-repeat-value"))
-            Icon(Icons.Rounded.ChevronRight, contentDescription = null, modifier = Modifier.size(17.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(23.dp).testTag("settings-repeat-icon-${selected.name}")
+                    .drawWithContent {
+                        drawContent()
+                        if (off) {
+                            // Clearly distinguish Off from the ordinary Repeat All icon.
+                            drawLine(
+                                color = tint,
+                                start = Offset(size.width * 0.14f, size.height * 0.86f),
+                                end = Offset(size.width * 0.86f, size.height * 0.14f),
+                                strokeWidth = 2.4.dp.toPx(),
+                                cap = StrokeCap.Round,
+                            )
+                        }
+                    },
+            )
+            Text(
+                "Default repeat",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = if (off) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (off) FontWeight.Medium else FontWeight.SemiBold,
+                color = tint,
+                modifier = Modifier.testTag("settings-repeat-value"),
+            )
         }
     }
 }
@@ -317,7 +353,7 @@ private fun LivePreviewControl(action: LiveSongSideAction, tag: String) {
     }
 }
 
-private fun livePreviewActionIcon(action: LiveSongSideAction): ImageVector = when (action) {
+internal fun livePreviewActionIcon(action: LiveSongSideAction): ImageVector = when (action) {
     LiveSongSideAction.PREVIOUS -> Icons.Rounded.SkipPrevious
     LiveSongSideAction.NEXT -> Icons.Rounded.SkipNext
     LiveSongSideAction.FAVORITE -> Icons.Rounded.Favorite
