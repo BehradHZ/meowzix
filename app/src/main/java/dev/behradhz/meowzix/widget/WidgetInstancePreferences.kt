@@ -8,7 +8,15 @@ import dev.behradhz.meowzix.domain.settings.WidgetThemeMode
 
 /** Widget instances are independent even when multiple copies of the same type exist. */
 enum class WidgetKind { VINYL, PLAYBACK }
+// MINIMAL remains for Playback widgets; Vinyl always uses the actual record.
 enum class WidgetVisualStyle { CLASSIC, MINIMAL }
+
+internal fun widgetStyleFor(kind: WidgetKind, requested: WidgetVisualStyle): WidgetVisualStyle =
+    if (kind == WidgetKind.VINYL) WidgetVisualStyle.CLASSIC else requested
+
+internal fun widgetThemeFor(kind: WidgetKind, requested: WidgetThemeMode): WidgetThemeMode =
+    if (kind == WidgetKind.VINYL && requested == WidgetThemeMode.NOTHING) WidgetThemeMode.APP
+    else requested
 
 data class WidgetInstance(
     val id: Int,
@@ -25,12 +33,25 @@ object WidgetInstancePreferences {
 
     fun theme(context: Context, widgetId: Int): WidgetThemeMode {
         val stored = prefs(context).getString("theme_$widgetId", null)
-        return WidgetThemeMode.entries.firstOrNull { it.name == stored } ?: WidgetThemeMode.APP
+        val requested = WidgetThemeMode.entries.firstOrNull { it.name == stored } ?: WidgetThemeMode.APP
+        val kind = widgetKind(context, widgetId)
+        return kind?.let { widgetThemeFor(it, requested) } ?: requested
     }
 
     fun style(context: Context, widgetId: Int): WidgetVisualStyle {
         val stored = prefs(context).getString("style_$widgetId", null)
-        return WidgetVisualStyle.entries.firstOrNull { it.name == stored } ?: WidgetVisualStyle.CLASSIC
+        val requested = WidgetVisualStyle.entries.firstOrNull { it.name == stored } ?: WidgetVisualStyle.CLASSIC
+        val kind = widgetKind(context, widgetId)
+        return kind?.let { widgetStyleFor(it, requested) } ?: requested
+    }
+
+    private fun widgetKind(context: Context, id: Int): WidgetKind? {
+        val provider = AppWidgetManager.getInstance(context).getAppWidgetInfo(id)?.provider
+        return when (provider?.className) {
+            VinylWidgetProvider::class.java.name -> WidgetKind.VINYL
+            PlaybackWidgetProvider::class.java.name -> WidgetKind.PLAYBACK
+            else -> null
+        }
     }
 
     /** 0 = fully transparent background, 100 = opaque; individual widgets differ. */
@@ -50,13 +71,13 @@ object WidgetInstancePreferences {
 
     fun setTheme(context: Context, kind: WidgetKind, id: Int, value: WidgetThemeMode) {
         if (installed(context).none { it.id == id && it.kind == kind }) return
-        prefs(context).edit().putString("theme_$id", value.name).apply()
+        prefs(context).edit().putString("theme_$id", widgetThemeFor(kind, value).name).apply()
         refresh(context, kind, id)
     }
 
     fun setStyle(context: Context, kind: WidgetKind, id: Int, value: WidgetVisualStyle) {
         if (installed(context).none { it.id == id && it.kind == kind }) return
-        prefs(context).edit().putString("style_$id", value.name).apply()
+        prefs(context).edit().putString("style_$id", widgetStyleFor(kind, value).name).apply()
         refresh(context, kind, id)
     }
 
@@ -77,8 +98,8 @@ object WidgetInstancePreferences {
     ) {
         if (installed(context).none { it.id == id && it.kind == kind }) return
         prefs(context).edit()
-            .putString("theme_$id", theme.name)
-            .putString("style_$id", style.name)
+            .putString("theme_$id", widgetThemeFor(kind, theme).name)
+            .putString("style_$id", widgetStyleFor(kind, style).name)
             .putInt("opacity_$id", opacityPercent.coerceIn(0, 100))
             .apply()
         refresh(context, kind, id)
