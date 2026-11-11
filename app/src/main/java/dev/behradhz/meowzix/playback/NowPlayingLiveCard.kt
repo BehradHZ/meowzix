@@ -343,16 +343,16 @@ private fun liveSongActionIcon(action: LiveSongAction): Int = when (action) {
 }
 
 /**
- * Standard Android notification actions require a visible, nonempty title on
- * some OEM SystemUI builds. An invisible word-joiner made the entire action row
- * disappear. Use a single typographic symbol, never an emoji or word label,
- * alongside each real vector drawable. SystemUI controls final presentation.
+ * Some Android 16/OEM ProgressStyle layouts display the action title instead of
+ * the supplied vector icon. Use actual transport symbols with text presentation,
+ * never chevrons or lookalike letterforms (‹ / Ⅱ / ›). Vector drawables remain
+ * attached to the actions for SystemUI variants that display them.
  */
 internal fun liveSongActionLabel(action: LiveSongAction): String = when (action) {
-    LiveSongAction.PREVIOUS -> "‹"
-    LiveSongAction.PAUSE -> "Ⅱ"
-    LiveSongAction.NEXT -> "›"
-    LiveSongAction.FAVORITE -> "♥"
-    LiveSongAction.SHUFFLE -> "⇄"
-    LiveSongAction.REPEAT -> "↻"
+    LiveSongAction.PREVIOUS -> "\u23EE\uFE0E" // Previous track (⏮︎)
+    LiveSongAction.PAUSE -> "\u23F8\uFE0E" // Pause (⏸︎)
+    LiveSongAction.NEXT -> "\u23ED\uFE0E" // Next track (⏭︎)
+    LiveSongAction.FAVORITE -> "\u2665\uFE0E" // Favorite
+    LiveSongAction.SHUFFLE -> "\uD83D\uDD00\uFE0E" // Shuffle
+    LiveSongAction.REPEAT -> "\uD83D\uDD01\uFE0E" // Repeat
 }
