@@ -66,7 +66,7 @@ internal fun deriveWidgetPalette(
             secondary = Color.rgb(202, 202, 202),
             accent = Color.WHITE,
             monochrome = true,
-            vinylColorMode = WidgetThemeMode.APP,
+            vinylColorMode = WidgetThemeMode.NOTHING,
             style = style,
             controlBackground = Color.rgb(49, 49, 49),
         )
