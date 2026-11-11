@@ -142,7 +142,6 @@ fun UnifiedSettingsScreen(
     val storageUsage by viewModel.storageUsage.collectAsStateWithLifecycle()
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val hasCurrentTrack by viewModel.hasCurrentTrack.collectAsStateWithLifecycle()
-    val widgetInstances by viewModel.widgetInstances.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var includeHistoryInBackup by remember { mutableStateOf(false) }
@@ -153,9 +152,6 @@ fun UnifiedSettingsScreen(
     var pendingIconSource by remember { mutableStateOf<LauncherIconColorSource?>(null) }
     var versionTaps by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(enabled = selectedCategory != null) { selectedCategory = null }
-    LaunchedEffect(selectedCategory) {
-        if (selectedCategory == SettingsCategory.APPEARANCE) viewModel.refreshWidgetInstances()
-    }
     val telegramConnected = telegramAuth.step is TelegramAuthStep.Ready
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -298,21 +294,6 @@ fun UnifiedSettingsScreen(
                             Icons.Rounded.Animation,
                             state.appearance.reduceMotion,
                             viewModel::setReduceMotion,
-                        )
-                    }
-                }
-                item(key = "appearance-widget-settings") {
-                    SettingsGlassSection(
-                        hazeState,
-                        "Home screen widgets",
-                        "Set color theme and visual style for each widget independently",
-                        Icons.Rounded.Palette,
-                    ) {
-                        SettingsWidgetPreferences(
-                            installed = widgetInstances,
-                            onTheme = viewModel::setInstanceTheme,
-                            onStyle = viewModel::setInstanceStyle,
-                            onOpacity = viewModel::setInstanceOpacity,
                         )
                     }
                 }
@@ -753,16 +734,17 @@ fun UnifiedSettingsScreen(
     pendingIconSource?.let { chosen ->
         AlertDialog(
             onDismissRequest = { pendingIconSource = null },
-            title = { Text("Restart Meowzix?") },
+            title = { Text("Change app icon?") },
             text = {
-                Text("Restart the app now to apply the " +
-                    if (chosen == LauncherIconColorSource.WALLPAPER) "Wallpaper icon?" else "App theme icon?")
+                Text("Apply the " +
+                    (if (chosen == LauncherIconColorSource.WALLPAPER) "Wallpaper" else "App theme") +
+                    " icon without restarting. Your launcher may take a moment to refresh.")
             },
             confirmButton = {
                 TextButton(onClick = {
                     pendingIconSource = null
                     onApplyLauncherIcon(chosen)
-                }) { Text("Restart & apply") }
+                }) { Text("Apply") }
             },
             dismissButton = {
                 TextButton(onClick = { pendingIconSource = null }) { Text("Cancel") }
