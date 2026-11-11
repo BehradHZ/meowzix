@@ -11,8 +11,8 @@ class WidgetVinylAppearanceRulesTest {
         assertEquals(WidgetVisualStyle.MINIMAL, widgetStyleFor(WidgetKind.PLAYBACK, WidgetVisualStyle.MINIMAL))
     }
 
-    @Test fun legacyNothingThemeMigratesOnlyOnVinyl() {
-        assertEquals(WidgetThemeMode.APP, widgetThemeFor(WidgetKind.VINYL, WidgetThemeMode.NOTHING))
+    @Test fun vinylSupportsBlackAndWhiteAlongsideOtherColorModes() {
+        assertEquals(WidgetThemeMode.NOTHING, widgetThemeFor(WidgetKind.VINYL, WidgetThemeMode.NOTHING))
         assertEquals(WidgetThemeMode.NOTHING, widgetThemeFor(WidgetKind.PLAYBACK, WidgetThemeMode.NOTHING))
         assertEquals(WidgetThemeMode.FULL_COLOR, widgetThemeFor(WidgetKind.VINYL, WidgetThemeMode.FULL_COLOR))
         assertEquals(WidgetThemeMode.WALLPAPER, widgetThemeFor(WidgetKind.VINYL, WidgetThemeMode.WALLPAPER))
