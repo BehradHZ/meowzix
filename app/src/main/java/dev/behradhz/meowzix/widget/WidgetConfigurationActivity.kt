@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -163,7 +164,8 @@ private fun WidgetSettingsContent(
     onApply: () -> Unit,
 ) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize()) {
+        // Configuration is edge-to-edge: the header and fixed action bar need safe insets.
+        Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             Column(
                 Modifier.weight(1f)
                     .verticalScroll(rememberScrollState())
