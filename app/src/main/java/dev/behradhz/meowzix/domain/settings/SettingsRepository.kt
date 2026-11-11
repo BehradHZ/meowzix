@@ -42,7 +42,7 @@ enum class ColorThemePreference {
 
 enum class LauncherIconColorSource { APP_THEME, WALLPAPER }
 /** Separate system-widget palette; APP follows the in-app appearance settings. */
-enum class WidgetThemeMode { APP, WALLPAPER, NOTHING }
+enum class WidgetThemeMode { APP, WALLPAPER, NOTHING, FULL_COLOR }
 enum class PlayerAccentSource { GLOBAL, TRACK }
 enum class PlayerSeekBarStyle { WAVEFORM, CLASSIC }
 
