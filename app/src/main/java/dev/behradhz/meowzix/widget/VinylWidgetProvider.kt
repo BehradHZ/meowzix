@@ -39,7 +39,7 @@ internal fun vinylDiameter(widthDp: Float, heightDp: Float): Float =
 @OptIn(markerClass = [UnstableApi::class])
 class VinylWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        val saved = PlaybackWidgetSnapshotStore.load(context)
+        val saved = PlaybackWidgetSnapshotStore.loadLastPlayed(context)
         val pending = goAsync()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         scope.launch {
@@ -50,9 +50,12 @@ class VinylWidgetProvider : AppWidgetProvider() {
                 // connecting a paused MediaController times out.
                 val palettes = ids.associateWith { id -> widgetPalette(context, id) }
                 latestPalettes = latestPalettes + palettes
+                // On a cold start the process has no in-memory record bitmap.
+                // Decode the saved track before the first widget update.
+                val cachedRecord = VinylRecordArtwork.prepare(context, saved.artworkRef)
                 ids.forEach { id ->
                     manager.updateAppWidget(
-                        id, responsiveViews(context, id, saved, VinylRecordArtwork.snapshotFrame()),
+                        id, responsiveViews(context, id, saved, cachedRecord),
                     )
                 }
                 val connecting = MediaController.Builder(
@@ -62,9 +65,11 @@ class VinylWidgetProvider : AppWidgetProvider() {
                 future = connecting
                 controller = withTimeout(6_000L) { connecting.await() }
                 val state = PlaybackWidgetState.fromPlayer(controller)
-                updateAll(context, state.copy(
-                    isFavorite = saved.mediaId == state.mediaId && saved.isFavorite,
-                ))
+                if (state.hasTrack) {
+                    updateAll(context, state.copy(
+                        isFavorite = saved.mediaId == state.mediaId && saved.isFavorite,
+                    ))
+                }
             } catch (_: Exception) {
                 // Keep the last usable record instead of blanking the widget.
             } finally {
@@ -103,9 +108,6 @@ class VinylWidgetProvider : AppWidgetProvider() {
             val widgetIds = ids(context)
             if (widgetIds.isEmpty()) return
             val record = VinylRecordArtwork.prepare(context, state.artworkRef)
-            if (widgetIds.any { WidgetInstancePreferences.style(context, it) == WidgetVisualStyle.MINIMAL }) {
-                VinylRecordArtwork.prepareCover(context, state.artworkRef)
-            }
             latestPalettes = widgetIds.associateWith { id -> widgetPalette(context, id) }
             val logical = widgetLogicalQueue(context)
             val completeState = state.copy(
@@ -128,12 +130,9 @@ class VinylWidgetProvider : AppWidgetProvider() {
             val frame = VinylRecordArtwork.nextFrame() ?: return
             val state = latestState
             val manager = AppWidgetManager.getInstance(context)
-            // Full updates release previously cached bitmaps on Android 17+.
+            // Every Vinyl instance is the same record shape, so all rotate.
             widgetIds.forEach { id ->
-                // Circular cover style stays still. Only the record style rotates.
-                if (WidgetInstancePreferences.style(context, id) == WidgetVisualStyle.CLASSIC) {
-                    manager.updateAppWidget(id, responsiveViews(context, id, state, frame))
-                }
+                manager.updateAppWidget(id, responsiveViews(context, id, state, frame))
             }
         }
 
@@ -147,10 +146,7 @@ class VinylWidgetProvider : AppWidgetProvider() {
             state: PlaybackWidgetState,
             record: Bitmap?,
         ): RemoteViews {
-            val artwork = if (WidgetInstancePreferences.style(context, widgetId) == WidgetVisualStyle.MINIMAL) {
-                VinylRecordArtwork.snapshotCover() ?: record
-            } else record
-            val styledArtwork = artwork?.let { bitmap ->
+            val styledArtwork = record?.let { bitmap ->
                 latestPalettes[widgetId]?.let { VinylRecordArtwork.themedFrame(bitmap, it) } ?: bitmap
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
