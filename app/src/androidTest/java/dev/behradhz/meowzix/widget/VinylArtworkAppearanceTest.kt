@@ -47,4 +47,16 @@ class VinylArtworkAppearanceTest {
         assertTrue(Color.blue(appPixel) > Color.red(appPixel))
         assertTrue(Color.red(wallpaperPixel) > Color.blue(wallpaperPixel))
     }
+    @Test fun blackAndWhiteModeDiscardsCoverArtHue() {
+        val source = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+            .apply { eraseColor(Color.rgb(228, 52, 105)) }
+        val blackAndWhite = VinylRecordArtwork.themedFrame(
+            source, palette(WidgetThemeMode.NOTHING, Color.WHITE),
+        )
+        val pixel = blackAndWhite.getPixel(32, 32)
+        assertEquals(Color.red(pixel), Color.green(pixel))
+        assertEquals(Color.green(pixel), Color.blue(pixel))
+        assertNotEquals(source.getPixel(32, 32), pixel)
+    }
+
 }
