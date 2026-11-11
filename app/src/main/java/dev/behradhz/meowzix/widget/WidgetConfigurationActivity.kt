@@ -156,8 +156,9 @@ class WidgetConfigurationActivity : ComponentActivity() {
                             ),
                         ).buildAsync()
                         future = connecting
-                        controller = withTimeout(3_000L) { connecting.await() }
-                        val active = PlaybackWidgetState.fromPlayer(controller)
+                        val connected = withTimeout(3_000L) { connecting.await() }
+                        controller = connected
+                        val active = PlaybackWidgetState.fromPlayer(connected)
                         if (active.hasTrack && (active.isPlaying || !lastPlayed.hasTrack)) {
                             lastPlayed = active
                         }
