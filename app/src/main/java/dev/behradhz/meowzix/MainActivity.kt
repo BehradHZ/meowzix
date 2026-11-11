@@ -17,6 +17,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,6 +25,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
+import androidx.core.view.WindowInsetsControllerCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.core.performance.PerformanceMetrics
 import dev.behradhz.meowzix.navigation.MeowzixApp
@@ -64,6 +67,14 @@ class MainActivity : ComponentActivity() {
                 ThemePreference.DARK -> true
             }
             MeowzixTheme(darkTheme = darkTheme, colorTheme = appearance.colorTheme, customColorSeed = appearance.customColorSeed) {
+                // Match status and navigation icon contrast to the current app appearance.
+                val lightSystemBars = MaterialTheme.colorScheme.background.luminance() > 0.5f
+                SideEffect {
+                    WindowInsetsControllerCompat(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = lightSystemBars
+                        isAppearanceLightNavigationBars = lightSystemBars
+                    }
+                }
                 val wallpaperPrimary = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     dynamicLightColorScheme(this@MainActivity).primary.toArgb()
                 } else MaterialTheme.colorScheme.primary.toArgb()
@@ -86,25 +97,20 @@ class MainActivity : ComponentActivity() {
                         openNowPlayingRequest = openNowPlaying,
                         onNowPlayingRequestConsumed = { openNowPlaying = false },
                         onApplyLauncherIcon = { source ->
-                            // Called only from the explicit Restart & apply confirmation.
+                            // Called only from the explicit Apply icon confirmation.
                             lifecycleScope.launch {
                                 try {
                                     val variant = selectLauncherIconForSource(
                                         source, appearance.colorTheme, appearance.customColorSeed,
                                         false, wallpaperPrimary,
                                     )
-                                    settingsRepository.setLauncherIconSource(source)
                                     withContext(Dispatchers.IO) {
                                         LauncherIconManager.apply(applicationContext, variant)
                                     }
-                                    // Restart the entire task with a new root Activity, rather than
-                                    // merely redrawing the current Compose content.
-                                    val restart = Intent.makeRestartActivityTask(
-                                        android.content.ComponentName(this@MainActivity, MainActivity::class.java),
-                                    )
-                                    startActivity(restart)
+                                    // The alias update uses DONT_KILL_APP; do not restart the task.
+                                    settingsRepository.setLauncherIconSource(source)
                                 } catch (error: Exception) {
-                                    Log.e("MeowzixLauncher", "Unable to apply and restart icon", error)
+                                    Log.e("MeowzixLauncher", "Unable to apply launcher icon", error)
                                     Toast.makeText(
                                         this@MainActivity, "Launcher icon could not be updated",
                                         Toast.LENGTH_LONG,
