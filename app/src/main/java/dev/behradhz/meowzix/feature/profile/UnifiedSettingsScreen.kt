@@ -453,17 +453,19 @@ fun UnifiedSettingsScreen(
                                 SettingsChoiceRow(
                                     "Left Live Update button",
                                     "The middle button is always Pause",
-                                    Icons.Rounded.MusicNote,
+                                    livePreviewActionIcon(state.playback.liveSongLeftAction),
                                     state.playback.liveSongLeftAction.name,
                                     LiveSongSideAction.entries.map { it.name },
+                                    optionIcon = { livePreviewActionIcon(LiveSongSideAction.valueOf(it)) },
                                 ) { viewModel.setLiveSongLeftAction(LiveSongSideAction.valueOf(it)) }
                                 SettingsRowDivider()
                                 SettingsChoiceRow(
                                     "Right Live Update button",
                                     "Previous, Next, Favorite, Shuffle, or Repeat",
-                                    Icons.Rounded.MusicNote,
+                                    livePreviewActionIcon(state.playback.liveSongRightAction),
                                     state.playback.liveSongRightAction.name,
                                     LiveSongSideAction.entries.map { it.name },
+                                    optionIcon = { livePreviewActionIcon(LiveSongSideAction.valueOf(it)) },
                                 ) { viewModel.setLiveSongRightAction(LiveSongSideAction.valueOf(it)) }
                                 }
                             }
