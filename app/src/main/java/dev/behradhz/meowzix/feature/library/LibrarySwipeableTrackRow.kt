@@ -47,8 +47,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -61,6 +59,7 @@ import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.ui.components.roundedSwipeReveal
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
@@ -120,19 +119,8 @@ internal fun SwipeableLibraryTrackRow(
         if (swipeMagnitude > 0.5f) {
             Surface(
                 modifier = Modifier.fillMaxWidth().height(66.dp)
-                    // Only the uncovered swipe gutter may show the action. Transparent
-                    // glass cards must never expose the backdrop through their foreground.
-                    .drawWithContent {
-                        val edge = visualOffsetX.coerceIn(-size.width, size.width)
-                        if (edge > 0f) {
-                            clipRect(left = 0f, right = edge) { this@drawWithContent.drawContent() }
-                        } else if (edge < 0f) {
-                            clipRect(left = size.width + edge, right = size.width) {
-                                this@drawWithContent.drawContent()
-                            }
-                        }
-                    },
-                shape = RoundedCornerShape(16.dp),
+                    .roundedSwipeReveal(visualOffsetX),
+                shape = RoundedCornerShape(18.dp),
                 color = if (swipingRight) {
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
@@ -160,7 +148,11 @@ internal fun SwipeableLibraryTrackRow(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .graphicsLayer { translationX = visualOffsetX }
+                .graphicsLayer {
+                    translationX = visualOffsetX
+                    shape = RoundedCornerShape(18.dp)
+                    clip = true
+                }
                 .pointerInput(track.id, actionThreshold) {
                     detectHorizontalDragGestures(
                         onDragStart = {
@@ -273,9 +265,9 @@ private fun LibraryTrackRowContent(
                     onMoveDown?.let { action -> add(CustomAccessibilityAction("Move down") { action(); true }) }
                 }
             },
-        shape = RoundedCornerShape(16.dp),
-        color = containerColor ?: MaterialTheme.colorScheme.background,
-        contentColor = if (containerColor != null) Color.White else MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(18.dp),
+        color = containerColor ?: MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.56f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
@@ -300,7 +292,7 @@ private fun LibraryTrackRowContent(
                         Icon(
                             Icons.Rounded.GraphicEq,
                             contentDescription = "Currently playing",
-                            tint = if (containerColor != null) Color(0xFFFFB38A) else MaterialTheme.colorScheme.primary,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(17.dp),
                         )
                         Spacer(Modifier.size(5.dp))
@@ -309,11 +301,8 @@ private fun LibraryTrackRowContent(
                         track.title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
-                        color = if (isCurrent) {
-                            if (containerColor != null) Color(0xFFFFB38A) else MaterialTheme.colorScheme.primary
-                        } else {
-                            if (containerColor != null) Color.White else MaterialTheme.colorScheme.onSurface
-                        },
+                        color = if (isCurrent) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -321,7 +310,7 @@ private fun LibraryTrackRowContent(
                 Text(
                     "${track.artist ?: "Unknown artist"} · ${libraryAvailabilityLabel(availability)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = (if (containerColor != null) Color.White else MaterialTheme.colorScheme.onSurface).copy(alpha = if (containerColor != null) 0.72f else 0.52f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),
@@ -331,7 +320,7 @@ private fun LibraryTrackRowContent(
             Text(
                 formatLibraryDuration(track.durationMs),
                 style = MaterialTheme.typography.labelSmall,
-                color = (if (containerColor != null) Color.White else MaterialTheme.colorScheme.onSurface).copy(alpha = if (containerColor != null) 0.55f else 0.38f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
             )
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
