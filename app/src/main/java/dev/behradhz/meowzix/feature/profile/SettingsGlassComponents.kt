@@ -401,6 +401,7 @@ internal fun SettingsChoiceRow(
     current: String,
     options: List<String>,
     centerOptions: Boolean = false,
+    optionIcon: ((String) -> ImageVector)? = null,
     onChoice: (String) -> Unit,
 ) {
     Column(
@@ -430,6 +431,9 @@ internal fun SettingsChoiceRow(
                         selected = option.equals(current, ignoreCase = true),
                         onClick = { onChoice(option) },
                         label = { Text(label, maxLines = 1) },
+                        leadingIcon = optionIcon?.let { iconFor ->
+                            { Icon(iconFor(option), contentDescription = null, modifier = Modifier.size(17.dp)) }
+                        },
                     )
                 }
             }
