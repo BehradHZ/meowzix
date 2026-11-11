@@ -33,8 +33,6 @@ internal object VinylRecordArtwork {
     private var base: Bitmap? = null
     private var angle = 0f
     private var lastArtworkRef: String? = null
-    private var coverArtworkRef: String? = null
-    private var coverBase: Bitmap? = null
 
     suspend fun prepare(context: Context, artworkRef: String?): Bitmap =
         withContext(Dispatchers.IO) {
@@ -52,66 +50,40 @@ internal object VinylRecordArtwork {
             record
         }
 
-    /** Alternative minimalist style: an edge-to-edge circular album cover, no grooves. */
-    suspend fun prepareCover(context: Context, artworkRef: String?): Bitmap =
-        withContext(Dispatchers.IO) {
-            synchronized(lock) {
-                if (coverBase != null && coverArtworkRef == artworkRef) return@withContext requireNotNull(coverBase)
-            }
-            val cover = artworkRef?.let { decode(context, it) }
-            val output = drawCoverCircle(cover)
-            synchronized(lock) {
-                coverBase = output
-                coverArtworkRef = artworkRef
-            }
-            output
-        }
-
-    fun snapshotCover(): Bitmap? = synchronized(lock) { coverBase }
-
-    /** Apply the independent widget's theme without changing the source artwork. */
+    /**
+     * Apply the same transformation in the launcher widget and in Settings preview.
+     * APP and WALLPAPER preserve the album-art luminance and disc grooves but color
+     * every pixel with that theme's single accent hue. FULL_COLOR leaves the record
+     * untouched so the original cover artwork is genuinely full color.
+     */
     fun themedFrame(source: Bitmap, palette: WidgetPalette): Bitmap {
+        if (palette.vinylColorMode == dev.behradhz.meowzix.domain.settings.WidgetThemeMode.FULL_COLOR) {
+            return source
+        }
+        val accent = palette.accent
+        val r = Color.red(accent) / 255f
+        val g = Color.green(accent) / 255f
+        val b = Color.blue(accent) / 255f
+        val tint = ColorMatrix(floatArrayOf(
+            .299f * r, .587f * r, .114f * r, 0f, 0f,
+            .299f * g, .587f * g, .114f * g, 0f, 0f,
+            .299f * b, .587f * b, .114f * b, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f,
+        ))
         val result = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
-        val artPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        if (palette.monochrome) {
-            artPaint.colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(tint)
         }
-        canvas.drawBitmap(source, 0f, 0f, artPaint)
+        canvas.drawBitmap(source, 0f, 0f, paint)
         val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = palette.accent
-            alpha = if (palette.monochrome) 190 else 125
-            strokeWidth = SIZE * .012f
+            color = accent
+            alpha = 200
+            strokeWidth = source.width * .012f
             style = Paint.Style.STROKE
         }
-        canvas.drawCircle(SIZE / 2f, SIZE / 2f, SIZE * .482f, ring)
+        canvas.drawCircle(source.width / 2f, source.height / 2f, source.width * .482f, ring)
         return result
-    }
-
-    private fun drawCoverCircle(cover: Bitmap?): Bitmap {
-        val bitmap = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val radius = SIZE * .485f
-        val center = SIZE / 2f
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        if (cover == null) {
-            paint.color = Color.rgb(38, 41, 55)
-            canvas.drawCircle(center, center, radius, paint)
-            return bitmap
-        }
-        val side = min(cover.width, cover.height)
-        val shader = BitmapShader(cover, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-        shader.setLocalMatrix(Matrix().apply {
-            setRectToRect(
-                RectF(((cover.width - side) / 2).toFloat(), ((cover.height - side) / 2).toFloat(),
-                    ((cover.width + side) / 2).toFloat(), ((cover.height + side) / 2).toFloat()),
-                RectF(center - radius, center - radius, center + radius, center + radius),
-                Matrix.ScaleToFit.CENTER,
-            )
-        })
-        paint.shader = shader
-        canvas.drawCircle(center, center, radius, paint)
-        return bitmap
     }
 
     fun snapshotFrame(): Bitmap? = synchronized(lock) {
