@@ -47,6 +47,7 @@ internal fun Player.widgetQueue(maxItems: Int = 72): List<WidgetQueueTrack> {
 internal object PlaybackWidgetSnapshotStore {
     private const val PREFS = "meowzix_playback_widget"
     private const val KEY_STATE = "snapshot"
+    private const val KEY_LAST_PLAYED = "last_played_track"
     private const val KEY_MENU = "menu_"
 
     fun save(context: Context, state: PlaybackWidgetState) {
@@ -102,6 +103,40 @@ internal object PlaybackWidgetSnapshotStore {
             },
         )
     }.getOrDefault(PlaybackWidgetState.Empty)
+
+    /**
+     * The last genuinely played song is available for previews even before the
+     * user adds their first widget. Store only metadata, not an entire queue.
+     */
+    fun saveLastPlayed(context: Context, state: PlaybackWidgetState) {
+        if (!state.hasTrack || !state.isPlaying) return
+        val payload = JSONObject().apply {
+            put("title", state.title)
+            put("artist", state.artist)
+            put("artwork", state.artworkRef)
+            put("mediaId", state.mediaId)
+        }.toString()
+        val prefs = preferences(context)
+        if (prefs.getString(KEY_LAST_PLAYED, null) != payload) {
+            prefs.edit().putString(KEY_LAST_PLAYED, payload).apply()
+        }
+    }
+
+    fun loadLastPlayed(context: Context): PlaybackWidgetState {
+        val recent = runCatching {
+            val stored = preferences(context).getString(KEY_LAST_PLAYED, null)
+                ?: return@runCatching null
+            val data = JSONObject(stored)
+            PlaybackWidgetState(
+                title = data.optString("title").takeIf { it.isNotBlank() && it != "null" },
+                artist = data.optString("artist").takeIf { it.isNotBlank() && it != "null" },
+                artworkRef = data.optString("artwork").takeIf { it.isNotBlank() && it != "null" },
+                isPlaying = false,
+                mediaId = data.optString("mediaId").takeIf { it.isNotBlank() && it != "null" },
+            )
+        }.getOrNull()
+        return recent?.takeIf { it.hasTrack } ?: load(context)
+    }
 
     fun menuExpanded(context: Context, widgetId: Int): Boolean =
         preferences(context).getBoolean("$KEY_MENU$widgetId", false)
