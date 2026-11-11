@@ -31,7 +31,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -162,18 +161,6 @@ internal fun SettingsColorPicker(
             }
         }
 
-
-        OutlinedButton(
-            onClick = { showCustomPicker = true },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Box(
-                Modifier.size(20.dp).background(Color(appearance.customColorSeed), CircleShape)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-            )
-            Spacer(Modifier.width(10.dp))
-            Text("Custom RGB · #" + "%06X".format(appearance.customColorSeed and 0xFFFFFF))
-        }
     }
 
     if (showCustomPicker) {
