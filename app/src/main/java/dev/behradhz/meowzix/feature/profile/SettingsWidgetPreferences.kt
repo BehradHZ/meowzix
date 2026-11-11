@@ -54,7 +54,11 @@ internal fun SettingsWidgetPreferences(
                 fontWeight = FontWeight.SemiBold,
                 style = MaterialTheme.typography.titleSmall,
             )
-            val modes = listOf("App theme", "Wallpaper", "Nothing monochrome")
+            // Keep legacy in-app controls compatible with launcher configuration:
+            // Vinyl has three color treatments and no Cover circle visual style.
+            val modes = if (instance.kind == WidgetKind.VINYL)
+                listOf("App accent", "Wallpaper accent", "Full color")
+            else listOf("App theme", "Wallpaper", "Nothing monochrome")
             SettingsChoiceRow(
                 "Color theme",
                 "Only this widget; follows app or wallpaper changes",
@@ -62,30 +66,32 @@ internal fun SettingsWidgetPreferences(
                 when (instance.theme) {
                     WidgetThemeMode.APP -> modes[0]
                     WidgetThemeMode.WALLPAPER -> modes[1]
-                    WidgetThemeMode.NOTHING -> modes[2]
+                    WidgetThemeMode.NOTHING -> modes.last()
+                    WidgetThemeMode.FULL_COLOR -> modes.last()
                 },
                 modes,
             ) { selected ->
                 onTheme(instance, when (selected) {
                     modes[1] -> WidgetThemeMode.WALLPAPER
-                    modes[2] -> WidgetThemeMode.NOTHING
+                    modes.last() -> if (instance.kind == WidgetKind.VINYL)
+                        WidgetThemeMode.FULL_COLOR else WidgetThemeMode.NOTHING
                     else -> WidgetThemeMode.APP
                 })
             }
-            val classic = if (instance.kind == WidgetKind.VINYL) "Vinyl disc" else "Glass"
-            val minimal = if (instance.kind == WidgetKind.VINYL) "Cover circle" else "Minimal"
-            SettingsChoiceRow(
-                "Style",
-                "Adjust the appearance without changing playback controls",
-                Icons.Rounded.Tune,
-                if (instance.style == WidgetVisualStyle.CLASSIC) classic else minimal,
-                listOf(classic, minimal),
-                centerOptions = true,
-            ) { selected ->
-                onStyle(
-                    instance,
-                    if (selected == classic) WidgetVisualStyle.CLASSIC else WidgetVisualStyle.MINIMAL,
-                )
+            if (instance.kind == WidgetKind.PLAYBACK) {
+                SettingsChoiceRow(
+                    "Style",
+                    "Adjust the appearance without changing playback controls",
+                    Icons.Rounded.Tune,
+                    if (instance.style == WidgetVisualStyle.CLASSIC) "Glass" else "Minimal",
+                    listOf("Glass", "Minimal"),
+                    centerOptions = true,
+                ) { selected ->
+                    onStyle(
+                        instance,
+                        if (selected == "Glass") WidgetVisualStyle.CLASSIC else WidgetVisualStyle.MINIMAL,
+                    )
+                }
             }
             SettingsRowDivider()
             var opacityDraft by remember(instance.id, instance.opacityPercent) {
