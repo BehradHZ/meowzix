@@ -2,10 +2,18 @@ package dev.behradhz.meowzix.widget
 
 import android.app.Activity
 import android.appwidget.AppWidgetManager
+import android.content.ComponentName
+import android.graphics.Bitmap
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,6 +46,8 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -47,6 +58,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -60,6 +74,12 @@ import dev.behradhz.meowzix.domain.settings.AppearanceSettings
 import dev.behradhz.meowzix.domain.settings.ThemePreference
 import dev.behradhz.meowzix.domain.settings.WidgetThemeMode
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
+import dev.behradhz.meowzix.playback.PlaybackService
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.math.roundToInt
 
 /**
@@ -68,6 +88,7 @@ import kotlin.math.roundToInt
  * appearance; relying on Theme.Meowzix (a light Android window theme) alone made
  * labels and status-bar icons dark-on-dark.
  */
+@OptIn(markerClass = [UnstableApi::class])
 class WidgetConfigurationActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -117,6 +138,38 @@ class WidgetConfigurationActivity : ComponentActivity() {
                 var theme by remember(widgetId) {
                     mutableStateOf(WidgetInstancePreferences.theme(this, widgetId))
                 }
+                var lastPlayed by remember(widgetId) {
+                    mutableStateOf(PlaybackWidgetSnapshotStore.loadLastPlayed(applicationContext))
+                }
+                // The recent-track cache survives app restarts. For fresh installs,
+                // consult the active session without starting playback.
+                LaunchedEffect(widgetId) {
+                    if (kind != WidgetKind.VINYL) return@LaunchedEffect
+                    var controller: MediaController? = null
+                    var future: ListenableFuture<MediaController>? = null
+                    try {
+                        val connecting = MediaController.Builder(
+                            this@WidgetConfigurationActivity,
+                            SessionToken(
+                                this@WidgetConfigurationActivity,
+                                ComponentName(this@WidgetConfigurationActivity, PlaybackService::class.java),
+                            ),
+                        ).buildAsync()
+                        future = connecting
+                        controller = withTimeout(3_000L) { connecting.await() }
+                        val active = PlaybackWidgetState.fromPlayer(controller)
+                        if (active.hasTrack && (active.isPlaying || !lastPlayed.hasTrack)) {
+                            lastPlayed = active
+                        }
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                        // The persisted last-played track remains available offline.
+                    } finally {
+                        if (controller != null) controller.release()
+                        else future?.let(MediaController::releaseFuture)
+                    }
+                }
                 var style by remember(widgetId) {
                     mutableStateOf(WidgetInstancePreferences.style(this, widgetId))
                 }
@@ -129,6 +182,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
                     style = style,
                     opacityPercent = opacity,
                     appearance = appearance,
+                    lastPlayed = lastPlayed,
                     onThemeChange = { theme = it },
                     onStyleChange = { style = it },
                     onOpacityChange = { opacity = it },
@@ -157,6 +211,7 @@ private fun WidgetSettingsContent(
     style: WidgetVisualStyle,
     opacityPercent: Int,
     appearance: AppearanceSettings,
+    lastPlayed: PlaybackWidgetState,
     onThemeChange: (WidgetThemeMode) -> Unit,
     onStyleChange: (WidgetVisualStyle) -> Unit,
     onOpacityChange: (Int) -> Unit,
@@ -185,28 +240,40 @@ private fun WidgetSettingsContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                WidgetAppearancePreview(kind, theme, style, opacityPercent, appearance)
+                WidgetAppearancePreview(kind, theme, style, opacityPercent, appearance, lastPlayed)
 
                 SettingsGroup("Color theme") {
-                    WidgetChoice("Follow app theme", theme == WidgetThemeMode.APP) {
-                        onThemeChange(WidgetThemeMode.APP)
-                    }
-                    WidgetChoice("Follow wallpaper", theme == WidgetThemeMode.WALLPAPER) {
-                        onThemeChange(WidgetThemeMode.WALLPAPER)
-                    }
-                    WidgetChoice("Nothing monochrome", theme == WidgetThemeMode.NOTHING) {
-                        onThemeChange(WidgetThemeMode.NOTHING)
+                    if (kind == WidgetKind.VINYL) {
+                        WidgetChoice("App accent · Monochrome", theme == WidgetThemeMode.APP) {
+                            onThemeChange(WidgetThemeMode.APP)
+                        }
+                        WidgetChoice("Wallpaper accent · Monochrome", theme == WidgetThemeMode.WALLPAPER) {
+                            onThemeChange(WidgetThemeMode.WALLPAPER)
+                        }
+                        WidgetChoice("Full color · Original artwork", theme == WidgetThemeMode.FULL_COLOR) {
+                            onThemeChange(WidgetThemeMode.FULL_COLOR)
+                        }
+                    } else {
+                        WidgetChoice("Follow app theme", theme == WidgetThemeMode.APP) {
+                            onThemeChange(WidgetThemeMode.APP)
+                        }
+                        WidgetChoice("Follow wallpaper", theme == WidgetThemeMode.WALLPAPER) {
+                            onThemeChange(WidgetThemeMode.WALLPAPER)
+                        }
+                        WidgetChoice("Nothing monochrome", theme == WidgetThemeMode.NOTHING) {
+                            onThemeChange(WidgetThemeMode.NOTHING)
+                        }
                     }
                 }
-                SettingsGroup("Visual style") {
-                    WidgetChoice(
-                        if (kind == WidgetKind.VINYL) "Vinyl disc" else "Glass",
-                        style == WidgetVisualStyle.CLASSIC,
-                    ) { onStyleChange(WidgetVisualStyle.CLASSIC) }
-                    WidgetChoice(
-                        if (kind == WidgetKind.VINYL) "Cover circle" else "Minimal",
-                        style == WidgetVisualStyle.MINIMAL,
-                    ) { onStyleChange(WidgetVisualStyle.MINIMAL) }
+                if (kind == WidgetKind.PLAYBACK) {
+                    SettingsGroup("Visual style") {
+                        WidgetChoice("Glass", style == WidgetVisualStyle.CLASSIC) {
+                            onStyleChange(WidgetVisualStyle.CLASSIC)
+                        }
+                        WidgetChoice("Minimal", style == WidgetVisualStyle.MINIMAL) {
+                            onStyleChange(WidgetVisualStyle.MINIMAL)
+                        }
+                    }
                 }
                 SettingsGroup("Opacity") {
                     Row(
@@ -303,7 +370,7 @@ private fun WidgetChoice(label: String, selected: Boolean, onClick: () -> Unit) 
     }
 }
 
-/** This preview updates before Apply and is scoped to the selected widget only. */
+/** Preview and launcher widget render from the same VinylRecordArtwork implementation. */
 @Composable
 private fun WidgetAppearancePreview(
     kind: WidgetKind,
@@ -311,13 +378,30 @@ private fun WidgetAppearancePreview(
     style: WidgetVisualStyle,
     opacityPercent: Int,
     appearance: AppearanceSettings,
+    lastPlayed: PlaybackWidgetState,
 ) {
     val context = LocalContext.current
-    val colors = deriveWidgetPalette(context, appearance, mode, style)
+    val palette = deriveWidgetPalette(context, appearance, mode, style)
         .copy(opacityPercent = opacityPercent)
-    val surface = Color(colors.surfaceColor)
-    val foreground = Color(colors.primary)
-    val muted = Color(colors.secondary)
+    val foreground = Color(palette.primary)
+    val muted = Color(palette.secondary)
+    val source by produceState<Bitmap?>(
+        initialValue = null, key1 = kind, key2 = lastPlayed.artworkRef,
+    ) {
+        if (kind == WidgetKind.VINYL) {
+            value = VinylRecordArtwork.prepare(context, lastPlayed.artworkRef)
+        }
+    }
+    val vinylImage by produceState<Bitmap?>(
+        initialValue = null,
+        key1 = source,
+        key2 = palette.accent,
+        key3 = palette.vinylColorMode,
+    ) {
+        value = withContext(Dispatchers.Default) {
+            source?.let { VinylRecordArtwork.themedFrame(it, palette) }
+        }
+    }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -328,34 +412,53 @@ private fun WidgetAppearancePreview(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                "PREVIEW",
+                "LIVE PREVIEW",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(
-                modifier = Modifier.fillMaxWidth()
-                    .height(68.dp)
-                    .background(surface, RoundedCornerShape(20.dp))
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (kind == WidgetKind.VINYL) {
-                    Box(
-                        Modifier.size(52.dp)
-                            .background(foreground.copy(alpha = opacityPercent / 100f), CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Rounded.Album,
-                            contentDescription = null,
-                            modifier = Modifier.size(38.dp),
-                            tint = Color(colors.background),
+            if (kind == WidgetKind.VINYL) {
+                // No fake circle or painted background: this is the same 288px
+                // record bitmap sent to the launcher, at the requested opacity.
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                        .height(216.dp)
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = .32f),
+                            RoundedCornerShape(18.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    vinylImage?.let { image ->
+                        Image(
+                            bitmap = image.asImageBitmap(),
+                            contentDescription = "Vinyl widget preview of last played track",
+                            modifier = Modifier.size(196.dp).alpha(opacityPercent / 100f),
+                            contentScale = ContentScale.Fit,
                         )
                     }
-                    Text("Vinyl record", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
+                }
+                Text(
+                    lastPlayed.title ?: "No recently played track",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    lastPlayed.artist ?: if (lastPlayed.hasTrack) "Unknown artist"
+                        else "Play a song to preview its actual cover artwork.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .height(68.dp)
+                        .background(Color(palette.surfaceColor), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     Box(
                         Modifier.size(43.dp).background(muted.copy(alpha = .65f), RoundedCornerShape(11.dp)),
                         contentAlignment = Alignment.Center,
@@ -363,10 +466,11 @@ private fun WidgetAppearancePreview(
                         Icon(Icons.Rounded.Album, contentDescription = null, tint = foreground)
                     }
                     Column(Modifier.weight(1f)) {
-                        Text("Now playing", color = foreground, maxLines = 1,
+                        Text(lastPlayed.title ?: "Now playing", color = foreground, maxLines = 1,
                             overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold)
-                        Text("Artist", color = muted, style = MaterialTheme.typography.labelSmall)
+                        Text(lastPlayed.artist ?: "Artist", color = muted,
+                            style = MaterialTheme.typography.labelSmall, maxLines = 1)
                     }
                     Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = foreground)
                     Icon(Icons.Rounded.SkipNext, contentDescription = null, tint = foreground)
