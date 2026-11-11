@@ -15,8 +15,8 @@ internal fun widgetStyleFor(kind: WidgetKind, requested: WidgetVisualStyle): Wid
     if (kind == WidgetKind.VINYL) WidgetVisualStyle.CLASSIC else requested
 
 internal fun widgetThemeFor(kind: WidgetKind, requested: WidgetThemeMode): WidgetThemeMode =
-    if (kind == WidgetKind.VINYL && requested == WidgetThemeMode.NOTHING) WidgetThemeMode.APP
-    else requested
+    // All four Vinyl color modes (including black-and-white) are now supported.
+    requested
 
 data class WidgetInstance(
     val id: Int,
