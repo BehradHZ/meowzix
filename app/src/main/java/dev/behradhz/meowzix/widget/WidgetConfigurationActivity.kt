@@ -232,13 +232,6 @@ private fun WidgetSettingsContent(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
-                Text(
-                    if (kind == WidgetKind.VINYL) "Vinyl widget · Personalize this instance"
-                    else "Playback widget · Personalize this instance",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
                 WidgetAppearancePreview(kind, theme, style, opacityPercent, appearance, lastPlayed)
 
                 SettingsGroup("Color theme") {
@@ -251,6 +244,9 @@ private fun WidgetSettingsContent(
                         }
                         WidgetChoice("Full color · Original artwork", theme == WidgetThemeMode.FULL_COLOR) {
                             onThemeChange(WidgetThemeMode.FULL_COLOR)
+                        }
+                        WidgetChoice("Black & white · Monochrome", theme == WidgetThemeMode.NOTHING) {
+                            onThemeChange(WidgetThemeMode.NOTHING)
                         }
                     } else {
                         WidgetChoice("Follow app theme", theme == WidgetThemeMode.APP) {
@@ -416,39 +412,54 @@ private fun WidgetAppearancePreview(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (kind == WidgetKind.VINYL) {
-                // No fake circle or painted background: this is the same 288px
-                // record bitmap sent to the launcher, at the requested opacity.
-                Box(
+                // The actual 288px launcher record, tinted with the selected theme,
+                // is displayed at the same opacity beside the last played metadata.
+                Row(
                     modifier = Modifier.fillMaxWidth()
-                        .height(216.dp)
-                        .background(MaterialTheme.colorScheme.background.copy(alpha = .32f),
-                            RoundedCornerShape(18.dp)),
-                    contentAlignment = Alignment.Center,
+                        .heightIn(min = 158.dp)
+                        .background(
+                            MaterialTheme.colorScheme.background.copy(alpha = .32f),
+                            RoundedCornerShape(18.dp),
+                        )
+                        .padding(horizontal = 10.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    vinylImage?.let { image ->
-                        Image(
-                            bitmap = image.asImageBitmap(),
-                            contentDescription = "Vinyl widget preview of last played track",
-                            modifier = Modifier.size(196.dp).alpha(opacityPercent / 100f),
-                            contentScale = ContentScale.Fit,
+                    Box(
+                        modifier = Modifier.size(138.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        vinylImage?.let { image ->
+                            Image(
+                                bitmap = image.asImageBitmap(),
+                                contentDescription = "Vinyl widget preview of last played track",
+                                modifier = Modifier.fillMaxSize().alpha(opacityPercent / 100f),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        Text(
+                            lastPlayed.title ?: "No recently played track",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            lastPlayed.artist ?: if (lastPlayed.hasTrack) "Unknown artist"
+                                else "Play a song to preview its actual cover artwork.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
-                Text(
-                    lastPlayed.title ?: "No recently played track",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    lastPlayed.artist ?: if (lastPlayed.hasTrack) "Unknown artist"
-                        else "Play a song to preview its actual cover artwork.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
             } else {
                 Row(
                     modifier = Modifier.fillMaxWidth()
