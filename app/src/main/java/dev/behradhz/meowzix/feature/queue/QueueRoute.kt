@@ -16,8 +16,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
@@ -107,6 +105,7 @@ import dev.behradhz.meowzix.domain.playback.QueueGroup
 import dev.behradhz.meowzix.domain.playback.QueueGroupKind
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
+import dev.behradhz.meowzix.ui.components.roundedSwipeReveal
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
 import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
@@ -673,14 +672,7 @@ private fun GroupQueueHeader(
     Box(Modifier.fillMaxWidth().graphicsLayer { translationY = offsetY }) {
         if (abs(animatedSwipeX) > 0.5f) {
             Surface(
-                modifier = Modifier.matchParentSize().drawWithContent {
-                    val edge = animatedSwipeX.coerceIn(-size.width, size.width)
-                    if (edge > 0f) clipRect(left = 0f, right = edge) {
-                        this@drawWithContent.drawContent()
-                    } else if (edge < 0f) clipRect(left = size.width + edge, right = size.width) {
-                        this@drawWithContent.drawContent()
-                    }
-                },
+                modifier = Modifier.matchParentSize().roundedSwipeReveal(animatedSwipeX),
                 shape = RoundedCornerShape(18.dp),
                 color = if (deleting) MaterialTheme.colorScheme.errorContainer
                     else if (swipingRight) MaterialTheme.colorScheme.primaryContainer
@@ -707,7 +699,11 @@ private fun GroupQueueHeader(
         }
         Surface(
             modifier = Modifier.fillMaxWidth()
-                .graphicsLayer { translationX = animatedSwipeX }
+                .graphicsLayer {
+                    translationX = animatedSwipeX
+                    shape = RoundedCornerShape(18.dp)
+                    clip = true
+                }
                 .pointerInput(group.id, actionThreshold, removeThreshold) {
                     detectHorizontalDragGestures(
                         onDragStart = { horizontalDrag = true },
@@ -733,8 +729,8 @@ private fun GroupQueueHeader(
                         onDragCancel = { horizontalDrag = false; swipeX = 0f },
                     )
                 },
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.17f),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.54f),
             tonalElevation = 0.dp,
         ) {
             Row(
@@ -889,11 +885,7 @@ private fun SwipeableQueueItem(
     val swipeMagnitude = abs(visualOffsetX)
     val swipingRight = visualOffsetX >= 0f
     val removeStage = swipeMagnitude >= removeThreshold
-    val actionExitProgress by animateFloatAsState(
-        targetValue = if (removeStage) 1f else 0f,
-        animationSpec = tween(durationMillis = 190),
-        label = "queue-action-exit",
-    )
+
 
     Box(
         modifier = Modifier
@@ -902,72 +894,41 @@ private fun SwipeableQueueItem(
             .graphicsLayer { translationY = dragOffsetY },
     ) {
         if (swipeMagnitude > 0.5f) {
+            // One action surface replaces the two stacked, partially translated panels.
+            // The mask reveals only a rounded gutter so it cannot bleed through glass.
             Surface(
-                modifier = Modifier.matchParentSize()
-                    .drawWithContent {
-                        val edge = visualOffsetX.coerceIn(-size.width, size.width)
-                        if (edge > 0f) clipRect(left = 0f, right = edge) {
-                            this@drawWithContent.drawContent()
-                        } else if (edge < 0f) clipRect(left = size.width + edge, right = size.width) {
-                            this@drawWithContent.drawContent()
-                        }
-                    },
+                modifier = Modifier.matchParentSize().roundedSwipeReveal(visualOffsetX),
                 shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.error.copy(alpha = 0.22f),
-                tonalElevation = 2.dp,
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
-                    horizontalArrangement = if (swipingRight) Arrangement.Start else Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (swipingRight) {
-                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        Spacer(Modifier.size(8.dp))
-                        Text("Remove", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
-                    } else {
-                        Text("Remove", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.size(8.dp))
-                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-
-            Surface(
-                modifier = Modifier
-                    .matchParentSize()
-                    .graphicsLayer {
-                        translationX = actionExitProgress * visualOffsetX
-                    }
-                    .drawWithContent {
-                        val edge = visualOffsetX.coerceIn(-size.width, size.width)
-                        if (edge > 0f) clipRect(left = 0f, right = edge) {
-                            this@drawWithContent.drawContent()
-                        } else if (edge < 0f) clipRect(left = size.width + edge, right = size.width) {
-                            this@drawWithContent.drawContent()
-                        }
-                    },
-                shape = RoundedCornerShape(18.dp),
-                color = if (swipingRight) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.tertiaryContainer
+                color = when {
+                    removeStage -> MaterialTheme.colorScheme.errorContainer
+                    swipingRight -> MaterialTheme.colorScheme.primaryContainer
+                    else -> MaterialTheme.colorScheme.tertiaryContainer
                 },
-                tonalElevation = 2.dp,
+                tonalElevation = 0.dp,
             ) {
                 Row(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
                     horizontalArrangement = if (swipingRight) Arrangement.Start else Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    val label = when {
+                        removeStage -> "Remove"
+                        swipingRight -> "Play next"
+                        else -> "Add to queue"
+                    }
+                    val icon = when {
+                        removeStage -> Icons.Rounded.Delete
+                        swipingRight -> Icons.Rounded.PlaylistPlay
+                        else -> Icons.Rounded.PlaylistAdd
+                    }
                     if (swipingRight) {
-                        Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
+                        Icon(icon, contentDescription = null)
                         Spacer(Modifier.size(8.dp))
-                        Text("Play next", fontWeight = FontWeight.SemiBold)
+                        Text(label, fontWeight = FontWeight.SemiBold)
                     } else {
-                        Text("Add to queue", fontWeight = FontWeight.SemiBold)
+                        Text(label, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.size(8.dp))
-                        Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
+                        Icon(icon, contentDescription = null)
                     }
                 }
             }
@@ -976,7 +937,11 @@ private fun SwipeableQueueItem(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .graphicsLayer { translationX = visualOffsetX }
+                .graphicsLayer {
+                    translationX = visualOffsetX
+                    shape = RoundedCornerShape(18.dp)
+                    clip = true
+                }
                 .pointerInput(item.occurrenceId, isDragging, actionThreshold, removeThreshold) {
                     if (!isDragging) {
                         detectHorizontalDragGestures(
@@ -1021,10 +986,11 @@ private fun SwipeableQueueItem(
                 }
                 .clickable(onClick = onPlay),
             shape = RoundedCornerShape(18.dp),
-            color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.60f)
-                    else Color(0x4D252329),
+            color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.66f)
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.56f),
             contentColor = MaterialTheme.colorScheme.onSurface,
-            shadowElevation = if (isDragging) 6.dp else 1.dp,
+            tonalElevation = 0.dp,
+            shadowElevation = if (isDragging) 6.dp else 0.dp,
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
