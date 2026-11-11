@@ -69,6 +69,7 @@ import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
 import dev.behradhz.meowzix.widget.PlaybackWidgetProvider
+import dev.behradhz.meowzix.widget.PlaybackWidgetSnapshotStore
 import dev.behradhz.meowzix.widget.PlaybackWidgetState
 import dev.behradhz.meowzix.widget.VinylWidgetProvider
 import java.util.UUID
@@ -1194,6 +1195,7 @@ class PlaybackService : MediaLibraryService() {
         )
         widgetRefreshJob?.cancel()
         widgetRefreshJob = serviceScope.launch(Dispatchers.IO) {
+            PlaybackWidgetSnapshotStore.saveLastPlayed(this@PlaybackService.applicationContext, state)
             runCatching { PlaybackWidgetProvider.updateAll(this@PlaybackService.applicationContext, state) }
             runCatching { VinylWidgetProvider.updateAll(this@PlaybackService.applicationContext, state) }
         }
