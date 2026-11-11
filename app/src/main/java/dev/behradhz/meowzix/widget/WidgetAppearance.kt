@@ -28,6 +28,8 @@ internal data class WidgetPalette(
     val secondary: Int,
     val accent: Int,
     val monochrome: Boolean = false,
+    // Vinyl tint policy is independent of Playback widget visual styles.
+    val vinylColorMode: WidgetThemeMode = WidgetThemeMode.FULL_COLOR,
     val style: WidgetVisualStyle = WidgetVisualStyle.CLASSIC,
     val controlBackground: Int = background,
     val opacityPercent: Int = 100,
@@ -64,6 +66,7 @@ internal fun deriveWidgetPalette(
             secondary = Color.rgb(202, 202, 202),
             accent = Color.WHITE,
             monochrome = true,
+            vinylColorMode = WidgetThemeMode.APP,
             style = style,
             controlBackground = Color.rgb(49, 49, 49),
         )
@@ -75,6 +78,8 @@ internal fun deriveWidgetPalette(
             (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
     }
+    // Wallpaper mode always follows the OS; App mode follows the app's
+    // current accent, which may itself be wallpaper-based.
     val wallpaper = mode == WidgetThemeMode.WALLPAPER ||
         settings.colorTheme == ColorThemePreference.WALLPAPER
     val scheme: ColorScheme = when {
@@ -95,6 +100,7 @@ internal fun deriveWidgetPalette(
             else scheme.onSurfaceVariant.toArgb(),
         accent = scheme.primary.toArgb(),
         monochrome = false,
+        vinylColorMode = mode,
         style = style,
         controlBackground = scheme.secondaryContainer.toArgb(),
     )
