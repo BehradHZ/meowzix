@@ -27,6 +27,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramSendEnqueueResult
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,7 +37,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -75,32 +78,27 @@ class NowPlayingViewModel @Inject constructor(
 ) : ViewModel() {
     val queueActionFeedback = queueActionFeedbackBus.events
 
-    private val libraryTracks = libraryRepository.observeTracks()
-        .catch { emit(emptyList()) }
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            emptyList(),
-        )
-
-    private val libraryById = libraryTracks
-        .map { tracks -> tracks.associateBy { it.id } }
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            emptyMap(),
-        )
-
     private val currentTrackId = playbackController.state
         .map { playback -> playback.currentTrack?.id }
         .distinctUntilChanged()
 
+    // Metadata is already part of the Media3/Queue snapshots. Only observe the
+    // playing row for Favorite and late artwork repair; never load the full library.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val currentLibraryTrack = currentTrackId
+        .flatMapLatest { id ->
+            if (id == null) flowOf(null)
+            else libraryRepository.observeTrack(id).catch { emit(null) }
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val state = combine(
         playbackController.state,
-        libraryById,
-    ) { playback, tracksById ->
+        currentLibraryTrack,
+    ) { playback, liveTrack ->
         val current = playback.currentTrack ?: return@combine playback
-        val liveTrack = tracksById[current.id] ?: return@combine playback
+        if (liveTrack == null || liveTrack.id != current.id) return@combine playback
         playback.copy(
             currentTrack = current.copy(
                 title = liveTrack.title,
@@ -114,26 +112,9 @@ class NowPlayingViewModel @Inject constructor(
         playbackController.state.value,
     )
 
-    val queueState = combine(
-        queueRepository.queueState,
-        libraryById,
-    ) { queue, tracksById ->
-        if (queue.items.isEmpty() || tracksById.isEmpty()) return@combine queue
-        queue.copy(
-            items = queue.items.map { item ->
-                val live = tracksById[item.id] ?: return@map item
-                item.copy(
-                    title = live.title,
-                    artist = live.artist,
-                    artworkRef = live.artworkRef ?: item.artworkRef,
-                )
-            },
-        )
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        queueRepository.queueState.value,
-    )
+    // PlaybackController already owns metadata, ordering and occurrence IDs.
+    // A second, library-backed copy of every queued item is unnecessary.
+    val queueState = queueRepository.queueState
 
     val spectrum = audioVisualizerRepository.spectrum
     val sleepTimerState = sleepTimerManager.state
@@ -148,9 +129,9 @@ class NowPlayingViewModel @Inject constructor(
 
     val isFavorite = combine(
         currentTrackId,
-        libraryById,
-    ) { id, tracksById ->
-        id != null && tracksById[id]?.favorite == true
+        currentLibraryTrack,
+    ) { id, selected ->
+        id != null && selected?.id == id && selected.favorite
     }.distinctUntilChanged().stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
@@ -162,6 +143,7 @@ class NowPlayingViewModel @Inject constructor(
     private var forwardSearchJob: Job? = null
     private var forwardFoldersJob: Job? = null
     private var forwardTrackId: UUID? = null
+    private var forwardPickerRequest = 0L
 
     init {
         viewModelScope.launch { sleepTimerManager.restore() }
@@ -301,12 +283,28 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun openForwardPickerForTrack(trackId: UUID, fallbackTrack: NowPlayingTrack? = null) {
+        val request = ++forwardPickerRequest
         val selectedTrack = state.value.currentTrack?.takeIf { it.id == trackId }
-            ?: libraryById.value[trackId]?.let { track ->
-                NowPlayingTrack(track.id, track.title, track.artist, track.artworkRef)
-            }
             ?: fallbackTrack?.takeIf { it.id == trackId }
-            ?: return
+        if (selectedTrack != null) {
+            showForwardPicker(selectedTrack)
+            return
+        }
+        // Arbitrary Queue/Library tracks are fetched only when Forward is requested.
+        viewModelScope.launch {
+            val track = try {
+                libraryRepository.trackById(trackId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } ?: return@launch
+            if (forwardPickerRequest != request) return@launch
+            showForwardPicker(NowPlayingTrack(track.id, track.title, track.artist, track.artworkRef))
+        }
+    }
+
+    private fun showForwardPicker(selectedTrack: NowPlayingTrack) {
         forwardSearchJob?.cancel()
         forwardFoldersJob?.cancel()
         val cachedFolders = telegramForwardRepository.cachedForwardFolders()
@@ -373,6 +371,7 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun dismissForwardPicker() {
+        forwardPickerRequest++
         forwardSearchJob?.cancel()
         forwardFoldersJob?.cancel()
         forwardTrackId = null

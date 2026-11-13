@@ -21,6 +21,10 @@ data class LibraryTrack(
 interface MusicLibraryRepository {
     fun observeTracks(): Flow<List<Track>>
     fun observeLibraryTracks(): Flow<List<LibraryTrack>>
+    /** Only the playing track is observed; the entire library is not needed by the player. */
+    fun observeTrack(trackId: UUID): Flow<Track?>
+    /** One-shot lookup for actions on a track that is not currently playing. */
+    suspend fun trackById(trackId: UUID): Track?
     suspend fun shouldRefreshLocalMusic(): Boolean = true
     suspend fun refreshLocalMusic(): LocalLibraryRefreshResult
     suspend fun unmergeSource(sourceId: UUID): UUID

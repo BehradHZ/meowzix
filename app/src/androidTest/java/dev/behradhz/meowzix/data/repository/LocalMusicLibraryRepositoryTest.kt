@@ -11,12 +11,14 @@ import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.ScannedLocalTrack
+import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -147,6 +149,32 @@ class LocalMusicLibraryRepositoryTest {
         assertEquals(1, tracks.size)
         assertEquals(2, database.libraryDao().sourcesForTrack(tracks.single().id.toString()).size)
         assertEquals(track(1).contentUri, repository.availableLocalTracks().single().contentUri)
+    }
+
+    @Test
+    fun currentTrackLookupIsScopedAndStillSeesFavoriteAndArtworkRepairs() = runTest {
+        scanner.tracks = listOf(track(1), track(2))
+        repository.refreshLocalMusic()
+        val selected = repository.observeTracks().first().first { it.title == "Track 1" }
+        val other = repository.observeTracks().first().first { it.title == "Track 2" }
+
+        assertEquals(selected, repository.observeTrack(selected.id).first())
+        assertEquals(selected, repository.trackById(selected.id))
+        assertEquals(other, repository.observeTrack(other.id).first())
+        assertNull(repository.observeTrack(UUID.randomUUID()).first())
+
+        repository.setFavorite(selected.id, true)
+        assertEquals(true, repository.observeTrack(selected.id).first()?.favorite)
+        assertEquals(false, repository.observeTrack(other.id).first()?.favorite)
+
+        val repairedArtwork = "file:///meowzix/artwork/repaired.jpg"
+        database.libraryDao().setArtworkRef(selected.id.toString(), repairedArtwork, 1_900_000_000_000L)
+        assertEquals(repairedArtwork, repository.observeTrack(selected.id).first()?.artworkRef)
+
+        // Adding an unrelated song does not change the selected song's metadata.
+        scanner.tracks = listOf(track(1), track(2), track(3))
+        repository.refreshLocalMusic()
+        assertEquals("Track 1", repository.trackById(selected.id)?.title)
     }
 
     @Test

@@ -257,6 +257,9 @@ interface LibraryDao {
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
     suspend fun trackById(id: String): TrackEntity?
 
+    @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
+    fun observeTrackById(id: String): Flow<TrackEntity?>
+
     @Query("SELECT * FROM track_sources WHERE id = :id LIMIT 1")
     suspend fun sourceById(id: String): TrackSourceEntity?
 

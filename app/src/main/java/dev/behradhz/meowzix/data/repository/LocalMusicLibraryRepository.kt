@@ -83,6 +83,14 @@ class LocalMusicLibraryRepository @Inject constructor(
         .map { rows -> rows.map(TrackEntity::toDomain) }
         .flowOn(Dispatchers.Default)
 
+    override fun observeTrack(trackId: UUID): Flow<Track?> =
+        dao.observeTrackById(trackId.toString())
+            .map { entity -> entity?.toDomain() }
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun trackById(trackId: UUID): Track? =
+        dao.trackById(trackId.toString())?.toDomain()
+
     override fun observeLibraryTracks(): Flow<List<LibraryTrack>> =
         combine(dao.observeAvailableTracks(), dao.observeActiveSources()) { tracks, sources ->
             val sourcesByTrack = sources.groupBy { it.trackId }

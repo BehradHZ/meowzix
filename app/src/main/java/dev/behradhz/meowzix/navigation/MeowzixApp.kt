@@ -149,7 +149,6 @@ fun MeowzixApp(
     var openProxyRequest by remember { mutableIntStateOf(0) }
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
-    val queueState by playerViewModel.queueState.collectAsStateWithLifecycle()
     val appearance by playerViewModel.appearanceSettings.collectAsStateWithLifecycle()
     val reduceMotion = appearance.reduceMotion
     val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
@@ -457,6 +456,8 @@ fun MeowzixApp(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (searchActive && searchScope == DockSearchScope.GLOBAL && searchQuery.isNotBlank()) {
+                // The root UI does not need to collect Queue updates when search is closed.
+                val queueState by playerViewModel.queueState.collectAsStateWithLifecycle()
                 DockSearchOverlay(
                     hazeState = hazeState,
                     scope = searchScope,
