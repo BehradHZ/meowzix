@@ -21,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -76,8 +77,21 @@ class MiniPlayerStackLayerTest {
         // A stationary background marker stays at 5%, while the moving foreground
         // marker arrives at 50%-60%, proving translation rather than content shrinkage.
         assertPixels(5 to AndroidColor.GREEN, 55 to AndroidColor.YELLOW, 80 to AndroidColor.BLUE)
+        assertCardsHaveGapAndClippedCorners()
         compose.runOnIdle { progress = 1f }
         assertPixels(5 to endingColors[0], 80 to endingColors[1])
+    }
+
+    private fun assertCardsHaveGapAndClippedCorners() {
+        val bitmap = compose.onNodeWithTag("mini-player-stack").captureToImage().asAndroidBitmap()
+        val gap = bitmap.getPixel(bitmap.width / 2, bitmap.height / 2)
+        // At 50% progress, an 8.dp gap separates the two cards; neither card
+        // paints the center pixel, even though both use fully opaque test colors.
+        assertNotEquals("Outgoing card leaks into gap", AndroidColor.RED, gap)
+        assertNotEquals("Incoming card overlaps gap", AndroidColor.BLUE, gap)
+        val roundedCorner = bitmap.getPixel(0, 0)
+        assertNotEquals("Square outgoing corner", AndroidColor.RED, roundedCorner)
+        assertNotEquals("Square incoming corner", AndroidColor.BLUE, roundedCorner)
     }
 
     private fun assertPixels(vararg probes: Pair<Int, Int>) {
