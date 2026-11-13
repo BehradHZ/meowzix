@@ -101,6 +101,9 @@ private val CollapsedPlayerHorizontalInset = 14.dp
 private val CollapsedPlayerDockClearance = 90.dp
 private val PlayerSettleDistance = 72.dp
 private const val MINI_CARD_COMMIT_THRESHOLD = 0.35f
+private const val MINI_PLAYER_GLASS_OPACITY = 0.30f
+private val MiniCardGap = 8.dp
+private val MiniCardCornerRadius = 28.dp
 
 /**
  * Swipe-to-collapse must never claim a gesture that starts on the More actions
@@ -138,9 +141,9 @@ internal fun miniPlayerForegroundOffsetFraction(
 }
 
 /**
- * Two actual full-width cards stacked in the same frame. The foreground translates without
- * resizing; the underlay is stationary and masked only where the foreground covers it.
- * Masking prevents transparent card content from showing through the foreground on glass.
+ * Keep the neighboring card separated by a real gap while it slides. The outgoing card
+ * is masked before the incoming translucent card reaches it, so there is no text or
+ * artwork bleeding through the glass. Clip every moving layer to the same round shape.
  */
 @Composable
 internal fun MiniPlayerStackLayer(
@@ -151,12 +154,18 @@ internal fun MiniPlayerStackLayer(
     foreground: @Composable () -> Unit,
 ) {
     val foregroundX = miniPlayerForegroundOffsetFraction(direction, progress)
-    Box(modifier = modifier.clipToBounds()) {
+    val gapPx = with(LocalDensity.current) { MiniCardGap.toPx() }
+    val shape = RoundedCornerShape(MiniCardCornerRadius)
+    Box(modifier = modifier.clip(shape)) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .clip(shape)
                 .drawWithContent {
-                    clipRect(right = size.width * foregroundX) { this@drawWithContent.drawContent() }
+                    val offsetPx = (size.width + gapPx) * foregroundX
+                    clipRect(right = (offsetPx - gapPx).coerceIn(0f, size.width)) {
+                        this@drawWithContent.drawContent()
+                    }
                 },
         ) {
             underlay()
@@ -164,7 +173,8 @@ internal fun MiniPlayerStackLayer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { translationX = size.width * foregroundX },
+                .graphicsLayer { translationX = (size.width + gapPx) * foregroundX }
+                .clip(shape),
         ) {
             foreground()
         }
@@ -388,8 +398,8 @@ internal fun MorphingPlayerOverlay(
                     onClick = morphState::expand,
                 ),
             shape = RoundedCornerShape(cornerRadius),
-            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = MINI_PLAYER_GLASS_OPACITY),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f),
         ) {
             val miniAlpha = (1f - expansionFraction / 0.24f).coerceIn(0f, 1f)
             val fullAlpha = ((expansionFraction - 0.10f) / 0.34f).coerceIn(0f, 1f)
@@ -744,7 +754,7 @@ private fun InteractiveMiniTrackPager(
                 animate(
                     initialValue = swipeProgress,
                     targetValue = 1f,
-                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                    animationSpec = tween(160, easing = FastOutSlowInEasing),
                 ) { value, _ -> swipeProgress = value }
                 delay(24)
             }
@@ -783,7 +793,7 @@ private fun InteractiveMiniTrackPager(
                 animate(
                     initialValue = 0f,
                     targetValue = 1f,
-                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                    animationSpec = tween(160, easing = FastOutSlowInEasing),
                 ) { value, _ -> swipeProgress = value }
             }
             resetTransition(activeIndex)
