@@ -306,12 +306,8 @@ class TdLibDownloadRepository @Inject constructor(
                         candidate.fileSizeBytes, file.size.toLong(), remoteSource.fileSizeBytes,
                     ),
                 )
-            if (!valid(result) && result.local.isDownloadingCompleted) {
-                // Only discard a falsely completed cache. An active partial stream is useful
-                // to Media3 and must not be deleted if a download merely stopped early.
-                client.send(TdApi.DeleteFile(fileId))
-                result = client.send(TdApi.DownloadFile(fileId, PIN_PRIORITY, 0L, 0L, true))
-            }
+            // Even a damaged completed TDLib file belongs to the user. Do not erase it
+            // automatically while attempting to repair a failed download.
             if (!valid(result)) error("Telegram audio is still incomplete after a fresh download.")
             result
         } finally {
@@ -323,8 +319,7 @@ class TdLibDownloadRepository @Inject constructor(
         )
         val localCopy = copyIntoOfflineDirectory(trackId, sourceFile, candidate.fileName)
         if (!ManagedAudioIntegrity.isValid(localCopy.file, expectedBytes, localCopy.sha256)) {
-            runCatching { deleteOwnedManagedFile(localCopy.file.absolutePath) }
-            error("Offline copy failed post-copy integrity verification.")
+            error("Offline copy failed post-copy integrity verification; file preserved.")
         }
         val completedAt = Instant.now().toEpochMilli()
         database.withTransaction {
@@ -422,8 +417,7 @@ class TdLibDownloadRepository @Inject constructor(
                             localCopy.file, telegramSizes, source.fileSizeBytes, localCopy.sha256,
                         )
                     ) {
-                        runCatching { deleteOwnedManagedFile(localCopy.file.absolutePath) }
-                        error("Offline copy failed post-copy integrity verification.")
+                        error("Offline copy failed post-copy integrity verification; file preserved.")
                     }
                     val now = Instant.now().toEpochMilli()
                     val previousOfflineSource = libraryDao.sourceById(offlineSourceId(trackId))
@@ -514,13 +508,17 @@ class TdLibDownloadRepository @Inject constructor(
 
     private fun copyIntoOfflineDirectory(trackId: UUID, sourceFile: File, fileName: String?): LocalCopy {
         offlineDirectory.mkdirs()
-        val extension = fileName?.substringAfterLast('.', "")
-            ?.takeIf { it.matches(Regex("[A-Za-z0-9]{1,8}")) }
-        val destination = File(offlineDirectory, trackId.toString() + extension?.let { ".$it" }.orEmpty())
-        if (destination.isFile && destination.length() == sourceFile.length() &&
-            sha256(destination) == sha256(sourceFile)) {
-            return LocalCopy(destination, sha256(destination))
+        val sourceHash = sha256(sourceFile)
+        val preferred = ImmutableManagedAudioFiles.preferredDestination(
+            offlineDirectory, trackId, fileName, sourceHash,
+        )
+        if (preferred.isFile && sha256(preferred) == sourceHash) {
+            return LocalCopy(preferred, sourceHash)
         }
+        // Preserve even invalid previous downloads. Never overwrite a completed file.
+        val destination = if (preferred.exists()) {
+            ImmutableManagedAudioFiles.alternateDestination(preferred)
+        } else preferred
         val partial = File(offlineDirectory, destination.name + ".part")
         val lease = managedStorage.acquireLease(partial.absolutePath, "offline-copy")
         try {
@@ -530,10 +528,10 @@ class TdLibDownloadRepository @Inject constructor(
                     DigestOutputStream(output, digest).use(input::copyTo)
                 }
             }
-            if (destination.exists() && !destination.delete()) error("Unable to replace offline copy.")
+            val copiedHash = digest.digest().joinToString("") { "%02x".format(it) }
+            if (copiedHash != sourceHash) error("Audio changed during offline copy; partial preserved.")
             if (!partial.renameTo(destination)) error("Unable to finalize offline copy.")
-            val hash = digest.digest().joinToString("") { "%02x".format(it) }
-            return LocalCopy(destination, hash)
+            return LocalCopy(destination, copiedHash)
         } finally {
             lease.close()
         }
