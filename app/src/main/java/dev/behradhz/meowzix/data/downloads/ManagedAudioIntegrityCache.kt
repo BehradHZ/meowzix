@@ -8,7 +8,7 @@ import javax.inject.Singleton
 
 /** Persists file verification fingerprints across app restarts. */
 @Singleton
-internal class ManagedAudioIntegrityCache @Inject constructor(
+class ManagedAudioIntegrityCache @Inject constructor(
     @ApplicationContext context: Context,
 ) {
     private val preferences = context.getSharedPreferences("verified_managed_audio_v1", Context.MODE_PRIVATE)
