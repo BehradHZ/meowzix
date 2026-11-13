@@ -14,6 +14,7 @@ import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import kotlinx.coroutines.withTimeoutOrNull
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
 import java.util.UUID
 import javax.inject.Inject
@@ -70,33 +71,41 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(cachedState ?: HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
+    private var homePlayGeneration = 0L
 
     fun refresh() = viewModelScope.launch {
         cachedAtElapsedRealtime = 0L
         refreshIfDue(forceWhenEmpty = true)
     }
 
-    /**
-     * Home is recommendation-first: tapping any track starts that track and immediately
-     * rebuilds the queue around its local Continue-the-Vibe recommendations.
-     */
+    /** Start the selected song without waiting for model inference. */
     fun playFromHome(trackId: UUID) {
+        val generation = ++homePlayGeneration
+        queueRepository.replaceAndPlay(listOf(trackId), trackId, PlaybackMode.ORDERED)
         viewModelScope.launch {
             val vibeIds = runCatching {
                 recommendationEngine.continueTheVibe(trackId, HOME_VIBE_SIZE)
                     .map { it.trackId }
+                    .distinct()
+                    .filterNot { it == trackId }
             }.getOrDefault(emptyList())
-
-            val queueIds = buildList {
-                add(trackId)
-                addAll(vibeIds.filterNot { it == trackId })
-            }.distinct()
-
-            queueRepository.replaceAndPlay(
-                trackIds = queueIds,
-                startTrackId = trackId,
-                mode = PlaybackMode.ORDERED,
-            )
+            if (generation != homePlayGeneration || vibeIds.isEmpty()) return@launch
+            // A new play request can supersede this request while ML is evaluating.
+            val active = withTimeoutOrNull(5_000L) {
+                queueRepository.queueState.first { queue ->
+                    queue.items.getOrNull(queue.currentIndex)?.id == trackId
+                }
+            } ?: return@launch
+            if (generation != homePlayGeneration ||
+                active.items.getOrNull(active.currentIndex)?.id != trackId
+            ) return@launch
+            vibeIds.forEach { id ->
+                val queue = queueRepository.queueState.value
+                if (generation != homePlayGeneration ||
+                    queue.items.getOrNull(queue.currentIndex)?.id != trackId
+                ) return@launch
+                queueRepository.addToQueue(id)
+            }
         }
     }
 
@@ -201,6 +210,15 @@ class HomeViewModel @Inject constructor(
         // Do not enumerate the entire music library merely to show 12 recent rows.
         val recent = library.tracks(recentTrackIds).take(12)
 
+        // Render basic Home content before ML inference and artist aggregation.
+        val recentlyAdded = library.recentlyAdded(12)
+        _state.value = HomeUiState(
+            recent = recent,
+            recentlyAdded = recentlyAdded,
+            playlists = playlistRows.sortedByDescending(PlaylistSummary::updatedAt).take(10),
+            isReady = true,
+        )
+
         // Select only the content Home actually displays; the other recommendation
         // sections are computed on demand by their respective screens.
         val recommendedIds = recommendationEngine
@@ -209,8 +227,6 @@ class HomeViewModel @Inject constructor(
 
         val recommended = library.tracks(recommendedIds.take(14))
             .ifEmpty { library.homeFallback(14) }
-        val recentlyAdded = library.recentlyAdded(12)
-
         val artistKeys = homeArtistKeys(recommended + recent + recentlyAdded)
         val artists = homeArtistCards(
             artistKeys,

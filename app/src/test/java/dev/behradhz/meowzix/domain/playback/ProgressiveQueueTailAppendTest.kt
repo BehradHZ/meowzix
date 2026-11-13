@@ -41,6 +41,22 @@ class ProgressiveQueueTailAppendTest {
         assertEquals(snapshot.tracks.size, snapshot.materializedEndExclusive)
     }
 
+    @Test
+    fun `ordered queue retains unresolved future ids without hydrating every track`() {
+        val queue = ProgressiveQueue()
+        val initial = tracks(3)
+        val future = tracks(60).drop(3).map { it.id }
+        val allIds = initial.map { it.id } + future
+        queue.start(
+            initial, 0, PlaybackMode.ORDERED, RepeatMode.OFF,
+            sourceIds = allIds, pendingIds = future,
+        )
+        val snapshot = requireNotNull(queue.snapshot())
+        assertEquals(initial.size, snapshot.tracks.size)
+        assertEquals(future, snapshot.pendingGeneratedIds)
+        assertEquals(allIds, snapshot.sourceTrackIds)
+    }
+
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
         track("track-$index")
     }

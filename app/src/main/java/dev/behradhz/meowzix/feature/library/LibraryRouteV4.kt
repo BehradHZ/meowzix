@@ -129,11 +129,17 @@ internal fun LibraryRouteV4(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    var sectionIndex by rememberSaveable { mutableIntStateOf(0) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val displaySettings by tracksViewModel.displaySettings.collectAsStateWithLifecycle()
     val trackCount by tracksViewModel.trackCount.collectAsStateWithLifecycle()
     val artists by tracksViewModel.artists.collectAsStateWithLifecycle()
-    val albums by tracksViewModel.albums.collectAsStateWithLifecycle()
+    // Avoid album aggregation on the initial Tracks screen; it is loaded on demand.
+    val albums by if (sectionIndex == 2 || requestedAlbum != null) {
+        tracksViewModel.albums.collectAsStateWithLifecycle()
+    } else {
+        remember { mutableStateOf(emptyList<AlbumSummary>()) }
+    }
     val aggregateSelection by tracksViewModel.selectedAggregate.collectAsStateWithLifecycle()
     val aggregateTracks by tracksViewModel.aggregateTracks.collectAsStateWithLifecycle()
     val pagingItems = tracksViewModel.tracks.collectAsLazyPagingItems()
@@ -186,7 +192,6 @@ internal fun LibraryRouteV4(
         }
     }
 
-    var sectionIndex by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(sectionIndex) {
         if (sectionIndex !in LibrarySectionV4.entries.indices) sectionIndex = 0
     }

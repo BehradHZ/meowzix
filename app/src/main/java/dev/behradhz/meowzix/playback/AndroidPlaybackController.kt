@@ -421,6 +421,52 @@ class AndroidPlaybackController @Inject constructor(
             // Every direct Library selection begins a fresh listening session,
             // even when the selected track belongs to the active collection.
             // Next/Previous navigation continues to use the existing committed order.
+            // Starting an ordered queue must not resolve every source in a large library.
+            // ProgressiveQueue already supports unresolved future IDs, so hydrate only
+            // the initial batch before preparing Media3. Keep all IDs for later refills.
+            val distinctIds = trackIds.distinct()
+            if (distinctIds.isEmpty()) return@launch showError("No playlist tracks are available")
+            if (mode == PlaybackMode.ORDERED) {
+                if (startTrackId != null && startTrackId !in distinctIds) {
+                    return@launch showError("Selected track is no longer available")
+                }
+                val rotation = startTrackId?.let(distinctIds::indexOf)?.coerceAtLeast(0) ?: 0
+                val orderedIds = distinctIds.drop(rotation) + distinctIds.take(rotation)
+                val headIds = orderedIds.take(ProgressiveQueue.GENERATED_BATCH_SIZE)
+                val materialized = runCatching { catalog.availableTracks(headIds) }
+                    .getOrElse { error ->
+                        showError(error.message ?: "Unable to load playlist")
+                        return@launch
+                    }.associateBy(PlayableTrack::id)
+                val initial = headIds.mapNotNull { id ->
+                    if (prepared?.id == id) prepared else materialized[id]
+                }
+                if (initial.isEmpty() || (startTrackId != null && initial.first().id != startTrackId)) {
+                    return@launch showError("Selected track is no longer available")
+                }
+                withConnectedController { connected ->
+                    playbackOccurrenceId = UUID.randomUUID()
+                    userSelectedOccurrence = true
+                    val window = progressiveQueue.start(
+                        orderedTracks = initial,
+                        requestedStartIndex = 0,
+                        mode = mode,
+                        repeat = RepeatMode.OFF,
+                        sourceIds = distinctIds,
+                        pendingIds = orderedIds.drop(headIds.size),
+                    )
+                    connected.setMediaItems(
+                        requireNotNull(progressiveQueue.snapshot()).mediaItems(),
+                        window.startIndexInWindow,
+                        0,
+                    )
+                    connected.repeatMode = Player.REPEAT_MODE_OFF
+                    connected.prepare()
+                    connected.play()
+                }
+                return@launch
+            }
+
             val catalogTracks = runCatching { catalog.availableTracks(trackIds) }
                 .getOrElse { error ->
                     showError(error.message ?: "Unable to load playlist")
