@@ -76,6 +76,7 @@ class PlaylistExperienceTest {
         fontScale: Float = 1f,
         telegramPerson: Boolean = false,
         profileSongIds: Set<UUID> = emptySet(),
+        chatSongIds: Set<UUID> = songs.map(Track::id).toSet() - profileSongIds,
     ): Calls {
         compose.setContent {
             val density = LocalDensity.current
@@ -106,6 +107,7 @@ class PlaylistExperienceTest {
                         onAddToPlaylist = { song, id -> calls.added = song.id to id },
                         telegramPerson = telegramPerson,
                         profileTrackIds = profileSongIds,
+                        messageTrackIds = chatSongIds,
                         onBulkAddToLibrary = { calls.bulkLibraryIds = it.map(Track::id) },
                         onGoToArtist = { calls.artist = it.id },
                         onMove = { from, to -> calls.moves.add(from to to) },
@@ -134,6 +136,7 @@ class PlaylistExperienceTest {
             editable = false,
             telegramPerson = true,
             profileSongIds = setOf(tracks.first().id),
+            chatSongIds = tracks.map(Track::id).toSet(),
         )
         scrollToText("Profile music")
         compose.onNodeWithText("Profile music").assertIsDisplayed()

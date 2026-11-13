@@ -325,6 +325,7 @@ internal fun PlaylistDetailScreenV3(
     onAddToLibrary: (Track) -> Unit = {},
     telegramPerson: Boolean = false,
     profileTrackIds: Set<UUID> = emptySet(),
+    messageTrackIds: Set<UUID> = emptySet(),
     onBulkAddToLibrary: (List<Track>) -> Unit = {},
     onBulkAddToPlaylist: (List<Track>, UUID) -> Unit = { _, _ -> },
     onBulkAddToQueue: (List<Track>) -> Unit = {},
@@ -410,11 +411,11 @@ internal fun PlaylistDetailScreenV3(
     val selectedTracks = sortedTracks.filter { it.id in selectedIds }
     val selectedToLibrary = selectedTracks.filterNot { it.id in libraryTrackIds }
     val grouped: List<Pair<String?, List<Track>>> = remember(
-        sortedTracks, groupBy, showProfileSections, profileTrackIds,
+        sortedTracks, groupBy, showProfileSections, profileTrackIds, messageTrackIds,
     ) {
         if (showProfileSections) listOf(
             "Profile music" to sortedTracks.filter { it.id in profileTrackIds },
-            "Shared in chat" to sortedTracks.filterNot { it.id in profileTrackIds },
+            "Shared in chat" to sortedTracks.filter { it.id in messageTrackIds },
         ) else when (groupBy) {
             PlaylistGroupBy.NONE -> listOf<String?>(null).map { it to sortedTracks }
             PlaylistGroupBy.ARTIST -> sortedTracks.groupBy { it.artist?.takeIf(String::isNotBlank) ?: "Unknown artist" }
@@ -771,7 +772,7 @@ internal fun PlaylistDetailScreenV3(
                             )
                         }
                     }
-                    items(groupTracks, key = { "sorted:${it.id}" }) { track ->
+                    items(groupTracks, key = { "${groupTitle ?: "sorted"}:${it.id}" }) { track ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                         if (selectionMode) Checkbox(
                             checked = track.id in selectedIds,

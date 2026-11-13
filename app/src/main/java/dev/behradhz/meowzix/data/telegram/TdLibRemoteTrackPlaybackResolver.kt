@@ -230,35 +230,20 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         remoteSource: TrackSourceEntity,
         client: TdLibClientAdapter,
     ): ResolvedTelegramSource? {
-        val userId = (runCatching {
-            client.send(TdApi.GetChat(telegramSource.chatId)).type as? TdApi.ChatTypePrivate
-        }.getOrNull())?.userId ?: return null
-        var offset = 0
-        while (offset < 10_000) {
-            val page = runCatching {
-                client.send(TdApi.GetUserProfileAudios(userId, offset, 100))
-            }.getOrNull() ?: return null
-            val match = page.audios.firstOrNull { audio ->
-                val stableId = telegramSource.tdPersistentFileId
-                if (!stableId.isNullOrBlank()) audio.audio.remote.uniqueId == stableId
-                else telegramProfileMessageId(audio.profileIdentity()) == telegramSource.messageId
-            }
-            if (match != null) {
-                val candidate = match.toAudioCandidate(telegramSource.messageId)
-                telegramDao.upsertTelegramTrackSource(
-                    telegramSource.copy(
-                        tdFileId = candidate.fileId,
-                        tdPersistentFileId = candidate.persistentFileId ?: telegramSource.tdPersistentFileId,
-                    ),
-                )
-                runCatching { client.seedFileState(candidate.fileId) }
-                return ResolvedTelegramSource(telegramSource.trackSourceId, remoteSource, candidate)
-            }
-            if (page.audios.isEmpty()) break
-            offset += page.audios.size
-            if (offset >= page.totalCount) break
-        }
-        return null
+        val audio = runCatching {
+            findTelegramProfileAudio(
+                client, telegramSource.chatId, telegramSource.messageId, telegramSource.tdPersistentFileId,
+            )
+        }.getOrNull() ?: return null
+        val candidate = audio.toAudioCandidate(telegramSource.messageId)
+        telegramDao.upsertTelegramTrackSource(
+            telegramSource.copy(
+                tdFileId = candidate.fileId,
+                tdPersistentFileId = candidate.persistentFileId ?: telegramSource.tdPersistentFileId,
+            ),
+        )
+        runCatching { client.seedFileState(candidate.fileId) }
+        return ResolvedTelegramSource(telegramSource.trackSourceId, remoteSource, candidate)
     }
 
     private suspend fun refreshSourceFromMessage(
@@ -326,8 +311,11 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                     val accountId = telegramRepository.musicSourceState.value.accountId ?: return@runCatching
                     val telegramSource = telegramDao.telegramSourceForTrack(accountId, trackId.toString())
                         ?: return@runCatching
-                    val refreshed = refreshSourceFromMessage(trackId, telegramSource, source.remoteSource, client)
-                        ?: return@runCatching
+                    val refreshed = if (telegramSource.messageId < 0L) {
+                        refreshSourceFromProfile(trackId, telegramSource, source.remoteSource, client)
+                    } else {
+                        refreshSourceFromMessage(trackId, telegramSource, source.remoteSource, client)
+                    } ?: return@runCatching
                     refreshed.candidate
                 }
                 ensureHighQualityArtwork(client, trackId, candidate)

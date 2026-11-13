@@ -73,6 +73,7 @@ internal object TrackMergeSnapshotCodec {
         val versionRows = rows.filter { it.firstOrNull() == "v" }
         require(versionRows.size == 1 && versionRows.single().size == 2) { "Malformed merge snapshot version" }
         val version = versionRows.single()[1].toIntOrNull()
+            ?: error("Malformed merge snapshot version")
         require(version in LEGACY_VERSION..CURRENT_VERSION) {
             "Unsupported merge snapshot version: $version"
         }

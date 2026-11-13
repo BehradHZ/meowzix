@@ -62,6 +62,7 @@ data class LibraryUiState(
     val selectedPlaylistTracks: List<Track> = emptyList(),
     val selectedPlaylistLibraryTrackIds: Set<UUID> = emptySet(),
     val selectedPlaylistProfileTrackIds: Set<UUID> = emptySet(),
+    val selectedPlaylistChatTrackIds: Set<UUID> = emptySet(),
     val selectedPlaylistIsPerson: Boolean = false,
     val deletingPlaylistId: UUID? = null,
     val isRefreshing: Boolean = false,
@@ -185,6 +186,7 @@ class LibraryViewModel @Inject constructor(
                 selectedPlaylistTracks = emptyList(),
                 selectedPlaylistLibraryTrackIds = emptySet(),
                 selectedPlaylistProfileTrackIds = emptySet(),
+                selectedPlaylistChatTrackIds = emptySet(),
                 selectedPlaylistIsPerson = false,
             )
         }
@@ -443,6 +445,7 @@ class LibraryViewModel @Inject constructor(
                 selectedPlaylistTracks = emptyList(),
                 selectedPlaylistLibraryTrackIds = emptySet(),
                 selectedPlaylistProfileTrackIds = emptySet(),
+                selectedPlaylistChatTrackIds = emptySet(),
                 selectedPlaylistIsPerson = isPerson,
             )
         }
@@ -454,11 +457,15 @@ class LibraryViewModel @Inject constructor(
                     val profile = if (isPerson && selectedChat != null) {
                         telegramRepository.profileTrackIdsForChat(selectedChat.chatId)
                     } else emptySet()
+                    val messages = if (isPerson && selectedChat != null) {
+                        telegramRepository.messageTrackIdsForChat(selectedChat.chatId)
+                    } else emptySet()
                     _state.update {
                         it.copy(
                             selectedPlaylistTracks = tracks,
                             selectedPlaylistLibraryTrackIds = included,
                             selectedPlaylistProfileTrackIds = profile,
+                            selectedPlaylistChatTrackIds = messages,
                             selectedPlaylistIsPerson = isPerson,
                         )
                     }

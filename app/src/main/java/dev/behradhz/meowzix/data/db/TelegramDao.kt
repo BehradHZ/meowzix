@@ -73,6 +73,14 @@ interface TelegramDao {
     """)
     suspend fun activeProfileTrackIdsForChat(accountId: String, chatId: Long): List<String>
 
+    @Query("""
+        SELECT DISTINCT s.trackId FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND tg.chatId = :chatId
+          AND tg.messageId > 0 AND s.availability != 'MISSING'
+    """)
+    suspend fun activeMessageTrackIdsForChat(accountId: String, chatId: Long): List<String> 
+
     @Query("SELECT tg.* FROM telegram_track_sources tg INNER JOIN track_sources s ON s.id = tg.trackSourceId WHERE tg.accountId = :accountId AND s.trackId = :trackId AND tg.messageId > 0 AND s.availability != 'MISSING' ORDER BY tg.messageId DESC LIMIT 1")
     suspend fun telegramMessageSourceForTrack(accountId: String, trackId: String): TelegramTrackSourceEntity?
 

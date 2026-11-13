@@ -159,6 +159,7 @@ interface TelegramRepository {
     suspend fun trackIdsForChat(chatId: Long): List<UUID>
     /** Profile-pinned music belongs to private user chats, not their shared message history. */
     suspend fun profileTrackIdsForChat(chatId: Long): Set<UUID> = emptySet()
+    suspend fun messageTrackIdsForChat(chatId: Long): Set<UUID> = emptySet()
     fun clearMusicSourceError()
 }
 

@@ -19,6 +19,7 @@ import dev.behradhz.meowzix.data.localmedia.ScannedLocalTrack
 import dev.behradhz.meowzix.data.telegram.TdDownloadPriority
 import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import dev.behradhz.meowzix.data.telegram.toAudioCandidate
+import dev.behradhz.meowzix.data.telegram.findTelegramProfileAudio
 import dev.behradhz.meowzix.domain.library.LibraryTrack
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
@@ -264,10 +265,15 @@ class LocalMusicLibraryRepository @Inject constructor(
         }
 
         val telegram = telegramDao.telegramSourceForAnyAccountTrack(trackId) ?: return true
-        val message = runCatching {
-            client.send(TdApi.GetMessage(telegram.chatId, telegram.messageId))
+        val candidate = runCatching {
+            if (telegram.messageId < 0L) {
+                findTelegramProfileAudio(
+                    client, telegram.chatId, telegram.messageId, telegram.tdPersistentFileId,
+                )?.toAudioCandidate(telegram.messageId)
+            } else {
+                client.send(TdApi.GetMessage(telegram.chatId, telegram.messageId)).toAudioCandidate()
+            }
         }.getOrNull() ?: return false
-        val candidate = message.toAudioCandidate() ?: return true
         val artworkFileId = candidate.artworkFileId ?: return true
 
         val downloaded = runCatching {

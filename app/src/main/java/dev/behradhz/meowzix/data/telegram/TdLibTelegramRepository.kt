@@ -747,6 +747,12 @@ class TdLibTelegramRepository @Inject constructor(
             .toSet()
     }
 
+    override suspend fun messageTrackIdsForChat(chatId: Long): Set<UUID> {
+        val accountId = currentUserId?.toString() ?: _musicSourceState.value.accountId ?: return emptySet()
+        return telegramDao.activeMessageTrackIdsForChat(accountId, chatId)
+            .mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }.toSet()
+    }
+
     private suspend fun ensureChatPlaylist(accountId: String, chatId: Long, title: String) {
         val now = Instant.now().toEpochMilli()
         // Membership is source-managed; user-edited title, description and artwork are not.

@@ -117,7 +117,7 @@ class RoomLibraryToolsRepository @Inject constructor(
         val evidence = duplicateCandidates(survivorTrackId).firstOrNull { it.track.id == mergedTrackId }?.evidence
             ?: duplicateCandidates(mergedTrackId).firstOrNull { it.track.id == survivorTrackId }?.evidence
             ?: error("Tracks are not a duplicate candidate pair")
-        require(evidence != DuplicateEvidence.METADATA_AND_DURATION || confirmMetadataOnly) {
+        require(evidence != DuplicateEvidence.SAME_TITLE_AND_ARTIST || confirmMetadataOnly) {
             "Metadata-only duplicate merges require explicit confirmation"
         }
 

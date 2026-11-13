@@ -15,6 +15,7 @@ import dev.behradhz.meowzix.data.network.NetworkPolicy
 import dev.behradhz.meowzix.data.network.NetworkUse
 import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import dev.behradhz.meowzix.data.telegram.toAudioCandidate
+import dev.behradhz.meowzix.data.telegram.findTelegramProfileAudio
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
@@ -229,15 +230,23 @@ class TdLibDownloadRepository @Inject constructor(
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
         val remoteSource = requireNotNull(libraryDao.sourceById(telegramSource.trackSourceId))
 
-        val refreshedMessage = client.send(TdApi.GetMessage(telegramSource.chatId, telegramSource.messageId))
-        val candidate = refreshedMessage.toAudioCandidate()
+        val candidate = if (telegramSource.messageId < 0L) {
+            findTelegramProfileAudio(
+                client, telegramSource.chatId, telegramSource.messageId, telegramSource.tdPersistentFileId,
+            )?.toAudioCandidate(telegramSource.messageId)
+        } else {
+            client.send(TdApi.GetMessage(telegramSource.chatId, telegramSource.messageId)).toAudioCandidate()
+        }
         if (candidate == null) {
-            libraryDao.updateAvailability(
-                telegramSource.trackSourceId,
-                SourceAvailability.MISSING,
-                Instant.now().toEpochMilli(),
-            )
-            error("Telegram file is no longer available.")
+            // Profile privacy changes should not permanently hide locally indexed music.
+            if (telegramSource.messageId > 0L) {
+                libraryDao.updateAvailability(
+                    telegramSource.trackSourceId,
+                    SourceAvailability.MISSING,
+                    Instant.now().toEpochMilli(),
+                )
+            }
+            error("Telegram audio is no longer available or is private.")
         }
         telegramDao.upsertTelegramTrackSource(
             telegramSource.copy(

@@ -240,6 +240,7 @@ internal fun LibraryRouteV4(
                 onBulkRemove = viewModel::removePlaylistTracks,
                 telegramPerson = state.selectedPlaylistIsPerson,
                 profileTrackIds = state.selectedPlaylistProfileTrackIds,
+                messageTrackIds = state.selectedPlaylistChatTrackIds,
                 onGoToArtist = { track ->
                     tracksViewModel.closeAggregate()
                     artists.firstOrNull { it.normalizedName == track.normalizedArtist }

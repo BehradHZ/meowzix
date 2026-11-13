@@ -188,6 +188,7 @@ fun PlaylistsRoute(
                 onBulkRemove = viewModel::removePlaylistTracks,
                 telegramPerson = state.selectedPlaylistIsPerson,
                 profileTrackIds = state.selectedPlaylistProfileTrackIds,
+                messageTrackIds = state.selectedPlaylistChatTrackIds,
                 onGoToArtist = { track ->
                     closeDetail()
                     viewModel.resetNavigationState()
