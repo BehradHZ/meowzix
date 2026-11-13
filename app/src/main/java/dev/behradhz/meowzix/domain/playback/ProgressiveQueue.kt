@@ -635,6 +635,31 @@ class ProgressiveQueue @Inject constructor() {
         return true
     }
 
+    /**
+     * Fill a newly started one-track session after async catalog discovery. Unlike
+     * changing playback mode, this permits the SAME mode and never replaces the
+     * currently playing occurrence or any explicit manual Queue entries.
+     */
+    @Synchronized
+    fun attachFutureToSingleTrack(
+        expectedTrackId: UUID,
+        future: List<PlayableTrack>,
+        sourceIds: List<UUID>,
+        pendingIds: List<UUID>,
+        mode: PlaybackMode,
+    ): Boolean {
+        if (currentIndex != 0 || tracks.firstOrNull()?.id != expectedTrackId ||
+            sourceTrackIds != listOf(expectedTrackId)) return false
+        replaceFuture(
+            future = future,
+            mode = mode,
+            sourceIds = sourceIds,
+            pendingIds = pendingIds,
+            allowSameMode = true,
+        )
+        return true
+    }
+
     @Synchronized
     fun replaceFuture(
         future: List<PlayableTrack>,
@@ -642,12 +667,13 @@ class ProgressiveQueue @Inject constructor() {
         seed: Long? = null,
         sourceIds: List<UUID>? = null,
         pendingIds: List<UUID>? = null,
+        allowSameMode: Boolean = false,
     ) {
         if (tracks.isEmpty() || currentIndex < 0) return
         // A listening cycle commits the visible order of Next. A background
         // suggestion refresh must not rebuild it simply because the current
         // song advanced. Changing playback mode is the explicit reordering action.
-        if (mode == playbackMode) return
+        if (mode == playbackMode && !allowSameMode) return
         val fixedTracks = tracks.take(currentIndex + 1)
         val fixedOrigins = origins.take(currentIndex + 1)
         val currentAndHistoryOccurrences = occurrenceIds.take(currentIndex + 1)

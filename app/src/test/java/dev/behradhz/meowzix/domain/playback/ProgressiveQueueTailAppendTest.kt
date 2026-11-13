@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.domain.playback
 import java.util.UUID
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class ProgressiveQueueTailAppendTest {
@@ -55,6 +56,40 @@ class ProgressiveQueueTailAppendTest {
         assertEquals(initial.size, snapshot.tracks.size)
         assertEquals(future, snapshot.pendingGeneratedIds)
         assertEquals(allIds, snapshot.sourceTrackIds)
+    }
+
+    @Test
+    fun `attach future preserves playing occurrence and explicit next without reprepare`() {
+        val queue = ProgressiveQueue()
+        val selected = track("selected")
+        val manual = track("manual-next")
+        val future = tracks(4)
+        queue.start(
+            listOf(selected), 0, PlaybackMode.ORDERED, RepeatMode.OFF,
+            sourceIds = listOf(selected.id),
+        )
+        assertTrue(queue.insertNext(manual))
+        val before = requireNotNull(queue.snapshot())
+        assertTrue(queue.attachFutureToSingleTrack(
+            expectedTrackId = selected.id,
+            future = future,
+            sourceIds = listOf(selected.id) + future.map { it.id },
+            pendingIds = listOf(track("later").id),
+            mode = PlaybackMode.ORDERED,
+        ))
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(before.occurrenceIds.first(), after.occurrenceIds.first())
+        assertEquals(selected.id, after.tracks[after.currentIndex].id)
+        assertEquals(manual.id, after.tracks[1].id)
+        assertEquals(future.map { it.id }, after.tracks.drop(2).map { it.id })
+        assertEquals(listOf(track("later").id), after.pendingGeneratedIds)
+        assertFalse(queue.attachFutureToSingleTrack(
+            expectedTrackId = selected.id,
+            future = future,
+            sourceIds = listOf(selected.id),
+            pendingIds = emptyList(),
+            mode = PlaybackMode.ORDERED,
+        ))
     }
 
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->

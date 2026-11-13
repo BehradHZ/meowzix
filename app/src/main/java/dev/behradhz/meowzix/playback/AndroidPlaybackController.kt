@@ -542,6 +542,61 @@ class AndroidPlaybackController @Inject constructor(
         }
     }
 
+    /**
+     * Nonblocking Library-first playback: fill only the upcoming materialized batch
+     * once the full ID order is known. Never re-prepare or replace the current MediaItem.
+     */
+    override fun attachFutureToSingleTrack(
+        expectedTrackId: UUID,
+        fullOrderedTrackIds: List<UUID>,
+        mode: PlaybackMode,
+    ) {
+        scope.launch {
+            val allIds = fullOrderedTrackIds.distinct()
+            if (expectedTrackId !in allIds) return@launch
+            val snapshot = progressiveQueue.snapshot() ?: return@launch
+            if (snapshot.sourceTrackIds != listOf(expectedTrackId) ||
+                snapshot.tracks.getOrNull(snapshot.currentIndex)?.id != expectedTrackId) return@launch
+
+            val remaining = allIds.filterNot { it == expectedTrackId }
+            val orderedFuture = runCatching { when (mode) {
+                PlaybackMode.ORDERED -> remaining
+                PlaybackMode.PURE_SHUFFLE -> {
+                    val candidates = catalog.availableTracks(remaining)
+                    val ordered = makeShuffleCycle(candidates, previousTrackId = expectedTrackId).order
+                    ordered
+                }
+                PlaybackMode.SMART_SHUFFLE -> {
+                    val recommendation = recommendationEngine.generate(
+                        allowedTrackIds = allIds,
+                        currentTrackId = expectedTrackId,
+                        timeBucket = currentTimeBucket(),
+                    )
+                    val eligible = recommendation.eligibleTrackIds
+                    recommendation.trackIds.distinct().filter { it != expectedTrackId && it in eligible }
+                }
+            } }.getOrElse { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                return@launch
+            }
+            val headIds = orderedFuture.take((ProgressiveQueue.GENERATED_BATCH_SIZE - 1).coerceAtLeast(1))
+            val prepared = runCatching { catalog.availableTracks(headIds) }
+                .getOrElse { return@launch }.associateBy(PlayableTrack::id)
+            val initial = headIds.mapNotNull(prepared::get)
+            withConnectedController { connected ->
+                if (connected.currentMediaItem?.mediaId != expectedTrackId.toString()) return@withConnectedController
+                val accepted = progressiveQueue.attachFutureToSingleTrack(
+                    expectedTrackId = expectedTrackId,
+                    future = initial,
+                    sourceIds = allIds,
+                    pendingIds = orderedFuture.drop(headIds.size),
+                    mode = mode,
+                )
+                if (accepted) syncProgressiveFutureInPlace(connected)
+            }
+        }
+    }
+
     override fun removeOccurrence(occurrenceId: UUID) = withController { connected ->
         if (progressiveQueue.snapshot() != null) {
             // Read the authoritative, freshly synchronized queue only AFTER the

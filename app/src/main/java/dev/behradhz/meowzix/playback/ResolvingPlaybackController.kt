@@ -207,6 +207,12 @@ class ResolvingPlaybackController @Inject constructor(
         }
     }
 
+    override fun attachFutureToSingleTrack(
+        expectedTrackId: UUID,
+        fullOrderedTrackIds: List<UUID>,
+        mode: PlaybackMode,
+    ) = delegate.attachFutureToSingleTrack(expectedTrackId, fullOrderedTrackIds, mode)
+
     override fun removeAt(index: Int) {
         val occurrenceId = queueState.value.items.getOrNull(index)?.occurrenceId ?: return
         removeOccurrence(occurrenceId)

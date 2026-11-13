@@ -34,6 +34,15 @@ interface QueueRepository {
     fun moveGroup(groupId: UUID, toIndex: Int)
     fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode)
     fun replaceAndPlay(trackIds: List<UUID>, startTrackId: UUID, mode: PlaybackMode)
+    /**
+     * Attach the collection after a one-track first-play startup, without resetting
+     * its playing occurrence. Ignored if the active listening context has changed.
+     */
+    fun attachFutureToSingleTrack(
+        expectedTrackId: UUID,
+        fullOrderedTrackIds: List<UUID>,
+        mode: PlaybackMode,
+    ) {}
     fun removeAt(index: Int)
     /** Remove the exact displayed occurrence, even if playback shifts queue indexes first. */
     fun removeOccurrence(occurrenceId: UUID)

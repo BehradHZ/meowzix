@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.first
 import dev.behradhz.meowzix.domain.playback.QueueGroupKind
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface LibraryAggregateSelection {
     data class Artist(val name: String, val normalizedName: String) : LibraryAggregateSelection
@@ -54,6 +55,7 @@ class LibraryTracksViewModel @Inject constructor(
     private val availability = MutableStateFlow(LibraryAvailabilityFilter.ALL)
     private val aggregateSelection = MutableStateFlow<LibraryAggregateSelection?>(null)
     private val searchQuery = MutableStateFlow("")
+    private var libraryPlayGeneration = 0L
     val queueFeedback = queueFeedbackBus.events
 
     val displaySettings: StateFlow<LibraryDisplaySettings> = settingsRepository.libraryDisplaySettings
@@ -148,26 +150,37 @@ class LibraryTracksViewModel @Inject constructor(
         aggregateSelection.value = null
     }
 
-    /** Search filters the visible Paging rows, never the playback catalog. */
+    /** Touch dispatches audio first; library-wide ID discovery is a background task. */
     fun playTrack(trackId: UUID) {
-        // Capture before Now Playing clears search while the coroutine is queued.
+        val generation = ++libraryPlayGeneration
         val fromSearch = searchQuery.value.isNotBlank()
         val filter = availability.value
         val display = displaySettings.value
+        val contextKey = PlaybackContextKeys.LIBRARY
+        playbackContextPolicyStore.activate(contextKey)
+        val policy = playbackContextPolicyStore.policy(contextKey)
+        // The selected track is ready to start without scanning the entire Library.
+        queueRepository.replaceAndPlay(listOf(trackId), trackId, PlaybackMode.ORDERED)
         viewModelScope.launch {
-            val ids = pagedLibrary.orderedTrackIds(
-                sortMode = display.sortMode,
-                groupMode = display.groupMode,
-                availability = filter,
-                searchQuery = "",
-            )
-            if (ids.isEmpty()) return@launch
-
-            val contextKey = PlaybackContextKeys.LIBRARY
-            playbackContextPolicyStore.activate(contextKey)
-            val policy = playbackContextPolicyStore.policy(contextKey)
-            val queue = buildLibraryPlaybackQueue(ids, trackId, policy.playbackMode, fromSearch)
-            queueRepository.replaceAndPlay(queue, trackId, policy.playbackMode)
+            val ids = runCatching {
+                pagedLibrary.orderedTrackIds(
+                    sortMode = display.sortMode,
+                    groupMode = display.groupMode,
+                    availability = filter,
+                    searchQuery = "",
+                )
+            }.getOrDefault(emptyList())
+            if (ids.isEmpty() || generation != libraryPlayGeneration) return@launch
+            val ordered = buildLibraryPlaybackQueue(ids, trackId, policy.playbackMode, fromSearch)
+            val started = withTimeoutOrNull(8_000L) {
+                queueRepository.queueState.first {
+                    it.items.getOrNull(it.currentIndex)?.id == trackId
+                }
+            } ?: return@launch
+            if (generation != libraryPlayGeneration ||
+                started.items.getOrNull(started.currentIndex)?.id != trackId
+            ) return@launch
+            queueRepository.attachFutureToSingleTrack(trackId, ordered, policy.playbackMode)
             if (policy.repeatMode != dev.behradhz.meowzix.domain.playback.RepeatMode.OFF) {
                 queueRepository.setRepeatMode(policy.repeatMode)
             }
