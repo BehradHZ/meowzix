@@ -241,6 +241,10 @@ internal fun LibraryRouteV4(
                 telegramPerson = state.selectedPlaylistIsPerson,
                 profileTrackIds = state.selectedPlaylistProfileTrackIds,
                 messageTrackIds = state.selectedPlaylistChatTrackIds,
+                profileRefreshing = state.isRefreshingPersonProfile,
+                profileRefreshStatus = state.personProfileRefreshStatus,
+                profileRefreshError = state.personProfileRefreshError,
+                onRefreshProfile = viewModel::refreshSelectedPersonProfile,
                 onGoToArtist = { track ->
                     tracksViewModel.closeAggregate()
                     artists.firstOrNull { it.normalizedName == track.normalizedArtist }

@@ -27,7 +27,6 @@ import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.playback.buildLibraryPlaybackQueue
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
-import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.util.UUID
@@ -64,6 +63,10 @@ data class LibraryUiState(
     val selectedPlaylistProfileTrackIds: Set<UUID> = emptySet(),
     val selectedPlaylistChatTrackIds: Set<UUID> = emptySet(),
     val selectedPlaylistIsPerson: Boolean = false,
+    val selectedPlaylistPersonChatId: Long? = null,
+    val isRefreshingPersonProfile: Boolean = false,
+    val personProfileRefreshStatus: String? = null,
+    val personProfileRefreshError: String? = null,
     val deletingPlaylistId: UUID? = null,
     val isRefreshing: Boolean = false,
     val lastRefresh: LocalLibraryRefreshResult? = null,
@@ -432,12 +435,6 @@ class LibraryViewModel @Inject constructor(
         if (_state.value.selectedPlaylistId == playlistId && playlistTracksJob?.isActive == true) {
             return
         }
-        val telegramState = telegramRepository.musicSourceState.value
-        val selectedChat = telegramState.accountId?.let { account ->
-            telegramState.chats.firstOrNull { telegramPlaylistId(account, it.chatId) == playlistId }
-        }
-        val isPerson = selectedChat?.kind == TelegramChatKind.PRIVATE ||
-            selectedChat?.kind == TelegramChatKind.SAVED_MESSAGES
         playlistTracksJob?.cancel()
         _state.update {
             it.copy(
@@ -446,30 +443,97 @@ class LibraryViewModel @Inject constructor(
                 selectedPlaylistLibraryTrackIds = emptySet(),
                 selectedPlaylistProfileTrackIds = emptySet(),
                 selectedPlaylistChatTrackIds = emptySet(),
-                selectedPlaylistIsPerson = isPerson,
+                selectedPlaylistIsPerson = false,
+                selectedPlaylistPersonChatId = null,
+                isRefreshingPersonProfile = false,
+                personProfileRefreshStatus = null,
+                personProfileRefreshError = null,
             )
         }
         playlistTracksJob = viewModelScope.launch {
+            // The chat-picker cache may be empty when Playlists is first opened.
+            // Resolve from persisted source selection instead.
+            val personChatId = try {
+                telegramRepository.personChatIdForPlaylist(playlistId)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                reportLoadError(error, "Unable to resolve Telegram profile")
+                null
+            }
+            _state.update { current ->
+                if (current.selectedPlaylistId == playlistId) {
+                    current.copy(
+                        selectedPlaylistPersonChatId = personChatId,
+                        selectedPlaylistIsPerson = personChatId != null,
+                    )
+                } else current
+            }
             playlistRepository.observeTracks(playlistId)
                 .catch { error -> reportLoadError(error, "Unable to load playlist") }
                 .collect { tracks ->
                     val included = repository.visibleTrackIds(tracks.map { it.id })
-                    val profile = if (isPerson && selectedChat != null) {
-                        telegramRepository.profileTrackIdsForChat(selectedChat.chatId)
-                    } else emptySet()
-                    val messages = if (isPerson && selectedChat != null) {
-                        telegramRepository.messageTrackIdsForChat(selectedChat.chatId)
-                    } else emptySet()
-                    _state.update {
-                        it.copy(
-                            selectedPlaylistTracks = tracks,
-                            selectedPlaylistLibraryTrackIds = included,
-                            selectedPlaylistProfileTrackIds = profile,
-                            selectedPlaylistChatTrackIds = messages,
-                            selectedPlaylistIsPerson = isPerson,
-                        )
+                    val profile = personChatId?.let { telegramRepository.profileTrackIdsForChat(it) }.orEmpty()
+                    val messages = personChatId?.let { telegramRepository.messageTrackIdsForChat(it) }.orEmpty()
+                    _state.update { current ->
+                        if (current.selectedPlaylistId == playlistId) {
+                            current.copy(
+                                selectedPlaylistTracks = tracks,
+                                selectedPlaylistLibraryTrackIds = included,
+                                selectedPlaylistProfileTrackIds = profile,
+                                selectedPlaylistChatTrackIds = messages,
+                                selectedPlaylistIsPerson = personChatId != null,
+                            )
+                        } else current
                     }
                 }
+        }
+    }
+
+    fun refreshSelectedPersonProfile() {
+        val snapshot = _state.value
+        val playlistId = snapshot.selectedPlaylistId ?: return
+        val chatId = snapshot.selectedPlaylistPersonChatId ?: return
+        if (snapshot.isRefreshingPersonProfile) return
+        _state.update {
+            it.copy(
+                isRefreshingPersonProfile = true,
+                personProfileRefreshStatus = null,
+                personProfileRefreshError = null,
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val count = telegramRepository.refreshPersonProfileMusic(chatId)
+                // Even if the playlist membership is unchanged, refresh source badges.
+                val profile = telegramRepository.profileTrackIdsForChat(chatId)
+                val messages = telegramRepository.messageTrackIdsForChat(chatId)
+                _state.update { current ->
+                    if (current.selectedPlaylistId == playlistId) {
+                        current.copy(
+                            isRefreshingPersonProfile = false,
+                            selectedPlaylistProfileTrackIds = profile,
+                            selectedPlaylistChatTrackIds = messages,
+                            personProfileRefreshStatus = if (count == 0) {
+                                "Telegram returned no profile music. This may be restricted by privacy settings."
+                            } else {
+                                "Profile refreshed · $count songs"
+                            },
+                        )
+                    } else current
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _state.update { current ->
+                    if (current.selectedPlaylistId == playlistId) {
+                        current.copy(
+                            isRefreshingPersonProfile = false,
+                            personProfileRefreshError = error.message ?: "Unable to refresh profile music.",
+                        )
+                    } else current
+                }
+            }
         }
     }
 

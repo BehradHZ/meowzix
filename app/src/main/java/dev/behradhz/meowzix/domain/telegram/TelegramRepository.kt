@@ -160,6 +160,10 @@ interface TelegramRepository {
     /** Profile-pinned music belongs to private user chats, not their shared message history. */
     suspend fun profileTrackIdsForChat(chatId: Long): Set<UUID> = emptySet()
     suspend fun messageTrackIdsForChat(chatId: Long): Set<UUID> = emptySet()
+    /** Resolves person playlists from persisted source selection, not the transient chat picker. */
+    suspend fun personChatIdForPlaylist(playlistId: UUID): Long? = null
+    /** Refreshes profile-only audio without scanning chat history; returns visible profile count. */
+    suspend fun refreshPersonProfileMusic(chatId: Long): Int = 0
     fun clearMusicSourceError()
 }
 

@@ -189,6 +189,10 @@ fun PlaylistsRoute(
                 telegramPerson = state.selectedPlaylistIsPerson,
                 profileTrackIds = state.selectedPlaylistProfileTrackIds,
                 messageTrackIds = state.selectedPlaylistChatTrackIds,
+                profileRefreshing = state.isRefreshingPersonProfile,
+                profileRefreshStatus = state.personProfileRefreshStatus,
+                profileRefreshError = state.personProfileRefreshError,
+                onRefreshProfile = viewModel::refreshSelectedPersonProfile,
                 onGoToArtist = { track ->
                     closeDetail()
                     viewModel.resetNavigationState()

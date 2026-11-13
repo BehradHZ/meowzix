@@ -39,6 +39,7 @@ import java.io.File
 import java.time.Instant
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +55,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.TdApi
 
@@ -82,6 +86,7 @@ class TdLibTelegramRepository @Inject constructor(
     @Volatile private var resettingClient = false
     private var restartAttempts = 0
     private var currentUserId: Long? = null
+    private val profileSyncMutexes = ConcurrentHashMap<Long, Mutex>()
 
     init {
         startClient()
@@ -544,6 +549,19 @@ class TdLibTelegramRepository @Inject constructor(
     private suspend fun syncSource(accountId: String, selected: TelegramSelectedSourceEntity): MutableSyncResult {
         val activeClient = client ?: error("Telegram is not ready yet.")
         val result = MutableSyncResult(chatsSynced = 1)
+        // Profile music must not depend on history pagination or history access permissions.
+        // Persist it and update the playlist before scanning potentially long chat history.
+        if (selected.kind == TelegramChatKind.PRIVATE.name || selected.kind == TelegramChatKind.SAVED_MESSAGES.name) {
+            try {
+                refreshPersonProfileMusic(selected.chatId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _musicSourceState.update {
+                    it.copy(errorMessage = "Profile music for ${selected.title}: ${safeMessage(error)}")
+                }
+            }
+        }
         val checkpoint = selected.newestMessageId.takeIf { selected.initialScanComplete }
         val seenEligibleIds = mutableSetOf<Long>()
         var fromMessageId = 0L
@@ -582,14 +600,6 @@ class TdLibTelegramRepository @Inject constructor(
             }
         }
 
-        // Profile music is independent of chat messages and can be private.
-        // Preserve the last successful profile snapshot on network/privacy errors.
-        runCatching { syncProfileMusic(accountId, selected) }
-            .onFailure { error ->
-                _musicSourceState.update { it.copy(errorMessage =
-                    "Profile music for ${selected.title}: ${safeMessage(error)}") }
-            }
-
         telegramDao.updateSyncCheckpoint(
             accountId = accountId,
             chatId = selected.chatId,
@@ -601,15 +611,40 @@ class TdLibTelegramRepository @Inject constructor(
         return result
     }
 
-    /** Profile music is paginated separately from chat history. Never mark missing after a failed fetch. */
-    private suspend fun syncProfileMusic(accountId: String, selected: TelegramSelectedSourceEntity) {
-        val activeClient = client ?: return
+    override suspend fun personChatIdForPlaylist(playlistId: UUID): Long? {
+        val accountId = currentUserId?.toString() ?: _musicSourceState.value.accountId ?: return null
+        return personChatIdFromSelectedSources(accountId, playlistId, telegramDao.selectedSources(accountId))
+    }
+
+    override suspend fun refreshPersonProfileMusic(chatId: Long): Int {
+        val accountId = currentUserId?.toString()
+            ?: _musicSourceState.value.accountId ?: error("Telegram account is not ready.")
+        val selected = telegramDao.selectedSource(accountId, chatId)
+            ?: error("This person is no longer selected as a music source.")
+        require(selected.kind == TelegramChatKind.PRIVATE.name ||
+            selected.kind == TelegramChatKind.SAVED_MESSAGES.name) {
+            "Profile music is only available for people."
+        }
+        return profileSyncMutexes.getOrPut(chatId) { Mutex() }.withLock {
+            val count = syncProfileMusic(accountId, selected)
+            // Flush the playlist immediately; chat history can be huge or inaccessible.
+            syncChatPlaylist(accountId, chatId, selected.title)
+            count
+        }
+    }
+
+    /** Profile music is paginated independently; failed/incomplete fetch never prunes old tracks. */
+    private suspend fun syncProfileMusic(accountId: String, selected: TelegramSelectedSourceEntity): Int {
+        val activeClient = client ?: error("Telegram is not connected.")
         val chat = activeClient.send(TdApi.GetChat(selected.chatId))
-        val privateChat = chat.type as? TdApi.ChatTypePrivate ?: return
+        val privateChat = chat.type as? TdApi.ChatTypePrivate
+            ?: error("Profile music requires a private Telegram chat.")
         val seen = mutableSetOf<Long>()
         var offset = 0
-        while (offset < 10_000) {
+        var total = Int.MAX_VALUE
+        while (offset < 10_000 && offset < total) {
             val result = activeClient.send(TdApi.GetUserProfileAudios(privateChat.userId, offset, 100))
+            total = result.totalCount
             if (result.audios.isEmpty()) break
             for (audio in result.audios) {
                 val id = telegramProfileMessageId(audio.profileIdentity())
@@ -619,12 +654,17 @@ class TdLibTelegramRepository @Inject constructor(
             offset += result.audios.size
             if (offset >= result.totalCount) break
         }
-        val stale = telegramDao.telegramProfileSourcesForChat(accountId, selected.chatId)
-            .filterNot { it.messageId in seen }
-            .map { it.trackSourceId }
-        if (stale.isNotEmpty()) {
-            libraryDao.updateAvailability(stale, SourceAvailability.MISSING, Instant.now().toEpochMilli())
+        // Do not silently delete from a previously successful scan if Telegram truncated
+        // the result or the configured safety limit was reached.
+        if (offset >= total) {
+            val stale = telegramDao.telegramProfileSourcesForChat(accountId, selected.chatId)
+                .filterNot { it.messageId in seen }
+                .map { it.trackSourceId }
+            if (stale.isNotEmpty()) {
+                libraryDao.updateAvailability(stale, SourceAvailability.MISSING, Instant.now().toEpochMilli())
+            }
         }
+        return seen.size
     }
 
     /** Returns true for a new source, false for an update, null for non-music. */
@@ -890,6 +930,18 @@ class TdLibTelegramRepository @Inject constructor(
         const val MAX_START_RETRIES = 3
     }
 }
+
+/** Uses persisted kind/ID; never relies on the chat-picker loading before navigation. */
+internal fun personChatIdFromSelectedSources(
+    accountId: String,
+    playlistId: UUID,
+    sources: List<TelegramSelectedSourceEntity>,
+): Long? = sources.firstOrNull { source ->
+    (source.kind == TelegramChatKind.PRIVATE.name ||
+        source.kind == TelegramChatKind.SAVED_MESSAGES.name) &&
+        source.accountId == accountId &&
+        telegramPlaylistId(accountId, source.chatId) == playlistId
+}?.chatId
 
 private data class LoadedSelectableChats(
     val rawChats: List<TdApi.Chat>,

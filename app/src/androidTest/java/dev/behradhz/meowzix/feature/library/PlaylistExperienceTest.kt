@@ -63,6 +63,7 @@ class PlaylistExperienceTest {
         var artist: UUID? = null
         var added: Pair<UUID, UUID>? = null
         var bulkLibraryIds: List<UUID> = emptyList()
+        var profileRefreshCount = 0
     }
 
     private fun showDetail(
@@ -108,6 +109,7 @@ class PlaylistExperienceTest {
                         telegramPerson = telegramPerson,
                         profileTrackIds = profileSongIds,
                         messageTrackIds = chatSongIds,
+                        onRefreshProfile = { calls.profileRefreshCount++ },
                         onBulkAddToLibrary = { calls.bulkLibraryIds = it.map(Track::id) },
                         onGoToArtist = { calls.artist = it.id },
                         onMove = { from, to -> calls.moves.add(from to to) },
@@ -148,12 +150,28 @@ class PlaylistExperienceTest {
         compose.onNodeWithTag("playlist-detail-list")
             .performScrollToNode(hasTestTag("playlist-select:${tracks.first().id}"))
         compose.onNodeWithTag("playlist-select:${tracks.first().id}").performClick()
-        scrollToText("Add to library")
-        compose.onNodeWithText("Add to library").performClick()
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("bulk-add-library"))
+        compose.onNodeWithTag("bulk-add-library").assertIsDisplayed().performClick()
         compose.runOnIdle {
             assertEquals(listOf(tracks.first().id), calls.bulkLibraryIds)
             assertTrue(calls.plays.isEmpty())
         }
+        compose.onNodeWithTag("bulk-add-queue").assertIsDisplayed()
+        compose.onNodeWithTag("bulk-like").assertIsDisplayed()
+        compose.onNodeWithTag("bulk-add-playlist").assertIsDisplayed()
+    }
+
+    @Test fun personPlaylistHasAnIndependentProfileRefreshAction() {
+        val calls = showDetail(
+            editable = false,
+            telegramPerson = true,
+            profileSongIds = setOf(tracks.first().id),
+        )
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("telegram-profile-refresh"))
+        compose.onNodeWithTag("telegram-profile-refresh").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, calls.profileRefreshCount) }
     }
 
     @Test fun playbackModesRemainSeparateAndRespectDisplayedOrder() {

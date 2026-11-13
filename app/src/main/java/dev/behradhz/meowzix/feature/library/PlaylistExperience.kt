@@ -61,10 +61,13 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -74,6 +77,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,6 +98,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -326,6 +335,10 @@ internal fun PlaylistDetailScreenV3(
     telegramPerson: Boolean = false,
     profileTrackIds: Set<UUID> = emptySet(),
     messageTrackIds: Set<UUID> = emptySet(),
+    profileRefreshing: Boolean = false,
+    profileRefreshStatus: String? = null,
+    profileRefreshError: String? = null,
+    onRefreshProfile: () -> Unit = {},
     onBulkAddToLibrary: (List<Track>) -> Unit = {},
     onBulkAddToPlaylist: (List<Track>, UUID) -> Unit = { _, _ -> },
     onBulkAddToQueue: (List<Track>) -> Unit = {},
@@ -543,24 +556,37 @@ internal fun PlaylistDetailScreenV3(
                             Row(
                                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                TextButton(
-                                    onClick = { onBulkAddToLibrary(selectedToLibrary) },
+                                PlaylistBulkIconAction(
+                                    label = "Add to library",
+                                    icon = Icons.Rounded.LibraryMusic,
+                                    tag = "bulk-add-library",
                                     enabled = selectedToLibrary.isNotEmpty(),
-                                ) { Text("Add to library") }
-                                TextButton(
+                                    onClick = { onBulkAddToLibrary(selectedToLibrary) },
+                                )
+                                PlaylistBulkIconAction(
+                                    label = "Add to queue",
+                                    icon = Icons.Rounded.QueueMusic,
+                                    tag = "bulk-add-queue",
+                                    enabled = selectedTracks.isNotEmpty(),
                                     onClick = { onBulkAddToQueue(selectedTracks) },
+                                )
+                                PlaylistBulkIconAction(
+                                    label = "Like selected songs",
+                                    icon = Icons.Rounded.Favorite,
+                                    tag = "bulk-like",
                                     enabled = selectedTracks.isNotEmpty(),
-                                ) { Text("Add to queue") }
-                                TextButton(
                                     onClick = { onBulkLike(selectedTracks) },
-                                    enabled = selectedTracks.isNotEmpty(),
-                                ) { Text("Like") }
+                                )
                                 Box {
-                                    TextButton(
+                                    PlaylistBulkIconAction(
+                                        label = "Add to playlist",
+                                        icon = Icons.Rounded.PlaylistAdd,
+                                        tag = "bulk-add-playlist",
                                         enabled = selectedTracks.isNotEmpty() && playlists.any { !it.telegramManaged },
                                         onClick = { bulkPlaylistMenu = true },
-                                    ) { Text("Add to playlist") }
+                                    )
                                     DropdownMenu(
                                         expanded = bulkPlaylistMenu,
                                         onDismissRequest = { bulkPlaylistMenu = false },
@@ -576,14 +602,17 @@ internal fun PlaylistDetailScreenV3(
                                         }
                                     }
                                 }
-                                if (editable) TextButton(
+                                if (editable) PlaylistBulkIconAction(
+                                    label = "Remove from playlist",
+                                    icon = Icons.Rounded.DeleteOutline,
+                                    tag = "bulk-remove",
                                     enabled = selectedTracks.isNotEmpty(),
                                     onClick = {
                                         onBulkRemove(selectedTracks)
                                         selectionMode = false
                                         selectedIds = emptySet()
                                     },
-                                ) { Text("Remove") }
+                                )
                             }
                         }
                     }
@@ -753,13 +782,54 @@ internal fun PlaylistDetailScreenV3(
                 grouped.forEach { (groupTitle, groupTracks) ->
                     if (groupTitle != null) {
                         item(key = "group:$groupTitle") {
-                            Text(
-                                groupTitle,
-                                modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 4.dp),
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
+                            Column(Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp, bottom = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        groupTitle,
+                                        modifier = Modifier.weight(1f),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    if (showProfileSections && groupTitle == "Profile music") {
+                                        IconButton(
+                                            onClick = onRefreshProfile,
+                                            enabled = !profileRefreshing,
+                                            modifier = Modifier.size(44.dp).testTag("telegram-profile-refresh"),
+                                        ) {
+                                            if (profileRefreshing) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(21.dp),
+                                                    strokeWidth = 2.dp,
+                                                )
+                                            } else {
+                                                Icon(Icons.Rounded.Refresh, contentDescription = "Refresh profile music")
+                                            }
+                                        }
+                                    }
+                                }
+                                if (showProfileSections && groupTitle == "Profile music") {
+                                    profileRefreshError?.let { message ->
+                                        Text(
+                                            message,
+                                            color = MaterialTheme.colorScheme.error,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                                        )
+                                    }
+                                    profileRefreshStatus?.let { message ->
+                                        Text(
+                                            message,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                     if (showProfileSections && groupTracks.isEmpty()) {
@@ -832,6 +902,35 @@ internal fun PlaylistDetailScreenV3(
                 MeowzixHeaderAction("Edit playlist", Icons.Rounded.Edit, { editing = true }, enabled = !deleting)
             }
         }
+        }
+    }
+}
+
+/** Material tooltip shows an animated label on long press; icons stay compact. */
+@Composable
+private fun PlaylistBulkIconAction(
+    label: String,
+    icon: ImageVector,
+    tag: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(label) } },
+        state = rememberTooltipState(),
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 0.85f else 0.35f),
+        ) {
+            IconButton(
+                enabled = enabled,
+                onClick = onClick,
+                modifier = Modifier.size(46.dp).testTag(tag),
+            ) {
+                Icon(icon, contentDescription = label, modifier = Modifier.size(21.dp))
+            }
         }
     }
 }
