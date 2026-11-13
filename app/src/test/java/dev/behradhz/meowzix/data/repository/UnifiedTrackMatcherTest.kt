@@ -26,9 +26,8 @@ class UnifiedTrackMatcherTest {
     }
 
     @Test
-    fun `same title and artist match even with different durations`() {
-        assertEquals(
-            "track-1",
+    fun `same title and artist with a very different duration stays separate until review`() {
+        assertNull(
             UnifiedTrackMatcher.match(
                 IncomingTrackIdentity("numb", "linkin park", 300_000L),
                 listOf(candidate("track-1")),
