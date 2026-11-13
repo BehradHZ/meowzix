@@ -92,6 +92,77 @@ class ProgressiveQueueTailAppendTest {
         ))
     }
 
+    @Test
+    fun `async shuffle tail ignores outdated occurrence but preserves seed on new session`() {
+        val queue = ProgressiveQueue()
+        val selected = track("same-track")
+        val future = tracks(5)
+        queue.start(listOf(selected), 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
+            sourceIds = listOf(selected.id))
+        val stale = requireNotNull(queue.snapshot()).occurrenceIds.first()
+        queue.start(listOf(selected), 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF,
+            sourceIds = listOf(selected.id))
+        val current = requireNotNull(queue.snapshot()).occurrenceIds.first()
+
+        assertFalse(queue.attachFutureToSingleTrack(
+            expectedTrackId = selected.id, expectedOccurrenceId = stale,
+            future = future, sourceIds = listOf(selected.id) + future.map { it.id },
+            pendingIds = emptyList(), mode = PlaybackMode.PURE_SHUFFLE, seed = 42L,
+        ))
+        assertEquals(listOf(selected.id), requireNotNull(queue.snapshot()).sourceTrackIds)
+        assertTrue(queue.attachFutureToSingleTrack(
+            expectedTrackId = selected.id, expectedOccurrenceId = current,
+            future = future, sourceIds = listOf(selected.id) + future.map { it.id },
+            pendingIds = emptyList(), mode = PlaybackMode.PURE_SHUFFLE, seed = 42L,
+        ))
+        val applied = requireNotNull(queue.snapshot())
+        assertEquals(current, applied.occurrenceIds.first())
+        assertEquals(42L, applied.shuffleSeed)
+        assertEquals(future.map { it.id }, applied.tracks.drop(1).map { it.id })
+    }
+
+    @Test
+    fun `async tail never overwrites a mode change`() {
+        val queue = ProgressiveQueue()
+        val selected = track("mode-selected")
+        val future = tracks(3)
+        queue.start(listOf(selected), 0, PlaybackMode.SMART_SHUFFLE, RepeatMode.OFF,
+            sourceIds = listOf(selected.id))
+        val originalOccurrence = requireNotNull(queue.snapshot()).occurrenceIds.first()
+        queue.updatePlaybackMode(PlaybackMode.PURE_SHUFFLE)
+        assertFalse(queue.attachFutureToSingleTrack(
+            expectedTrackId = selected.id, expectedOccurrenceId = originalOccurrence,
+            future = future, sourceIds = listOf(selected.id) + future.map { it.id },
+            pendingIds = emptyList(), mode = PlaybackMode.SMART_SHUFFLE,
+        ))
+        assertEquals(PlaybackMode.PURE_SHUFFLE, requireNotNull(queue.snapshot()).playbackMode)
+    }
+
+    @Test
+    fun `async pure and smart tails retain manual queue and chosen song`() {
+        for (mode in listOf(PlaybackMode.PURE_SHUFFLE, PlaybackMode.SMART_SHUFFLE)) {
+            val queue = ProgressiveQueue()
+            val selected = track("anchor-$mode")
+            val manuallyQueued = track("manual-$mode")
+            val future = tracks(4)
+            queue.start(listOf(selected), 0, mode, RepeatMode.OFF,
+                sourceIds = listOf(selected.id))
+            val selectedOccurrence = requireNotNull(queue.snapshot()).occurrenceIds.first()
+            assertTrue(queue.insertNext(manuallyQueued))
+            assertTrue(queue.attachFutureToSingleTrack(
+                expectedTrackId = selected.id, expectedOccurrenceId = selectedOccurrence,
+                future = future,
+                sourceIds = listOf(selected.id) + future.map { it.id },
+                pendingIds = emptyList(), mode = mode,
+            ))
+            val after = requireNotNull(queue.snapshot())
+            assertEquals(selectedOccurrence, after.occurrenceIds.first())
+            assertEquals(listOf(selected.id, manuallyQueued.id) + future.map { it.id },
+                after.tracks.map { it.id })
+            assertTrue(queue.isFixedOccurrence(1))
+        }
+    }
+
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
         track("track-$index")
     }

@@ -647,12 +647,16 @@ class ProgressiveQueue @Inject constructor() {
         sourceIds: List<UUID>,
         pendingIds: List<UUID>,
         mode: PlaybackMode,
+        expectedOccurrenceId: UUID? = null,
+        seed: Long? = null,
     ): Boolean {
         if (currentIndex != 0 || tracks.firstOrNull()?.id != expectedTrackId ||
-            sourceTrackIds != listOf(expectedTrackId)) return false
+            sourceTrackIds != listOf(expectedTrackId) || playbackMode != mode ||
+            (expectedOccurrenceId != null && occurrenceIds.firstOrNull() != expectedOccurrenceId)) return false
         replaceFuture(
             future = future,
             mode = mode,
+            seed = seed,
             sourceIds = sourceIds,
             pendingIds = pendingIds,
             allowSameMode = true,
