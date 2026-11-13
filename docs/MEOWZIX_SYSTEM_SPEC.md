@@ -1225,11 +1225,11 @@ User intent: reduce repeated downloads and improve playback.
 
 Requirements:
 
-- app may evict automatically;
-- configurable size budget;
-- LRU-style cleanup is acceptable;
-- currently playing files must not be evicted;
-- pinned files must not count as evictable cache.
+- every completed audio download, including on-demand playback copies, MUST be retained until an explicit user removal;
+- no background worker, LRU policy, cache budget, startup reconciliation, integrity check, or low-storage handler may automatically delete completed audio;
+- incomplete files may be marked failed or unavailable without deleting their bytes; explicit cleanup of unused partial transfers is allowed;
+- downloaded files must remain under durable app-managed storage, not an Android-evictable cache directory;
+- on replacement or redownload, write a separate verified file and preserve the earlier copy. A user can explicitly remove owned copies from storage settings.
 
 ## 14.3 Local shared file
 
@@ -1249,13 +1249,13 @@ Additional storage: 0 B
 
 Settings should eventually provide:
 
-- cache size limit;
-- clear temporary cache;
+- retained audio storage usage and low-space warnings (never automatic eviction);
+- explicitly clear unused incomplete transfer files;
 - list offline downloads;
 - storage usage;
 - remove all app-managed offline copies.
 
-Never delete user-owned MediaStore files as part of cache cleanup.
+Never delete user-owned MediaStore files as part of cache cleanup. Never silently delete completed app-managed music, even if its integrity check fails; mark it unavailable and preserve its bytes. External user/OS deletion of source files or clearing app data is outside app control.
 
 ---
 
@@ -2345,7 +2345,8 @@ Allow Telegram-hosted music to become reliably available offline.
 4. removing app offline copy does not delete Telegram message.
 5. local MediaStore tracks are recognized as already offline.
 6. cache cleanup never deletes user-owned MediaStore file.
-7. pinned files are never evicted by temporary-cache cleanup.
+7. no completed audio file is evicted automatically, whether pinned or played on demand.
+8. refresh or integrity failure never unlinks an existing completed file.
 
 ---
 
@@ -2789,7 +2790,7 @@ PlaylistTrack(playlistId, position)
 | DB record exists but file missing | Mark source missing, do not crash |
 | Unsupported codec | Show playback error and skip/recover |
 | Permission denied | Telegram/offline app-owned library may still work |
-| Low storage | Stop new nonessential downloads; never delete pinned/user files silently |
+| Low storage | Stop new nonessential downloads; never delete any completed music automatically |
 | Corrupt artwork | Ignore artwork error; audio remains playable |
 
 ---
@@ -2821,8 +2822,8 @@ Initial settings should eventually include:
 
 ## Offline
 
-- cache size;
-- clear cache;
+- retained audio storage usage;
+- explicit partial-transfer cleanup;
 - offline downloads;
 - prefetch enabled;
 - prefetch on metered networks.
@@ -2878,7 +2879,7 @@ Mandatory targets:
 - preference aggregation;
 - adaptive scoring;
 - candidate generation;
-- cache eviction decisions.
+- completed-file retention and explicit-removal safeguards.
 
 ## 31.2 Repository tests
 
@@ -3117,7 +3118,7 @@ Preparing / downloading
   ↓
 Play
   ↓
-Optionally retained in temporary cache
+Completed audio retained until explicit user removal
 ```
 
 ## Pinning offline
