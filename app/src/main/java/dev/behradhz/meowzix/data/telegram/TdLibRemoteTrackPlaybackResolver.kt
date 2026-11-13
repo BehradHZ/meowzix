@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
+import dev.behradhz.meowzix.data.downloads.ImmutableManagedAudioFiles
 import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrity
 import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrityCache
 import dev.behradhz.meowzix.data.downloads.PermanentAudioRecordFactory
@@ -453,21 +454,26 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
 
     private fun copyToPermanentCache(trackId: UUID, fileName: String?, source: File): File {
         playbackDirectory.mkdirs()
-        val extension = fileName?.substringAfterLast('.', "")
-            ?.takeIf { it.matches(Regex("[A-Za-z0-9]{1,8}")) }
-        val destination = File(
-            playbackDirectory,
-            trackId.toString() + extension?.let { ".$it" }.orEmpty(),
+        val sourceDigest = fileDigest(source)
+        val sourceHash = sourceDigest.joinToString("") { "%02x".format(it) }
+        val preferred = ImmutableManagedAudioFiles.preferredDestination(
+            playbackDirectory, trackId, fileName, sourceHash,
         )
-        if (destination.isFile && destination.length() == source.length() &&
-            java.security.MessageDigest.isEqual(fileDigest(destination), fileDigest(source))) return destination
+        if (preferred.isFile &&
+            java.security.MessageDigest.isEqual(fileDigest(preferred), sourceDigest)) return preferred
+        // Never unlink an earlier music file, including one that failed verification.
+        val destination = if (preferred.exists()) {
+            ImmutableManagedAudioFiles.alternateDestination(preferred)
+        } else preferred
         val partial = File(playbackDirectory, destination.name + ".part")
         val lease = managedStorage.acquireLease(partial.absolutePath, "playback-copy")
         try {
             source.inputStream().buffered().use { input ->
                 partial.outputStream().buffered().use(input::copyTo)
             }
-            if (destination.exists() && !destination.delete()) error("Unable to replace playback cache")
+            if (!java.security.MessageDigest.isEqual(fileDigest(partial), sourceDigest)) {
+                error("Audio changed during playback copy; partial preserved.")
+            }
             if (!partial.renameTo(destination)) error("Unable to finalize playback cache")
             return destination
         } finally {
