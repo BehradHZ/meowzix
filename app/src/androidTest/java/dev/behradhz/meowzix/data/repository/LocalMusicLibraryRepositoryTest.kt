@@ -190,6 +190,79 @@ class LocalMusicLibraryRepositoryTest {
         assertEquals(emptyMap<java.util.UUID, String?>(), repository.shuffleArtists(emptyList()))
     }
 
+
+    @Test
+    fun queueStatusLookupIsBoundedAcrossChunksAndUpdatesFavorite() = runTest {
+        scanner.tracks = (0 until 425).map(::track)
+        repository.refreshLocalMusic()
+        val all = repository.observeTracks().first().map { it.id }
+        val requested = all.take(410)
+        val excluded = all.last()
+        val missing = UUID.randomUUID()
+
+        val statuses = repository.observeQueueTrackStatuses(requested + missing).first()
+        assertEquals(410, statuses.size)
+        assertFalse(excluded in statuses)
+        assertFalse(missing in statuses)
+        assertTrue(statuses.values.all { it.availability ==
+            dev.behradhz.meowzix.domain.library.LibraryTrackAvailability.OFFLINE })
+
+        repository.setFavorite(requested.first(), true)
+        val updated = repository.observeQueueTrackStatuses(requested).first()
+        assertEquals(true, updated[requested.first()]?.favorite)
+        assertEquals(false, updated[requested.last()]?.favorite)
+        assertTrue(repository.observeQueueTrackStatuses(emptyList()).first().isEmpty())
+    }
+
+    @Test
+    fun queueStatusPreservesCloudFallbackAndHidesMissingSources() = runTest {
+        scanner.tracks = listOf(track(1))
+        repository.refreshLocalMusic()
+        val songId = repository.observeTracks().first().single().id
+        val now = 1_900_000_000_000L
+        val remoteId = UUID.randomUUID().toString()
+        database.libraryDao().upsertSource(
+            TrackSourceEntity(
+                id = remoteId, trackId = songId.toString(),
+                type = TrackSourceType.TELEGRAM_REMOTE,
+                availability = SourceAvailability.REMOTE_ONLY,
+                contentUri = null, localPath = null, mimeType = "audio/mpeg",
+                fileSizeBytes = 5_000_000L, contentHashSha256 = null,
+                trainingEligible = true, createdAtEpochMs = now, lastVerifiedAtEpochMs = now,
+            ),
+        )
+        database.telegramDao().upsertTelegramTrackSource(
+            dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity(
+                trackSourceId = remoteId,
+                accountId = "queue-test",
+                chatId = 5L,
+                messageId = 9L,
+                tdFileId = 123,
+                tdPersistentFileId = null,
+                fileName = "track.mp3",
+                telegramTitle = "Track",
+                telegramPerformer = "Artist",
+                remoteRevisionKey = null,
+            ),
+        )
+        repository.addToLibrary(songId)
+        val flow = repository.observeQueueTrackStatuses(listOf(songId))
+        assertEquals(
+            dev.behradhz.meowzix.domain.library.LibraryTrackAvailability.OFFLINE,
+            flow.first().getValue(songId).availability,
+        )
+
+        val local = database.libraryDao().allLocalSources().single()
+        database.libraryDao().updateAvailability(local.id, SourceAvailability.MISSING, now)
+        assertEquals(
+            dev.behradhz.meowzix.domain.library.LibraryTrackAvailability.CLOUD,
+            flow.first().getValue(songId).availability,
+        )
+
+        database.libraryDao().updateAvailability(remoteId, SourceAvailability.MISSING, now)
+        assertTrue(flow.first().isEmpty())
+    }
+
     @Test
     fun favoriteStatePersists() = runTest {
         scanner.tracks = listOf(track(1))

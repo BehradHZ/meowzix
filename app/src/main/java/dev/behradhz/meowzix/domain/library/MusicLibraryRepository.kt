@@ -18,9 +18,17 @@ data class LibraryTrack(
     val availability: LibraryTrackAvailability,
 )
 
+/** Small, reactive projection for Queue rows; playback metadata comes from QueueItem. */
+data class QueueTrackStatus(
+    val favorite: Boolean,
+    val availability: LibraryTrackAvailability,
+)
+
 interface MusicLibraryRepository {
     fun observeTracks(): Flow<List<Track>>
     fun observeLibraryTracks(): Flow<List<LibraryTrack>>
+    /** Observe Favorite and availability only for the IDs currently in Queue. */
+    fun observeQueueTrackStatuses(trackIds: List<UUID>): Flow<Map<UUID, QueueTrackStatus>>
     /** Only the playing track is observed; the entire library is not needed by the player. */
     fun observeTrack(trackId: UUID): Flow<Track?>
     /** One-shot lookup for actions on a track that is not currently playing. */

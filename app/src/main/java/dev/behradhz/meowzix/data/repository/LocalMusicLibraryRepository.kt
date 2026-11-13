@@ -24,6 +24,7 @@ import dev.behradhz.meowzix.domain.library.LibraryTrack
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.library.QueueTrackStatus
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import java.io.File
@@ -37,6 +38,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -90,6 +93,30 @@ class LocalMusicLibraryRepository @Inject constructor(
 
     override suspend fun trackById(trackId: UUID): Track? =
         dao.trackById(trackId.toString())?.toDomain()
+
+    override fun observeQueueTrackStatuses(trackIds: List<UUID>): Flow<Map<UUID, QueueTrackStatus>> {
+        val ids = trackIds.distinct()
+        if (ids.isEmpty()) return flowOf(emptyMap())
+
+        // SQLite bind limits and Queue size must not scale a query to all Library rows.
+        val windows = ids.chunked(400).map { batch ->
+            dao.observeQueueTrackStatuses(batch.map(UUID::toString)).map { rows ->
+                rows.associate { row ->
+                    UUID.fromString(row.id) to QueueTrackStatus(
+                        favorite = row.favorite,
+                        availability = when {
+                            row.hasOfflineSource -> LibraryTrackAvailability.OFFLINE
+                            row.hasCloudSource -> LibraryTrackAvailability.CLOUD
+                            else -> LibraryTrackAvailability.UNAVAILABLE
+                        },
+                    )
+                }
+            }
+        }
+        return combine(windows) { chunks ->
+            buildMap { chunks.forEach { putAll(it) } }
+        }.distinctUntilChanged().flowOn(Dispatchers.Default)
+    }
 
     override fun observeLibraryTracks(): Flow<List<LibraryTrack>> =
         combine(dao.observeAvailableTracks(), dao.observeActiveSources()) { tracks, sources ->

@@ -3,30 +3,33 @@ package dev.behradhz.meowzix.feature.queue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
-import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.library.QueueTrackStatus
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class QueueAuxState(
-    val tracks: Map<UUID, Track> = emptyMap(),
-    val availability: Map<UUID, LibraryTrackAvailability> = emptyMap(),
+    val statuses: Map<UUID, QueueTrackStatus> = emptyMap(),
     val downloads: Map<UUID, OfflineDownload> = emptyMap(),
     val playlists: List<PlaylistSummary> = emptyList(),
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class QueueViewModel @Inject constructor(
     private val queueRepository: QueueRepository,
@@ -40,14 +43,13 @@ class QueueViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            libraryRepository.observeLibraryTracks().collect { rows ->
-                _aux.update { current ->
-                    current.copy(
-                        tracks = rows.associate { it.track.id to it.track },
-                        availability = rows.associate { it.track.id to it.availability },
-                    )
+            state
+                .map { queue -> queue.items.map { it.id }.distinct() }
+                .distinctUntilChanged()
+                .flatMapLatest(libraryRepository::observeQueueTrackStatuses)
+                .collect { statuses ->
+                    _aux.update { current -> current.copy(statuses = statuses) }
                 }
-            }
         }
         viewModelScope.launch {
             downloads.observeDownloads().collect { rows ->
@@ -78,8 +80,8 @@ class QueueViewModel @Inject constructor(
     fun addToQueue(trackId: UUID) = queueRepository.addToQueue(trackId)
     fun pinOffline(trackId: UUID) = downloads.pinOffline(trackId)
     fun toggleFavorite(trackId: UUID) {
-        val track = _aux.value.tracks[trackId] ?: return
-        viewModelScope.launch { libraryRepository.setFavorite(trackId, !track.favorite) }
+        val status = _aux.value.statuses[trackId] ?: return
+        viewModelScope.launch { libraryRepository.setFavorite(trackId, !status.favorite) }
     }
     fun addToPlaylist(trackId: UUID, playlistId: UUID) = viewModelScope.launch {
         playlists.addTrack(playlistId, trackId)

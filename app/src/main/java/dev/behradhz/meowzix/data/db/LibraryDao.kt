@@ -48,6 +48,47 @@ interface LibraryDao {
     )
     fun observeAvailableTracks(): Flow<List<TrackEntity>>
 
+    /**
+     * Scoped Queue status: no full Track/Source entities and no full-library scan.
+     * Visibility and source priority match observeAvailableTracks/observeLibraryTracks.
+     */
+    @Query(
+        """
+        SELECT t.id AS id, t.favorite AS favorite,
+            EXISTS (
+                SELECT 1 FROM track_sources offline
+                WHERE offline.trackId = t.id AND offline.availability = 'AVAILABLE_LOCAL'
+            ) AS hasOfflineSource,
+            EXISTS (
+                SELECT 1 FROM track_sources remote
+                WHERE remote.trackId = t.id AND remote.type = 'TELEGRAM_REMOTE'
+                  AND remote.availability = 'REMOTE_ONLY'
+            ) AS hasCloudSource
+        FROM tracks t
+        WHERE t.id IN (:trackIds) AND t.hidden = 0
+          AND EXISTS (
+              SELECT 1 FROM track_sources active
+              WHERE active.trackId = t.id AND active.availability != 'MISSING'
+          )
+          AND (
+              EXISTS (
+                  SELECT 1 FROM track_sources independent
+                  WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE'
+                    AND independent.availability = 'AVAILABLE_LOCAL'
+              )
+              OR EXISTS (
+                  SELECT 1 FROM telegram_track_sources tg
+                  LEFT JOIN telegram_selected_sources chosen
+                    ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                    AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
+              )
+          )
+        """,
+    )
+    fun observeQueueTrackStatuses(trackIds: List<String>): Flow<List<QueueTrackStatusRow>>
+
     @Query(
         """
         SELECT DISTINCT t.*
@@ -318,6 +359,13 @@ interface LibraryDao {
     @Query("UPDATE tracks SET artworkRef = :artworkRef, updatedAtEpochMs = :updatedAt WHERE id = :trackId")
     suspend fun setArtworkRef(trackId: String, artworkRef: String?, updatedAt: Long)
 }
+
+data class QueueTrackStatusRow(
+    val id: String,
+    val favorite: Boolean,
+    val hasOfflineSource: Boolean,
+    val hasCloudSource: Boolean,
+)
 
 data class ShuffleArtistRow(val id: String, val artist: String?)
 
