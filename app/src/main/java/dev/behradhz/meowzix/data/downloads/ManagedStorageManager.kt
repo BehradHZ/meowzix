@@ -27,6 +27,7 @@ class ManagedStorageManager @Inject constructor(
     private val libraryDao: LibraryDao,
     private val settingsRepository: SettingsRepository,
     private val leases: ManagedFileLeaseRegistry,
+    private val verifiedAudio: ManagedAudioIntegrityCache,
 ) : ManagedStorageRepository {
     private val playbackRoot = File(context.filesDir, "playback-cache")
     private val offlineRoot = File(context.filesDir, "offline")
@@ -47,7 +48,7 @@ class ManagedStorageManager @Inject constructor(
         listOf(playbackRoot, offlineRoot)
             .flatMap(::managedFiles)
             .filter { ManualStorageCleanupPolicy.canRemove(it.name, leases.isProtected(it.absolutePath)) }
-            .forEach(File::delete)
+            .forEach { file -> if (file.delete()) verifiedAudio.forget(file) }
         calculateUsage()
     }
 
@@ -97,7 +98,7 @@ class ManagedStorageManager @Inject constructor(
             .sortedBy { if (it.type == TrackSourceType.APP_OFFLINE_COPY) 0 else 1 }
             .forEach { managed ->
                 val file = managed.localPath?.let(::File)
-                if (ManagedAudioIntegrity.isValidForAnyRemoteSize(
+                if (verifiedAudio.isValidForAnyRemoteSize(
                         file, remoteSizes[managed.trackId].orEmpty(),
                         managed.fileSizeBytes, managed.contentHashSha256,
                     )
@@ -124,6 +125,7 @@ class ManagedStorageManager @Inject constructor(
                     return@forEach
                 }
                 // Unavailable copies must not be used for playback, but physical files are never auto-deleted.
+                file?.let(verifiedAudio::forget)
                 libraryDao.updateAvailability(managed.id, SourceAvailability.MISSING, now)
             }
     }

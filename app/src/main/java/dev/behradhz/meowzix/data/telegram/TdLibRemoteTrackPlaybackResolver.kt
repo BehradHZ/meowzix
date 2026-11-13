@@ -12,6 +12,7 @@ import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrity
+import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrityCache
 import dev.behradhz.meowzix.data.downloads.PermanentAudioRecordFactory
 import dev.behradhz.meowzix.data.network.NetworkPolicy
 import dev.behradhz.meowzix.data.network.NetworkUse
@@ -47,6 +48,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     private val managedStorage: ManagedStorageRepository,
     private val settingsRepository: SettingsRepository,
     private val networkPolicy: NetworkPolicy,
+    private val verifiedAudio: ManagedAudioIntegrityCache,
 ) : RemoteTrackPlaybackResolver {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var prefetchJob: Job? = null
@@ -160,7 +162,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             val managed = source.type == TrackSourceType.APP_OFFLINE_COPY ||
                 source.type == TrackSourceType.TDLIB_LOCAL
             val verified = if (managed) {
-                ManagedAudioIntegrity.isValidForAnyRemoteSize(
+                verifiedAudio.isValidForAnyRemoteSize(
                     source.localPath?.let(::File), telegramSizes,
                     source.fileSizeBytes, source.contentHashSha256,
                 )
@@ -168,6 +170,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                 source.isReadableForPlayback()
             }
             if (!verified) {
+                if (managed) source.localPath?.let { verifiedAudio.forget(File(it)) }
                 if (source.type == TrackSourceType.APP_OFFLINE_COPY || source.type == TrackSourceType.TDLIB_LOCAL) {
                     libraryDao.updateAvailability(source.id, SourceAvailability.MISSING, now)
                 }
@@ -401,6 +404,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                         "tdlib-local:$trackId".toByteArray(),
                     ).toString()
                     val previousLocalSource = libraryDao.sourceById(localSourceId)
+                    val verifiedSha = ManagedAudioIntegrity.sha256(permanent)
                     libraryDao.upsertSource(
                         TrackSourceEntity(
                             id = localSourceId,
@@ -411,12 +415,13 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                             localPath = permanent.absolutePath,
                             mimeType = source.candidate.mimeType ?: source.remoteSource.mimeType,
                             fileSizeBytes = permanent.length(),
-                            contentHashSha256 = ManagedAudioIntegrity.sha256(permanent),
+                            contentHashSha256 = verifiedSha,
                             trainingEligible = source.remoteSource.trainingEligible,
                             createdAtEpochMs = previousLocalSource?.createdAtEpochMs ?: now,
                             lastVerifiedAtEpochMs = now,
                         ),
                     )
+                    verifiedAudio.rememberVerified(permanent, verifiedSha)
                     val previousDownload = downloadDao.byTrackId(trackId.toString())
                     val alreadyRetained = previousDownload?.pinned == true &&
                         previousDownload.status == DownloadStatus.COMPLETED.name &&
