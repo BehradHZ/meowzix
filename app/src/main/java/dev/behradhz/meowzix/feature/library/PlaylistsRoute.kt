@@ -179,6 +179,8 @@ fun PlaylistsRoute(
                 onRemoveOfflineCopy = viewModel::removeOfflineCopy,
                 onFavorite = viewModel::setFavorite,
                 onAddToPlaylist = viewModel::addToPlaylist,
+                libraryTrackIds = state.selectedPlaylistLibraryTrackIds,
+                onAddToLibrary = viewModel::addToLibrary,
                 onGoToArtist = { track ->
                     closeDetail()
                     viewModel.resetNavigationState()

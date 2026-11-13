@@ -14,7 +14,8 @@ private const val VISIBLE_PLAYLIST_TRACK_COUNT =
         "OR EXISTS (SELECT 1 FROM telegram_track_sources tg " +
         "INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId " +
         "INNER JOIN track_sources origin ON origin.id = tg.trackSourceId " +
-        "WHERE origin.trackId = t.id AND origin.availability != 'MISSING')" +
+        "WHERE origin.trackId = t.id AND origin.availability != 'MISSING') " +
+        "OR (t.addedToLibrary = 1 AND EXISTS (SELECT 1 FROM track_sources pinned WHERE pinned.trackId = t.id AND pinned.availability != 'MISSING'))" +
         ")) THEN pt.trackId END)"
 
 @Dao
@@ -27,7 +28,7 @@ interface PlaylistDao {
     )
     fun observePlaylists(): Flow<List<PlaylistSummaryRow>>
 
-    @Query("SELECT t.* FROM playlist_tracks pt INNER JOIN tracks t ON t.id = pt.trackId WHERE pt.playlistId = :playlistId AND t.hidden = 0 AND (EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') OR EXISTS (SELECT 1 FROM telegram_track_sources tg INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId INNER JOIN track_sources origin ON origin.id = tg.trackSourceId WHERE origin.trackId = t.id AND origin.availability != 'MISSING')) ORDER BY pt.position")
+    @Query("SELECT t.* FROM playlist_tracks pt INNER JOIN tracks t ON t.id = pt.trackId WHERE pt.playlistId = :playlistId AND t.hidden = 0 AND (EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') OR EXISTS (SELECT 1 FROM telegram_track_sources tg INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId INNER JOIN track_sources origin ON origin.id = tg.trackSourceId WHERE origin.trackId = t.id AND origin.availability != 'MISSING') OR (t.addedToLibrary = 1 AND EXISTS (SELECT 1 FROM track_sources pinned WHERE pinned.trackId = t.id AND pinned.availability != 'MISSING'))) ORDER BY pt.position")
     fun observeTracks(playlistId: String): Flow<List<TrackEntity>>
 
     @Query("SELECT * FROM playlists ORDER BY createdAtEpochMs, id")
@@ -70,7 +71,7 @@ interface PlaylistDao {
 
     @Query(
         "SELECT t.* FROM playlist_tracks pt INNER JOIN tracks t ON t.id = pt.trackId " +
-            "WHERE pt.playlistId = :playlistId AND t.hidden = 0 AND (EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') OR EXISTS (SELECT 1 FROM telegram_track_sources tg INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId INNER JOIN track_sources origin ON origin.id = tg.trackSourceId WHERE origin.trackId = t.id AND origin.availability != 'MISSING')) ORDER BY pt.position LIMIT :limit OFFSET :offset",
+            "WHERE pt.playlistId = :playlistId AND t.hidden = 0 AND (EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') OR EXISTS (SELECT 1 FROM telegram_track_sources tg INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId INNER JOIN track_sources origin ON origin.id = tg.trackSourceId WHERE origin.trackId = t.id AND origin.availability != 'MISSING') OR (t.addedToLibrary = 1 AND EXISTS (SELECT 1 FROM track_sources pinned WHERE pinned.trackId = t.id AND pinned.availability != 'MISSING'))) ORDER BY pt.position LIMIT :limit OFFSET :offset",
     )
     suspend fun browseTracks(playlistId: String, limit: Int, offset: Int): List<TrackEntity>
 

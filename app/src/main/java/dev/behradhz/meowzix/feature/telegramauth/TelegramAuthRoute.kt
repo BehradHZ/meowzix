@@ -65,6 +65,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthState
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
+import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceMode
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
 import dev.behradhz.meowzix.domain.telegram.TelegramConnectionStatus
 import dev.behradhz.meowzix.ui.components.GlassSurface
@@ -103,7 +104,7 @@ fun TelegramAuthRoute(
             onResetTelegram = viewModel::resetTelegram,
             onClearError = viewModel::clearError,
             onRefreshSources = viewModel::refreshMusicSources,
-            onSetSourceSelected = viewModel::setMusicSourceSelected,
+            onSetSourceMode = viewModel::setMusicSourceMode,
             onSyncSources = viewModel::syncSelectedSources,
             onClearMusicSourceError = viewModel::clearMusicSourceError,
             )
@@ -127,7 +128,7 @@ private fun TelegramAuthScreen(
     onResetTelegram: () -> Unit,
     onClearError: () -> Unit,
     onRefreshSources: () -> Unit,
-    onSetSourceSelected: (Long, Boolean) -> Unit,
+    onSetSourceMode: (Long, TelegramMusicSourceMode) -> Unit,
     onSyncSources: () -> Unit,
     onClearMusicSourceError: () -> Unit,
 ) {
@@ -297,7 +298,7 @@ private fun TelegramAuthScreen(
                         musicSourceState = musicSourceState,
                         enabled = !state.isSubmitting,
                         onRefreshSources = onRefreshSources,
-                        onSetSourceSelected = onSetSourceSelected,
+                        onSetSourceMode = onSetSourceMode,
                         onSyncSources = onSyncSources,
                         onClearMusicSourceError = onClearMusicSourceError,
                         onLogout = onLogout,
@@ -448,7 +449,7 @@ private fun ReadyState(
     musicSourceState: TelegramMusicSourceState,
     enabled: Boolean,
     onRefreshSources: () -> Unit,
-    onSetSourceSelected: (Long, Boolean) -> Unit,
+    onSetSourceMode: (Long, TelegramMusicSourceMode) -> Unit,
     onSyncSources: () -> Unit,
     onClearMusicSourceError: () -> Unit,
     onLogout: () -> Unit,
@@ -456,13 +457,13 @@ private fun ReadyState(
     MessageState(
         icon = { Icon(Icons.Rounded.CheckCircle, contentDescription = null) },
         title = "Telegram connected",
-        message = "Choose the Telegram chats or channels that contain your music. Imported tracks appear in Library.",
+        message = "Choose whether each chat becomes a playlist only or also adds its songs to Library.",
     )
     TelegramMusicSourcePicker(
         state = musicSourceState,
         enabled = enabled,
         onRefresh = onRefreshSources,
-        onSetSelected = onSetSourceSelected,
+        onSetMode = onSetSourceMode,
         onSync = onSyncSources,
         onClearError = onClearMusicSourceError,
     )

@@ -38,9 +38,9 @@ interface LibraryDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                    INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         ORDER BY t.normalizedTitle
@@ -70,9 +70,9 @@ interface LibraryDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                    INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         ORDER BY t.normalizedTitle
@@ -109,9 +109,9 @@ interface LibraryDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                    INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         """,
@@ -140,9 +140,9 @@ interface LibraryDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                    INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         ORDER BY t.normalizedTitle
@@ -208,9 +208,9 @@ interface LibraryDao {
                 WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE'
                   AND independent.availability = 'AVAILABLE_LOCAL')
         OR EXISTS (SELECT 1 FROM telegram_track_sources tg
-                   INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                   LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                    INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING')
+                   WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1))
       ) ORDER BY t.normalizedTitle, CASE s.type WHEN 'LOCAL_MEDIASTORE' THEN 0 WHEN 'APP_OFFLINE_COPY' THEN 1 WHEN 'TDLIB_LOCAL' THEN 2 ELSE 3 END, s.createdAtEpochMs
         """)
     suspend fun availableLocalPlaybackRows(): List<LocalPlaybackRow>
@@ -240,13 +240,16 @@ interface LibraryDao {
           AND (
               EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL')
               OR EXISTS (SELECT 1 FROM telegram_track_sources tg
-                         INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                         LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                          INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                         WHERE origin.trackId = t.id AND origin.availability != 'MISSING')
+                         WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1))
           )
         """,
     )
     suspend fun visibleTrackIds(trackIds: List<String>): List<String>
+
+    @Query("UPDATE tracks SET addedToLibrary = 1 WHERE id = :trackId")
+    suspend fun addToLibrary(trackId: String)
 
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
     suspend fun trackById(id: String): TrackEntity?

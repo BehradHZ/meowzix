@@ -30,6 +30,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramConnectionStatus
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyDraft
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyState
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
+import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceMode
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramSyncResult
@@ -255,14 +256,16 @@ class TdLibTelegramRepository @Inject constructor(
         }
     }
 
-    override fun setMusicSourceSelected(chatId: Long, selected: Boolean) {
+    override fun setMusicSourceMode(chatId: Long, mode: TelegramMusicSourceMode) {
         val accountId = currentUserId?.toString() ?: return showMusicSourceError("Telegram account information is still loading.")
         val chat = _musicSourceState.value.chats.firstOrNull { it.chatId == chatId }
             ?: return showMusicSourceError("That Telegram chat is no longer available.")
         scope.launch {
+            var shouldSync = false
             runCatching {
-                if (selected) {
+                if (mode != TelegramMusicSourceMode.NONE) {
                     val existing = telegramDao.selectedSource(accountId, chatId)
+                    shouldSync = existing == null
                     database.withTransaction {
                         telegramDao.upsertSelectedSource(
                             TelegramSelectedSourceEntity(
@@ -270,6 +273,7 @@ class TdLibTelegramRepository @Inject constructor(
                                 chatId = chatId,
                                 title = chat.title,
                                 kind = chat.kind.name,
+                                includeInLibrary = mode == TelegramMusicSourceMode.LIBRARY,
                                 newestMessageId = existing?.newestMessageId,
                                 initialScanComplete = existing?.initialScanComplete ?: false,
                                 lastSyncedAtEpochMs = existing?.lastSyncedAtEpochMs,
@@ -288,7 +292,7 @@ class TdLibTelegramRepository @Inject constructor(
                 }
             }.onSuccess {
                 reloadPersistedSelection(accountId)
-                if (selected) syncOneSource(accountId, chatId)
+                if (shouldSync) syncOneSource(accountId, chatId)
             }.onFailure { showMusicSourceError(safeMessage(it)) }
         }
     }
@@ -426,13 +430,19 @@ class TdLibTelegramRepository @Inject constructor(
     }
 
     private suspend fun reloadPersistedSelection(accountId: String) {
-        val selected = telegramDao.selectedSources(accountId).mapTo(mutableSetOf()) { it.chatId }
+        val sources = telegramDao.selectedSources(accountId)
+        val modes = sources.associate { source ->
+            source.chatId to if (source.includeInLibrary) TelegramMusicSourceMode.LIBRARY
+                else TelegramMusicSourceMode.PLAYLIST_ONLY
+        }
+        val selected = modes.keys
         val previouslySelected = sourceHistory.previouslySelected(accountId) +
             telegramDao.knownChatIds(accountId) + selected
         _musicSourceState.update { state ->
             state.copy(
                 accountId = accountId,
                 selectedChatIds = selected,
+                sourceModes = modes,
                 previouslySelectedChatIds = previouslySelected,
                 chats = state.chats.map { it.copy(selected = it.chatId in selected) },
             )
@@ -620,6 +630,7 @@ class TdLibTelegramRepository @Inject constructor(
                     artworkRef = canonicalTrack?.artworkRef,
                     favorite = canonicalTrack?.favorite ?: false,
                     hidden = canonicalTrack?.hidden ?: false,
+                    addedToLibrary = canonicalTrack?.addedToLibrary ?: false,
                     createdAtEpochMs = canonicalTrack?.createdAtEpochMs ?: now,
                     updatedAtEpochMs = now,
                 ),

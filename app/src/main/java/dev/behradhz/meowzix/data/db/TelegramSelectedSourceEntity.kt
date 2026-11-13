@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 
@@ -13,6 +14,7 @@ data class TelegramSelectedSourceEntity(
     val chatId: Long,
     val title: String,
     val kind: String,
+    @ColumnInfo(defaultValue = "1") val includeInLibrary: Boolean = true,
     val newestMessageId: Long?,
     val initialScanComplete: Boolean,
     val lastSyncedAtEpochMs: Long?,

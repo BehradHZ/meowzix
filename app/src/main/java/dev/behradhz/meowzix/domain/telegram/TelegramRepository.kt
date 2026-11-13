@@ -35,6 +35,16 @@ data class TelegramAuthState(
 
 enum class TelegramChatKind { SAVED_MESSAGES, PRIVATE, BASIC_GROUP, SUPERGROUP_OR_CHANNEL, SECRET }
 
+enum class TelegramMusicSourceMode(val label: String) {
+    NONE("None"), PLAYLIST_ONLY("Playlist only"), LIBRARY("Library");
+
+    fun next(): TelegramMusicSourceMode = when (this) {
+        NONE -> PLAYLIST_ONLY
+        PLAYLIST_ONLY -> LIBRARY
+        LIBRARY -> NONE
+    }
+}
+
 data class TelegramChatSummary(
     val chatId: Long,
     val title: String,
@@ -62,6 +72,7 @@ data class TelegramMusicSourceState(
     val accountId: String? = null,
     val chats: List<TelegramChatSummary> = emptyList(),
     val selectedChatIds: Set<Long> = emptySet(),
+    val sourceModes: Map<Long, TelegramMusicSourceMode> = emptyMap(),
     val previouslySelectedChatIds: Set<Long> = emptySet(),
     val isLoadingChats: Boolean = false,
     val isSyncing: Boolean = false,
@@ -141,7 +152,7 @@ interface TelegramRepository {
     fun clearProxyError()
 
     fun refreshSelectableChats()
-    fun setMusicSourceSelected(chatId: Long, selected: Boolean)
+    fun setMusicSourceMode(chatId: Long, mode: TelegramMusicSourceMode)
     fun syncSelectedSources()
     /** URL/deep link for the source message, or null for tracks without Telegram sources. */
     suspend fun messageLinkForTrack(trackId: UUID): String? = null

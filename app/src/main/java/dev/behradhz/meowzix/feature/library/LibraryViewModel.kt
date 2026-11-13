@@ -59,6 +59,7 @@ data class LibraryUiState(
     val playlistArtwork: Map<UUID, String?> = emptyMap(),
     val selectedPlaylistId: UUID? = null,
     val selectedPlaylistTracks: List<Track> = emptyList(),
+    val selectedPlaylistLibraryTrackIds: Set<UUID> = emptySet(),
     val deletingPlaylistId: UUID? = null,
     val isRefreshing: Boolean = false,
     val lastRefresh: LocalLibraryRefreshResult? = null,
@@ -179,6 +180,7 @@ class LibraryViewModel @Inject constructor(
             it.copy(
                 selectedPlaylistId = null,
                 selectedPlaylistTracks = emptyList(),
+                selectedPlaylistLibraryTrackIds = emptySet(),
             )
         }
     }
@@ -315,6 +317,16 @@ class LibraryViewModel @Inject constructor(
             .onFailure { reportLoadError(it, "Unable to update favorite") }
     }
 
+    fun addToLibrary(track: Track) = viewModelScope.launch {
+        runCatching { repository.addToLibrary(track.id) }
+            .onSuccess {
+                _state.update { state ->
+                    state.copy(selectedPlaylistLibraryTrackIds = state.selectedPlaylistLibraryTrackIds + track.id)
+                }
+            }
+            .onFailure { reportLoadError(it, "Unable to add track to Library") }
+    }
+
     fun ensureArtwork(track: Track) {
         artworkRepairCoordinator.prefetch(listOf(track.id))
     }
@@ -384,13 +396,17 @@ class LibraryViewModel @Inject constructor(
             it.copy(
                 selectedPlaylistId = playlistId,
                 selectedPlaylistTracks = emptyList(),
+                selectedPlaylistLibraryTrackIds = emptySet(),
             )
         }
         playlistTracksJob = viewModelScope.launch {
             playlistRepository.observeTracks(playlistId)
                 .catch { error -> reportLoadError(error, "Unable to load playlist") }
                 .collect { tracks ->
-                    _state.update { it.copy(selectedPlaylistTracks = tracks) }
+                    val included = repository.visibleTrackIds(tracks.map { it.id })
+                    _state.update {
+                        it.copy(selectedPlaylistTracks = tracks, selectedPlaylistLibraryTrackIds = included)
+                    }
                 }
         }
     }

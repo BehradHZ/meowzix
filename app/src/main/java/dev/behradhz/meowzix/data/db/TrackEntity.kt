@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -26,6 +27,7 @@ data class TrackEntity(
     val artworkRef: String?,
     val favorite: Boolean,
     val hidden: Boolean,
+    @ColumnInfo(defaultValue = "0") val addedToLibrary: Boolean = false,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
 )

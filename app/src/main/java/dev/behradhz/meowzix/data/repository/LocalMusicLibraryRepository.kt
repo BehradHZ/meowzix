@@ -61,6 +61,15 @@ class LocalMusicLibraryRepository @Inject constructor(
     private val artworkDirectory = File(context.filesDir, "artwork")
     private var lastSuccessfulRefreshAtEpochMs: Long? = null
 
+    override suspend fun addToLibrary(trackId: UUID) {
+        dao.addToLibrary(trackId.toString())
+    }
+
+    override suspend fun visibleTrackIds(trackIds: List<UUID>): Set<UUID> =
+        trackIds.chunked(400).flatMap { batch ->
+            dao.visibleTrackIds(batch.map { it.toString() })
+        }.mapTo(mutableSetOf()) { UUID.fromString(it) }
+
     override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableTracks()
         .map { rows -> rows.map(TrackEntity::toDomain) }
         .flowOn(Dispatchers.Default)
@@ -414,6 +423,7 @@ class LocalMusicLibraryRepository @Inject constructor(
             artworkRef = item.artworkRef ?: canonicalTrack?.artworkRef,
             favorite = canonicalTrack?.favorite ?: false,
             hidden = canonicalTrack?.hidden ?: false,
+            addedToLibrary = canonicalTrack?.addedToLibrary ?: false,
             createdAtEpochMs = canonicalTrack?.createdAtEpochMs ?: now,
             updatedAtEpochMs = now,
         )

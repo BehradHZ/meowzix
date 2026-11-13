@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.HelpOutline
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistAdd
@@ -115,6 +116,7 @@ internal fun TrackActionsMenu(
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
+    onAddToLibrary: (() -> Unit)? = null,
     onRemoveOfflineCopy: (() -> Unit)? = null,
     onViewInChat: (() -> Unit)? = null,
 ) {
@@ -243,6 +245,11 @@ internal fun TrackActionsMenu(
                     onViewInChat?.let { open ->
                         ActionLine(Icons.Rounded.OpenInNew, "View in Chat") {
                             onDismiss(); open()
+                        }
+                    }
+                    onAddToLibrary?.let { add ->
+                        ActionLine(Icons.Rounded.LibraryMusic, "Add to library") {
+                            onDismiss(); add()
                         }
                     }
                     ActionLine(Icons.Rounded.PlaylistAdd, "Add to playlist", trailing = true) {

@@ -319,6 +319,8 @@ internal fun PlaylistDetailScreenV3(
     errorMessage: String? = null,
     canEditMetadata: Boolean = editable,
     onRestoreTelegramMetadata: () -> Unit = {},
+    libraryTrackIds: Set<UUID> = emptySet(),
+    onAddToLibrary: (Track) -> Unit = {},
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = editing) { editing = false }
@@ -553,6 +555,9 @@ internal fun PlaylistDetailScreenV3(
                                 playlists = playlists,
                                 onFavorite = { onFavorite(track) },
                                 onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
+                                onAddToLibrary = if (playlist?.telegramManaged == true && track.id !in libraryTrackIds) {
+                                    { onAddToLibrary(track) }
+                                } else null,
                                 onGoToArtist = { onGoToArtist(track) },
                                 onEnsureArtwork = { onEnsureArtwork(track) },
                                 onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
@@ -658,6 +663,9 @@ internal fun PlaylistDetailScreenV3(
                                 playlists = playlists,
                                 onFavorite = { onFavorite(track) },
                                 onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
+                                onAddToLibrary = if (playlist?.telegramManaged == true && track.id !in libraryTrackIds) {
+                                    { onAddToLibrary(track) }
+                                } else null,
                                 onGoToArtist = { onGoToArtist(track) },
                                 onEnsureArtwork = { onEnsureArtwork(track) },
                                 onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,

@@ -25,6 +25,8 @@ interface MusicLibraryRepository {
     suspend fun refreshLocalMusic(): LocalLibraryRefreshResult
     suspend fun unmergeSource(sourceId: UUID): UUID
     suspend fun setFavorite(trackId: UUID, favorite: Boolean)
+    suspend fun addToLibrary(trackId: UUID)
+    suspend fun visibleTrackIds(trackIds: List<UUID>): Set<UUID> = emptySet()
 
     /** Opportunistically fills missing low-resolution cover art without downloading audio files. */
     fun prefetchArtwork(trackIds: List<UUID>) = Unit

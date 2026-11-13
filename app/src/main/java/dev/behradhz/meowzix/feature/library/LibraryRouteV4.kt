@@ -231,6 +231,8 @@ internal fun LibraryRouteV4(
                 onRemoveOfflineCopy = viewModel::removeOfflineCopy,
                 onFavorite = viewModel::setFavorite,
                 onAddToPlaylist = viewModel::addToPlaylist,
+                libraryTrackIds = state.selectedPlaylistLibraryTrackIds,
+                onAddToLibrary = viewModel::addToLibrary,
                 onGoToArtist = { track ->
                     tracksViewModel.closeAggregate()
                     artists.firstOrNull { it.normalizedName == track.normalizedArtist }

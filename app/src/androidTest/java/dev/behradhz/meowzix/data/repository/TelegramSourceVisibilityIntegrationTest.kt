@@ -112,14 +112,45 @@ class TelegramSourceVisibilityIntegrationTest {
         assertEquals(listOf(local), orderedIds(LibraryAvailabilityFilter.ALL))
     }
 
+    @Test fun playlistOnlyDoesNotEnterLibraryUntilPromoted() = runTest {
+        val promoted = UUID.randomUUID()
+        val other = UUID.randomUUID()
+        selectChat(30, includeInLibrary = false)
+        addTrack(promoted, "Promote me")
+        addTrack(other, "Playlist only")
+        addTelegramSource(promoted, 30, 301)
+        addTelegramSource(other, 30, 302)
+        assertTrue(library.availableTrackIds().isEmpty())
+        assertTrue(orderedIds(LibraryAvailabilityFilter.ALL).isEmpty())
+        db.libraryDao().addToLibrary(promoted.toString())
+        assertEquals(listOf(promoted), library.availableTrackIds())
+        assertEquals(listOf(promoted), orderedIds(LibraryAvailabilityFilter.CLOUD))
+        db.telegramDao().deleteSelectedSource(account, 30)
+        assertEquals(listOf(promoted), library.availableTrackIds())
+        assertNotNull(db.libraryDao().trackById(other.toString()))
+    }
+
+    @Test fun switchingPlaylistOnlyToLibraryExposesAllSongs() = runTest {
+        val song = UUID.randomUUID()
+        selectChat(40, includeInLibrary = false)
+        addTrack(song, "Switching mode")
+        addTelegramSource(song, 40, 401)
+        assertTrue(library.availableTrackIds().isEmpty())
+        selectChat(40, includeInLibrary = true)
+        assertEquals(listOf(song), library.availableTrackIds())
+        selectChat(40, includeInLibrary = false)
+        assertTrue(library.availableTrackIds().isEmpty())
+    }
+
     private suspend fun orderedIds(filter: LibraryAvailabilityFilter): List<UUID> = paged.orderedTrackIds(
         LibrarySortMode.TITLE_ASC, LibraryGroupMode.NONE, filter,
     )
 
-    private suspend fun selectChat(chatId: Long) {
+    private suspend fun selectChat(chatId: Long, includeInLibrary: Boolean = true) {
         db.telegramDao().upsertSelectedSource(TelegramSelectedSourceEntity(
             accountId = account, chatId = chatId, title = "Chat $chatId",
-            kind = "CHANNEL", newestMessageId = null, initialScanComplete = true, lastSyncedAtEpochMs = null,
+            kind = "CHANNEL", includeInLibrary = includeInLibrary,
+            newestMessageId = null, initialScanComplete = true, lastSyncedAtEpochMs = null,
         ))
     }
 
