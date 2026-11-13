@@ -99,13 +99,11 @@ class HomeViewModel @Inject constructor(
             if (generation != homePlayGeneration ||
                 active.items.getOrNull(active.currentIndex)?.id != trackId
             ) return@launch
-            vibeIds.forEach { id ->
-                val queue = queueRepository.queueState.value
-                if (generation != homePlayGeneration ||
-                    queue.items.getOrNull(queue.currentIndex)?.id != trackId
-                ) return@launch
-                queueRepository.addToQueue(id)
-            }
+            queueRepository.attachFutureToSingleTrack(
+                expectedTrackId = trackId,
+                fullOrderedTrackIds = listOf(trackId) + vibeIds,
+                mode = PlaybackMode.ORDERED,
+            )
         }
     }
 
