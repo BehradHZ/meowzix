@@ -65,6 +65,14 @@ class LocalMusicLibraryRepository @Inject constructor(
         dao.addToLibrary(trackId.toString())
     }
 
+    override suspend fun addTracksToLibrary(trackIds: List<UUID>) {
+        database.withTransaction {
+            trackIds.distinct().chunked(400).forEach { ids ->
+                dao.addTracksToLibrary(ids.map(UUID::toString))
+            }
+        }
+    }
+
     override suspend fun visibleTrackIds(trackIds: List<UUID>): Set<UUID> =
         trackIds.chunked(400).flatMap { batch ->
             dao.visibleTrackIds(batch.map { it.toString() })

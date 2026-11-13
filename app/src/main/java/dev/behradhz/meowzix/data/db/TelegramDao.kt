@@ -59,6 +59,26 @@ interface TelegramDao {
     @Query("SELECT DISTINCT chatId FROM telegram_track_sources WHERE accountId = :accountId")
     suspend fun knownChatIds(accountId: String): List<Long>
 
+    @Query("SELECT * FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId AND messageId > 0")
+    suspend fun telegramMessageSourcesForChat(accountId: String, chatId: Long): List<TelegramTrackSourceEntity>
+
+    @Query("SELECT * FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId AND messageId < 0")
+    suspend fun telegramProfileSourcesForChat(accountId: String, chatId: Long): List<TelegramTrackSourceEntity>
+
+    @Query("""
+        SELECT DISTINCT s.trackId FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND tg.chatId = :chatId
+          AND tg.messageId < 0 AND s.availability != 'MISSING'
+    """)
+    suspend fun activeProfileTrackIdsForChat(accountId: String, chatId: Long): List<String>
+
+    @Query("SELECT tg.* FROM telegram_track_sources tg INNER JOIN track_sources s ON s.id = tg.trackSourceId WHERE tg.accountId = :accountId AND s.trackId = :trackId AND tg.messageId > 0 AND s.availability != 'MISSING' ORDER BY tg.messageId DESC LIMIT 1")
+    suspend fun telegramMessageSourceForTrack(accountId: String, trackId: String): TelegramTrackSourceEntity?
+
+    @Query("SELECT tg.* FROM telegram_track_sources tg INNER JOIN track_sources s ON s.id = tg.trackSourceId WHERE s.trackId = :trackId AND tg.messageId > 0 AND s.availability != 'MISSING' ORDER BY tg.messageId DESC LIMIT 1")
+    suspend fun telegramMessageSourceForAnyAccountTrack(trackId: String): TelegramTrackSourceEntity?
+
     @Query("SELECT * FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId")
     suspend fun telegramSourcesForChat(accountId: String, chatId: Long): List<TelegramTrackSourceEntity>
 
@@ -92,7 +112,7 @@ interface TelegramDao {
     @Query("SELECT * FROM telegram_track_sources")
     suspend fun allTelegramTrackSources(): List<TelegramTrackSourceEntity>
 
-    @Query("SELECT trackSourceId FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId AND messageId IN (:messageIds)")
+    @Query("SELECT trackSourceId FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId AND messageId > 0 AND messageId IN (:messageIds)")
     suspend fun trackSourceIdsForMessages(
         accountId: String,
         chatId: Long,

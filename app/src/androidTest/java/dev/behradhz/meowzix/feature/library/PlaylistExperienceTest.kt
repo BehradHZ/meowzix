@@ -62,6 +62,7 @@ class PlaylistExperienceTest {
         var deleted = 0
         var artist: UUID? = null
         var added: Pair<UUID, UUID>? = null
+        var bulkLibraryIds: List<UUID> = emptyList()
     }
 
     private fun showDetail(
@@ -73,13 +74,17 @@ class PlaylistExperienceTest {
         dark: Boolean = true,
         artworkRef: String? = null,
         fontScale: Float = 1f,
+        telegramPerson: Boolean = false,
+        profileSongIds: Set<UUID> = emptySet(),
     ): Calls {
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
                 MeowzixTheme(darkTheme = dark) {
                     PlaylistDetailScreenV3(
-                        playlist = if (favorites) null else playlist.copy(artworkRef = artworkRef),
+                        playlist = if (favorites) null else playlist.copy(
+                            artworkRef = artworkRef, telegramManaged = telegramPerson,
+                        ),
                         title = if (favorites) "Favorites" else playlist.title,
                         tracks = songs,
                         artworkRef = artworkRef,
@@ -99,6 +104,9 @@ class PlaylistExperienceTest {
                         onPinOffline = { calls.downloads++ },
                         onFavorite = { calls.favorites++ },
                         onAddToPlaylist = { song, id -> calls.added = song.id to id },
+                        telegramPerson = telegramPerson,
+                        profileTrackIds = profileSongIds,
+                        onBulkAddToLibrary = { calls.bulkLibraryIds = it.map(Track::id) },
                         onGoToArtist = { calls.artist = it.id },
                         onMove = { from, to -> calls.moves.add(from to to) },
                         onRemove = { calls.removed = it.id },
@@ -119,6 +127,30 @@ class PlaylistExperienceTest {
         val tag = "playlist-track:${tracks.first().id}"
         compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
         compose.onNode(hasContentDescription("Track actions") and hasAnyAncestor(hasTestTag(tag)), useUnmergedTree = true).performClick()
+    }
+
+    @Test fun personPlaylistSeparatesProfileAndChatAndBulkAddsOnlySelectedSongs() {
+        val calls = showDetail(
+            editable = false,
+            telegramPerson = true,
+            profileSongIds = setOf(tracks.first().id),
+        )
+        scrollToText("Profile music")
+        compose.onNodeWithText("Profile music").assertIsDisplayed()
+        scrollToText("Shared in chat")
+        compose.onNodeWithText("Shared in chat").assertIsDisplayed()
+
+        scrollToText("Select songs for bulk actions")
+        compose.onNodeWithText("Select", substring = false).performClick()
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("playlist-select:${tracks.first().id}"))
+        compose.onNodeWithTag("playlist-select:${tracks.first().id}").performClick()
+        scrollToText("Add to library")
+        compose.onNodeWithText("Add to library").performClick()
+        compose.runOnIdle {
+            assertEquals(listOf(tracks.first().id), calls.bulkLibraryIds)
+            assertTrue(calls.plays.isEmpty())
+        }
     }
 
     @Test fun playbackModesRemainSeparateAndRespectDisplayedOrder() {

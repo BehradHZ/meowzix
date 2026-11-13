@@ -217,7 +217,48 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             }
         }
 
-        return refreshSourceFromMessage(trackId, telegramSource, remoteSource, client)
+        return if (telegramSource.messageId < 0L) {
+            refreshSourceFromProfile(trackId, telegramSource, remoteSource, client)
+        } else {
+            refreshSourceFromMessage(trackId, telegramSource, remoteSource, client)
+        }
+    }
+
+    private suspend fun refreshSourceFromProfile(
+        trackId: UUID,
+        telegramSource: TelegramTrackSourceEntity,
+        remoteSource: TrackSourceEntity,
+        client: TdLibClientAdapter,
+    ): ResolvedTelegramSource? {
+        val userId = (runCatching {
+            client.send(TdApi.GetChat(telegramSource.chatId)).type as? TdApi.ChatTypePrivate
+        }.getOrNull())?.userId ?: return null
+        var offset = 0
+        while (offset < 10_000) {
+            val page = runCatching {
+                client.send(TdApi.GetUserProfileAudios(userId, offset, 100))
+            }.getOrNull() ?: return null
+            val match = page.audios.firstOrNull { audio ->
+                val stableId = telegramSource.tdPersistentFileId
+                if (!stableId.isNullOrBlank()) audio.audio.remote.uniqueId == stableId
+                else telegramProfileMessageId(audio.profileIdentity()) == telegramSource.messageId
+            }
+            if (match != null) {
+                val candidate = match.toAudioCandidate(telegramSource.messageId)
+                telegramDao.upsertTelegramTrackSource(
+                    telegramSource.copy(
+                        tdFileId = candidate.fileId,
+                        tdPersistentFileId = candidate.persistentFileId ?: telegramSource.tdPersistentFileId,
+                    ),
+                )
+                runCatching { client.seedFileState(candidate.fileId) }
+                return ResolvedTelegramSource(telegramSource.trackSourceId, remoteSource, candidate)
+            }
+            if (page.audios.isEmpty()) break
+            offset += page.audios.size
+            if (offset >= page.totalCount) break
+        }
+        return null
     }
 
     private suspend fun refreshSourceFromMessage(

@@ -251,6 +251,9 @@ interface LibraryDao {
     @Query("UPDATE tracks SET addedToLibrary = 1 WHERE id = :trackId")
     suspend fun addToLibrary(trackId: String)
 
+    @Query("UPDATE tracks SET addedToLibrary = 1 WHERE id IN (:trackIds)")
+    suspend fun addTracksToLibrary(trackIds: List<String>)
+
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
     suspend fun trackById(id: String): TrackEntity?
 

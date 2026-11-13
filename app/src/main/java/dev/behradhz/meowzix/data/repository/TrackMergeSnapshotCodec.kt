@@ -19,6 +19,8 @@ internal data class TrackMergeSnapshot(
     val historyEventIds: List<String>,
     val survivorFeedback: List<RecommendationFeedback>,
     val mergedFeedback: List<RecommendationFeedback>,
+    val survivorAddedToLibrary: Boolean? = null,
+    val mergedAddedToLibrary: Boolean? = null,
 )
 
 internal data class PlaylistSnapshotEntry(
@@ -27,7 +29,7 @@ internal data class PlaylistSnapshotEntry(
 )
 
 internal object TrackMergeSnapshotCodec {
-    private const val CURRENT_VERSION = 2
+    private const val CURRENT_VERSION = 3
     private const val LEGACY_VERSION = 1
     private const val LEGACY_NULL = "~"
     private const val NULL_TAG = "N"
@@ -40,6 +42,9 @@ internal object TrackMergeSnapshotCodec {
             value.survivorFavorite.toString(), value.survivorHidden.toString(),
             value.mergedFavorite.toString(), value.mergedHidden.toString(),
         )
+        if (value.survivorAddedToLibrary != null && value.mergedAddedToLibrary != null) {
+            line("library", value.survivorAddedToLibrary.toString(), value.mergedAddedToLibrary.toString())
+        }
         value.survivorOverride?.let { row ->
             line(
                 "override", row.trackId, nullable(row.title), nullable(row.artist), nullable(row.album),
@@ -68,7 +73,7 @@ internal object TrackMergeSnapshotCodec {
         val versionRows = rows.filter { it.firstOrNull() == "v" }
         require(versionRows.size == 1 && versionRows.single().size == 2) { "Malformed merge snapshot version" }
         val version = versionRows.single()[1].toIntOrNull()
-        require(version == LEGACY_VERSION || version == CURRENT_VERSION) {
+        require(version in LEGACY_VERSION..CURRENT_VERSION) {
             "Unsupported merge snapshot version: $version"
         }
 
@@ -76,6 +81,8 @@ internal object TrackMergeSnapshotCodec {
         var survivorHidden = false
         var mergedFavorite = false
         var mergedHidden = false
+        var survivorAddedToLibrary: Boolean? = null
+        var mergedAddedToLibrary: Boolean? = null
         var survivorOverride: TrackMetadataOverrideEntity? = null
         val sources = mutableListOf<String>()
         val playlists = mutableListOf<PlaylistSnapshotEntry>()
@@ -96,6 +103,11 @@ internal object TrackMergeSnapshotCodec {
                     survivorHidden = f[2].toBooleanStrict()
                     mergedFavorite = f[3].toBooleanStrict()
                     mergedHidden = f[4].toBooleanStrict()
+                }
+                "library" -> {
+                    require(f.size == 3 && survivorAddedToLibrary == null) { "Malformed merge snapshot library flags" }
+                    survivorAddedToLibrary = f[1].toBooleanStrict()
+                    mergedAddedToLibrary = f[2].toBooleanStrict()
                 }
                 "override" -> {
                     require(!overrideSeen && f.size == 7) { "Malformed merge snapshot override" }
@@ -138,6 +150,7 @@ internal object TrackMergeSnapshotCodec {
         return TrackMergeSnapshot(
             survivorFavorite, survivorHidden, mergedFavorite, mergedHidden, survivorOverride,
             sources.distinct(), playlists, lyrics.distinct(), events.distinct(), survivorFeedback, mergedFeedback,
+            survivorAddedToLibrary, mergedAddedToLibrary,
         )
     }
 

@@ -27,7 +27,7 @@ data class TrackEntity(
     val artworkRef: String?,
     val favorite: Boolean,
     val hidden: Boolean,
-    @ColumnInfo(defaultValue = "0") val addedToLibrary: Boolean = false,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
+    @ColumnInfo(defaultValue = "0") val addedToLibrary: Boolean = false,
 )

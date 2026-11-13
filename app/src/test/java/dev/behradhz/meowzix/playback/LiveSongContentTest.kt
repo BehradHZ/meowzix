@@ -12,11 +12,13 @@ class LiveSongContentTest {
         val labels = LiveSongAction.entries.map(::liveSongActionLabel)
         assertEquals(LiveSongAction.entries.size, labels.distinct().size)
         labels.forEach { label ->
-            assertEquals(1, label.codePointCount(0, label.length))
+            // Variation selector FE0E controls text presentation; it is not a second visible symbol.
+            val visibleGlyph = label.replace("\uFE0E", "")
+            assertEquals(1, visibleGlyph.codePointCount(0, visibleGlyph.length))
             assertEquals(false, label.contains('\u2060'))
             assertEquals(false, label.isBlank())
         }
-        assertEquals("Ⅱ", liveSongActionLabel(LiveSongAction.PAUSE))
+        assertEquals("⏸︎", liveSongActionLabel(LiveSongAction.PAUSE))
     }
 
     @Test fun onlyPlayingTrackCanProduceACard() {

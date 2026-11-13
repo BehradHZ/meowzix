@@ -60,9 +60,11 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -321,6 +323,13 @@ internal fun PlaylistDetailScreenV3(
     onRestoreTelegramMetadata: () -> Unit = {},
     libraryTrackIds: Set<UUID> = emptySet(),
     onAddToLibrary: (Track) -> Unit = {},
+    telegramPerson: Boolean = false,
+    profileTrackIds: Set<UUID> = emptySet(),
+    onBulkAddToLibrary: (List<Track>) -> Unit = {},
+    onBulkAddToPlaylist: (List<Track>, UUID) -> Unit = { _, _ -> },
+    onBulkAddToQueue: (List<Track>) -> Unit = {},
+    onBulkLike: (List<Track>) -> Unit = {},
+    onBulkRemove: (List<Track>) -> Unit = {},
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = editing) { editing = false }
@@ -368,6 +377,16 @@ internal fun PlaylistDetailScreenV3(
         )
     }
 
+    var selectionMode by rememberSaveable(playlist?.id, isFavorites) { mutableStateOf(false) }
+    var selectedIds by remember(playlist?.id, isFavorites) { mutableStateOf(emptySet<UUID>()) }
+    var bulkPlaylistMenu by remember { mutableStateOf(false) }
+    BackHandler(enabled = selectionMode) { selectionMode = false; selectedIds = emptySet() }
+    LaunchedEffect(tracks) { selectedIds = selectedIds.intersect(tracks.map(Track::id).toSet()) }
+    val showProfileSections = telegramPerson && playlist?.telegramManaged == true && !isFavorites
+    fun toggleSelection(trackId: UUID) {
+        selectedIds = if (trackId in selectedIds) selectedIds - trackId else selectedIds + trackId
+    }
+
     var sort by rememberSaveable { mutableStateOf(PlaylistTrackSort.CUSTOM) }
     var ascending by rememberSaveable { mutableStateOf(true) }
     var groupBy by rememberSaveable { mutableStateOf(PlaylistGroupBy.NONE) }
@@ -388,8 +407,15 @@ internal fun PlaylistDetailScreenV3(
             PlaylistTrackSort.MODIFIED -> tracks.sortedBy(Track::updatedAt).let { if (ascending) it else it.reversed() }
         }
     }
-    val grouped = remember(sortedTracks, groupBy) {
-        when (groupBy) {
+    val selectedTracks = sortedTracks.filter { it.id in selectedIds }
+    val selectedToLibrary = selectedTracks.filterNot { it.id in libraryTrackIds }
+    val grouped: List<Pair<String?, List<Track>>> = remember(
+        sortedTracks, groupBy, showProfileSections, profileTrackIds,
+    ) {
+        if (showProfileSections) listOf(
+            "Profile music" to sortedTracks.filter { it.id in profileTrackIds },
+            "Shared in chat" to sortedTracks.filterNot { it.id in profileTrackIds },
+        ) else when (groupBy) {
             PlaylistGroupBy.NONE -> listOf<String?>(null).map { it to sortedTracks }
             PlaylistGroupBy.ARTIST -> sortedTracks.groupBy { it.artist?.takeIf(String::isNotBlank) ?: "Unknown artist" }
                 .toSortedMap(String.CASE_INSENSITIVE_ORDER).toList()
@@ -488,6 +514,81 @@ internal fun PlaylistDetailScreenV3(
                 }
             }
 
+            item(key = "playlist-selection") {
+                PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth(), radius = 19.dp) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (selectionMode) "${selectedIds.size} selected" else "Select songs for bulk actions",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            if (selectionMode) TextButton(
+                                enabled = tracks.isNotEmpty(),
+                                onClick = { selectedIds = tracks.map(Track::id).toSet() },
+                            ) { Text("Select all") }
+                            TextButton(onClick = {
+                                selectionMode = !selectionMode
+                                selectedIds = emptySet()
+                            }) {
+                                Icon(if (selectionMode) Icons.Rounded.ArrowBack else Icons.Rounded.Checklist,
+                                    contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.size(5.dp))
+                                Text(if (selectionMode) "Done" else "Select")
+                            }
+                        }
+                        if (selectionMode) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                TextButton(
+                                    onClick = { onBulkAddToLibrary(selectedToLibrary) },
+                                    enabled = selectedToLibrary.isNotEmpty(),
+                                ) { Text("Add to library") }
+                                TextButton(
+                                    onClick = { onBulkAddToQueue(selectedTracks) },
+                                    enabled = selectedTracks.isNotEmpty(),
+                                ) { Text("Add to queue") }
+                                TextButton(
+                                    onClick = { onBulkLike(selectedTracks) },
+                                    enabled = selectedTracks.isNotEmpty(),
+                                ) { Text("Like") }
+                                Box {
+                                    TextButton(
+                                        enabled = selectedTracks.isNotEmpty() && playlists.any { !it.telegramManaged },
+                                        onClick = { bulkPlaylistMenu = true },
+                                    ) { Text("Add to playlist") }
+                                    DropdownMenu(
+                                        expanded = bulkPlaylistMenu,
+                                        onDismissRequest = { bulkPlaylistMenu = false },
+                                    ) {
+                                        playlists.filterNot(PlaylistSummary::telegramManaged).forEach { target ->
+                                            DropdownMenuItem(
+                                                text = { Text(target.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                                onClick = {
+                                                    bulkPlaylistMenu = false
+                                                    onBulkAddToPlaylist(selectedTracks, target.id)
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                                if (editable) TextButton(
+                                    enabled = selectedTracks.isNotEmpty(),
+                                    onClick = {
+                                        onBulkRemove(selectedTracks)
+                                        selectionMode = false
+                                        selectedIds = emptySet()
+                                    },
+                                ) { Text("Remove") }
+                            }
+                        }
+                    }
+                }
+            }
+
             item(key = "playlist-controls") {
                 PlaylistOrganizationControlsV3(
                     hazeState = hazeState,
@@ -499,6 +600,7 @@ internal fun PlaylistDetailScreenV3(
                         if (selected == PlaylistTrackSort.CUSTOM) groupBy = PlaylistGroupBy.NONE
                     },
                     onToggleDirection = { ascending = !ascending },
+                    showGrouping = !showProfileSections,
                     onGroupBy = { selected ->
                         groupBy = selected
                         if (selected != PlaylistGroupBy.NONE && sort == PlaylistTrackSort.CUSTOM) {
@@ -513,12 +615,12 @@ internal fun PlaylistDetailScreenV3(
                     Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            if (editable && sort == PlaylistTrackSort.CUSTOM && tracks.isNotEmpty()) {
+            if (editable && !selectionMode && sort == PlaylistTrackSort.CUSTOM && tracks.isNotEmpty()) {
                 item(key = "reorder-hint") {
                     Text("Hold the handle to reorder", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
                 }
             }
-            if (sortedTracks.isEmpty()) {
+            if (sortedTracks.isEmpty() && !showProfileSections) {
                 item(key = "playlist-empty") {
                     PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth()) {
                         Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -531,7 +633,7 @@ internal fun PlaylistDetailScreenV3(
                         }
                     }
                 }
-            } else if (sort == PlaylistTrackSort.CUSTOM && groupBy == PlaylistGroupBy.NONE) {
+            } else if (!showProfileSections && sort == PlaylistTrackSort.CUSTOM && groupBy == PlaylistGroupBy.NONE) {
                 itemsIndexed(customTracks, key = { _, track -> "track:${track.id}" }) { index, track ->
                     val isDragging = draggedTrackId == track.id
                     Row(
@@ -541,11 +643,18 @@ internal fun PlaylistDetailScreenV3(
                             .graphicsLayer { translationY = if (isDragging) draggedDistance else 0f },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        if (selectionMode) Checkbox(
+                            checked = track.id in selectedIds,
+                            onCheckedChange = { toggleSelection(track.id) },
+                            modifier = Modifier.testTag("playlist-select:${track.id}"),
+                        )
                         PlaylistGlassPanel(hazeState, Modifier.weight(1f).testTag("playlist-track:${track.id}"), radius = 20.dp) {
                             SwipeableLibraryTrackRow(
                                 track = track,
                                 isCurrent = track.id == currentTrackId,
-                                onClick = { onPlayTrack(track, customTracks) },
+                                onClick = {
+                                    if (selectionMode) toggleSelection(track.id) else onPlayTrack(track, customTracks)
+                                },
                                 onPlayNext = { onPlayNext(track) },
                                 onAddToQueue = { onAddToQueue(track) },
                                 onPinOffline = { onPinOffline(track) },
@@ -564,9 +673,13 @@ internal fun PlaylistDetailScreenV3(
                                 onMoveUp = if (editable && index > 0) ({ onMove(index, index - 1) }) else null,
                                 onMoveDown = if (editable && index < customTracks.lastIndex) ({ onMove(index, index + 1) }) else null,
                                 containerColor = Color.Transparent,
+                                onLongClick = {
+                                    selectionMode = true
+                                    selectedIds = selectedIds + track.id
+                                },
                             )
                         }
-                        if (editable) {
+                        if (editable && !selectionMode) {
                             Box(
                                 modifier = Modifier
                                     .size(48.dp)
@@ -648,12 +761,30 @@ internal fun PlaylistDetailScreenV3(
                             )
                         }
                     }
+                    if (showProfileSections && groupTracks.isEmpty()) {
+                        item(key = "empty:$groupTitle") {
+                            Text(
+                                if (groupTitle == "Profile music") "No music visible on this profile" else "No music shared in this chat",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
+                    }
                     items(groupTracks, key = { "sorted:${it.id}" }) { track ->
-                        PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth().testTag("playlist-track:${track.id}"), radius = 20.dp) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (selectionMode) Checkbox(
+                            checked = track.id in selectedIds,
+                            onCheckedChange = { toggleSelection(track.id) },
+                            modifier = Modifier.testTag("playlist-select:${track.id}"),
+                        )
+                        PlaylistGlassPanel(hazeState, Modifier.weight(1f).testTag("playlist-track:${track.id}"), radius = 20.dp) {
                             SwipeableLibraryTrackRow(
                                 track = track,
                                 isCurrent = track.id == currentTrackId,
-                                onClick = { onPlayTrack(track, sortedTracks) },
+                                onClick = {
+                                    if (selectionMode) toggleSelection(track.id) else onPlayTrack(track, sortedTracks)
+                                },
                                 onPlayNext = { onPlayNext(track) },
                                 onAddToQueue = { onAddToQueue(track) },
                                 onPinOffline = { onPinOffline(track) },
@@ -670,7 +801,12 @@ internal fun PlaylistDetailScreenV3(
                                 onEnsureArtwork = { onEnsureArtwork(track) },
                                 onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
                                 containerColor = Color.Transparent,
+                                onLongClick = {
+                                    selectionMode = true
+                                    selectedIds = selectedIds + track.id
+                                },
                             )
+                        }
                         }
                     }
                 }
@@ -708,6 +844,7 @@ private fun PlaylistOrganizationControlsV3(
     onSort: (PlaylistTrackSort) -> Unit,
     onToggleDirection: () -> Unit,
     onGroupBy: (PlaylistGroupBy) -> Unit,
+    showGrouping: Boolean = true,
 ) {
     var sortMenu by remember { mutableStateOf(false) }
     var groupMenu by remember { mutableStateOf(false) }
@@ -734,7 +871,7 @@ private fun PlaylistOrganizationControlsV3(
                 }
             }
         }
-        Box {
+        if (showGrouping) Box {
             PlaylistGlassAction(hazeState, "Group by · ${groupBy.label}", Icons.Rounded.KeyboardArrowDown, { groupMenu = true })
             DropdownMenu(expanded = groupMenu, onDismissRequest = { groupMenu = false }) {
                 PlaylistGroupBy.entries.forEach { option ->

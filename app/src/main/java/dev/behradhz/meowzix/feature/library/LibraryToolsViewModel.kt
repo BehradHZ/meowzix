@@ -84,7 +84,7 @@ class LibraryToolsViewModel @Inject constructor(
     }
 
     fun requestMerge(candidate: DuplicateCandidate) {
-        if (candidate.evidence == DuplicateEvidence.METADATA_AND_DURATION) {
+        if (candidate.evidence == DuplicateEvidence.SAME_TITLE_AND_ARTIST) {
             _state.update { it.copy(pendingMetadataMerge = candidate) }
         } else {
             merge(candidate, confirmMetadataOnly = false)

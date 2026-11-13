@@ -573,7 +573,7 @@ class TdLibTelegramRepository @Inject constructor(
         }
 
         if (!selected.initialScanComplete) {
-            val staleIds = telegramDao.telegramSourcesForChat(accountId, selected.chatId)
+            val staleIds = telegramDao.telegramMessageSourcesForChat(accountId, selected.chatId)
                 .filter { it.messageId !in seenEligibleIds }
                 .map { it.trackSourceId }
             if (staleIds.isNotEmpty()) {
@@ -581,6 +581,14 @@ class TdLibTelegramRepository @Inject constructor(
                 result.sourcesMarkedMissing += staleIds.size
             }
         }
+
+        // Profile music is independent of chat messages and can be private.
+        // Preserve the last successful profile snapshot on network/privacy errors.
+        runCatching { syncProfileMusic(accountId, selected) }
+            .onFailure { error ->
+                _musicSourceState.update { it.copy(errorMessage =
+                    "Profile music for ${selected.title}: ${safeMessage(error)}") }
+            }
 
         telegramDao.updateSyncCheckpoint(
             accountId = accountId,
@@ -593,13 +601,45 @@ class TdLibTelegramRepository @Inject constructor(
         return result
     }
 
-    /** Returns true for a new Track, false for an existing message update, and null for non-music. */
+    /** Profile music is paginated separately from chat history. Never mark missing after a failed fetch. */
+    private suspend fun syncProfileMusic(accountId: String, selected: TelegramSelectedSourceEntity) {
+        val activeClient = client ?: return
+        val chat = activeClient.send(TdApi.GetChat(selected.chatId))
+        val privateChat = chat.type as? TdApi.ChatTypePrivate ?: return
+        val seen = mutableSetOf<Long>()
+        var offset = 0
+        while (offset < 10_000) {
+            val result = activeClient.send(TdApi.GetUserProfileAudios(privateChat.userId, offset, 100))
+            if (result.audios.isEmpty()) break
+            for (audio in result.audios) {
+                val id = telegramProfileMessageId(audio.profileIdentity())
+                persistTelegramCandidate(accountId, selected.chatId, id, audio.toAudioCandidate(id))
+                seen += id
+            }
+            offset += result.audios.size
+            if (offset >= result.totalCount) break
+        }
+        val stale = telegramDao.telegramProfileSourcesForChat(accountId, selected.chatId)
+            .filterNot { it.messageId in seen }
+            .map { it.trackSourceId }
+        if (stale.isNotEmpty()) {
+            libraryDao.updateAvailability(stale, SourceAvailability.MISSING, Instant.now().toEpochMilli())
+        }
+    }
+
+    /** Returns true for a new source, false for an update, null for non-music. */
     private suspend fun persistTelegramMessage(accountId: String, message: TdApi.Message): Boolean? {
         val candidate = message.toAudioCandidate() ?: return null
+        return persistTelegramCandidate(accountId, message.chatId, message.id, candidate)
+    }
+
+    private suspend fun persistTelegramCandidate(
+        accountId: String, chatId: Long, messageId: Long, candidate: TelegramAudioCandidate,
+    ): Boolean {
         val now = Instant.now().toEpochMilli()
         var affectedTrackId: String? = null
         val created = database.withTransaction {
-            val existingTelegram = telegramDao.telegramSourceForMessage(accountId, message.chatId, message.id)
+            val existingTelegram = telegramDao.telegramSourceForMessage(accountId, chatId, messageId)
             val existingSource = existingTelegram?.let { libraryDao.sourceById(it.trackSourceId) }
             val existingTrack = existingSource?.let { libraryDao.trackById(it.trackId) }
             val created = existingSource == null
@@ -655,8 +695,8 @@ class TdLibTelegramRepository @Inject constructor(
                 TelegramTrackSourceEntity(
                     trackSourceId = sourceId,
                     accountId = accountId,
-                    chatId = message.chatId,
-                    messageId = message.id,
+                    chatId = chatId,
+                    messageId = messageId,
                     tdFileId = candidate.fileId,
                     tdPersistentFileId = candidate.persistentFileId,
                     fileName = candidate.fileName,
@@ -674,8 +714,8 @@ class TdLibTelegramRepository @Inject constructor(
     override suspend fun messageLinkForTrack(trackId: UUID): String? {
         // Prefer the active Telegram account. Previously imported music retains source links.
         val source = currentUserId?.toString()?.let { accountId ->
-            telegramDao.telegramSourceForTrack(accountId, trackId.toString())
-        } ?: telegramDao.telegramSourceForAnyAccountTrack(trackId.toString()) ?: return null
+            telegramDao.telegramMessageSourceForTrack(accountId, trackId.toString())
+        } ?: telegramDao.telegramMessageSourceForAnyAccountTrack(trackId.toString()) ?: return null
 
         val activeClient = client
         if (activeClient != null && currentUserId?.toString() == source.accountId &&
@@ -698,6 +738,13 @@ class TdLibTelegramRepository @Inject constructor(
         val accountId = currentUserId?.toString() ?: _musicSourceState.value.accountId ?: return emptyList()
         return telegramDao.activeTrackIdsForChat(accountId, chatId)
             .mapNotNull { trackId -> runCatching { UUID.fromString(trackId) }.getOrNull() }
+    }
+
+    override suspend fun profileTrackIdsForChat(chatId: Long): Set<UUID> {
+        val accountId = currentUserId?.toString() ?: _musicSourceState.value.accountId ?: return emptySet()
+        return telegramDao.activeProfileTrackIdsForChat(accountId, chatId)
+            .mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
+            .toSet()
     }
 
     private suspend fun ensureChatPlaylist(accountId: String, chatId: Long, title: String) {

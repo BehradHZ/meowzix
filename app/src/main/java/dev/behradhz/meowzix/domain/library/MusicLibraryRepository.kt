@@ -26,6 +26,9 @@ interface MusicLibraryRepository {
     suspend fun unmergeSource(sourceId: UUID): UUID
     suspend fun setFavorite(trackId: UUID, favorite: Boolean)
     suspend fun addToLibrary(trackId: UUID)
+    suspend fun addTracksToLibrary(trackIds: List<UUID>) {
+        trackIds.distinct().forEach { addToLibrary(it) }
+    }
     suspend fun visibleTrackIds(trackIds: List<UUID>): Set<UUID> = emptySet()
 
     /** Opportunistically fills missing low-resolution cover art without downloading audio files. */

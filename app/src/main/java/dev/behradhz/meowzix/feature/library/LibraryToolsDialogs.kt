@@ -44,8 +44,8 @@ internal fun LibraryToolsDialogs(viewModel: LibraryToolsViewModel) {
             title = { Text("Merge possible duplicates?") },
             text = {
                 Text(
-                    "This match is based on title, artist, and duration rather than identical audio content. " +
-                        "${pendingMerge.track.title} will be merged into the selected track. Audio files are not deleted.",
+                    "Both tracks have the same title and artist, but the recordings may differ. " +
+                        "Merge ${pendingMerge.track.title} into the selected track? Files are kept and the merge can be undone.",
                 )
             },
             confirmButton = { TextButton(onClick = viewModel::confirmMetadataMerge) { Text("Merge") } },
@@ -117,7 +117,7 @@ private fun DuplicateManagementDialog(state: LibraryToolsUiState, viewModel: Lib
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "${track?.title ?: "Track"} · exact content matches can merge directly; metadata-only matches always require confirmation.",
+                    "${track?.title ?: "Track"} · candidates share the same title and artist. Review before merging; audio files remain intact.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -167,7 +167,7 @@ private fun DuplicateManagementDialog(state: LibraryToolsUiState, viewModel: Lib
 
 private fun formatEvidence(evidence: DuplicateEvidence): String = when (evidence) {
     DuplicateEvidence.EXACT_CONTENT -> "identical audio content"
-    DuplicateEvidence.METADATA_AND_DURATION -> "matching metadata + duration"
+    DuplicateEvidence.SAME_TITLE_AND_ARTIST -> "same title and artist"
 }
 
 private fun formatDuration(durationMs: Long): String {

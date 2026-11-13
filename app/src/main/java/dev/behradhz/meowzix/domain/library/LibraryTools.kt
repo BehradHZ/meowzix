@@ -15,7 +15,7 @@ data class TrackMetadataOverride(
     val isEmpty: Boolean get() = title == null && artist == null && album == null && artworkRef == null
 }
 
-enum class DuplicateEvidence { EXACT_CONTENT, METADATA_AND_DURATION }
+enum class DuplicateEvidence { EXACT_CONTENT, SAME_TITLE_AND_ARTIST }
 
 data class DuplicateCandidate(
     val track: Track,

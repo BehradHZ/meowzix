@@ -157,6 +157,8 @@ interface TelegramRepository {
     /** URL/deep link for the source message, or null for tracks without Telegram sources. */
     suspend fun messageLinkForTrack(trackId: UUID): String? = null
     suspend fun trackIdsForChat(chatId: Long): List<UUID>
+    /** Profile-pinned music belongs to private user chats, not their shared message history. */
+    suspend fun profileTrackIdsForChat(chatId: Long): Set<UUID> = emptySet()
     fun clearMusicSourceError()
 }
 

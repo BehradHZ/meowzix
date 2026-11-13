@@ -23,7 +23,6 @@ import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.max
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -78,21 +77,18 @@ class RoomLibraryToolsRepository @Inject constructor(
             .filterNot { it == id }
             .toSet()
 
-        val tolerance = max(2_000L, track.durationMs / 50L)
-        val metadataIds = track.normalizedArtist?.let { artist ->
-            libraryDao.matchingTrackCandidates(
-                normalizedTitle = track.normalizedTitle,
-                normalizedArtist = artist,
-                minDurationMs = (track.durationMs - tolerance).coerceAtLeast(0L),
-                maxDurationMs = track.durationMs + tolerance,
-            ).map { it.id }.filterNot { it == id }.toSet()
+        // Same normalized title and artist, even if recordings have different durations.
+        val metadataIds = track.normalizedArtist?.takeIf(String::isNotBlank)?.let { artist ->
+            libraryDao.matchingTracks(track.normalizedTitle, artist)
+                .filter { !it.hidden && it.id != id }
+                .mapTo(mutableSetOf()) { it.id }
         }.orEmpty()
 
         return (exactIds + metadataIds).mapNotNull { candidateId ->
             libraryDao.trackById(candidateId)?.let { entity ->
                 DuplicateCandidate(
                     track = entity.toDomain(),
-                    evidence = if (candidateId in exactIds) DuplicateEvidence.EXACT_CONTENT else DuplicateEvidence.METADATA_AND_DURATION,
+                    evidence = if (candidateId in exactIds) DuplicateEvidence.EXACT_CONTENT else DuplicateEvidence.SAME_TITLE_AND_ARTIST,
                     sourceLabels = libraryDao.sourcesForTrack(candidateId)
                         .map { source -> "${source.type.name.lowercase()} · ${source.availability.name.lowercase()}" }
                         .distinct()
@@ -138,6 +134,8 @@ class RoomLibraryToolsRepository @Inject constructor(
             survivorHidden = survivor.hidden,
             mergedFavorite = merged.favorite,
             mergedHidden = merged.hidden,
+            survivorAddedToLibrary = survivor.addedToLibrary,
+            mergedAddedToLibrary = merged.addedToLibrary,
             survivorOverride = survivorOverride,
             sourceIds = libraryDao.sourcesForTrack(mergedId).map { it.id },
             playlistEntries = mergedPlaylistEntries.map { entry ->
@@ -180,7 +178,11 @@ class RoomLibraryToolsRepository @Inject constructor(
             snapshot.lyricIds.forEach { lyricsDao.moveVersion(it, mergedId, survivorId) }
             snapshot.historyEventIds.forEach { mergeDao.moveEvent(it, mergedId, survivorId) }
 
-            libraryDao.upsertTrack(survivor.copy(favorite = survivor.favorite || merged.favorite, updatedAtEpochMs = now))
+            libraryDao.upsertTrack(survivor.copy(
+                favorite = survivor.favorite || merged.favorite,
+                addedToLibrary = survivor.addedToLibrary || merged.addedToLibrary,
+                updatedAtEpochMs = now,
+            ))
             libraryDao.upsertTrack(merged.copy(hidden = true, updatedAtEpochMs = now))
 
             val combinedOverride = combineOverrides(survivorId, survivorOverride, mergedOverride, now)
@@ -241,6 +243,7 @@ class RoomLibraryToolsRepository @Inject constructor(
                 survivor.copy(
                     favorite = snapshot.survivorFavorite,
                     hidden = snapshot.survivorHidden,
+                    addedToLibrary = snapshot.survivorAddedToLibrary ?: survivor.addedToLibrary,
                     updatedAtEpochMs = now,
                 ),
             )
@@ -248,6 +251,7 @@ class RoomLibraryToolsRepository @Inject constructor(
                 merged.copy(
                     favorite = snapshot.mergedFavorite,
                     hidden = snapshot.mergedHidden,
+                    addedToLibrary = snapshot.mergedAddedToLibrary ?: merged.addedToLibrary,
                     updatedAtEpochMs = now,
                 ),
             )

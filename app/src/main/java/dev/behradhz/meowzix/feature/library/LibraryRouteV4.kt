@@ -233,6 +233,13 @@ internal fun LibraryRouteV4(
                 onAddToPlaylist = viewModel::addToPlaylist,
                 libraryTrackIds = state.selectedPlaylistLibraryTrackIds,
                 onAddToLibrary = viewModel::addToLibrary,
+                onBulkAddToLibrary = viewModel::addTracksToLibrary,
+                onBulkAddToPlaylist = viewModel::addTracksToPlaylist,
+                onBulkAddToQueue = viewModel::addTracksToQueue,
+                onBulkLike = viewModel::likeTracks,
+                onBulkRemove = viewModel::removePlaylistTracks,
+                telegramPerson = state.selectedPlaylistIsPerson,
+                profileTrackIds = state.selectedPlaylistProfileTrackIds,
                 onGoToArtist = { track ->
                     tracksViewModel.closeAggregate()
                     artists.firstOrNull { it.normalizedName == track.normalizedArtist }

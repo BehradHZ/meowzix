@@ -27,6 +27,7 @@ import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.playback.buildLibraryPlaybackQueue
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
+import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.util.UUID
@@ -60,6 +61,8 @@ data class LibraryUiState(
     val selectedPlaylistId: UUID? = null,
     val selectedPlaylistTracks: List<Track> = emptyList(),
     val selectedPlaylistLibraryTrackIds: Set<UUID> = emptySet(),
+    val selectedPlaylistProfileTrackIds: Set<UUID> = emptySet(),
+    val selectedPlaylistIsPerson: Boolean = false,
     val deletingPlaylistId: UUID? = null,
     val isRefreshing: Boolean = false,
     val lastRefresh: LocalLibraryRefreshResult? = null,
@@ -181,6 +184,8 @@ class LibraryViewModel @Inject constructor(
                 selectedPlaylistId = null,
                 selectedPlaylistTracks = emptyList(),
                 selectedPlaylistLibraryTrackIds = emptySet(),
+                selectedPlaylistProfileTrackIds = emptySet(),
+                selectedPlaylistIsPerson = false,
             )
         }
     }
@@ -327,6 +332,40 @@ class LibraryViewModel @Inject constructor(
             .onFailure { reportLoadError(it, "Unable to add track to Library") }
     }
 
+    fun addTracksToLibrary(tracks: List<Track>) = viewModelScope.launch {
+        val ids = tracks.map(Track::id).distinct()
+        if (ids.isEmpty()) return@launch
+        runCatching { repository.addTracksToLibrary(ids) }
+            .onSuccess {
+                _state.update { state ->
+                    state.copy(selectedPlaylistLibraryTrackIds = state.selectedPlaylistLibraryTrackIds + ids)
+                }
+            }
+            .onFailure { reportLoadError(it, "Unable to add selected tracks to Library") }
+    }
+
+    fun addTracksToPlaylist(tracks: List<Track>, playlistId: UUID) = viewModelScope.launch {
+        runCatching { tracks.distinctBy(Track::id).forEach { playlistRepository.addTrack(playlistId, it.id) } }
+            .onFailure { reportLoadError(it, "Unable to add selected tracks to playlist") }
+    }
+
+    fun addTracksToQueue(tracks: List<Track>) {
+        tracks.distinctBy(Track::id).forEach(::addToQueue)
+    }
+
+    fun likeTracks(tracks: List<Track>) = viewModelScope.launch {
+        runCatching { tracks.distinctBy(Track::id).forEach { repository.setFavorite(it.id, true) } }
+            .onFailure { reportLoadError(it, "Unable to like selected tracks") }
+    }
+
+    fun removePlaylistTracks(tracks: List<Track>) {
+        val playlistId = _state.value.selectedPlaylistId ?: return
+        viewModelScope.launch {
+            runCatching { tracks.distinctBy(Track::id).forEach { playlistRepository.removeTrack(playlistId, it.id) } }
+                .onFailure { reportLoadError(it, "Unable to remove selected tracks") }
+        }
+    }
+
     fun ensureArtwork(track: Track) {
         artworkRepairCoordinator.prefetch(listOf(track.id))
     }
@@ -391,12 +430,20 @@ class LibraryViewModel @Inject constructor(
         if (_state.value.selectedPlaylistId == playlistId && playlistTracksJob?.isActive == true) {
             return
         }
+        val telegramState = telegramRepository.musicSourceState.value
+        val selectedChat = telegramState.accountId?.let { account ->
+            telegramState.chats.firstOrNull { telegramPlaylistId(account, it.chatId) == playlistId }
+        }
+        val isPerson = selectedChat?.kind == TelegramChatKind.PRIVATE ||
+            selectedChat?.kind == TelegramChatKind.SAVED_MESSAGES
         playlistTracksJob?.cancel()
         _state.update {
             it.copy(
                 selectedPlaylistId = playlistId,
                 selectedPlaylistTracks = emptyList(),
                 selectedPlaylistLibraryTrackIds = emptySet(),
+                selectedPlaylistProfileTrackIds = emptySet(),
+                selectedPlaylistIsPerson = isPerson,
             )
         }
         playlistTracksJob = viewModelScope.launch {
@@ -404,8 +451,16 @@ class LibraryViewModel @Inject constructor(
                 .catch { error -> reportLoadError(error, "Unable to load playlist") }
                 .collect { tracks ->
                     val included = repository.visibleTrackIds(tracks.map { it.id })
+                    val profile = if (isPerson && selectedChat != null) {
+                        telegramRepository.profileTrackIdsForChat(selectedChat.chatId)
+                    } else emptySet()
                     _state.update {
-                        it.copy(selectedPlaylistTracks = tracks, selectedPlaylistLibraryTrackIds = included)
+                        it.copy(
+                            selectedPlaylistTracks = tracks,
+                            selectedPlaylistLibraryTrackIds = included,
+                            selectedPlaylistProfileTrackIds = profile,
+                            selectedPlaylistIsPerson = isPerson,
+                        )
                     }
                 }
         }

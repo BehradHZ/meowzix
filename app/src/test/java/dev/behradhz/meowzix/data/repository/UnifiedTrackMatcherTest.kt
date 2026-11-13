@@ -26,6 +26,17 @@ class UnifiedTrackMatcherTest {
     }
 
     @Test
+    fun `same title and artist match even with different durations`() {
+        assertEquals(
+            "track-1",
+            UnifiedTrackMatcher.match(
+                IncomingTrackIdentity("numb", "linkin park", 300_000L),
+                listOf(candidate("track-1")),
+            ),
+        )
+    }
+
+    @Test
     fun `same title alone never merges`() {
         val result = UnifiedTrackMatcher.match(
             incoming = IncomingTrackIdentity("home", "artist two", 185_000L),

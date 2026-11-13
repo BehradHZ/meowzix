@@ -96,6 +96,7 @@ internal fun SwipeableLibraryTrackRow(
     onMoveDown: (() -> Unit)? = null,
     containerColor: Color? = null,
     artworkVisible: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
 ) {
     LaunchedEffect(track.id, track.artworkRef, artworkVisible) {
         if (artworkVisible) onEnsureArtwork()
@@ -208,6 +209,7 @@ internal fun SwipeableLibraryTrackRow(
                 onMoveDown = onMoveDown,
                 containerColor = containerColor,
                 artworkVisible = artworkVisible,
+                onLongClick = onLongClick,
             )
         }
     }
@@ -235,6 +237,7 @@ private fun LibraryTrackRowContent(
     onMoveDown: (() -> Unit)?,
     containerColor: Color?,
     artworkVisible: Boolean,
+    onLongClick: (() -> Unit)?,
 ) {
     val recommendationActions = LocalLibraryRecommendationActions.current
     val trackToolsActions = LocalLibraryTrackToolsActions.current
@@ -260,7 +263,7 @@ private fun LibraryTrackRowContent(
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = { menuExpanded = true },
+                onLongClick = onLongClick ?: { menuExpanded = true },
             )
             .semantics {
                 customActions = buildList {
