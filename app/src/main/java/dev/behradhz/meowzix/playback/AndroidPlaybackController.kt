@@ -495,7 +495,8 @@ class AndroidPlaybackController @Inject constructor(
                     requestedStartIndex = 0,
                     mode = mode,
                     repeat = RepeatMode.OFF,
-                    sourceIds = listOf(selectedId),
+                    // A mode switch during async ranking still needs the full candidate pool.
+                    sourceIds = distinctIds,
                 )
                 connected.setMediaItems(
                     requireNotNull(progressiveQueue.snapshot()).mediaItems(),
@@ -524,7 +525,8 @@ class AndroidPlaybackController @Inject constructor(
             val allIds = fullOrderedTrackIds.distinct()
             if (expectedTrackId !in allIds) return@launch
             val snapshot = progressiveQueue.snapshot() ?: return@launch
-            if (snapshot.sourceTrackIds != listOf(expectedTrackId) ||
+            if ((snapshot.sourceTrackIds != listOf(expectedTrackId) &&
+                    snapshot.sourceTrackIds != allIds) ||
                 snapshot.playbackMode != mode ||
                 snapshot.currentIndex != 0 ||
                 snapshot.tracks.firstOrNull()?.id != expectedTrackId) return@launch

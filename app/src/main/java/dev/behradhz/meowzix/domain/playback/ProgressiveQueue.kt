@@ -651,8 +651,12 @@ class ProgressiveQueue @Inject constructor() {
         seed: Long? = null,
     ): Boolean {
         if (currentIndex != 0 || tracks.firstOrNull()?.id != expectedTrackId ||
-            sourceTrackIds != listOf(expectedTrackId) || playbackMode != mode ||
-            (expectedOccurrenceId != null && occurrenceIds.firstOrNull() != expectedOccurrenceId)) return false
+            (sourceTrackIds != listOf(expectedTrackId) && sourceTrackIds != sourceIds) ||
+            playbackMode != mode ||
+            (expectedOccurrenceId != null && occurrenceIds.firstOrNull() != expectedOccurrenceId) ||
+            pendingGeneratedIds.isNotEmpty() ||
+            (currentIndex + 1 until tracks.size).any { origins[it] == QueueItemOrigin.GENERATED }
+        ) return false
         replaceFuture(
             future = future,
             mode = mode,

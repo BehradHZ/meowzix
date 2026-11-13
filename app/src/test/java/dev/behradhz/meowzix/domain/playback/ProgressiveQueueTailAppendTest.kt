@@ -163,6 +163,30 @@ class ProgressiveQueueTailAppendTest {
         }
     }
 
+    @Test
+    fun `initially known candidates survive fast mode changes and attach only once`() {
+        val queue = ProgressiveQueue()
+        val selected = track("full-context-start")
+        val future = tracks(6)
+        val all = listOf(selected.id) + future.map { it.id }
+        queue.start(listOf(selected), 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF, sourceIds = all)
+        val current = requireNotNull(queue.snapshot())
+        assertEquals(all, current.sourceTrackIds)
+        assertTrue(queue.attachFutureToSingleTrack(
+            expectedTrackId = selected.id, expectedOccurrenceId = current.occurrenceIds.first(),
+            future = future, sourceIds = all, pendingIds = emptyList(),
+            mode = PlaybackMode.PURE_SHUFFLE, seed = 7L,
+        ))
+        val attached = requireNotNull(queue.snapshot())
+        assertEquals(all, attached.sourceTrackIds)
+        assertFalse(queue.attachFutureToSingleTrack(
+            expectedTrackId = selected.id, expectedOccurrenceId = current.occurrenceIds.first(),
+            future = future.asReversed(), sourceIds = all, pendingIds = emptyList(),
+            mode = PlaybackMode.PURE_SHUFFLE, seed = 9L,
+        ))
+        assertEquals(future.map { it.id }, requireNotNull(queue.snapshot()).tracks.drop(1).map { it.id })
+    }
+
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
         track("track-$index")
     }
