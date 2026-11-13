@@ -776,6 +776,44 @@ class ProgressiveQueue @Inject constructor() {
         return SmartFutureRevisionResult.APPLIED
     }
 
+    /**
+     * Install an asynchronously ranked mode-change tail only in its original session.
+     * The caller changes mode immediately, then finishes ranking / bounded hydration
+     * without touching the current MediaItem. Late user Queue edits are retained.
+     */
+    @Synchronized
+    fun commitModeSwitch(
+        expectedCurrentOccurrenceId: UUID,
+        mode: PlaybackMode,
+        sourceIds: List<UUID>,
+        future: List<PlayableTrack>,
+        pendingIds: List<UUID>,
+        seed: Long?,
+    ): Boolean {
+        if (currentIndex !in tracks.indices ||
+            occurrenceIds[currentIndex] != expectedCurrentOccurrenceId ||
+            playbackMode != mode ||
+            (sourceTrackIds.isNotEmpty() && sourceTrackIds != sourceIds)
+        ) return false
+
+        val blocked = tracks.indices
+            .filter { it <= currentIndex || occurrenceIds[it] in fixedOccurrences }
+            .mapTo(hashSetOf()) { tracks[it].id }
+        val resolved = future.distinctBy { it.id }.filterNot { it.id in blocked }
+        val materializedIds = resolved.mapTo(hashSetOf()) { it.id }
+        val pending = pendingIds.distinct().filterNot { it in blocked || it in materializedIds }
+
+        replaceFuture(
+            future = resolved,
+            mode = mode,
+            seed = seed,
+            sourceIds = sourceIds,
+            pendingIds = pending,
+            allowSameMode = true,
+        )
+        return true
+    }
+
     @Synchronized
     fun updateRepeatMode(mode: RepeatMode) {
         if (repeatMode != mode) {

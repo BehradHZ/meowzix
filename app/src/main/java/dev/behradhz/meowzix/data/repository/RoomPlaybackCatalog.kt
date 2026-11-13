@@ -73,6 +73,12 @@ class RoomPlaybackCatalog @Inject constructor(
     override suspend fun playableTrack(trackId: UUID): PlayableTrack? =
         availableTracks(listOf(trackId)).firstOrNull()
 
+    override suspend fun shuffleArtists(trackIds: List<UUID>): Map<UUID, String?> = withContext(Dispatchers.Default) {
+        trackIds.distinct().chunked(QUERY_CHUNK_SIZE).flatMap { ids ->
+            libraryDao.shuffleArtists(ids.map(UUID::toString))
+        }.associate { UUID.fromString(it.id) to it.artist }
+    }
+
     override suspend fun availableTracks(trackIds: List<UUID>): List<PlayableTrack> = withContext(Dispatchers.Default) {
         val orderedIds = trackIds.distinct()
         if (orderedIds.isEmpty()) return@withContext emptyList()

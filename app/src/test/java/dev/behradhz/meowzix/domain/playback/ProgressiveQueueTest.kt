@@ -514,6 +514,72 @@ class ProgressiveQueueTest {
         assertTrue(after.tracks.filter { it.id == songs[1].id }.all { it.contentUri == repaired.contentUri })
     }
 
+    @Test
+    fun `async mode tail preserves current history manual priority and queued additions`() {
+        val queue = ProgressiveQueue()
+        val songs = tracks(250)
+        val source = songs.map { it.id }
+        queue.start(songs.take(100), 2, PlaybackMode.ORDERED, RepeatMode.ALL,
+            sourceIds = source, pendingIds = source.drop(100))
+        val before = requireNotNull(queue.snapshot())
+        val current = before.occurrenceIds[2]
+        queue.updatePlaybackMode(PlaybackMode.PURE_SHUFFLE)
+        assertTrue(queue.insertNext(songs[230]))
+        val ranked = songs.drop(3).asReversed()
+        assertTrue(queue.commitModeSwitch(
+            current, PlaybackMode.PURE_SHUFFLE, source, ranked.take(100),
+            ranked.drop(100).map { it.id }, 1234L,
+        ))
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(before.occurrenceIds.take(3), after.occurrenceIds.take(3))
+        assertEquals(before.tracks.take(3).map { it.id }, after.tracks.take(3).map { it.id })
+        assertEquals(songs[230].id, after.tracks[3].id)
+        assertTrue(queue.isFixedOccurrence(3))
+        assertEquals(1234L, after.shuffleSeed)
+        assertEquals(RepeatMode.ALL, after.repeatMode)
+        assertFalse(songs[230].id in after.pendingGeneratedIds)
+        assertEquals(1, after.tracks.count { it.id == songs[230].id })
+        assertEquals(source, after.sourceTrackIds)
+    }
+
+    @Test
+    fun `stale mode completion cannot mutate a newer mode or playback session`() {
+        val queue = ProgressiveQueue()
+        val songs = tracks(8)
+        val source = songs.map { it.id }
+        queue.start(listOf(songs[0]), 0, PlaybackMode.ORDERED, RepeatMode.OFF, sourceIds = source)
+        val occurrence = requireNotNull(queue.snapshot()).occurrenceIds[0]
+        queue.updatePlaybackMode(PlaybackMode.SMART_SHUFFLE)
+        queue.updatePlaybackMode(PlaybackMode.PURE_SHUFFLE)
+        assertFalse(queue.commitModeSwitch(
+            occurrence, PlaybackMode.SMART_SHUFFLE, source, songs.drop(1), emptyList(), null,
+        ))
+        queue.start(listOf(songs[0]), 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF, sourceIds = source)
+        assertFalse(queue.commitModeSwitch(
+            occurrence, PlaybackMode.PURE_SHUFFLE, source, songs.drop(1), emptyList(), 4L,
+        ))
+        assertEquals(listOf(songs[0].id), requireNotNull(queue.snapshot()).tracks.map { it.id })
+    }
+
+    @Test
+    fun `late manual addition is not duplicated in generated mode switch tail`() {
+        val queue = ProgressiveQueue()
+        val songs = tracks(9)
+        val source = songs.map { it.id }
+        queue.start(listOf(songs[0]), 0, PlaybackMode.ORDERED, RepeatMode.OFF, sourceIds = source)
+        val current = requireNotNull(queue.snapshot()).occurrenceIds[0]
+        queue.updatePlaybackMode(PlaybackMode.SMART_SHUFFLE)
+        assertTrue(queue.append(songs[4]))
+        assertTrue(queue.commitModeSwitch(
+            current, PlaybackMode.SMART_SHUFFLE, source,
+            songs.drop(1).take(5), songs.drop(6).map { it.id }, null,
+        ))
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(songs[4].id, after.tracks[1].id)
+        assertEquals(1, after.tracks.count { it.id == songs[4].id })
+        assertEquals(9, after.tracks.size + after.pendingGeneratedIds.size)
+    }
+
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
         PlayableTrack(
             id = UUID.nameUUIDFromBytes("track-$index".toByteArray()),

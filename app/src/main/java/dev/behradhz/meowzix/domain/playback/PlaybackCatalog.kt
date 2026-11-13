@@ -62,6 +62,12 @@ interface PlaybackCatalog {
         availableTracks(listOf(trackId)).firstOrNull()
 
     /**
+     * Lightweight artist metadata for balanced shuffle. No audio source resolution.
+     * Implementations that do not support this may return an empty map (unknown artists).
+     */
+    suspend fun shuffleArtists(trackIds: List<UUID>): Map<UUID, String?> = emptyMap()
+
+    /**
      * Resolve only the requested logical queue. Implementations should keep the caller's UUID order
      * and avoid loading unrelated Track/TrackSource rows.
      */

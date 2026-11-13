@@ -11,6 +11,7 @@ import androidx.media3.session.SessionToken
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
+import dev.behradhz.meowzix.domain.playback.ModeSwitchCandidates
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -41,6 +42,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +53,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 
 @Singleton
 class AndroidPlaybackController @Inject constructor(
@@ -78,6 +82,7 @@ class AndroidPlaybackController @Inject constructor(
     private var userSelectedOccurrence = false
     private var userInterruptedPrevious = false
     private var lastRecordedExposureOccurrence: UUID? = null
+    private var modeChangeJob: Job? = null
 
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -702,9 +707,12 @@ class AndroidPlaybackController @Inject constructor(
     }
 
     override fun setPlaybackMode(mode: PlaybackMode) {
-        scope.launch {
+        // Latest request wins, including while artist lookup or Smart ranking is suspended.
+        modeChangeJob?.cancel()
+        modeChangeJob = scope.launch {
             val connected = runCatching { controller ?: controllerFuture.await().also { controller = it } }
                 .getOrElse { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
                     showError(error.message ?: "Playback is unavailable")
                     return@launch
                 }
@@ -714,49 +722,87 @@ class AndroidPlaybackController @Inject constructor(
             }
             syncLogicalCurrentFromPlayer(connected)
             val active = progressiveQueue.snapshot() ?: return@launch
-            if (active.tracks.isEmpty()) return@launch
+            if (active.tracks.isEmpty() || active.playbackMode == mode) return@launch
             val currentTrack = active.tracks[active.currentIndex]
-            val candidateIds = active.sourceTrackIds.ifEmpty { active.tracks.map { it.id } }
-            val candidates = runCatching { catalog.availableTracks(candidateIds) }.getOrDefault(emptyList())
-            val excluded = active.tracks.indices
-                .filter { it > active.currentIndex && active.origins[it] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL }
-                .mapTo(hashSetOf()) { active.tracks[it].id }
-            excluded += currentTrack.id
-            val future = candidates.filterNot { it.id in excluded }
-            var seed: Long? = null
-            val desiredFuture = when (mode) {
-                PlaybackMode.ORDERED -> {
-                    val rank = runCatching { catalog.availableTracks().map { it.id } }
-                        .getOrDefault(emptyList())
-                        .withIndex()
-                        .associate { it.value to it.index }
-                    future.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
-                }
-                PlaybackMode.PURE_SHUFFLE -> {
-                    makeShuffleCycle(future, previousTrackId = currentTrack.id).let { cycle ->
-                        seed = cycle.seed
-                        val byId = future.associateBy { it.id }
-                        cycle.order.mapNotNull(byId::get)
+            val expectedOccurrence = active.occurrenceIds[active.currentIndex]
+            // Input order is the original Playlist / Library sort order, even after
+            // a shuffle. Never query the entire Library to reconstruct ORDERED.
+            val sourceIds = active.sourceTrackIds.ifEmpty { active.tracks.map(PlayableTrack::id) }
+            val futureIds = ModeSwitchCandidates.eligible(active, sourceIds)
+
+            // Change UI policy immediately; computing a new Next must not interrupt audio.
+            progressiveQueue.updatePlaybackMode(mode)
+            updateState(connected)
+
+            val (orderedIds, seed) = try {
+                when (mode) {
+                    PlaybackMode.ORDERED -> {
+                        // Continue from the selected song in the source collection, wrapping
+                        // around only to eligible unplayed tracks.
+                        ModeSwitchCandidates.orderedAfterCurrent(
+                            sourceIds, currentTrack.id, futureIds,
+                        ) to null
+                    }
+                    PlaybackMode.PURE_SHUFFLE -> {
+                        val prefs = settings.playbackPreferenceSettings.first()
+                        val cycle = if (prefs.artistBalancedShuffle) {
+                            val artists = catalog.shuffleArtists(futureIds)
+                            val recent = (listOf(currentTrack.id) +
+                                settings.recentShuffleTrackIds.first()).distinct()
+                            withContext(Dispatchers.Default) {
+                                ArtistBalancedShuffleEngine.newCycle(
+                                    futureIds.map { ArtistShuffleItem(it, artists[it]) },
+                                    recent,
+                                    alpha = prefs.artistShuffleAlpha.toDouble(),
+                                )
+                            }
+                        } else withContext(Dispatchers.Default) {
+                            PureShuffleEngine.newCycle(futureIds, currentTrack.id)
+                        }
+                        cycle.order to cycle.seed
+                    }
+                    PlaybackMode.SMART_SHUFFLE -> {
+                        val smart = recommendationEngine.generate(
+                            allowedTrackIds = futureIds,
+                            currentTrackId = currentTrack.id,
+                            timeBucket = currentTimeBucket(),
+                        )
+                        SmartShuffleFutureOrder.order(
+                            futureIds, smart.trackIds, smart.eligibleTrackIds,
+                        ) to null
                     }
                 }
-                PlaybackMode.SMART_SHUFFLE -> {
-                    val rankedIds = recommendationEngine.generate(
-                        allowedTrackIds = future.map { it.id }.distinct(),
-                        currentTrackId = currentTrack.id,
-                        timeBucket = currentTimeBucket(),
-                    ).trackIds.distinct()
-                    val rank = rankedIds.withIndex().associate { it.value to it.index }
-                    future.withIndex()
-                        .sortedWith(compareBy({ rank[it.value.id] ?: Int.MAX_VALUE }, { it.index }))
-                        .map { it.value }
-                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Recommendation failure must not leave a one-item queue or pause playback.
+                futureIds to null
             }
-            progressiveQueue.replaceFuture(
-                desiredFuture.take(ProgressiveQueue.GENERATED_BATCH_SIZE), mode, seed,
-                sourceIds = candidateIds,
-                pendingIds = desiredFuture.drop(ProgressiveQueue.GENERATED_BATCH_SIZE).map { it.id },
-            )
-            syncProgressiveFutureInPlace(connected)
+
+            val headIds = orderedIds.take(ProgressiveQueue.GENERATED_BATCH_SIZE)
+            val resolved = try {
+                catalog.availableTracks(headIds)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                emptyList()
+            }
+            coroutineContext.ensureActive()
+            // A skip, replacement session or another mode change invalidates this result.
+            if (connected.currentMediaItem?.mediaId != currentTrack.id.toString()) return@launch
+            val mediaOccurrence = connected.currentMediaItem?.queueOccurrenceId()
+            if (mediaOccurrence != null && mediaOccurrence != expectedOccurrence) return@launch
+            if (progressiveQueue.commitModeSwitch(
+                    expectedCurrentOccurrenceId = expectedOccurrence,
+                    mode = mode,
+                    sourceIds = sourceIds,
+                    future = resolved,
+                    pendingIds = orderedIds.drop(headIds.size),
+                    seed = seed,
+                )
+            ) {
+                syncProgressiveFutureInPlace(connected)
+            }
         }
     }
 
@@ -978,60 +1024,61 @@ class AndroidPlaybackController @Inject constructor(
         if (shouldPlay) connected.play()
     }
 
-    private fun setLegacyPlaybackMode(connected: MediaController, mode: PlaybackMode) {
+    private suspend fun setLegacyPlaybackMode(connected: MediaController, mode: PlaybackMode) {
         if (connected.mediaItemCount == 0) return
         val repeatMode = connected.queueRepeatMode()
         val currentIndex = connected.currentMediaItemIndex.coerceAtLeast(0)
         val currentId = connected.currentMediaItem?.mediaId
         val existingIds = (0 until connected.mediaItemCount).map { connected.getMediaItemAt(it).mediaId }
-        scope.launch {
-            val desiredFutureIds = when (mode) {
-                PlaybackMode.ORDERED -> {
-                    val order = runCatching { catalog.availableTracks().map { it.id.toString() } }.getOrDefault(emptyList())
-                    val rank = order.withIndex().associate { it.value to it.index }
-                    existingIds.drop(currentIndex + 1).sortedBy { rank[it] ?: Int.MAX_VALUE }
-                }
-                PlaybackMode.PURE_SHUFFLE -> {
-                    val ids = existingIds.drop(currentIndex + 1)
-                    val byId = runCatching { catalog.availableTracks(ids.mapNotNull {
-                        runCatching { UUID.fromString(it) }.getOrNull()
-                    }) }.getOrDefault(emptyList()).associateBy { it.id.toString() }
-                    val preferences = settings.playbackPreferenceSettings.first()
-                    val order = if (preferences.artistBalancedShuffle) {
-                        val indexed = ids.mapIndexed { index, trackId ->
-                            ArtistShuffleItem(index, byId[trackId]?.artist)
-                        }
-                        withContext(Dispatchers.Default) {
-                            ArtistBalancedShuffleEngine.newCycle(indexed, alpha = preferences.artistShuffleAlpha.toDouble())
-                        }.order
-                    } else PureShuffleEngine.newCycle(ids.indices.toList()).order
-                    order.map(ids::get)
-                }
-                PlaybackMode.SMART_SHUFFLE -> {
-                    val allowed = existingIds.drop(currentIndex + 1)
-                        .mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
-                    recommendationEngine.generate(
-                        allowedTrackIds = allowed.distinct(),
-                        currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
-                        timeBucket = currentTimeBucket(),
-                    ).trackIds.map(UUID::toString).let { ranked ->
-                        val rank = ranked.withIndex().associate { it.value to it.index }
-                        existingIds.drop(currentIndex + 1)
-                            .withIndex()
-                            .sortedWith(compareBy({ rank[it.value] ?: Int.MAX_VALUE }, { it.index }))
-                            .map { it.value }
+        val futureIds = existingIds.drop(currentIndex + 1)
+        val desiredFutureIds = when (mode) {
+            // Legacy timelines do not retain a separate source context. Preserve their
+            // existing order rather than loading the entire Library and changing scope.
+            PlaybackMode.ORDERED -> futureIds
+            PlaybackMode.PURE_SHUFFLE -> {
+                val prefs = settings.playbackPreferenceSettings.first()
+                if (prefs.artistBalancedShuffle) {
+                    val uuids = futureIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
+                    val artists = catalog.shuffleArtists(uuids)
+                    withContext(Dispatchers.Default) {
+                        ArtistBalancedShuffleEngine.newCycle(
+                            futureIds.mapIndexed { index, id ->
+                                ArtistShuffleItem(index, runCatching { UUID.fromString(id) }.getOrNull()?.let(artists::get))
+                            },
+                            alpha = prefs.artistShuffleAlpha.toDouble(),
+                        ).order.map(futureIds::get)
                     }
+                } else withContext(Dispatchers.Default) {
+                    PureShuffleEngine.newCycle(futureIds.indices.toList()).order.map(futureIds::get)
                 }
             }
-            desiredFutureIds.forEachIndexed { offset, mediaId ->
-                val destination = currentIndex + 1 + offset
-                val sourceIndex = (destination until connected.mediaItemCount)
-                    .firstOrNull { connected.getMediaItemAt(it).mediaId == mediaId }
-                    ?: return@forEachIndexed
-                if (sourceIndex != destination) connected.moveMediaItem(sourceIndex, destination)
+            PlaybackMode.SMART_SHUFFLE -> {
+                val allowed = futureIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
+                val smart = recommendationEngine.generate(
+                    allowedTrackIds = allowed.distinct(),
+                    currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
+                    timeBucket = currentTimeBucket(),
+                )
+                val rank = smart.trackIds.distinct().withIndex().associate { it.value.toString() to it.index }
+                futureIds.withIndex()
+                    .sortedWith(compareBy({ rank[it.value] ?: Int.MAX_VALUE }, { it.index }))
+                    .map { it.value }
             }
-            updateQueuePolicyMetadata(connected, mode, repeatMode)
         }
+        coroutineContext.ensureActive()
+        if (connected.currentMediaItemIndex != currentIndex ||
+            connected.currentMediaItem?.mediaId != currentId ||
+            connected.mediaItemCount != existingIds.size ||
+            (0 until connected.mediaItemCount).any { connected.getMediaItemAt(it).mediaId != existingIds[it] }
+        ) return
+        desiredFutureIds.forEachIndexed { offset, mediaId ->
+            val destination = currentIndex + 1 + offset
+            val sourceIndex = (destination until connected.mediaItemCount)
+                .firstOrNull { connected.getMediaItemAt(it).mediaId == mediaId }
+                ?: return@forEachIndexed
+            if (sourceIndex != destination) connected.moveMediaItem(sourceIndex, destination)
+        }
+        updateQueuePolicyMetadata(connected, mode, repeatMode)
     }
 
     private fun updateState(player: Player?, errorMessage: String? = player?.playerError?.message) {

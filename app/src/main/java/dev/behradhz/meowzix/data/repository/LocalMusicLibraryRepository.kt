@@ -322,6 +322,12 @@ class LocalMusicLibraryRepository @Inject constructor(
         }
     }
 
+    override suspend fun shuffleArtists(trackIds: List<UUID>): Map<UUID, String?> = withContext(Dispatchers.Default) {
+        trackIds.distinct().chunked(400).flatMap { ids ->
+            dao.shuffleArtists(ids.map(UUID::toString))
+        }.associate { UUID.fromString(it.id) to it.artist }
+    }
+
     override suspend fun availableLocalTracks(): List<PlayableTrack> {
         val rows = dao.availableLocalPlaybackRows()
         return withContext(Dispatchers.Default) {

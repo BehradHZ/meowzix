@@ -257,6 +257,10 @@ interface LibraryDao {
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
     suspend fun trackById(id: String): TrackEntity?
 
+    /** Balanced shuffle needs only artist labels, not TrackSources or full Track rows. */
+    @Query("SELECT id, artist FROM tracks WHERE id IN (:trackIds) AND hidden = 0")
+    suspend fun shuffleArtists(trackIds: List<String>): List<ShuffleArtistRow>
+
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
     fun observeTrackById(id: String): Flow<TrackEntity?>
 
@@ -314,6 +318,8 @@ interface LibraryDao {
     @Query("UPDATE tracks SET artworkRef = :artworkRef, updatedAtEpochMs = :updatedAt WHERE id = :trackId")
     suspend fun setArtworkRef(trackId: String, artworkRef: String?, updatedAt: Long)
 }
+
+data class ShuffleArtistRow(val id: String, val artist: String?)
 
 data class LibraryTrackRow(
     val id: String,

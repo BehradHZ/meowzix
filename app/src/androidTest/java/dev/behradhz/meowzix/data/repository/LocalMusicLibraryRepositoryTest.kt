@@ -178,6 +178,19 @@ class LocalMusicLibraryRepositoryTest {
     }
 
     @Test
+    fun shuffleArtistsQueriesOnlyRequestedIds() = runTest {
+        scanner.tracks = listOf(track(1), track(2), track(3))
+        repository.refreshLocalMusic()
+        val songs = repository.observeTracks().first().sortedBy { it.title }
+        val selected = listOf(songs[0].id, songs[2].id)
+        assertEquals(
+            mapOf(songs[0].id to songs[0].artist, songs[2].id to songs[2].artist),
+            repository.shuffleArtists(selected),
+        )
+        assertEquals(emptyMap<java.util.UUID, String?>(), repository.shuffleArtists(emptyList()))
+    }
+
+    @Test
     fun favoriteStatePersists() = runTest {
         scanner.tracks = listOf(track(1))
         repository.refreshLocalMusic()
