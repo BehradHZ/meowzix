@@ -16,7 +16,7 @@ fun buildLibraryPlaybackQueue(
 ): List<UUID> {
     val ids = orderedLibraryIds.distinct()
     val selectedIndex = ids.indexOf(selectedId)
-    if (selectedIndex < 0) return listOf(selectedId)
+    if (selectedIndex < 0) return listOf(selectedId) + ids
 
     return when (mode) {
         PlaybackMode.ORDERED -> ids.drop(selectedIndex) + ids.take(selectedIndex)
