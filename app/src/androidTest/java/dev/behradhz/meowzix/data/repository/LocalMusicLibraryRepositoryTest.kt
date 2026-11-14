@@ -94,7 +94,13 @@ class LocalMusicLibraryRepositoryTest {
         assertEquals(song.id, repository.observeTracks().first().single().id)
         assertFalse(database.libraryDao().trackById(song.id.toString())!!.hidden)
         assertTrue(database.libraryDao().trackById(song.id.toString())!!.addedToLibrary)
-        assertEquals(sourcesBefore, database.libraryDao().sourcesForTrack(song.id.toString()))
+        val sourcesAfter = database.libraryDao().sourcesForTrack(song.id.toString())
+        // Refresh updates lastVerifiedAtEpochMs even though the physical file and
+        // canonical source identity remain unchanged.
+        assertEquals(sourcesBefore.map { it.id }, sourcesAfter.map { it.id })
+        assertEquals(sourcesBefore.map { it.contentUri }, sourcesAfter.map { it.contentUri })
+        assertEquals(sourcesBefore.map { it.type }, sourcesAfter.map { it.type })
+        assertEquals(sourcesBefore.map { it.availability }, sourcesAfter.map { it.availability })
     }
 
     @Test
