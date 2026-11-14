@@ -811,7 +811,13 @@ class PlaybackService : MediaLibraryService() {
         // streaming session immediately instead of letting it retry forever.
         serviceScope.launch {
             deletedSources.deleted.collect { id ->
-                handleConfirmedDeletedTelegramSource(id)
+                try {
+                    handleConfirmedDeletedTelegramSource(id)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    Log.w(TAG, "Unable to reconcile deleted Telegram source with Media3", failure)
+                }
             }
         }
 
@@ -1664,7 +1670,10 @@ class PlaybackService : MediaLibraryService() {
         // Another source (e.g. a saved audio file or another Telegram message)
         // can keep the canonical song playable. Never delete that copy.
         val alternative = runCatching { playbackCatalog.playableTrack(trackId) }.getOrNull()
-        if (alternative != null) {
+        val sameStaleUri = previousItem?.mediaId == id &&
+            previousItem.localConfiguration?.uri?.scheme == TDLIB_SCHEME &&
+            previousItem.localConfiguration?.uri?.toString() == alternative?.contentUri
+        if (alternative != null && !sameStaleUri) {
             progressiveQueue.replacePlayableSource(trackId, alternative)
             if (previousItem?.mediaId == id &&
                 previousItem.localConfiguration?.uri?.toString() != alternative.contentUri
