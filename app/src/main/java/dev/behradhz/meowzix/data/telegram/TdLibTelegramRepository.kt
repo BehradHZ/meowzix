@@ -87,6 +87,7 @@ class TdLibTelegramRepository @Inject constructor(
     @Volatile private var resettingClient = false
     private var restartAttempts = 0
     private var lastAutomaticChatRefreshMs = 0L
+    @Volatile private var retrySourceSyncOnReconnect = false
     private var currentUserId: Long? = null
     private val profileSyncMutexes = ConcurrentHashMap<Long, Mutex>()
 
@@ -325,12 +326,14 @@ class TdLibTelegramRepository @Inject constructor(
             runCatching {
                 selected.forEach { source -> total.add(syncSource(accountId, source)) }
             }.onSuccess {
+                retrySourceSyncOnReconnect = false
                 _musicSourceState.update {
                     it.copy(isSyncing = false, lastSyncResult = total.toDomain(),
                         errorMessage = null, retryAction = null)
                 }
             }.onFailure { error ->
                 if (error is CancellationException) throw error
+                retrySourceSyncOnReconnect = telegramErrorGuidance(error).retryable
                 _musicSourceState.update {
                     it.copy(isSyncing = false, errorMessage = safeMessage(error),
                         retryAction = TelegramSourceRetry.SYNC_SELECTED)
@@ -397,6 +400,12 @@ class TdLibTelegramRepository @Inject constructor(
                     if (now - lastAutomaticChatRefreshMs > 30_000L) {
                         lastAutomaticChatRefreshMs = now
                         refreshSelectableChats()
+                        if (retrySourceSyncOnReconnect && !_musicSourceState.value.isSyncing) {
+                            // A prior idempotent source sync failed on transport; retry it once
+                            // on real reconnection, without changing chat selection or credentials.
+                            retrySourceSyncOnReconnect = false
+                            syncSelectedSources()
+                        }
                     }
                 }
             }
@@ -972,7 +981,10 @@ class TdLibTelegramRepository @Inject constructor(
     }
 
     private fun showMusicSourceError(message: String) {
-        _musicSourceState.update { it.copy(isLoadingChats = false, isSyncing = false, errorMessage = message) }
+        _musicSourceState.update {
+            it.copy(isLoadingChats = false, isSyncing = false,
+                errorMessage = message, retryAction = null)
+        }
     }
 
     private fun safeMessage(error: Throwable): String = telegramErrorGuidance(error).message
