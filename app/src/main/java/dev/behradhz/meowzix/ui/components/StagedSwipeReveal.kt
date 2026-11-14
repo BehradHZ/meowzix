@@ -64,6 +64,8 @@ fun BoxScope.StagedSwipeReveal(
     primaryIcon: ImageVector,
     secondaryLabel: String? = null,
     secondaryThresholdPx: Float = Float.POSITIVE_INFINITY,
+    secondaryIcon: ImageVector = Icons.Rounded.Delete,
+    secondaryIsDestructive: Boolean = true,
 ) {
     if (abs(offsetPx) <= 0.5f) return
     val swipingRight = offsetPx > 0f
@@ -93,11 +95,13 @@ fun BoxScope.StagedSwipeReveal(
             Surface(
                 modifier = Modifier.matchParentSize().roundedSwipeReveal(slide),
                 shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.78f),
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                color = (if (secondaryIsDestructive) MaterialTheme.colorScheme.errorContainer
+                         else MaterialTheme.colorScheme.primaryContainer).copy(alpha = 0.78f),
+                contentColor = if (secondaryIsDestructive) MaterialTheme.colorScheme.onErrorContainer
+                               else MaterialTheme.colorScheme.onPrimaryContainer,
                 tonalElevation = 0.dp,
             ) {
-                SwipeActionLabel(secondaryLabel, Icons.Rounded.Delete, swipingRight)
+                SwipeActionLabel(secondaryLabel, secondaryIcon, swipingRight)
             }
         }
 
