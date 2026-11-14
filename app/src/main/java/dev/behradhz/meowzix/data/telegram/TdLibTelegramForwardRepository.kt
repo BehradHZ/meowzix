@@ -574,7 +574,19 @@ class TdLibTelegramForwardRepository @Inject constructor(
                         )
                     } else {
                         active.cancelSignal.complete(Unit)
+                        // Stop a download started solely to prepare this send. Do not
+                        // interrupt a preexisting playback/library download.
+                        active.ownedDownloadFileId?.let { fileId ->
+                            scope.launch {
+                                runCatching {
+                                    TdLibClientAdapter.activeOrNull()
+                                        ?.send(TdApi.CancelDownloadFile(fileId, false))
+                                }
+                            }
+                        }
                     }
+                } else if (sendDao.jobById(id)?.state == TelegramSendState.SENT.name) {
+                    error("This song has already been delivered. The upload can't be canceled.")
                 }
             }
             else -> {
@@ -699,7 +711,9 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 throw SendCancellationRequested()
             }
             sendDao.markSent(job.id, deliveredMessageId, System.currentTimeMillis())
-            if (active.cancelSignal.isCompleted) {
+            if (active.cancelSignal.isCompleted &&
+                sendDao.jobById(job.id)?.state == TelegramSendState.CANCELING.name
+            ) {
                 active.pendingMessageId = deliveredMessageId
                 throw SendCancellationRequested()
             }
@@ -796,6 +810,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val cancelSignal: CompletableDeferred<Unit> = CompletableDeferred(),
         @Volatile var pendingMessageId: Long? = null,
         @Volatile var submissionStarted: Boolean = false,
+        @Volatile var ownedDownloadFileId: Int? = null,
     )
 
     private class SendCancellationRequested : Exception()
@@ -921,7 +936,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
     ): Long {
         ensureNotCancelRequested(active)
         setState(job, TelegramSendState.PREPARING_FILE, progressPercent = 2, errorMessage = null)
-        val prepared = prepareLocalAudio(client, job, telegramSource, originalMessageMissing, profileAudio)
+        val prepared = prepareLocalAudio(client, job, telegramSource, originalMessageMissing, profileAudio, active)
         try {
             ensureNotCancelRequested(active)
             setState(job, TelegramSendState.UPLOADING, progressPercent = 5, errorMessage = null)
@@ -953,6 +968,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
         telegramSource: TelegramTrackSourceEntity?,
         originalMessageMissing: Boolean,
         knownProfileAudio: TdApi.Audio? = null,
+        active: ActiveSend,
     ): PreparedLocalAudio {
         val candidates = libraryDao.sourcesForTrack(job.trackId)
             .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
@@ -998,13 +1014,24 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 telegramSource.messageId,
                 telegramSource.tdPersistentFileId,
             ) ?: error("This profile song is no longer available on Telegram and no saved audio copy was found.")
-            val downloaded = client.send(
-                TdApi.DownloadFile(
-                    profileAudio.audio.id,
-                    TdDownloadPriority.USER_REQUESTED_DOWNLOAD,
-                    0L, 0L, true,
-                ),
-            ).also(client.fileStates::publish)
+            ensureNotCancelRequested(active)
+            val fileId = profileAudio.audio.id
+            if (!profileAudio.audio.local.isDownloadingActive &&
+                !profileAudio.audio.local.isDownloadingCompleted
+            ) {
+                active.ownedDownloadFileId = fileId
+            }
+            val downloaded = try {
+                client.send(
+                    TdApi.DownloadFile(
+                        fileId, TdDownloadPriority.USER_REQUESTED_DOWNLOAD,
+                        0L, 0L, true,
+                    ),
+                ).also(client.fileStates::publish)
+            } finally {
+                active.ownedDownloadFileId = null
+            }
+            ensureNotCancelRequested(active)
             val file = downloaded.local.path.takeIf {
                 downloaded.local.isDownloadingCompleted && it.isNotBlank()
             }?.let(::File)?.takeIf { it.isFile && it.canRead() && it.length() > 0L }
