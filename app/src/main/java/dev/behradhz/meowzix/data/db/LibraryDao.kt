@@ -289,10 +289,15 @@ interface LibraryDao {
     )
     suspend fun visibleTrackIds(trackIds: List<String>): List<String>
 
-    @Query("UPDATE tracks SET addedToLibrary = 1 WHERE id = :trackId")
+    // A previously removed song can be explicitly added again from a chat/playlist.
+    @Query("UPDATE tracks SET addedToLibrary = 1, hidden = 0 WHERE id = :trackId")
     suspend fun addToLibrary(trackId: String)
 
-    @Query("UPDATE tracks SET addedToLibrary = 1 WHERE id IN (:trackIds)")
+    /** Hide this logical track without removing sources, favorites or user-owned media. */
+    @Query("UPDATE tracks SET addedToLibrary = 0, hidden = 1 WHERE id = :trackId")
+    suspend fun removeFromLibrary(trackId: String)
+
+    @Query("UPDATE tracks SET addedToLibrary = 1, hidden = 0 WHERE id IN (:trackIds)")
     suspend fun addTracksToLibrary(trackIds: List<String>)
 
     @Query("SELECT * FROM tracks WHERE id = :id LIMIT 1")
