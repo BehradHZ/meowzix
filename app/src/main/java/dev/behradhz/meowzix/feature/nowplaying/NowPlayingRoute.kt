@@ -173,14 +173,9 @@ fun NowPlayingRoute(
     LaunchedEffect(lyricsExpanded) { onLyricsExpandedChange(lyricsExpanded) }
     LaunchedEffect(inlineQueueExpanded) { onInlineQueueExpandedChange(inlineQueueExpanded) }
     LaunchedEffect(state.currentTrack?.id) { lyricsExpanded = false }
-    // Android's Visualizer captures FFT from our own playback session, but requires RECORD_AUDIO.
-    // Request it only when the full player is opened; mini-player never starts a permission prompt.
+    // The first-launch flow requests RECORD_AUDIO; opening the player must not
+    // trigger another unsolicited permission dialog after a denial.
     val context = LocalContext.current
-    val liveSpectrumPermission = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted) viewModel.refreshVisualizer()
-    }
     // Only capture FFT while the expanded waveform player is actually started.
     // Equalizer effects stay attached to the playback session independently.
     LifecycleStartEffect(viewModel, appearance.playerSeekBarStyle, lockScreenMode) {
@@ -194,8 +189,6 @@ fun NowPlayingRoute(
             PackageManager.PERMISSION_GRANTED
         ) {
             viewModel.refreshVisualizer()
-        } else {
-            liveSpectrumPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 

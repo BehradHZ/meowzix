@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.core.view.WindowInsetsControllerCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.core.performance.PerformanceMetrics
+import dev.behradhz.meowzix.core.permissions.StartupPermissionFlow
 import dev.behradhz.meowzix.navigation.MeowzixApp
 import dev.behradhz.meowzix.domain.settings.AppearanceSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
@@ -120,6 +121,7 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                 }
+                StartupPermissionFlow()
             }
         }
     }

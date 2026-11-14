@@ -4,11 +4,8 @@ import android.Manifest
 import android.os.Build
 
 object AudioPermission {
-    /**
-     * Telegram-only mode does not read device media, so the Library route uses an
-     * already-granted normal permission and never prompts for local audio access.
-     */
-    fun requiredPermission(): String = Manifest.permission.INTERNET
+    /** Local audio is requested once during initial setup; Telegram remains optional. */
+    fun requiredPermission(): String = requiredPermissionForSdk(Build.VERSION.SDK_INT)
 
     internal fun requiredPermissionForSdk(sdkInt: Int): String =
         if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
