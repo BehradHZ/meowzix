@@ -153,6 +153,27 @@ class SettingsGlassComponentsTest {
     }
 
     @Test
+    fun settingsIndexExposesTelegramAndDownloadsWithoutAnIntermediateCategory() {
+        val opened = mutableListOf<SettingsCategory>()
+        compose.setContent {
+            MeowzixTheme {
+                PlaylistGlassBackdrop { haze ->
+                    SettingsCategoryIndex(haze) { opened += it }
+                }
+            }
+        }
+        compose.onNodeWithTag("settings-category-telegram").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("settings-category-downloads").assertIsDisplayed().performClick()
+        compose.runOnIdle {
+            assertEquals(listOf(SettingsCategory.TELEGRAM, SettingsCategory.DOWNLOADS), opened)
+            assertTrue(SettingsCategory.TELEGRAM.isDirectDestination())
+            assertTrue(SettingsCategory.DOWNLOADS.isDirectDestination())
+            assertTrue(!SettingsCategory.DATA.isDirectDestination())
+            assertTrue(SettingsCategory.entries.none { it.name == "CONNECTIONS" })
+        }
+    }
+
+    @Test
     fun launcherShowsPackagedOldAppAndWallpaperIconsAndSelectionIsExplicit() {
         var requested: LauncherIconColorSource? = null
         compose.setContent {
