@@ -14,7 +14,7 @@ class StagedSwipeRevealTest {
         assertEquals(0f, stagedActionSlidePx(-100f, actionThreshold, transitionDistance), 0.001f)
     }
 
-    @Test fun removeFollowsTheFingerContinuouslyWithoutASecondAnimation() {
+    @Test fun restoreTheOriginalFastExitWithDeterministicLayerGeometry() {
         val first = stagedActionSlidePx(101f, actionThreshold, transitionDistance)
         val middle = stagedActionSlidePx(138f, actionThreshold, transitionDistance)
         val last = stagedActionSlidePx(175f, actionThreshold, transitionDistance)
@@ -23,8 +23,9 @@ class StagedSwipeRevealTest {
         assertTrue(last > middle)
         assertTrue(last < 175f)
         assertEquals(-middle, stagedActionSlidePx(-138f, actionThreshold, transitionDistance), 0.001f)
-        // No time-dependent animation state: identical pointer positions yield identical layers.
+        // The 190ms easing is applied by Compose, with stable target geometry.
         assertEquals(middle, stagedActionSlidePx(138f, actionThreshold, transitionDistance), 0.001f)
+        assertEquals(190, SWIPE_ACTION_EXIT_DURATION_MS)
     }
 
     @Test fun removeIsFullyExposedAtTheDestructiveThreshold() {
