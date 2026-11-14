@@ -30,6 +30,7 @@ import kotlin.math.abs
 
 /** Consistent glass-card spacing and swipe targets across Library and Queue. */
 const val TRACK_CARD_ALPHA = 0.30f
+internal const val SWIPE_ACTION_EXIT_DURATION_MS = 190
 val TRACK_ROW_HORIZONTAL_PADDING = 12.dp
 val TRACK_ROW_VERTICAL_PADDING = 8.dp
 val TRACK_ROW_SPACING = 8.dp
@@ -78,7 +79,7 @@ fun BoxScope.StagedSwipeReveal(
     } else 0f
     val animatedExitProgress by animateFloatAsState(
         targetValue = if (offsetPx == 0f) 0f else slideTarget / offsetPx,
-        animationSpec = tween(durationMillis = 190),
+        animationSpec = tween(durationMillis = SWIPE_ACTION_EXIT_DURATION_MS),
         label = "swipe-action-layer-exit",
     )
     val slide = offsetPx * animatedExitProgress
