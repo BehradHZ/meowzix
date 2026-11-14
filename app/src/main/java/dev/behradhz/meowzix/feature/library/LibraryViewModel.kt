@@ -24,7 +24,6 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RepeatMode
-import dev.behradhz.meowzix.domain.playback.buildLibraryPlaybackQueue
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
@@ -270,10 +269,17 @@ class LibraryViewModel @Inject constructor(
         )
     }
 
-    /** Global search plays the complete library, not its limited result page. */
+    /** Global search also starts audio before discovering its complete Library queue. */
     fun playLibrarySearchTrack(track: Track) {
-        viewModelScope.launch {
-            runCatching {
+        val contextKey = PlaybackContextKeys.LIBRARY
+        playbackContextPolicyStore.activate(contextKey)
+        val policy = playbackContextPolicyStore.policy(contextKey)
+        queueRepository.playLibrarySelection(
+            trackId = track.id,
+            mode = policy.playbackMode,
+            repeat = policy.repeatMode,
+            fromSearch = true,
+            loadOrderedTrackIds = {
                 val display = settingsRepository.libraryDisplaySettings.first()
                 pagedLibrary.orderedTrackIds(
                     sortMode = display.sortMode,
@@ -281,18 +287,8 @@ class LibraryViewModel @Inject constructor(
                     availability = LibraryAvailabilityFilter.ALL,
                     searchQuery = "",
                 )
-            }.onSuccess { ids ->
-                val contextKey = PlaybackContextKeys.LIBRARY
-                val policy = playbackContextPolicyStore.policy(contextKey)
-                val queue = buildLibraryPlaybackQueue(ids, track.id, policy.playbackMode, fromSearch = true)
-                playbackContextPolicyStore.activate(contextKey)
-                prepareRepeatRestore(queue.toSet(), policy.repeatMode)
-                queueRepository.replaceAndPlay(queue, track.id, policy.playbackMode)
-            }.onFailure { error ->
-                reportLoadError(error, "Unable to load library queue")
-                playbackController.playTrack(track.id)
-            }
-        }
+            },
+        )
     }
 
     fun playCollection(tracks: List<Track>, mode: PlaybackMode) {
