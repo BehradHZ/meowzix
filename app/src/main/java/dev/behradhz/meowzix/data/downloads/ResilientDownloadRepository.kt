@@ -16,6 +16,9 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.behradhz.meowzix.data.db.DownloadDao
+import dev.behradhz.meowzix.data.db.DownloadRecordEntity
+import dev.behradhz.meowzix.data.db.LibraryDao
+import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.domain.downloads.DownloadDisplayRecord
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
@@ -23,6 +26,7 @@ import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -38,6 +42,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Keeps user-requested offline downloads alive across transient network failures and process death.
@@ -51,11 +57,14 @@ class ResilientDownloadRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val delegate: TdLibDownloadRepository,
     private val downloadDao: DownloadDao,
+    private val libraryDao: LibraryDao,
     private val settingsRepository: SettingsRepository,
 ) : DownloadRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val initialized = AtomicBoolean(false)
     private val workManager by lazy { WorkManager.getInstance(context) }
+    private val startMutex = Mutex()
+    private val manuallyStopped = ConcurrentHashMap.newKeySet<UUID>()
 
     fun initialize() {
         if (!initialized.compareAndSet(false, true)) return
@@ -118,26 +127,69 @@ class ResilientDownloadRepository @Inject constructor(
         }
 
     override fun pinOffline(trackId: UUID) {
-        delegate.pinOffline(trackId)
-        scope.launch { enqueueRecovery(trackId) }
+        manuallyStopped.remove(trackId)
+        scope.launch {
+            startMutex.withLock {
+                if (trackId in manuallyStopped) return@withLock
+                // Persist user intent before waiting on Telegram or starting an async transfer.
+                // Playback-initiated streams are saved just like an explicit download tap.
+                val existing = downloadDao.byTrackId(trackId.toString())
+                if (existing == null) {
+                    val remote = libraryDao.sourcesForTrack(trackId.toString())
+                        .firstOrNull { it.type == TrackSourceType.TELEGRAM_REMOTE }
+                    if (remote != null) {
+                        val now = Instant.now().toEpochMilli()
+                        downloadDao.upsert(
+                            DownloadRecordEntity(
+                                id = UUID.randomUUID().toString(),
+                                trackId = trackId.toString(),
+                                trackSourceId = remote.id,
+                                tdFileId = null,
+                                status = DownloadStatus.QUEUED.name,
+                                downloadedBytes = 0L,
+                                totalBytes = remote.fileSizeBytes,
+                                localPath = null,
+                                pinned = true,
+                                failureReason = null,
+                                createdAtEpochMs = now,
+                                updatedAtEpochMs = now,
+                            ),
+                        )
+                    }
+                } else if (existing.status != DownloadStatus.COMPLETED.name) {
+                    downloadDao.upsert(
+                        existing.copy(
+                            status = DownloadStatus.QUEUED.name,
+                            pinned = true,
+                            failureReason = null,
+                            updatedAtEpochMs = Instant.now().toEpochMilli(),
+                        ),
+                    )
+                }
+                if (trackId !in manuallyStopped) {
+                    delegate.pinOffline(trackId)
+                    enqueueRecovery(trackId)
+                }
+            }
+        }
     }
 
     override fun pause(trackId: UUID) {
+        manuallyStopped.add(trackId)
         workManager.cancelUniqueWork(workName(trackId))
         delegate.pause(trackId)
     }
 
-    override fun retry(trackId: UUID) {
-        delegate.retry(trackId)
-        scope.launch { enqueueRecovery(trackId) }
-    }
+    override fun retry(trackId: UUID) = pinOffline(trackId)
 
     override fun cancel(trackId: UUID) {
+        manuallyStopped.add(trackId)
         workManager.cancelUniqueWork(workName(trackId))
         delegate.cancel(trackId)
     }
 
     override suspend fun removeOfflineCopy(trackId: UUID) {
+        manuallyStopped.add(trackId)
         workManager.cancelUniqueWork(workName(trackId))
         delegate.removeOfflineCopy(trackId)
     }
