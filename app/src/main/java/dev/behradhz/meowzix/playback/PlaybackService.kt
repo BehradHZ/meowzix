@@ -1537,8 +1537,21 @@ class PlaybackService : MediaLibraryService() {
                     player.prepare()
                     if (shouldResume) player.play()
                 } else {
-                    Log.w(TAG, "Unable to recover failed local audio; preserving the queue", error)
-                    player.pause()
+                    // An invalid saved copy may also have lost its Telegram origin.
+                    // Re-check the original before deciding that the queue is stuck.
+                    val missing = trackId?.let { id ->
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                remotePlaybackResolver.confirmDeletedSource(id)
+                            }
+                        }.getOrDefault(false)
+                    } ?: false
+                    if (missing) {
+                        investigateDeletedTelegramSource(mediaId, failedUri, alreadyConfirmed = true)
+                    } else {
+                        Log.w(TAG, "Unable to recover failed local audio; preserving the queue", error)
+                        player.pause()
+                    }
                 }
                 schedulePersist()
             }
@@ -1612,7 +1625,11 @@ class PlaybackService : MediaLibraryService() {
      * Only a separate source lookup confirming deletion removes the failed occurrence.
      * The notice stays visible for five seconds before the next track starts.
      */
-    private fun investigateDeletedTelegramSource(mediaId: String, failedUri: android.net.Uri) {
+    private fun investigateDeletedTelegramSource(
+        mediaId: String,
+        failedUri: android.net.Uri,
+        alreadyConfirmed: Boolean = false,
+    ) {
         if (missingSourceMediaId == mediaId && missingSourceCheckJob?.isActive == true) return
         missingSourceCheckJob?.cancel()
         missingSourceMediaId = mediaId
@@ -1621,7 +1638,7 @@ class PlaybackService : MediaLibraryService() {
         val wasPlaying = player.playWhenReady
         missingSourceCheckJob = serviceScope.launch {
             val confirmed = try {
-                withContext(Dispatchers.IO) {
+                alreadyConfirmed || withContext(Dispatchers.IO) {
                     remotePlaybackResolver.confirmDeletedSource(trackId)
                 }
             } catch (cancelled: CancellationException) {
