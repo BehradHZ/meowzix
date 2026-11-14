@@ -2,9 +2,11 @@ package dev.behradhz.meowzix.feature.library
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,7 +61,8 @@ import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
-import dev.behradhz.meowzix.ui.components.roundedSwipeReveal
+import dev.behradhz.meowzix.ui.components.StagedSwipeReveal
+import dev.behradhz.meowzix.ui.components.TRACK_CARD_ALPHA
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
@@ -105,47 +108,27 @@ internal fun SwipeableLibraryTrackRow(
     val density = LocalDensity.current
     val haptics = rememberMeowzixHaptics()
     val actionThreshold = with(density) { 75.dp.toPx() }
-    val maximumSwipe = with(density) { 300.dp.toPx() }
+    val maximumSwipe = with(density) { 190.dp.toPx() }
     var swipeOffsetX by remember(track.id) { mutableFloatStateOf(0f) }
     var swipeStage by remember(track.id) { mutableIntStateOf(0) }
     var horizontalDragActive by remember(track.id) { mutableStateOf(false) }
     val visualOffsetX by animateFloatAsState(
         targetValue = swipeOffsetX,
-        animationSpec = if (horizontalDragActive) snap() else tween(190),
+        animationSpec = if (horizontalDragActive) snap() else spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
         label = "library-swipe-action",
     )
     val swipeMagnitude = abs(visualOffsetX)
     val swipingRight = visualOffsetX >= 0f
 
     Box(modifier = Modifier.fillMaxWidth()) {
-        if (swipeMagnitude > 0.5f) {
-            Surface(
-                modifier = Modifier.fillMaxWidth().height(66.dp)
-                    .roundedSwipeReveal(visualOffsetX),
-                shape = RoundedCornerShape(18.dp),
-                color = if (swipingRight) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.tertiaryContainer
-                },
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
-                    horizontalArrangement = if (swipingRight) Arrangement.Start else Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (swipingRight) {
-                        Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
-                        Spacer(Modifier.size(8.dp))
-                        Text("Play next", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                    } else {
-                        Text("Add to queue", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.size(8.dp))
-                        Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
-                    }
-                }
-            }
-        }
+        StagedSwipeReveal(
+            offsetPx = visualOffsetX,
+            primaryLabel = if (swipingRight) "Play next" else "Add to queue",
+            primaryIcon = if (swipingRight) Icons.Rounded.PlaylistPlay else Icons.Rounded.PlaylistAdd,
+        )
 
         Box(
             modifier = Modifier
@@ -272,7 +255,8 @@ private fun LibraryTrackRowContent(
                 }
             },
         shape = RoundedCornerShape(18.dp),
-        color = containerColor ?: MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.56f),
+        color = (containerColor ?: MaterialTheme.colorScheme.surfaceVariant)
+            .copy(alpha = TRACK_CARD_ALPHA),
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
