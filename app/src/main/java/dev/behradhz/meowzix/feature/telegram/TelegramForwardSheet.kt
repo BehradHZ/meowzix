@@ -385,12 +385,7 @@ private fun ForwardPickerBody(
     }
 
     val trackJobs = remember(sendJobs, trackId, sentVisibilityClockMs) {
-        sendJobs.filter { job ->
-            job.trackId == trackId &&
-                job.state != TelegramSendState.CANCELED &&
-                (job.state != TelegramSendState.SENT ||
-                    sentVisibilityClockMs - job.updatedAtEpochMs < SentStatusVisibilityMillis)
-        }.take(4)
+        sendJobs.filter { isForwardStatusVisible(it, trackId, sentVisibilityClockMs) }.take(4)
     }
     val scope = rememberCoroutineScope()
     val hazeState = rememberHazeState()
@@ -940,7 +935,7 @@ private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJ
 }
 
 @Composable
-private fun TelegramSendStatusCard(
+internal fun TelegramSendStatusCard(
     hazeState: HazeState,
     job: TelegramSendJob,
     onRetry: () -> Unit,
@@ -1058,6 +1053,13 @@ private fun TelegramSendStatusCard(
         }
     }
 }
+
+/** Canceled sends must never remain in the forward panel, including old records. */
+internal fun isForwardStatusVisible(job: TelegramSendJob, trackId: UUID, nowMs: Long): Boolean =
+    job.trackId == trackId &&
+        job.state != TelegramSendState.CANCELED &&
+        (job.state != TelegramSendState.SENT ||
+            nowMs - job.updatedAtEpochMs < SentStatusVisibilityMillis)
 
 private fun TelegramSendJob.statusLabel(): String = when (state) {
     TelegramSendState.QUEUED -> "Queued"
