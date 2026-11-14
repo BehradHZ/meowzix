@@ -630,30 +630,46 @@ class AndroidPlaybackController @Inject constructor(
                     when (activeMode) {
                         PlaybackMode.ORDERED -> remaining to null
                         PlaybackMode.PURE_SHUFFLE -> {
-                            val prefs = settings.playbackPreferenceSettings.first()
-                            val cycle = if (prefs.artistBalancedShuffle) {
-                                // Artist balance needs only metadata, not full audio resolution.
-                                val artists = catalog.shuffleArtists(allIds)
-                                withContext(Dispatchers.Default) {
-                                    ArtistBalancedShuffleEngine.newCycleStartingWith(
-                                        allIds.map { ArtistShuffleItem(it, artists[it]) },
-                                        expectedTrackId,
-                                        alpha = prefs.artistShuffleAlpha.toDouble(),
-                                    )
-                                }
-                            } else withContext(Dispatchers.Default) {
+                            // Artist metadata is optional. Failure must never strand the
+                            // single playing track without its generated future.
+                            val balanced = try {
+                                val prefs = settings.playbackPreferenceSettings.first()
+                                if (prefs.artistBalancedShuffle) {
+                                    val artists = catalog.shuffleArtists(allIds)
+                                    withContext(Dispatchers.Default) {
+                                        ArtistBalancedShuffleEngine.newCycleStartingWith(
+                                            allIds.map { ArtistShuffleItem(it, artists[it]) },
+                                            expectedTrackId,
+                                            alpha = prefs.artistShuffleAlpha.toDouble(),
+                                        )
+                                    }
+                                } else null
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Throwable) {
+                                Log.w("MeowzixQueue", "Artist shuffle unavailable, using Pure Shuffle", error)
+                                null
+                            }
+                            val cycle = balanced ?: withContext(Dispatchers.Default) {
                                 PureShuffleEngine.newCycleStartingWith(allIds, expectedTrackId)
                             }
                             cycle.order.filterNot { it == expectedTrackId } to cycle.seed
                         }
                         PlaybackMode.SMART_SHUFFLE -> {
                             // Ranking is bounded, so it cannot delay playback or queue forever.
-                            val recommendation = withTimeoutOrNull(2_000L) {
-                                recommendationEngine.generate(
-                                    allowedTrackIds = allIds,
-                                    currentTrackId = expectedTrackId,
-                                    timeBucket = currentTimeBucket(),
-                                )
+                            val recommendation = try {
+                                withTimeoutOrNull(2_000L) {
+                                    recommendationEngine.generate(
+                                        allowedTrackIds = allIds,
+                                        currentTrackId = expectedTrackId,
+                                        timeBucket = currentTimeBucket(),
+                                    )
+                                }
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Throwable) {
+                                Log.w("MeowzixQueue", "Smart ranking unavailable, preserving Library order", error)
+                                null
                             }
                             if (recommendation == null) remaining to null else {
                                 SmartShuffleFutureOrder.completeLibraryCycle(
