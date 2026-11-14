@@ -9,6 +9,8 @@ interface RemoteTrackPlaybackResolver {
     suspend fun prepareRemoteForPlayback(trackId: UUID): PlayableTrack? = prepareForPlayback(trackId)
     /** Confirm removal using Telegram source metadata, not a generic timeout or network error. */
     suspend fun confirmDeletedSource(trackId: UUID): Boolean = false
+    /** Cheap persisted check for a missing source after a player/process restart. */
+    suspend fun isPreviouslyConfirmedMissing(trackId: UUID): Boolean = false
     fun prefetch(trackId: UUID)
     fun cancelPrefetch()
 }
