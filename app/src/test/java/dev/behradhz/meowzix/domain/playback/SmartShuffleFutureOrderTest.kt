@@ -16,6 +16,19 @@ class SmartShuffleFutureOrderTest {
         )
     }
 
+    @Test fun `Library Smart cycle keeps every candidate even when the ranker returns no eligible set`() {
+        val ids = (0..199).map { UUID.nameUUIDFromBytes("smart-library-$it".toByteArray()) }
+        val future = ids.drop(1)
+        val chosen = listOf(ids[90], ids[25])
+        val ranked = SmartShuffleFutureOrder.completeLibraryCycle(
+            future, chosen, setOf(ids[25], ids[90]),
+        )
+        assertEquals(chosen, ranked.take(2))
+        assertEquals(future.size, ranked.size)
+        assertEquals(future.toSet(), ranked.toSet())
+        assertEquals(future, SmartShuffleFutureOrder.completeLibraryCycle(future, emptyList(), emptySet()))
+    }
+
     @Test fun `empty ranking keeps eligible collection order`() {
         val ids = (0..4).map { UUID.nameUUIDFromBytes("song-$it".toByteArray()) }
         assertEquals(
