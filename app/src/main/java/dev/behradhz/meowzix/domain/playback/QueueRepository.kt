@@ -35,6 +35,20 @@ interface QueueRepository {
     fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode)
     fun replaceAndPlay(trackIds: List<UUID>, startTrackId: UUID, mode: PlaybackMode)
     /**
+     * Begin a Library context with the selected song immediately, then discover and
+     * attach its generated candidate pool from an application-lived coroutine.
+     * The supplier must return the unfiltered Library in the chosen display order.
+     */
+    fun playLibrarySelection(
+        trackId: UUID,
+        mode: PlaybackMode,
+        repeat: RepeatMode,
+        fromSearch: Boolean,
+        loadOrderedTrackIds: suspend () -> List<UUID>,
+    ) {
+        error("Library selection requires a playback controller with asynchronous queue support")
+    }
+    /**
      * Attach the collection after a one-track first-play startup, without resetting
      * its playing occurrence. Ignored if the active listening context has changed.
      */
