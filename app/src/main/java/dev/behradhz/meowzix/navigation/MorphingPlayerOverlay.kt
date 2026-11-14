@@ -227,6 +227,7 @@ internal fun MorphingPlayerOverlay(
         mutableFloatStateOf(if (morphState.targetExpanded) 1f else 0f)
     }
     var lyricsExpanded by remember(track.id) { mutableStateOf(false) }
+    var inlineQueueExpanded by remember { mutableStateOf(false) }
     var moreActionsMenuOpen by remember(track.id) { mutableStateOf(false) }
     var moreButtonBounds by remember(track.id) { mutableStateOf<Rect?>(null) }
     var playerSurfaceTopLeft by remember { mutableStateOf(Offset.Zero) }
@@ -322,10 +323,10 @@ internal fun MorphingPlayerOverlay(
                     val topLeft = coordinates.positionOnScreen()
                     if (topLeft != Offset.Unspecified) playerSurfaceTopLeft = topLeft
                 }
-                .pointerInput(track.id, travelPx, lyricsExpanded, moreActionsMenuOpen) {
+                 .pointerInput(track.id, travelPx, lyricsExpanded, inlineQueueExpanded, moreActionsMenuOpen) {
                     // Keep both the lyrics scroller and the open actions menu independent
                     // of the player-wide swipe-to-collapse recognizer.
-                    if (lyricsExpanded || moreActionsMenuOpen) return@pointerInput
+                    if (lyricsExpanded || inlineQueueExpanded || moreActionsMenuOpen) return@pointerInput
                     awaitEachGesture {
                         val down = awaitFirstDown(
                             requireUnconsumed = false,
@@ -460,6 +461,7 @@ internal fun MorphingPlayerOverlay(
                         },
                         viewModel = viewModel,
                         onLyricsExpandedChange = { lyricsExpanded = it },
+                        onInlineQueueExpandedChange = { inlineQueueExpanded = it },
                         onMoreActionsMenuExpandedChange = { moreActionsMenuOpen = it },
                         onMoreActionsButtonBoundsChanged = { moreButtonBounds = it },
                     )
