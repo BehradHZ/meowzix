@@ -652,10 +652,10 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val attempt = job.attemptCount + 1
 
         try {
-            setState(
-                job, TelegramSendState.CHECKING,
-                attemptCount = attempt, errorMessage = null,
-            )
+            if (sendDao.claimForProcessing(job.id, attempt, System.currentTimeMillis()) == 0) {
+                // User canceled after we fetched the row but before processing began.
+                return
+            }
             ensureNotCancelRequested(active)
             val knownDestinationSource = telegramDao.telegramSourceForTrackInChat(
                 job.accountId,
