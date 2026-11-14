@@ -1753,8 +1753,28 @@ class PlaybackService : MediaLibraryService() {
             if (!isStillFailedSource(mediaId, failedUri, expectedOccurrence)) return@launch
 
             val snapshot = progressiveQueue.snapshot()
-            val currentOccurrence = snapshot?.occurrenceIds?.getOrNull(snapshot.currentIndex)
-            if (snapshot == null || currentOccurrence == null ||
+            if (snapshot == null) {
+                // Older saved sessions use a plain Media3 playlist rather than
+                // ProgressiveQueue. Removing the download row alone must not
+                // leave its current MediaItem selected in that legacy timeline.
+                val index = player.currentMediaItemIndex
+                if (index in 0 until player.mediaItemCount &&
+                    player.getMediaItemAt(index).mediaId == mediaId
+                ) {
+                    val hasNext = index < player.mediaItemCount - 1
+                    if (hasNext) {
+                        player.removeMediaItem(index)
+                        player.prepare()
+                        if (wasPlaying) player.play()
+                    } else {
+                        player.clearMediaItems()
+                    }
+                    schedulePersist()
+                }
+                return@launch
+            }
+            val currentOccurrence = snapshot.occurrenceIds.getOrNull(snapshot.currentIndex)
+            if (currentOccurrence == null ||
                 (expectedOccurrence != null && expectedOccurrence != currentOccurrence)
             ) return@launch
 
