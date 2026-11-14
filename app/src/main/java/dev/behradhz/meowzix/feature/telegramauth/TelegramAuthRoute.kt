@@ -136,23 +136,23 @@ private fun TelegramAuthScreen(
                 fallbackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.22f),
                 tint = MaterialTheme.colorScheme.error.copy(alpha = 0.08f),
             ) {
-                Row(
-                    modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(
-                        Icons.Rounded.ErrorOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                    Text(
-                        text = message,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 10.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    TextButton(onClick = onClearError) { Text("Dismiss") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.ErrorOutline, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error)
+                        Text("Telegram needs attention",
+                            modifier = Modifier.padding(start = 10.dp),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold)
+                    }
+                    Text(message, style = MaterialTheme.typography.bodyMedium)
+                    Row(modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End) {
+                        TextButton(onClick = onClearError) { Text("Dismiss") }
+                    }
                 }
             }
         }
@@ -491,8 +491,8 @@ private fun ProgressState(message: String) {
 
 private fun telegramConnectionLabel(status: TelegramConnectionStatus): String = when (status) {
     TelegramConnectionStatus.STARTING -> "Starting"
-    TelegramConnectionStatus.WAITING_FOR_NETWORK -> "Offline"
-    TelegramConnectionStatus.CONNECTING_TO_PROXY -> "Proxy…"
+    TelegramConnectionStatus.WAITING_FOR_NETWORK -> "Waiting for network"
+    TelegramConnectionStatus.CONNECTING_TO_PROXY -> "Connecting to proxy"
     TelegramConnectionStatus.CONNECTING -> "Connecting"
     TelegramConnectionStatus.UPDATING -> "Syncing"
     TelegramConnectionStatus.CONNECTED -> "Connected"
