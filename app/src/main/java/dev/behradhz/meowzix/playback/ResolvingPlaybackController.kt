@@ -22,6 +22,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +42,7 @@ class ResolvingPlaybackController @Inject constructor(
     private val sleepTimer: SleepTimerManager,
 ) : PlaybackController, QueueRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var librarySelectionJob: Job? = null
     private val _state = MutableStateFlow(delegate.state.value)
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
     override val queueState: StateFlow<QueueState> = delegate.queueState
@@ -204,6 +206,42 @@ class ResolvingPlaybackController @Inject constructor(
                 )
             }
             resolvingRemote = false
+        }
+    }
+
+    override fun playLibrarySelection(
+        trackId: UUID,
+        mode: PlaybackMode,
+        repeat: RepeatMode,
+        fromSearch: Boolean,
+        loadOrderedTrackIds: suspend () -> List<UUID>,
+    ) {
+        neutralizeTimerFadeForManualPlayback()
+        nextInitiator = PlaybackInitiator.USER
+        intentionalSkip = historyTrackId != null
+        // Resolving a remote song may suspend. A later Library tap wins.
+        librarySelectionJob?.cancel()
+        librarySelectionJob = scope.launch {
+            resolvingRemote = true
+            _state.value = delegate.state.value.copy(status = PlaybackStatus.PREPARING, errorMessage = null)
+            try {
+                val first = if (isLocal(trackId)) catalog.playableTrack(trackId)
+                    else remoteResolver.prepareForPlayback(trackId)
+                if (first == null) error("The selected track has no available playback source.")
+                // The controller owns catalog discovery after starting the selected song;
+                // leaving Library cannot cancel the queue continuation.
+                delegate.replaceAndPlayLibraryPrepared(first, mode, repeat, fromSearch, loadOrderedTrackIds)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                clearPendingSelection()
+                _state.value = delegate.state.value.copy(
+                    status = PlaybackStatus.ERROR,
+                    errorMessage = error.message ?: "Unable to prepare Library playback.",
+                )
+            } finally {
+                resolvingRemote = false
+            }
         }
     }
 
