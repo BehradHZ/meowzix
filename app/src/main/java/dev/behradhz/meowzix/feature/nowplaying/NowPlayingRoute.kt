@@ -438,6 +438,17 @@ private fun NowPlayingScreen(
         animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.90f, stiffness = 520f),
         label = "lyrics-screen-morph",
     )
+    // A vertical pull on the hero continuously trades unused artwork space for
+    // the same Queue list used by QueueRoute. Lyrics and queue are exclusive.
+    var queueDragActive by remember { mutableStateOf(false) }
+    var queueDragFraction by remember { mutableFloatStateOf(0f) }
+    val queueMorph by animateFloatAsState(
+        targetValue = if (queueDragActive) queueDragFraction else if (queueExpanded) 1f else 0f,
+        animationSpec = if (reduceMotion || queueDragActive) snap()
+                        else spring(dampingRatio = 0.90f, stiffness = 520f),
+        label = "player-inline-queue-morph",
+    )
+
     val duration = state.durationMs.coerceAtLeast(1L)
     val shownPosition = pendingSeek?.toLong() ?: settlingSeekTarget ?: state.positionMs.coerceIn(0L, duration)
     LaunchedEffect(state.positionMs, settlingSeekTarget) {
@@ -499,19 +510,45 @@ private fun NowPlayingScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            BoxWithConstraints(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-            ) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 val density = LocalDensity.current
-                val fullHeroHeightPx = with(density) { maxHeight.roundToPx() }
-                val compactHeroHeight = lyricsMorphHeroHeight(maxHeight, lyricsMorph)
+                var footerHeightPx by remember { mutableIntStateOf(with(density) { 160.dp.roundToPx() }) }
+                val fullHeroHeight = (maxHeight - with(density) { footerHeightPx.toDp() })
+                    .coerceAtLeast(0.dp)
+                val fullHeroHeightPx = with(density) { fullHeroHeight.roundToPx() }
+                val heroHeight = lyricsMorphHeroHeight(fullHeroHeight, queueMorph)
+                val dragRangePx = with(density) { 260.dp.toPx() }
 
+                Column(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier.fillMaxWidth().height(heroHeight)
+                            .pointerInput(queueExpanded, lyricsExpanded) {
+                                if (!lyricsExpanded) detectVerticalDragGestures(
+                                    onDragStart = {
+                                        queueDragFraction = if (queueExpanded) 1f else 0f
+                                        queueDragActive = true
+                                    },
+                                    onVerticalDrag = { change, dragY ->
+                                        change.consume()
+                                        queueDragFraction = (queueDragFraction - dragY / dragRangePx)
+                                            .coerceIn(0f, 1f)
+                                    },
+                                    onDragEnd = {
+                                        val expand = queueDragFraction >=
+                                            (if (queueExpanded) 0.55f else 0.38f)
+                                        queueDragActive = false
+                                        onQueueExpandedChange(expand)
+                                    },
+                                    onDragCancel = { queueDragActive = false },
+                                )
+                            },
+                    ) {
                 // The artwork, title and artist each have ONE composable instance throughout
                 // expansion and collapse. Their bounds interpolate into the same 76.dp header.
                 MorphingPlayerHero(
                     state = state,
                     queueState = queueState,
-                    progress = lyricsMorph,
+                    progress = maxOf(lyricsMorph, queueMorph),
                     collapsedHeightPx = fullHeroHeightPx,
                     lyricsLayoutVisible = reservedLyricsLayout,
                     onBack = onBack,
@@ -536,7 +573,7 @@ private fun NowPlayingScreen(
                             )
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().height(compactHeroHeight),
+                    modifier = Modifier.fillMaxWidth().height(heroHeight),
                 )
 
                 // Keep lyrics composed until the reverse morph has finished as well.
@@ -552,16 +589,19 @@ private fun NowPlayingScreen(
                         showToolbar = false,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = compactHeroHeight + 8.dp)
+                            .padding(top = lyricsMorphHeroHeight(fullHeroHeight, lyricsMorph) + 8.dp)
                             .graphicsLayer {
                                 alpha = ((lyricsMorph - 0.18f) / 0.62f).coerceIn(0f, 1f)
                             }
                             .semantics { if (lyricsMorph < 0.8f) invisibleToUser() },
                     )
                 }
+                    }
 
-            }
-
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .onSizeChanged { footerHeightPx = it.height },
+                    ) {
             // v0.5 kept the identity immediately above the waveform with a compact 12.dp gap.
             Spacer(Modifier.height(12.dp))
 
@@ -642,6 +682,48 @@ private fun NowPlayingScreen(
                 onCycleRepeatMode = onCycleRepeatMode,
             )
             Spacer(Modifier.height(12.dp))
+                    }
+
+                    if (queueMorph > 0.005f && !lyricsExpanded) {
+                        Column(
+                            Modifier.fillMaxWidth().weight(1f)
+                                .graphicsLayer {
+                                    alpha = ((queueMorph - 0.06f) / 0.35f).coerceIn(0f, 1f)
+                                },
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(start = 6.dp, end = 2.dp, top = 3.dp, bottom = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Column {
+                                    Text(
+                                        "Up next",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        "${queueState.items.drop((queueState.currentIndex + 1).coerceAtLeast(0)).size} upcoming",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                IconButton(onClick = { onQueueExpandedChange(false) }) {
+                                    Icon(
+                                        Icons.Rounded.KeyboardArrowDown,
+                                        contentDescription = "Collapse queue",
+                                    )
+                                }
+                            }
+                            PlayerInlineQueue(
+                                modifier = Modifier.fillMaxSize(),
+                                onGoToArtist = onGoToArtist,
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         state.errorMessage?.let { message ->
