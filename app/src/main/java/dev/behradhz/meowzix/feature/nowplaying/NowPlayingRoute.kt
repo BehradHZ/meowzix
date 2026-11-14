@@ -448,7 +448,7 @@ private fun NowPlayingScreen(
         animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.90f, stiffness = 520f),
         label = "lyrics-screen-morph",
     )
-    // A vertical pull on the hero continuously trades unused artwork space for
+    // A vertical pull on the player continuously trades unused artwork space for
     // the same Queue list used by QueueRoute. Lyrics and queue are exclusive.
     var queueDragActive by remember { mutableStateOf(false) }
     var queueDragFraction by remember { mutableFloatStateOf(0f) }
@@ -528,30 +528,32 @@ private fun NowPlayingScreen(
                 val fullHeroHeightPx = with(density) { fullHeroHeight.roundToPx() }
                 val heroHeight = lyricsMorphHeroHeight(fullHeroHeight, queueMorph)
                 val dragRangePx = with(density) { 260.dp.toPx() }
+                // Apply one gesture definition to hero and controls, not to the
+                // Queue LazyColumn. Vertical list scrolling is then never captured.
+                val queueDragGesture = Modifier.pointerInput(queueExpanded, lyricsExpanded) {
+                    if (!lyricsExpanded) detectVerticalDragGestures(
+                        onDragStart = {
+                            queueDragFraction = if (queueExpanded) 1f else 0f
+                            queueDragActive = true
+                        },
+                        onVerticalDrag = { change, dragY ->
+                            change.consume()
+                            queueDragFraction = (queueDragFraction - dragY / dragRangePx)
+                                .coerceIn(0f, 1f)
+                        },
+                        onDragEnd = {
+                            val expand = queueDragFraction >=
+                                (if (queueExpanded) 0.55f else 0.38f)
+                            queueDragActive = false
+                            onQueueExpandedChange(expand)
+                        },
+                        onDragCancel = { queueDragActive = false },
+                    )
+                }
 
                 Column(Modifier.fillMaxSize()) {
                     Box(
-                        Modifier.fillMaxWidth().height(heroHeight)
-                            .pointerInput(queueExpanded, lyricsExpanded) {
-                                if (!lyricsExpanded) detectVerticalDragGestures(
-                                    onDragStart = {
-                                        queueDragFraction = if (queueExpanded) 1f else 0f
-                                        queueDragActive = true
-                                    },
-                                    onVerticalDrag = { change, dragY ->
-                                        change.consume()
-                                        queueDragFraction = (queueDragFraction - dragY / dragRangePx)
-                                            .coerceIn(0f, 1f)
-                                    },
-                                    onDragEnd = {
-                                        val expand = queueDragFraction >=
-                                            (if (queueExpanded) 0.55f else 0.38f)
-                                        queueDragActive = false
-                                        onQueueExpandedChange(expand)
-                                    },
-                                    onDragCancel = { queueDragActive = false },
-                                )
-                            },
+                        Modifier.fillMaxWidth().height(heroHeight).then(queueDragGesture),
                     ) {
                 // The artwork, title and artist each have ONE composable instance throughout
                 // expansion and collapse. Their bounds interpolate into the same 76.dp header.
@@ -610,7 +612,8 @@ private fun NowPlayingScreen(
 
                     Column(
                         modifier = Modifier.fillMaxWidth()
-                            .onSizeChanged { footerHeightPx = it.height },
+                            .onSizeChanged { footerHeightPx = it.height }
+                            .then(queueDragGesture),
                     ) {
             // v0.5 kept the identity immediately above the waveform with a compact 12.dp gap.
             Spacer(Modifier.height(12.dp))
