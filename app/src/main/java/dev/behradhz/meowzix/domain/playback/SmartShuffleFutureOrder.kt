@@ -28,6 +28,6 @@ internal object SmartShuffleFutureOrder {
     ): List<UUID> {
         val ranked = order(requestedFuture, rankedTrackIds, eligibleTrackIds)
         val included = ranked.toHashSet()
-        return ranked + requestedFuture.distinct().filterNot { included.add(it) }
+        return ranked + requestedFuture.distinct().filter { included.add(it) }
     }
 }
