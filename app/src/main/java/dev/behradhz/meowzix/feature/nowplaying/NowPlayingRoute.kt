@@ -95,6 +95,7 @@ import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
+import dev.behradhz.meowzix.domain.playback.QueueActionKind
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.playback.SleepTimerState
@@ -120,6 +121,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import java.util.UUID
 import kotlin.math.abs
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 
 private val PlayerPrimaryContent: Color
     @Composable get() = MaterialTheme.colorScheme.onSurface
@@ -187,6 +189,18 @@ fun NowPlayingRoute(
         if (lyricsExpanded) lyricsExpanded = false else onBack()
     }
 
+    var deletedSourceNotice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(viewModel) {
+        viewModel.queueActionFeedback.collectLatest { feedback ->
+            if (feedback.kind == QueueActionKind.SOURCE_DELETED) {
+                deletedSourceNotice =
+                    "\"${feedback.trackTitle}\" was deleted from Telegram. Skipping in 5 seconds."
+                delay(5_000L)
+                deletedSourceNotice = null
+            }
+        }
+    }
+
     val globalColors = MaterialTheme.colorScheme
     val extractedAccent = rememberArtworkAccentColor(
         if (appearance.playerAccentSource == PlayerAccentSource.TRACK) state.currentTrack?.artworkRef else null,
@@ -216,6 +230,7 @@ fun NowPlayingRoute(
         ),
     ) {
         MaterialTheme(colorScheme = effectiveColors) {
+            Box(Modifier.fillMaxSize()) {
             NowPlayingScreen(
                 state = state,
                 queueState = queueState,
@@ -263,6 +278,24 @@ fun NowPlayingRoute(
                 onLyricsRestoreAutomatic = lyricsViewModel::restoreAutomaticLyrics,
                 onLyricSeek = lyricsViewModel::seekToLine,
             )
+            deletedSourceNotice?.let { message ->
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 116.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    shadowElevation = 8.dp,
+                ) {
+                    Text(
+                        message,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+            }
         }
     }
 
