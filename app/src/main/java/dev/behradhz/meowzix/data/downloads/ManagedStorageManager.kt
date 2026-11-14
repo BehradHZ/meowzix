@@ -61,15 +61,18 @@ class ManagedStorageManager @Inject constructor(
             if (seen.add(key)) file.length().coerceAtLeast(0L) else 0L
         }
 
-        // Pinned user-requested copies own their category even if a future implementation hardlinks
-        // them into another managed directory; the seen set prevents physical double counting.
+        // Any managed audio is retained audio, whether initiated by Play or Save. Count
+        // legacy playback-cache copies and in-progress .part bytes as saved storage.
+        // Only app-owned paths are counted; MediaStore audio is not managed storage.
         val pinnedPaths = downloadDao.all()
             .filter { it.pinned }
             .mapNotNull { it.localPath }
             .map(::File)
+            .filter { isOwnedBy(it, offlineRoot) || isOwnedBy(it, playbackRoot) }
             .filter(File::isFile)
-        val pinnedBytes = uniqueBytes(pinnedPaths)
-        val temporaryBytes = uniqueBytes(playbackFiles())
+        val savedBytes = uniqueBytes(
+            managedFiles(offlineRoot) + managedFiles(playbackRoot) + pinnedPaths,
+        )
         val otherBytes = uniqueBytes(managedFiles(artworkRoot))
         val protectedBytes = leases.protectedPaths().sumOf { path ->
             File(path).takeIf(File::isFile)?.length()?.coerceAtLeast(0L) ?: 0L
@@ -77,8 +80,8 @@ class ManagedStorageManager @Inject constructor(
         val budget = settingsRepository.storagePolicySettings.first().temporaryCacheBudgetBytes
 
         return ManagedStorageUsage(
-            temporaryPlaybackBytes = temporaryBytes,
-            pinnedOfflineBytes = pinnedBytes,
+            temporaryPlaybackBytes = 0L, // Legacy field: no audio is classified as temporary.
+            pinnedOfflineBytes = savedBytes,
             otherManagedBytes = otherBytes,
             protectedBytes = protectedBytes,
             temporaryBudgetBytes = budget,
@@ -129,9 +132,6 @@ class ManagedStorageManager @Inject constructor(
                 libraryDao.updateAvailability(managed.id, SourceAvailability.MISSING, now)
             }
     }
-
-    private fun playbackFiles(): List<File> = managedFiles(playbackRoot)
-        .filterNot { it.name.endsWith(".part") }
 
     private fun managedFiles(root: File): List<File> = root.listFiles()
         ?.asSequence()
