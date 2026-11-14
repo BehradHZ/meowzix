@@ -153,6 +153,11 @@ class UnifiedSettingsViewModel @Inject constructor(
         refreshWidgetInstances()
     }
 
+    fun setInstanceRedIntensity(instance: WidgetInstance, percent: Int) {
+        WidgetInstancePreferences.setRedIntensity(appContext, instance.kind, instance.id, percent)
+        refreshWidgetInstances()
+    }
+
     private val _storageUsage = MutableStateFlow<ManagedStorageUsage?>(null)
     val storageUsage = _storageUsage.asStateFlow()
 

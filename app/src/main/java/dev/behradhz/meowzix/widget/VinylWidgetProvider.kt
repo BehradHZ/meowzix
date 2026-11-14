@@ -147,7 +147,7 @@ class VinylWidgetProvider : AppWidgetProvider() {
             record: Bitmap?,
         ): RemoteViews {
             val styledArtwork = record?.let { bitmap ->
-                latestPalettes[widgetId]?.let { VinylRecordArtwork.themedFrame(bitmap, it) } ?: bitmap
+                latestPalettes[widgetId]?.let { VinylRecordArtwork.themedFrame(bitmap, it, state.isPlaying) } ?: bitmap
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId)

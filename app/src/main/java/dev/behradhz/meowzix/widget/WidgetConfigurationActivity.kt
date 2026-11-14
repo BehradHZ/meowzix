@@ -157,7 +157,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
                         val connected = withTimeout(3_000L) { connecting.await() }
                         controller = connected
                         val active = PlaybackWidgetState.fromPlayer(connected)
-                        if (active.hasTrack && (active.isPlaying || !lastPlayed.hasTrack)) {
+                        if (active.hasTrack) {
                             lastPlayed = active
                         }
                     } catch (cancel: CancellationException) {
@@ -175,21 +175,26 @@ class WidgetConfigurationActivity : ComponentActivity() {
                 var opacity by remember(widgetId) {
                     mutableIntStateOf(WidgetInstancePreferences.opacity(this, widgetId))
                 }
+                var redIntensity by remember(widgetId) {
+                    mutableIntStateOf(WidgetInstancePreferences.redIntensity(this, widgetId))
+                }
                 WidgetSettingsContent(
                     kind = kind,
                     theme = theme,
                     style = style,
                     opacityPercent = opacity,
+                    redIntensityPercent = redIntensity,
                     appearance = appearance,
                     lastPlayed = lastPlayed,
                     onThemeChange = { theme = it },
                     onStyleChange = { style = it },
                     onOpacityChange = { opacity = it },
+                    onRedIntensityChange = { redIntensity = it },
                     onCancel = ::finish,
                     onApply = {
                         WidgetInstancePreferences.saveAppearance(
                             this@WidgetConfigurationActivity,
-                            kind, widgetId, theme, style, opacity,
+                            kind, widgetId, theme, style, opacity, redIntensity,
                         )
                         setResult(
                             Activity.RESULT_OK,
@@ -209,11 +214,13 @@ private fun WidgetSettingsContent(
     theme: WidgetThemeMode,
     style: WidgetVisualStyle,
     opacityPercent: Int,
+    redIntensityPercent: Int,
     appearance: AppearanceSettings,
     lastPlayed: PlaybackWidgetState,
     onThemeChange: (WidgetThemeMode) -> Unit,
     onStyleChange: (WidgetVisualStyle) -> Unit,
     onOpacityChange: (Int) -> Unit,
+    onRedIntensityChange: (Int) -> Unit,
     onCancel: () -> Unit,
     onApply: () -> Unit,
 ) {
@@ -232,7 +239,7 @@ private fun WidgetSettingsContent(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
-                WidgetAppearancePreview(kind, theme, style, opacityPercent, appearance, lastPlayed)
+                WidgetAppearancePreview(kind, theme, style, opacityPercent, redIntensityPercent, appearance, lastPlayed)
 
                 SettingsGroup("Color theme") {
                     if (kind == WidgetKind.VINYL) {
@@ -245,8 +252,31 @@ private fun WidgetSettingsContent(
                         WidgetChoice("Full color · Original artwork", theme == WidgetThemeMode.FULL_COLOR) {
                             onThemeChange(WidgetThemeMode.FULL_COLOR)
                         }
-                        WidgetChoice("Black & white · Monochrome", theme == WidgetThemeMode.NOTHING) {
+                        WidgetChoice("Nothing monochrome", theme == WidgetThemeMode.NOTHING) {
                             onThemeChange(WidgetThemeMode.NOTHING)
+                        }
+                        if (theme == WidgetThemeMode.NOTHING) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text("Red intensity", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "$redIntensityPercent%",
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            Slider(
+                                value = redIntensityPercent.toFloat(),
+                                onValueChange = {
+                                    onRedIntensityChange((it / 5f).roundToInt().coerceIn(0, 20) * 5)
+                                },
+                                valueRange = 0f..100f,
+                                steps = 19,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                            )
                         }
                     } else {
                         WidgetChoice("Follow app theme", theme == WidgetThemeMode.APP) {
@@ -293,14 +323,6 @@ private fun WidgetSettingsContent(
                         valueRange = 0f..100f,
                         steps = 19,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
-                    )
-                    Text(
-                        if (kind == WidgetKind.VINYL)
-                            "Adjusts the record visibility. Invisible touch controls still work."
-                        else "Only the surface changes; song text and playback buttons stay readable.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
                     )
                 }
             }
@@ -372,12 +394,13 @@ private fun WidgetAppearancePreview(
     mode: WidgetThemeMode,
     style: WidgetVisualStyle,
     opacityPercent: Int,
+    redIntensityPercent: Int,
     appearance: AppearanceSettings,
     lastPlayed: PlaybackWidgetState,
 ) {
     val context = LocalContext.current
     val palette = deriveWidgetPalette(context, appearance, mode, style)
-        .copy(opacityPercent = opacityPercent)
+        .copy(opacityPercent = opacityPercent, vinylRedPercent = redIntensityPercent)
     val foreground = Color(palette.primary)
     val muted = Color(palette.secondary)
     val source by produceState<Bitmap?>(
@@ -391,10 +414,10 @@ private fun WidgetAppearancePreview(
         initialValue = null,
         key1 = source,
         key2 = palette.accent,
-        key3 = palette.vinylColorMode,
+        key3 = Triple(palette.vinylColorMode, palette.vinylRedPercent, lastPlayed.isPlaying),
     ) {
         value = withContext(Dispatchers.Default) {
-            source?.let { VinylRecordArtwork.themedFrame(it, palette) }
+            source?.let { VinylRecordArtwork.themedFrame(it, palette, lastPlayed.isPlaying) }
         }
     }
     Surface(

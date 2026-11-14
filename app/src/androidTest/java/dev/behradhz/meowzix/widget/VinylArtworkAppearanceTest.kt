@@ -13,12 +13,13 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class VinylArtworkAppearanceTest {
-    private fun palette(mode: WidgetThemeMode, accent: Int) = WidgetPalette(
+    private fun palette(mode: WidgetThemeMode, accent: Int, redPercent: Int = 100) = WidgetPalette(
         background = Color.BLACK,
         primary = Color.WHITE,
         secondary = Color.LTGRAY,
         accent = accent,
         vinylColorMode = mode,
+        vinylRedPercent = redPercent,
     )
 
     @Test fun fullColorLeavesOriginalRecordPixelsUnchanged() {
@@ -47,16 +48,45 @@ class VinylArtworkAppearanceTest {
         assertTrue(Color.blue(appPixel) > Color.red(appPixel))
         assertTrue(Color.red(wallpaperPixel) > Color.blue(wallpaperPixel))
     }
-    @Test fun blackAndWhiteModeDiscardsCoverArtHue() {
+    @Test fun nothingPausedUsesScreenshotBlackEvenWithMaximumRedSetting() {
         val source = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
-            .apply { eraseColor(Color.rgb(228, 52, 105)) }
-        val blackAndWhite = VinylRecordArtwork.themedFrame(
-            source, palette(WidgetThemeMode.NOTHING, Color.WHITE),
-        )
-        val pixel = blackAndWhite.getPixel(32, 32)
-        assertEquals(Color.red(pixel), Color.green(pixel))
-        assertEquals(Color.green(pixel), Color.blue(pixel))
-        assertNotEquals(source.getPixel(32, 32), pixel)
+            .apply { eraseColor(Color.BLACK) }
+        val pixel = VinylRecordArtwork.themedFrame(
+            source, palette(WidgetThemeMode.NOTHING, Color.WHITE), isPlaying = false,
+        ).getPixel(32, 32)
+        assertEquals(Color.rgb(31, 27, 24), pixel)
+    }
+
+    @Test fun nothingPlayingAtMaximumUsesScreenshotRedAndKeepsWhiteHighlights() {
+        val black = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+            .apply { eraseColor(Color.BLACK) }
+        val white = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+            .apply { eraseColor(Color.WHITE) }
+        val mode = palette(WidgetThemeMode.NOTHING, Color.WHITE, redPercent = 100)
+        assertEquals(Color.rgb(215, 26, 33), VinylRecordArtwork.themedFrame(
+            black, mode, isPlaying = true,
+        ).getPixel(32, 32))
+        assertEquals(Color.WHITE, VinylRecordArtwork.themedFrame(
+            white, mode, isPlaying = true,
+        ).getPixel(32, 32))
+    }
+
+    @Test fun nothingPlayingAtZeroRedStaysBlackAndHalfRedIsIntermediate() {
+        val source = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+            .apply { eraseColor(Color.BLACK) }
+        val black = VinylRecordArtwork.themedFrame(
+            source, palette(WidgetThemeMode.NOTHING, Color.WHITE, 0), true,
+        ).getPixel(32, 32)
+        val half = VinylRecordArtwork.themedFrame(
+            source, palette(WidgetThemeMode.NOTHING, Color.WHITE, 50), true,
+        ).getPixel(32, 32)
+        val red = VinylRecordArtwork.themedFrame(
+            source, palette(WidgetThemeMode.NOTHING, Color.WHITE, 100), true,
+        ).getPixel(32, 32)
+        assertEquals(Color.rgb(31, 27, 24), black)
+        assertTrue(Color.red(black) < Color.red(half))
+        assertTrue(Color.red(half) < Color.red(red))
+        assertEquals(Color.rgb(215, 26, 33), red)
     }
 
 }

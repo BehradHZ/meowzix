@@ -24,6 +24,7 @@ data class WidgetInstance(
     val theme: WidgetThemeMode,
     val style: WidgetVisualStyle,
     val opacityPercent: Int = 100,
+    val redIntensityPercent: Int = 100,
 )
 
 object WidgetInstancePreferences {
@@ -58,13 +59,16 @@ object WidgetInstancePreferences {
     fun opacity(context: Context, widgetId: Int): Int =
         prefs(context).getInt("opacity_$widgetId", 100).coerceIn(0, 100)
 
+    fun redIntensity(context: Context, widgetId: Int): Int =
+        prefs(context).getInt("vinyl_red_$widgetId", 100).coerceIn(0, 100)
+
     fun installed(context: Context): List<WidgetInstance> {
         val manager = AppWidgetManager.getInstance(context)
         return WidgetKind.entries.flatMap { kind ->
             val provider = if (kind == WidgetKind.VINYL)
                 VinylWidgetProvider::class.java else PlaybackWidgetProvider::class.java
             manager.getAppWidgetIds(ComponentName(context, provider)).map { id ->
-                WidgetInstance(id, kind, theme(context, id), style(context, id), opacity(context, id))
+                WidgetInstance(id, kind, theme(context, id), style(context, id), opacity(context, id), redIntensity(context, id))
             }
         }.sortedWith(compareBy(WidgetInstance::kind, WidgetInstance::id))
     }
@@ -87,7 +91,13 @@ object WidgetInstancePreferences {
         refresh(context, kind, id)
     }
 
-    /** Save all controls together to avoid three consecutive launcher redraws. */
+    fun setRedIntensity(context: Context, kind: WidgetKind, id: Int, percent: Int) {
+        if (kind != WidgetKind.VINYL || installed(context).none { it.id == id && it.kind == kind }) return
+        prefs(context).edit().putInt("vinyl_red_$id", percent.coerceIn(0, 100)).apply()
+        refresh(context, kind, id)
+    }
+
+    /** Save all controls together to avoid repeated launcher redraws. */
     fun saveAppearance(
         context: Context,
         kind: WidgetKind,
@@ -95,12 +105,14 @@ object WidgetInstancePreferences {
         theme: WidgetThemeMode,
         style: WidgetVisualStyle,
         opacityPercent: Int,
+        redIntensityPercent: Int = 100,
     ) {
         if (installed(context).none { it.id == id && it.kind == kind }) return
         prefs(context).edit()
             .putString("theme_$id", widgetThemeFor(kind, theme).name)
             .putString("style_$id", widgetStyleFor(kind, style).name)
             .putInt("opacity_$id", opacityPercent.coerceIn(0, 100))
+            .putInt("vinyl_red_$id", redIntensityPercent.coerceIn(0, 100))
             .apply()
         refresh(context, kind, id)
     }
@@ -111,6 +123,7 @@ object WidgetInstancePreferences {
             editor.remove("theme_$id")
             editor.remove("style_$id")
             editor.remove("opacity_$id")
+            editor.remove("vinyl_red_$id")
         }
         editor.apply()
     }

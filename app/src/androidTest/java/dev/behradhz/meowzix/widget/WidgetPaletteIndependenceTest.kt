@@ -65,6 +65,8 @@ class WidgetPaletteIndependenceTest {
                 .putString("style_$second", WidgetVisualStyle.CLASSIC.name)
                 .putInt("opacity_$first", 30)
                 .putInt("opacity_$second", 85)
+                .putInt("vinyl_red_$first", 35)
+                .putInt("vinyl_red_$second", 90)
                 .commit()
             assertEquals(WidgetThemeMode.NOTHING, WidgetInstancePreferences.theme(context, first))
             assertEquals(WidgetThemeMode.WALLPAPER, WidgetInstancePreferences.theme(context, second))
@@ -72,6 +74,8 @@ class WidgetPaletteIndependenceTest {
             assertEquals(WidgetVisualStyle.CLASSIC, WidgetInstancePreferences.style(context, second))
             assertEquals(30, WidgetInstancePreferences.opacity(context, first))
             assertEquals(85, WidgetInstancePreferences.opacity(context, second))
+            assertEquals(35, WidgetInstancePreferences.redIntensity(context, first))
+            assertEquals(90, WidgetInstancePreferences.redIntensity(context, second))
         } finally {
             WidgetInstancePreferences.remove(context, intArrayOf(first, second))
         }

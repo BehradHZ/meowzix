@@ -30,6 +30,7 @@ internal data class WidgetPalette(
     val monochrome: Boolean = false,
     // Vinyl tint policy is independent of Playback widget visual styles.
     val vinylColorMode: WidgetThemeMode = WidgetThemeMode.FULL_COLOR,
+    val vinylRedPercent: Int = 100,
     val style: WidgetVisualStyle = WidgetVisualStyle.CLASSIC,
     val controlBackground: Int = background,
     val opacityPercent: Int = 100,
@@ -113,7 +114,10 @@ internal suspend fun widgetPalette(context: Context, widgetId: Int): WidgetPalet
         settings,
         WidgetInstancePreferences.theme(context, widgetId),
         WidgetInstancePreferences.style(context, widgetId),
-    ).copy(opacityPercent = WidgetInstancePreferences.opacity(context, widgetId))
+    ).copy(
+        opacityPercent = WidgetInstancePreferences.opacity(context, widgetId),
+        vinylRedPercent = WidgetInstancePreferences.redIntensity(context, widgetId),
+    )
 }
 
 /** Nothing-style typography uses the system monospace font, not a bundled font file. */

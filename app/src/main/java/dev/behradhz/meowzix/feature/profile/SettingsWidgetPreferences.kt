@@ -33,6 +33,7 @@ internal fun SettingsWidgetPreferences(
     onTheme: (WidgetInstance, WidgetThemeMode) -> Unit,
     onStyle: (WidgetInstance, WidgetVisualStyle) -> Unit,
     onOpacity: (WidgetInstance, Int) -> Unit,
+    onRedIntensity: (WidgetInstance, Int) -> Unit = { _, _ -> },
 ) {
     if (installed.isEmpty()) {
         Text(
@@ -57,7 +58,7 @@ internal fun SettingsWidgetPreferences(
             // Keep legacy in-app controls compatible with launcher configuration:
             // Vinyl has four color treatments and only the record visual style.
             val modes = if (instance.kind == WidgetKind.VINYL)
-                listOf("App accent", "Wallpaper accent", "Full color", "Black & white")
+                listOf("App accent", "Wallpaper accent", "Full color", "Nothing monochrome")
             else listOf("App theme", "Wallpaper", "Nothing monochrome")
             SettingsChoiceRow(
                 "Color theme",
@@ -77,6 +78,31 @@ internal fun SettingsWidgetPreferences(
                     "Full color" -> WidgetThemeMode.FULL_COLOR
                     else -> WidgetThemeMode.APP
                 })
+            }
+            if (instance.kind == WidgetKind.VINYL && instance.theme == WidgetThemeMode.NOTHING) {
+                var redDraft by remember(instance.id, instance.redIntensityPercent) {
+                    mutableIntStateOf(instance.redIntensityPercent)
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Red intensity", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "$"+"{redDraft}%",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Slider(
+                    value = redDraft.toFloat(),
+                    onValueChange = { redDraft = (it / 5f).roundToInt().coerceIn(0, 20) * 5 },
+                    onValueChangeFinished = { onRedIntensity(instance, redDraft) },
+                    valueRange = 0f..100f,
+                    steps = 19,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                )
             }
             if (instance.kind == WidgetKind.PLAYBACK) {
                 SettingsChoiceRow(

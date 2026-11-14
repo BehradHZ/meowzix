@@ -16,6 +16,7 @@ import android.net.Uri
 import java.io.File
 import java.io.FileInputStream
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -29,6 +30,9 @@ import kotlinx.coroutines.withContext
 internal object VinylRecordArtwork {
     private const val SIZE = 288
     private const val STEP_DEGREES = 16f
+    // Colors sampled from the user's Nothing-style home-screen icons.
+    private val nothingRed = Color.rgb(215, 26, 33) // #D71A21
+    private val nothingBlack = Color.rgb(31, 27, 24) // #1F1B18
     private val lock = Any()
     private var base: Bitmap? = null
     private var angle = 0f
@@ -51,25 +55,47 @@ internal object VinylRecordArtwork {
         }
 
     /**
-     * Apply the same transformation in the launcher widget and in Settings preview.
-     * APP and WALLPAPER preserve the album-art luminance and disc grooves but color
-     * every pixel with that theme's single accent hue. FULL_COLOR leaves the record
-     * untouched so the original cover artwork is genuinely full color.
+     * Render the same color treatment in the launcher widget and Settings preview.
+     * Nothing monochrome keeps highlights white while its dark tone blends between
+     * screenshot black and red. Pausing always restores black without losing the setting.
      */
-    fun themedFrame(source: Bitmap, palette: WidgetPalette): Bitmap {
-        if (palette.vinylColorMode == dev.behradhz.meowzix.domain.settings.WidgetThemeMode.FULL_COLOR) {
+    fun themedFrame(source: Bitmap, palette: WidgetPalette, isPlaying: Boolean = false): Bitmap {
+        val mode = palette.vinylColorMode
+        if (mode == dev.behradhz.meowzix.domain.settings.WidgetThemeMode.FULL_COLOR) {
             return source
         }
-        val accent = palette.accent
-        val r = Color.red(accent) / 255f
-        val g = Color.green(accent) / 255f
-        val b = Color.blue(accent) / 255f
-        val tint = ColorMatrix(floatArrayOf(
-            .299f * r, .587f * r, .114f * r, 0f, 0f,
-            .299f * g, .587f * g, .114f * g, 0f, 0f,
-            .299f * b, .587f * b, .114f * b, 0f, 0f,
-            0f, 0f, 0f, 1f, 0f,
-        ))
+        val (tint, ringColor) =
+            if (mode == dev.behradhz.meowzix.domain.settings.WidgetThemeMode.NOTHING) {
+                val strength = if (isPlaying) palette.vinylRedPercent.coerceIn(0, 100) / 100f else 0f
+                val darkR = Color.red(nothingBlack) +
+                    (Color.red(nothingRed) - Color.red(nothingBlack)) * strength
+                val darkG = Color.green(nothingBlack) +
+                    (Color.green(nothingRed) - Color.green(nothingBlack)) * strength
+                val darkB = Color.blue(nothingBlack) +
+                    (Color.blue(nothingRed) - Color.blue(nothingBlack)) * strength
+                // Output = darkTone * (1 - luminance) + white * luminance.
+                // White stays white at every slider value; dark pixels turn red only while playing.
+                ColorMatrix(floatArrayOf(
+                    .299f * (1f - darkR / 255f), .587f * (1f - darkR / 255f),
+                    .114f * (1f - darkR / 255f), 0f, darkR,
+                    .299f * (1f - darkG / 255f), .587f * (1f - darkG / 255f),
+                    .114f * (1f - darkG / 255f), 0f, darkG,
+                    .299f * (1f - darkB / 255f), .587f * (1f - darkB / 255f),
+                    .114f * (1f - darkB / 255f), 0f, darkB,
+                    0f, 0f, 0f, 1f, 0f,
+                )) to Color.rgb(darkR.roundToInt(), darkG.roundToInt(), darkB.roundToInt())
+            } else {
+                val accent = palette.accent
+                val r = Color.red(accent) / 255f
+                val g = Color.green(accent) / 255f
+                val b = Color.blue(accent) / 255f
+                ColorMatrix(floatArrayOf(
+                    .299f * r, .587f * r, .114f * r, 0f, 0f,
+                    .299f * g, .587f * g, .114f * g, 0f, 0f,
+                    .299f * b, .587f * b, .114f * b, 0f, 0f,
+                    0f, 0f, 0f, 1f, 0f,
+                )) to accent
+            }
         val result = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
@@ -77,7 +103,7 @@ internal object VinylRecordArtwork {
         }
         canvas.drawBitmap(source, 0f, 0f, paint)
         val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = accent
+            color = ringColor
             alpha = 200
             strokeWidth = source.width * .012f
             style = Paint.Style.STROKE
