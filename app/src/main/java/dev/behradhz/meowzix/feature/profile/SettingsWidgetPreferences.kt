@@ -33,7 +33,7 @@ internal fun SettingsWidgetPreferences(
     onTheme: (WidgetInstance, WidgetThemeMode) -> Unit,
     onStyle: (WidgetInstance, WidgetVisualStyle) -> Unit,
     onOpacity: (WidgetInstance, Int) -> Unit,
-    onRedIntensity: (WidgetInstance, Int) -> Unit = { _, _ -> },
+    onRedIntensity: (WidgetInstance, Int) -> Unit,
 ) {
     if (installed.isEmpty()) {
         Text(
@@ -90,7 +90,7 @@ internal fun SettingsWidgetPreferences(
                 ) {
                     Text("Red intensity", style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        "$"+"{redDraft}%",
+                        "${redDraft}%",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                     )
