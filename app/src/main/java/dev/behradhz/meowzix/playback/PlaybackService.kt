@@ -1716,7 +1716,11 @@ class PlaybackService : MediaLibraryService() {
         failedUri: android.net.Uri,
         alreadyConfirmed: Boolean = false,
     ) {
-        if (missingSourceMediaId == mediaId && missingSourceCheckJob?.isActive == true) return
+        if (missingSourceMediaId == mediaId && missingSourceCheckJob?.isActive == true &&
+            !alreadyConfirmed
+        ) return
+        // A positive deletion notification supersedes a slower in-flight
+        // network check; otherwise the stale stream could keep buffering.
         missingSourceCheckJob?.cancel()
         missingSourceMediaId = mediaId
         val trackId = runCatching { UUID.fromString(mediaId) }.getOrNull() ?: return
