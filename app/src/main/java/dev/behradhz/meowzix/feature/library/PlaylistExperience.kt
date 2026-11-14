@@ -332,6 +332,7 @@ internal fun PlaylistDetailScreenV3(
     onRestoreTelegramMetadata: () -> Unit = {},
     libraryTrackIds: Set<UUID> = emptySet(),
     onAddToLibrary: (Track) -> Unit = {},
+    onRemoveTrack: ((Track, Boolean, Boolean) -> Unit)? = null,
     telegramPerson: Boolean = false,
     profileTrackIds: Set<UUID> = emptySet(),
     messageTrackIds: Set<UUID> = emptySet(),
@@ -689,6 +690,11 @@ internal fun PlaylistDetailScreenV3(
                                 onAddToQueue = { onAddToQueue(track) },
                                 onPinOffline = { onPinOffline(track) },
                                 onRemoveOfflineCopy = { onRemoveOfflineCopy(track) },
+                                onRemoveTrack = onRemoveTrack?.let { remove ->
+                                    { offline, library -> remove(track, offline, library) }
+                                },
+                                canRemoveFromLibrary = playlist?.telegramManaged != true ||
+                                    track.id in libraryTrackIds,
                                 availability = availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
                                 download = downloads[track.id],
                                 playlists = playlists,
@@ -860,6 +866,11 @@ internal fun PlaylistDetailScreenV3(
                                 onAddToQueue = { onAddToQueue(track) },
                                 onPinOffline = { onPinOffline(track) },
                                 onRemoveOfflineCopy = { onRemoveOfflineCopy(track) },
+                                onRemoveTrack = onRemoveTrack?.let { remove ->
+                                    { offline, library -> remove(track, offline, library) }
+                                },
+                                canRemoveFromLibrary = playlist?.telegramManaged != true ||
+                                    track.id in libraryTrackIds,
                                 availability = availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
                                 download = downloads[track.id],
                                 playlists = playlists,
