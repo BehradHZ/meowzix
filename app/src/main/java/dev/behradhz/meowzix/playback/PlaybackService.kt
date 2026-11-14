@@ -1648,11 +1648,15 @@ class PlaybackService : MediaLibraryService() {
                 (expectedOccurrence != null && expectedOccurrence != currentOccurrence)
             ) return@launch
 
-            if (!progressiveQueue.removeOccurrence(currentOccurrence)) return@launch
+            val hasSuccessor = snapshot.tracks.drop(snapshot.currentIndex + 1)
+                .any { it.id != trackId }
+            if (!progressiveQueue.removeUnavailableTrack(trackId)) return@launch
             val nextSnapshot = progressiveQueue.snapshot()
             missingSourceCheckJob = null
             missingSourceMediaId = null
-            if (nextSnapshot == null) {
+            if (!hasSuccessor || nextSnapshot == null) {
+                // Never replay a previous history item as the "next" song.
+                progressiveQueue.clear()
                 player.clearMediaItems()
             } else {
                 val plan = progressiveQueue.resetWindow()
