@@ -138,6 +138,11 @@ fun QueueRoute(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val aux by viewModel.aux.collectAsStateWithLifecycle()
     var forwardSelection by remember { mutableStateOf<TrackForwardSelection?>(null) }
+    LaunchedEffect(viewModel) {
+        viewModel.removalErrors.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        }
+    }
 
     CompositionLocalProvider(
         LocalLibraryRecommendationActions provides LibraryRecommendationActions(
@@ -180,6 +185,7 @@ fun QueueRoute(
             onPlayNext = viewModel::playNext,
             onAddToQueue = viewModel::addToQueue,
             onPinOffline = viewModel::pinOffline,
+            onRemoveTrack = viewModel::removeTrack,
             onFavorite = viewModel::toggleFavorite,
             onAddToPlaylist = viewModel::addToPlaylist,
             onGoToArtist = onGoToArtist,
@@ -210,6 +216,7 @@ private fun QueueScreen(
     onPlayNext: (UUID) -> Unit,
     onAddToQueue: (UUID) -> Unit,
     onPinOffline: (UUID) -> Unit,
+    onRemoveTrack: (UUID, Boolean, Boolean) -> Unit,
     onFavorite: (UUID) -> Unit,
     onAddToPlaylist: (UUID, UUID) -> Unit,
     onGoToArtist: (String) -> Unit,
@@ -607,6 +614,7 @@ private fun QueueScreen(
                             onPlayNext = { onPlayNext(item.id) },
                             onAddToQueue = { onAddToQueue(item.id) },
                             onPinOffline = { onPinOffline(item.id) },
+                            onRemoveTrack = { offline, library -> onRemoveTrack(item.id, offline, library) },
                             availability = aux.statuses[item.id]?.availability ?: LibraryTrackAvailability.UNAVAILABLE,
                             download = aux.downloads[item.id],
                             favorite = aux.statuses[item.id]?.favorite == true,
@@ -838,6 +846,7 @@ private fun SwipeableQueueItem(
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onPinOffline: () -> Unit,
+    onRemoveTrack: (Boolean, Boolean) -> Unit,
     availability: LibraryTrackAvailability,
     download: OfflineDownload?,
     favorite: Boolean,
@@ -1035,6 +1044,9 @@ private fun SwipeableQueueItem(
                             onEditMetadata = { trackToolsActions?.editMetadata?.invoke(item.id) },
                             onManageDuplicates = { trackToolsActions?.manageDuplicates?.invoke(item.id) },
                             onWhy = { recommendationActions?.why?.invoke(item.id) },
+                            onRemoveFromLocations = onRemoveTrack,
+                            canRemoveOffline = download != null &&
+                                download.status != dev.behradhz.meowzix.domain.downloads.DownloadStatus.CANCELED,
                         )
                     }
                 }
