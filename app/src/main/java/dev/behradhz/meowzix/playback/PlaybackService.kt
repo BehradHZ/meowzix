@@ -1,8 +1,11 @@
 package dev.behradhz.meowzix.playback
 
 import android.app.ActivityOptions
+import android.app.KeyguardManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.Context
 import android.media.AudioManager
 import android.media.AudioPlaybackConfiguration
@@ -13,6 +16,7 @@ import android.os.PowerManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -43,6 +47,9 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.MainActivity
+import dev.behradhz.meowzix.LockScreenPlayerActivity
+import dev.behradhz.meowzix.LockScreenPlayerPreferences
+import dev.behradhz.meowzix.shouldOpenLockScreenPlayer
 import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
@@ -123,6 +130,31 @@ class PlaybackService : MediaLibraryService() {
     }
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaLibrarySession
+    // SCREEN_ON is a protected, runtime-only broadcast. This receiver lives only as
+    // long as MediaLibraryService does and does not start another background service.
+    private val lockScreenWakeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != Intent.ACTION_SCREEN_ON) return
+            val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            if (!shouldOpenLockScreenPlayer(
+                    enabled = LockScreenPlayerPreferences.isEnabled(this@PlaybackService),
+                    overlayPermission = Settings.canDrawOverlays(this@PlaybackService),
+                    keyguardLocked = keyguard.isKeyguardLocked,
+                    activelyPlaying = player.isPlaying && player.currentMediaItem != null,
+                )
+            ) return
+
+            // No keyguard dismissal, no screen wakeup and no persistent overlay.
+            // Android permits a background Activity launch with user-granted SAW access;
+            // OEMs can still restrict this, so failures must leave playback unaffected.
+            runCatching {
+                startActivity(Intent(this@PlaybackService, LockScreenPlayerActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                })
+            }.onFailure { Log.w("MeowzixLockScreen", "Lock screen player could not open", it) }
+        }
+    }
     private lateinit var playbackAudioAttributes: AudioAttributes
     private lateinit var audioManager: AudioManager
     private var resumeAfterExternalAudioEnabled = false
@@ -788,6 +820,7 @@ class PlaybackService : MediaLibraryService() {
             .build()
         player = buildPlayer(handleAudioFocus = true)
             .also { it.addListener(playerListener) }
+        registerReceiver(lockScreenWakeReceiver, IntentFilter(Intent.ACTION_SCREEN_ON))
 
         val openPlayerIntent = PendingIntent.getActivity(
             this,
@@ -1000,6 +1033,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: ControllerInfo): MediaLibrarySession = mediaSession
 
     override fun onDestroy() {
+        unregisterReceiver(lockScreenWakeReceiver)
         PlaybackServiceBridge.unregister(this)
         liveSongTransitionRetry.cancel()
         liveSongCard?.cancel()
