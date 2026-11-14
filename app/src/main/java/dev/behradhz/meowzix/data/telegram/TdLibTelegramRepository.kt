@@ -752,16 +752,39 @@ class TdLibTelegramRepository @Inject constructor(
     }
 
     override suspend fun messageLinkForTrack(trackId: UUID): String? {
-        // Prefer the active Telegram account. Previously imported music retains source links.
+        // The same source table holds Telegram messages (positive messageId) and
+        // profile music (negative synthetic IDs). A profile audio has no message link.
         val source = currentUserId?.toString()?.let { accountId ->
-            telegramDao.telegramMessageSourceForTrack(accountId, trackId.toString())
-        } ?: telegramDao.telegramMessageSourceForAnyAccountTrack(trackId.toString()) ?: return null
+            telegramDao.telegramSourceForTrack(accountId, trackId.toString())
+        } ?: telegramDao.telegramSourceForAnyAccountTrack(trackId.toString()) ?: return null
 
-        val activeClient = client
-        if (activeClient != null && currentUserId?.toString() == source.accountId &&
-            _authState.value.step == TelegramAuthStep.Ready
-        ) {
-            // TDLib generates the correct public/private link and handles its own message IDs.
+        val activeClient = client.takeIf {
+            currentUserId?.toString() == source.accountId &&
+                _authState.value.step == TelegramAuthStep.Ready
+        }
+
+        if (source.messageId < 0L) {
+            // A private chat ID is not necessarily the corresponding user ID.
+            // Resolve the actual peer through TDLib; never construct a profile link
+            // from the synthetic message ID or an unverified chat identifier.
+            val resolved = activeClient?.let { tdlib ->
+                runCatching {
+                    val privateChat = tdlib.send(TdApi.GetChat(source.chatId)).type
+                        as? TdApi.ChatTypePrivate ?: return@runCatching null
+                    val userId = privateChat.userId
+                    val username = runCatching {
+                        tdlib.send(TdApi.GetUser(userId)).usernames
+                            ?.activeUsernames?.firstOrNull()
+                    }.getOrNull()
+                    telegramProfileDeepLink(userId, username)
+                }.getOrNull()
+            }
+            return resolved
+        }
+
+        if (source.messageId <= 0L) return null
+        if (activeClient != null) {
+            // TDLib generates correct public/private links, including its own message IDs.
             val link = runCatching {
                 activeClient.send(
                     TdApi.GetMessageLink(source.chatId, source.messageId, 0, 0, "", false, false),
