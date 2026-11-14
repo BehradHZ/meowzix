@@ -653,9 +653,6 @@ fun UnifiedSettingsScreen(
             if (page == SettingsCategory.DATA) {
                 item(key = "manage-data") {
                         SettingsGlassSection(hazeState, "Data controls", "Changes that deserve a second look", Icons.Rounded.DeleteOutline) {
-                            SettingsDangerRow("Clear incomplete transfers", "Removes only interrupted partial files, never completed audio",
-                                Icons.Rounded.DeleteSweep) { pendingDanger = SettingsDangerAction.CLEAR_CACHE }
-                            SettingsRowDivider()
                             SettingsDangerRow("Clear listening history", "Delete raw listening events",
                                 Icons.Rounded.History) { pendingDanger = SettingsDangerAction.CLEAR_HISTORY }
                             SettingsRowDivider()
@@ -684,8 +681,7 @@ fun UnifiedSettingsScreen(
                         downloadsStatus = downloadSummary.activeCount.toString() +
                             " active downloads · " + downloadSummary.pinnedCount + " saved offline",
                         managedStorage = storageUsage?.let { usage ->
-                            "Managed storage: untracked " + formatBytes(usage.temporaryPlaybackBytes) +
-                                ", saved " + formatBytes(usage.pinnedOfflineBytes) +
+                            "Managed storage: saved audio " + formatBytes(usage.pinnedOfflineBytes) +
                                 ", artwork " + formatBytes(usage.otherManagedBytes)
                         } ?: "Managed storage is being calculated",
                         onOpenBrand = onOpenBrand,
@@ -743,7 +739,6 @@ fun UnifiedSettingsScreen(
                 TextButton(onClick = {
                     pendingDanger = null
                     when (action) {
-                        SettingsDangerAction.CLEAR_CACHE -> viewModel.clearTemporaryCache()
                         SettingsDangerAction.CLEAR_HISTORY -> viewModel.clearHistory()
                         SettingsDangerAction.RESET_PERSONALIZATION -> viewModel.resetPersonalization()
                         SettingsDangerAction.DISCONNECT_TELEGRAM -> viewModel.disconnectTelegram()
