@@ -1,7 +1,5 @@
 package dev.behradhz.meowzix.ui.components
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
@@ -17,7 +15,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -27,8 +24,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 
-/** A song card lets 70% of the background show through. */
+/** Consistent glass-card spacing and swipe targets across Library and Queue. */
 const val TRACK_CARD_ALPHA = 0.30f
+val TRACK_ROW_HORIZONTAL_PADDING = 12.dp
+val TRACK_ROW_VERTICAL_PADDING = 8.dp
+val TRACK_ROW_SPACING = 8.dp
+val TRACK_SWIPE_ACTION_THRESHOLD = 100.dp
+val TRACK_SWIPE_REMOVE_THRESHOLD = 176.dp
+val TRACK_SWIPE_MAX_DISTANCE = 240.dp
 
 /**
  * Slide the first action *under the foreground song card* during a deeper pull.
@@ -59,22 +62,18 @@ fun BoxScope.StagedSwipeReveal(
 ) {
     if (abs(offsetPx) <= 0.5f) return
     val swipingRight = offsetPx > 0f
-    val transitionDistance = with(LocalDensity.current) { 72.dp.toPx() }
-    val slideTarget = if (secondaryLabel != null) {
+    // No second timeline or stepped transition: the action follows the
+    // foreground's actual position on every drag frame (and on spring return).
+    val transitionDistance = with(LocalDensity.current) {
+        TRACK_SWIPE_REMOVE_THRESHOLD.toPx() - TRACK_SWIPE_ACTION_THRESHOLD.toPx()
+    }
+    val slide = if (secondaryLabel != null) {
         stagedActionSlidePx(
             offsetPx,
             secondStageStartPx = secondaryThresholdPx - transitionDistance,
             transitionDistancePx = transitionDistance,
         )
     } else 0f
-    // Restore the 190ms action-card exit from the original stacked swipe:
-    // the first panel eases underneath the foreground as Remove takes over.
-    val animatedExitProgress by animateFloatAsState(
-        targetValue = if (offsetPx == 0f) 0f else slideTarget / offsetPx,
-        animationSpec = tween(durationMillis = 190),
-        label = "swipe-action-layer-exit",
-    )
-    val slide = offsetPx * animatedExitProgress
 
     if (secondaryLabel != null && abs(slide) > 0.5f) {
         Surface(
@@ -110,18 +109,18 @@ fun BoxScope.StagedSwipeReveal(
 @Composable
 private fun SwipeActionLabel(label: String, icon: ImageVector, swipingRight: Boolean) {
     Row(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
         horizontalArrangement = if (swipingRight) Arrangement.Start else Arrangement.End,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (swipingRight) {
-            Icon(icon, contentDescription = null)
-            Spacer(Modifier.size(7.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(5.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         } else {
-            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.size(7.dp))
-            Icon(icon, contentDescription = null)
+            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.size(5.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
         }
     }
 }
