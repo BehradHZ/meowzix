@@ -38,18 +38,14 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BugReport
-import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.DownloadForOffline
-import androidx.compose.material.icons.rounded.Downloading
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.automirrored.rounded.Logout
@@ -64,7 +60,6 @@ import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
@@ -230,7 +225,13 @@ fun UnifiedSettingsScreen(
         ) {
             if (page == null) {
                 item(key = "categories") {
-                    SettingsCategoryIndex(hazeState) { category -> selectedCategory = category }
+                    SettingsCategoryIndex(hazeState) { category ->
+                        when (category) {
+                            SettingsCategory.TELEGRAM -> onOpenTelegram()
+                            SettingsCategory.DOWNLOADS -> onOpenDownloads()
+                            else -> selectedCategory = category
+                        }
+                    }
                 }
                 item(key = "settings-version") {
                     Text(
@@ -583,40 +584,6 @@ fun UnifiedSettingsScreen(
                         }
                     }
                 }
-            }
-            if (page == SettingsCategory.CONNECTIONS) {
-                item(key = "telegram") {
-                        SettingsGlassSection(hazeState, "Telegram", "Connection and selected music sources", Icons.Rounded.Cloud) {
-                            SettingsActionRow("Music sources",
-                                if (telegramConnected) "Manage selected chats" else "Connect Telegram to choose music chats",
-                                Icons.Rounded.FolderOpen, "Manage", onOpenTelegram)
-                            SettingsRowDivider()
-                            SettingsActionRow("Sync selected sources",
-                                if (!telegramConnected) "Connect Telegram to sync" else if (telegramSources.isSyncing) "Sync in progress" else "Refresh selected sources",
-                                Icons.Rounded.Sync, if (telegramSources.isSyncing) "Syncing" else "Sync",
-                                viewModel::syncTelegram, enabled = telegramConnected && !telegramSources.isSyncing)
-                            SettingsRowDivider()
-                            SettingsToggleRow("Wi-Fi only cloud downloads", "Applies to Telegram-backed downloads",
-                                Icons.Rounded.Wifi, state.network.wifiOnlyDownloads, viewModel::setWifiOnly)
-                        }
-                    }
-            }
-            if (page == SettingsCategory.CONNECTIONS) {
-                item(key = "storage") {
-                        SettingsGlassSection(hazeState, "Downloads & storage", "Keep listening, even offline", Icons.Rounded.Download) {
-                            SettingsActionRow("Offline files & downloads",
-                                "${downloadSummary.activeCount} active · ${downloadSummary.pinnedCount} saved offline",
-                                Icons.Rounded.DownloadForOffline, "Manage", onOpenDownloads)
-                            SettingsRowDivider()
-                            SettingsToggleRow("Prefetch", "Prepare likely next tracks when policy allows",
-                                Icons.Rounded.Downloading, state.network.prefetchEnabled, viewModel::setPrefetch)
-                            SettingsRowDivider()
-                            SettingsToggleRow("Prefetch on metered networks",
-                                "Available when prefetch is on and Wi-Fi-only downloads are off",
-                                Icons.Rounded.Wifi, state.network.prefetchOnMetered, viewModel::setPrefetchOnMetered,
-                                enabled = state.network.prefetchEnabled && !state.network.wifiOnlyDownloads)
-                        }
-                    }
             }
             if (page == SettingsCategory.DATA) {
                 item(key = "privacy") {
