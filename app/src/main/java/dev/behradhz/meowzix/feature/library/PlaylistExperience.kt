@@ -703,6 +703,16 @@ internal fun PlaylistDetailScreenV3(
                                 onAddToLibrary = if (playlist?.telegramManaged == true && track.id !in libraryTrackIds) {
                                     { onAddToLibrary(track) }
                                 } else null,
+                                chatLibraryMembership = if (playlist?.telegramManaged == true) {
+                                    track.id in libraryTrackIds
+                                } else null,
+                                onChatLibraryToggle = if (playlist?.telegramManaged == true) {
+                                    if (track.id in libraryTrackIds) {
+                                        onRemoveTrack?.let { remove -> { remove(track, false, true) } }
+                                    } else {
+                                        { onAddToLibrary(track) }
+                                    }
+                                } else null,
                                 onGoToArtist = { onGoToArtist(track) },
                                 onEnsureArtwork = { onEnsureArtwork(track) },
                                 onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
@@ -878,6 +888,16 @@ internal fun PlaylistDetailScreenV3(
                                 onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
                                 onAddToLibrary = if (playlist?.telegramManaged == true && track.id !in libraryTrackIds) {
                                     { onAddToLibrary(track) }
+                                } else null,
+                                chatLibraryMembership = if (playlist?.telegramManaged == true) {
+                                    track.id in libraryTrackIds
+                                } else null,
+                                onChatLibraryToggle = if (playlist?.telegramManaged == true) {
+                                    if (track.id in libraryTrackIds) {
+                                        onRemoveTrack?.let { remove -> { remove(track, false, true) } }
+                                    } else {
+                                        { onAddToLibrary(track) }
+                                    }
                                 } else null,
                                 onGoToArtist = { onGoToArtist(track) },
                                 onEnsureArtwork = { onEnsureArtwork(track) },
