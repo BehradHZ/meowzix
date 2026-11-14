@@ -78,6 +78,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -234,7 +235,7 @@ fun PlayerInlineQueue(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun QueueScreen(
+internal fun QueueScreen(
     state: QueueState,
     aux: QueueAuxState,
     searchQuery: String,
@@ -951,6 +952,7 @@ private fun SwipeableQueueItem(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
+                .testTag("queue-item-${item.occurrenceId}")
                 .graphicsLayer {
                     translationX = visualOffsetX
                     shape = RoundedCornerShape(18.dp)
