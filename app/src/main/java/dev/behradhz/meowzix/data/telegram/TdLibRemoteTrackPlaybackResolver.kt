@@ -113,11 +113,15 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         val missing = if (source.messageId < 0L) {
             // A completed profile-audio lookup can confirm removal; network/errors
             // throw and must never be confused with deletion.
-            runCatching {
+            try {
                 findTelegramProfileAudio(
                     client, source.chatId, source.messageId, source.tdPersistentFileId,
                 ) == null
-            }.getOrDefault(false)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            }
         } else {
             try {
                 val message = client.send(TdApi.GetMessage(source.chatId, source.messageId))
