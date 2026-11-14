@@ -226,6 +226,10 @@ fun NowPlayingRoute(
         primaryContainer = customAccent.copy(alpha = 0.23f).compositeOver(globalColors.surface),
         secondaryContainer = customAccent.copy(alpha = 0.13f).compositeOver(globalColors.surface),
         surface = customAccent.copy(alpha = 0.055f).compositeOver(globalColors.surface),
+        // Shared Queue rows use surfaceVariant/outlineVariant; tint these too
+        // so they inherit the artwork-accent palette, not the app-wide neutral.
+        surfaceVariant = customAccent.copy(alpha = 0.12f).compositeOver(globalColors.surfaceVariant),
+        outlineVariant = customAccent.copy(alpha = 0.18f).compositeOver(globalColors.outlineVariant),
     )
     CompositionLocalProvider(
         LocalTrackChatLinkActions provides TrackChatLinkActions(
