@@ -66,6 +66,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -74,6 +75,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -109,6 +111,7 @@ import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
 import dev.behradhz.meowzix.feature.library.LibraryToolsViewModel
 import dev.behradhz.meowzix.feature.library.LocalTrackChatLinkActions
 import dev.behradhz.meowzix.feature.library.TrackChatLinkActions
+import dev.behradhz.meowzix.feature.queue.PlayerInlineQueue
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
 import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
@@ -140,6 +143,7 @@ fun NowPlayingRoute(
     onLyricsExpandedChange: (Boolean) -> Unit = {},
     onMoreActionsMenuExpandedChange: (Boolean) -> Unit = {},
     onMoreActionsButtonBoundsChanged: (Rect) -> Unit = {},
+    onInlineQueueExpandedChange: (Boolean) -> Unit = {},
     lockScreenMode: Boolean = false,
     viewModel: NowPlayingViewModel = hiltViewModel(),
     lyricsViewModel: NowPlayingLyricsViewModel = hiltViewModel(),
@@ -156,10 +160,14 @@ fun NowPlayingRoute(
     val appearance by viewModel.appearanceSettings.collectAsStateWithLifecycle()
     val recommendationActions: RecommendationActionsViewModel = hiltViewModel()
     var lyricsExpanded by remember { mutableStateOf(false) }
+    var inlineQueueExpanded by remember { mutableStateOf(false) }
 
     RecommendationActionDialogs(recommendationActions)
-    BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
+    BackHandler(enabled = lyricsExpanded || inlineQueueExpanded) {
+        if (inlineQueueExpanded) inlineQueueExpanded = false else lyricsExpanded = false
+    }
     LaunchedEffect(lyricsExpanded) { onLyricsExpandedChange(lyricsExpanded) }
+    LaunchedEffect(inlineQueueExpanded) { onInlineQueueExpandedChange(inlineQueueExpanded) }
     LaunchedEffect(state.currentTrack?.id) { lyricsExpanded = false }
     // Android's Visualizer captures FFT from our own playback session, but requires RECORD_AUDIO.
     // Request it only when the full player is opened; mini-player never starts a permission prompt.
@@ -188,7 +196,11 @@ fun NowPlayingRoute(
     }
 
     val closeOrCollapse = {
-        if (lyricsExpanded) lyricsExpanded = false else onBack()
+        when {
+            inlineQueueExpanded -> inlineQueueExpanded = false
+            lyricsExpanded -> lyricsExpanded = false
+            else -> onBack()
+        }
     }
 
     var deletedSourceNotice by remember { mutableStateOf<String?>(null) }
@@ -241,6 +253,11 @@ fun NowPlayingRoute(
                 isFavorite = isFavorite,
                 lyricsState = lyricsState,
                 lyricsExpanded = lyricsExpanded,
+                queueExpanded = inlineQueueExpanded,
+                onQueueExpandedChange = { expanded ->
+                    inlineQueueExpanded = expanded
+                    if (expanded) lyricsExpanded = false
+                },
                 sleepTimer = sleepTimer,
                 sleepTimerPreferences = sleepTimerPreferences,
                 onSetSleepTimerEnabled = viewModel::setSleepTimerEnabled,
@@ -254,8 +271,14 @@ fun NowPlayingRoute(
                 onBack = closeOrCollapse,
                 onMoreActionsMenuExpandedChange = onMoreActionsMenuExpandedChange,
                 onMoreActionsButtonBoundsChanged = onMoreActionsButtonBoundsChanged,
-                onToggleLyrics = { lyricsExpanded = !lyricsExpanded },
-                onExpandLyrics = { lyricsExpanded = true },
+                onToggleLyrics = {
+                    lyricsExpanded = !lyricsExpanded
+                    if (lyricsExpanded) inlineQueueExpanded = false
+                },
+                onExpandLyrics = {
+                    lyricsExpanded = true
+                    inlineQueueExpanded = false
+                },
                 onTogglePlayPause = viewModel::togglePlayPause,
                 onSeek = viewModel::seekTo,
                 onPrevious = viewModel::previous,
@@ -264,7 +287,10 @@ fun NowPlayingRoute(
                 onTogglePlaybackMode = viewModel::togglePlaybackMode,
                 onCycleRepeatMode = viewModel::cycleRepeatMode,
                 onOpenForward = viewModel::openForwardPicker,
-                onOpenQueue = onOpenQueue,
+                onOpenQueue = {
+                    inlineQueueExpanded = !inlineQueueExpanded
+                    if (inlineQueueExpanded) lyricsExpanded = false
+                },
                 onGoToArtist = onGoToArtist,
                 onWhyThisSong = {
                     state.currentTrack?.id?.let { trackId -> recommendationActions.why(trackId) }
@@ -343,6 +369,8 @@ private fun NowPlayingScreen(
     isFavorite: Boolean,
     lyricsState: NowPlayingLyricsState,
     lyricsExpanded: Boolean,
+    queueExpanded: Boolean,
+    onQueueExpandedChange: (Boolean) -> Unit,
     sleepTimer: SleepTimerState,
     sleepTimerPreferences: PlaybackPreferenceSettings,
     onSetSleepTimerEnabled: (Boolean) -> Unit,
