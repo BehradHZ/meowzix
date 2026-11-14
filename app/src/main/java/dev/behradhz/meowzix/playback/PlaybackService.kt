@@ -57,6 +57,8 @@ import dev.behradhz.meowzix.domain.playback.PlaybackGainCoordinator
 import dev.behradhz.meowzix.domain.playback.PlaybackGainState
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
+import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
+import dev.behradhz.meowzix.domain.playback.QueueActionKind
 import dev.behradhz.meowzix.domain.playback.mayBeginAnotherCycle
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.RepeatMode
@@ -95,6 +97,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var audioVisualizer: AudioVisualizerRepository
     @Inject lateinit var libraryRepository: MusicLibraryRepository
     @Inject lateinit var progressiveQueue: ProgressiveQueue
+    @Inject lateinit var queueActionFeedbackBus: QueueActionFeedbackBus
     @Inject lateinit var sleepTimer: SleepTimerManager
     @Inject lateinit var equalizer: EqualizerRepository
     @Inject lateinit var loudnessNormalization: LoudnessNormalizationRepository
@@ -236,6 +239,8 @@ class PlaybackService : MediaLibraryService() {
     private var vinylAnimationJob: Job? = null
     private var widgetTitleScrollJob: Job? = null
     private var playbackRetryJob: Job? = null
+    private var missingSourceCheckJob: Job? = null
+    private var missingSourceMediaId: String? = null
     private var retryMediaId: String? = null
     private var remoteFallbackMediaId: String? = null
     private var retryCount = 0
@@ -533,6 +538,11 @@ class PlaybackService : MediaLibraryService() {
 
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            if (mediaItem?.mediaId != missingSourceMediaId) {
+                missingSourceCheckJob?.cancel()
+                missingSourceCheckJob = null
+                missingSourceMediaId = null
+            }
             if (!isRestoring && (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK ||
                     reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
             ) {
@@ -1493,6 +1503,9 @@ class PlaybackService : MediaLibraryService() {
         val mediaId = currentItem?.mediaId
         val uri = currentItem?.localConfiguration?.uri
         val isTelegramStream = uri?.scheme == TDLIB_SCHEME
+        if (isTelegramStream && mediaId != null && uri != null) {
+            investigateDeletedTelegramSource(mediaId, uri)
+        }
 
         if (mediaId != null && uri != null && isOwnedPlaybackFile(uri) &&
             remoteFallbackMediaId != mediaId
@@ -1592,6 +1605,76 @@ class PlaybackService : MediaLibraryService() {
             serviceScope.launch { completeSleepTimer(SleepTimerTerminationReason.END_OF_TRACK_PLAYBACK_ERROR) }
         }
         schedulePersist()
+    }
+
+    /**
+     * Ordinary buffering/TDLib errors are recoverable and must not remove songs.
+     * Only a separate source lookup confirming deletion removes the failed occurrence.
+     * The notice stays visible for five seconds before the next track starts.
+     */
+    private fun investigateDeletedTelegramSource(mediaId: String, failedUri: android.net.Uri) {
+        if (missingSourceMediaId == mediaId && missingSourceCheckJob?.isActive == true) return
+        missingSourceCheckJob?.cancel()
+        missingSourceMediaId = mediaId
+        val trackId = runCatching { UUID.fromString(mediaId) }.getOrNull() ?: return
+        val expectedOccurrence = player.currentMediaItem?.queueOccurrenceId()
+        val wasPlaying = player.playWhenReady
+        missingSourceCheckJob = serviceScope.launch {
+            val confirmed = try {
+                withContext(Dispatchers.IO) {
+                    remotePlaybackResolver.confirmDeletedSource(trackId)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w(TAG, "Telegram source verification failed; retaining queue item", failure)
+                false
+            }
+            if (!confirmed || !isStillFailedSource(mediaId, failedUri, expectedOccurrence)) return@launch
+
+            // Cancel any scheduled stream retry, retain the visible item briefly,
+            // and present a meaningful notice instead of an opaque source error.
+            clearPlaybackRetry()
+            player.pause()
+            val title = player.currentMediaItem?.mediaMetadata?.title?.toString()
+                ?.takeIf(String::isNotBlank) ?: "This song"
+            queueActionFeedbackBus.emit(QueueActionKind.SOURCE_DELETED, title)
+            delay(DELETED_SOURCE_NOTICE_MS)
+            if (!isStillFailedSource(mediaId, failedUri, expectedOccurrence)) return@launch
+
+            val snapshot = progressiveQueue.snapshot()
+            val currentOccurrence = snapshot?.occurrenceIds?.getOrNull(snapshot.currentIndex)
+            if (snapshot == null || currentOccurrence == null ||
+                (expectedOccurrence != null && expectedOccurrence != currentOccurrence)
+            ) return@launch
+
+            if (!progressiveQueue.removeOccurrence(currentOccurrence)) return@launch
+            val nextSnapshot = progressiveQueue.snapshot()
+            missingSourceCheckJob = null
+            missingSourceMediaId = null
+            if (nextSnapshot == null) {
+                player.clearMediaItems()
+            } else {
+                val plan = progressiveQueue.resetWindow()
+                val updated = progressiveQueue.snapshot() ?: return@launch
+                player.repeatMode = updated.repeatMode.toPlayerRepeatMode(progressive = true)
+                player.setMediaItems(updated.mediaItems(), plan.startIndexInWindow, 0L)
+                player.prepare()
+                if (wasPlaying) player.play()
+            }
+            schedulePersist()
+        }
+    }
+
+    private fun isStillFailedSource(
+        mediaId: String,
+        uri: android.net.Uri,
+        expectedOccurrence: UUID?,
+    ): Boolean {
+        val current = player.currentMediaItem ?: return false
+        return current.mediaId == mediaId &&
+            current.localConfiguration?.uri == uri &&
+            (expectedOccurrence == null || current.queueOccurrenceId() == expectedOccurrence)
     }
 
     private fun isOwnedPlaybackFile(uri: android.net.Uri): Boolean {
@@ -2540,6 +2623,7 @@ class PlaybackService : MediaLibraryService() {
         const val ACTION_TOGGLE_FAVORITE = LiveSongSessionActions.FAVORITE
         const val MAX_REMOTE_PLAYBACK_RETRIES = 3
         const val REMOTE_PLAYBACK_RETRY_BASE_DELAY_MS = 600L
+        const val DELETED_SOURCE_NOTICE_MS = 5_000L
         const val FORWARD_INCREMENT_MS = 15_000L
         const val PERSIST_DEBOUNCE_MS = 250L
         const val POSITION_SAVE_INTERVAL_MS = 1_000L
