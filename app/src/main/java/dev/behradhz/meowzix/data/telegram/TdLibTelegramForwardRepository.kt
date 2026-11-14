@@ -663,12 +663,21 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 job.trackId,
             )
             if (knownDestinationSource != null) {
+                // Nothing is being delivered here; cancellation only dismisses our queue item.
+                ensureNotCancelRequested(active)
                 sendDao.markSent(job.id, knownDestinationSource.messageId, System.currentTimeMillis())
+                if (active.cancelSignal.isCompleted &&
+                    sendDao.jobById(job.id)?.state == TelegramSendState.CANCELING.name
+                ) throw SendCancellationRequested()
                 return
             }
 
             sendDao.sentForTrackDestination(job.accountId, job.targetChatId, job.trackId)?.let { existing ->
+                ensureNotCancelRequested(active)
                 sendDao.markSent(job.id, existing.sentMessageId ?: 0L, System.currentTimeMillis())
+                if (active.cancelSignal.isCompleted &&
+                    sendDao.jobById(job.id)?.state == TelegramSendState.CANCELING.name
+                ) throw SendCancellationRequested()
                 return
             }
 
