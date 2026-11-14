@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -257,7 +258,7 @@ private fun TelegramDownloadSource(
 }
 
 @Composable
-private fun DownloadRowCard(
+internal fun DownloadRowCard(
     row: DownloadRow,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -293,7 +294,10 @@ private fun DownloadRowCard(
                     DownloadStatus.QUEUED,
                     -> {
                         OutlinedButton(onClick = onPause) { Text("Pause") }
-                        OutlinedButton(onClick = onCancel) { Text("Cancel") }
+                        OutlinedButton(
+                            onClick = onCancel,
+                            modifier = Modifier.testTag("download-cancel-" + row.trackId),
+                        ) { Text("Cancel") }
                     }
                     DownloadStatus.PAUSED -> Button(onClick = onResume) { Text("Resume") }
                     DownloadStatus.FAILED,
