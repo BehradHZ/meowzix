@@ -20,6 +20,7 @@ import dev.behradhz.meowzix.data.telegram.toAudioCandidate
 import dev.behradhz.meowzix.data.telegram.findTelegramProfileAudio
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
+import dev.behradhz.meowzix.domain.playback.DeletedTelegramSourceEvents
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
@@ -58,6 +59,7 @@ class TdLibDownloadRepository @Inject constructor(
     private val networkPolicy: NetworkPolicy,
     private val managedStorage: ManagedStorageManager,
     private val verifiedAudio: ManagedAudioIntegrityCache,
+    private val deletedSources: DeletedTelegramSourceEvents,
 ) : DownloadRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<UUID, Job>()
@@ -261,6 +263,7 @@ class TdLibDownloadRepository @Inject constructor(
                         Instant.now().toEpochMilli(),
                     )
                     downloadDao.deleteByTrackId(trackId.toString())
+                    deletedSources.notifyDeleted(trackId)
                     return
                 }
                 throw error
@@ -277,6 +280,7 @@ class TdLibDownloadRepository @Inject constructor(
                     Instant.now().toEpochMilli(),
                 )
                 downloadDao.deleteByTrackId(trackId.toString())
+                deletedSources.notifyDeleted(trackId)
                 return
             }
             error("Telegram profile audio is unavailable; check access and retry.")
