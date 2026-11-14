@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TelegramSendDao {
-    @Query("SELECT * FROM telegram_send_jobs ORDER BY updatedAtEpochMs DESC LIMIT :limit")
+    @Query("SELECT * FROM telegram_send_jobs WHERE state != 'CANCELED' ORDER BY updatedAtEpochMs DESC LIMIT :limit")
     fun observeRecent(limit: Int = 100): Flow<List<TelegramSendJobEntity>>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -46,7 +46,7 @@ interface TelegramSendDao {
             attemptCount = :attemptCount,
             errorMessage = :errorMessage,
             updatedAtEpochMs = :updatedAtEpochMs
-        WHERE id = :id
+        WHERE id = :id AND state NOT IN ('CANCELED', 'CANCELING', 'SENT')
         """,
     )
     suspend fun updateState(
@@ -63,7 +63,7 @@ interface TelegramSendDao {
         UPDATE telegram_send_jobs
         SET progressPercent = :progressPercent,
             updatedAtEpochMs = :updatedAtEpochMs
-        WHERE id = :id
+        WHERE id = :id AND state NOT IN ('CANCELED', 'CANCELING', 'SENT')
         """,
     )
     suspend fun updateProgress(id: String, progressPercent: Int, updatedAtEpochMs: Long)
@@ -77,7 +77,7 @@ interface TelegramSendDao {
             errorMessage = NULL,
             activeDedupeKey = NULL,
             updatedAtEpochMs = :updatedAtEpochMs
-        WHERE id = :id
+        WHERE id = :id AND state NOT IN ('CANCELED', 'CANCELING')
         """,
     )
     suspend fun markSent(id: String, sentMessageId: Long, updatedAtEpochMs: Long)
@@ -88,7 +88,7 @@ interface TelegramSendDao {
         SET state = 'FAILED',
             errorMessage = :errorMessage,
             updatedAtEpochMs = :updatedAtEpochMs
-        WHERE id = :id
+        WHERE id = :id AND state NOT IN ('CANCELED', 'CANCELING', 'SENT')
         """,
     )
     suspend fun markFailed(id: String, errorMessage: String, updatedAtEpochMs: Long)
@@ -99,7 +99,7 @@ interface TelegramSendDao {
         SET state = 'VERIFYING',
             errorMessage = :errorMessage,
             updatedAtEpochMs = :updatedAtEpochMs
-        WHERE state IN ('CHECKING', 'PREPARING_FILE', 'UPLOADING', 'SENDING')
+        WHERE state IN ('CHECKING', 'PREPARING_FILE', 'UPLOADING', 'SENDING', 'CANCELING')
         """,
     )
     suspend fun recoverInterrupted(errorMessage: String, updatedAtEpochMs: Long)
@@ -127,8 +127,32 @@ interface TelegramSendDao {
             errorMessage = NULL,
             updatedAtEpochMs = :updatedAtEpochMs
         WHERE id = :id
-          AND state IN ('QUEUED', 'RETRYING', 'WAITING_FOR_NETWORK', 'WAITING_FOR_TELEGRAM', 'FAILED', 'VERIFYING')
+          AND state IN ('QUEUED', 'RETRYING', 'WAITING_FOR_NETWORK', 'WAITING_FOR_TELEGRAM', 'FAILED', 'VERIFYING', 'CANCELING')
         """,
     )
     suspend fun cancel(id: String, updatedAtEpochMs: Long): Int
+
+    /** Active sends must confirm TDLib cancellation before becoming CANCELED. */
+    @Query(
+        """
+        UPDATE telegram_send_jobs SET
+            state = 'CANCELING',
+            errorMessage = NULL,
+            updatedAtEpochMs = :updatedAtEpochMs
+        WHERE id = :id AND state IN ('CHECKING', 'PREPARING_FILE', 'UPLOADING', 'SENDING')
+        """,
+    )
+    suspend fun requestCancelActive(id: String, updatedAtEpochMs: Long): Int
+
+    /** Deletion failed or delivery is uncertain: preserve a visible warning and dismiss option. */
+    @Query(
+        """
+        UPDATE telegram_send_jobs SET
+            state = 'VERIFYING',
+            errorMessage = :errorMessage,
+            updatedAtEpochMs = :updatedAtEpochMs
+        WHERE id = :id AND state = 'CANCELING'
+        """,
+    )
+    suspend fun markCancelUncertain(id: String, errorMessage: String, updatedAtEpochMs: Long): Int
 }
