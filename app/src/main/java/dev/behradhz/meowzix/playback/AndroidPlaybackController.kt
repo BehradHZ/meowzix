@@ -606,19 +606,22 @@ class AndroidPlaybackController @Inject constructor(
         scope.launch {
             val allIds = fullOrderedTrackIds.distinct()
             if (expectedTrackId !in allIds) return@launch
-            val snapshot = progressiveQueue.snapshot() ?: return@launch
-            if ((snapshot.sourceTrackIds != listOf(expectedTrackId) &&
-                    snapshot.sourceTrackIds != allIds) ||
-                snapshot.playbackMode != mode ||
-                snapshot.currentIndex != 0 ||
-                snapshot.tracks.firstOrNull()?.id != expectedTrackId) return@launch
-            val expectedOccurrenceId = snapshot.occurrenceIds.first()
-            if (requiredOccurrenceId != null && requiredOccurrenceId != expectedOccurrenceId) return@launch
-            val first = snapshot.tracks.first()
+            // A mode change while the catalog/ranker is suspended must not strand a
+            // one-song queue. Recompute against the latest requested mode if needed.
+            repeat(4) {
+                val snapshot = progressiveQueue.snapshot() ?: return@launch
+                val activeMode = if (requiredOccurrenceId != null) snapshot.playbackMode else mode
+                if ((snapshot.sourceTrackIds != listOf(expectedTrackId) &&
+                        snapshot.sourceTrackIds != allIds) ||
+                    snapshot.playbackMode != activeMode ||
+                    snapshot.currentIndex != 0 ||
+                    snapshot.tracks.firstOrNull()?.id != expectedTrackId) return@launch
+                val expectedOccurrenceId = snapshot.occurrenceIds.first()
+                if (requiredOccurrenceId != null && requiredOccurrenceId != expectedOccurrenceId) return@launch
 
-            val remaining = allIds.filterNot { it == expectedTrackId }
-            val (orderedFuture, shuffleSeed) = runCatching {
-                when (mode) {
+                val remaining = allIds.filterNot { it == expectedTrackId }
+                val (orderedFuture, shuffleSeed) = runCatching {
+                    when (activeMode) {
                     PlaybackMode.ORDERED -> remaining to null
                     PlaybackMode.PURE_SHUFFLE -> {
                         val prefs = settings.playbackPreferenceSettings.first()
@@ -660,23 +663,28 @@ class AndroidPlaybackController @Inject constructor(
                 if (error is kotlinx.coroutines.CancellationException) throw error
                 return@launch
             }
-            val headIds = orderedFuture.take((ProgressiveQueue.GENERATED_BATCH_SIZE - 1).coerceAtLeast(1))
-            val prepared = runCatching { catalog.availableTracks(headIds) }
-                .getOrElse { return@launch }.associateBy(PlayableTrack::id)
-            val initial = headIds.mapNotNull(prepared::get)
-            withConnectedController { connected ->
-                if (connected.currentMediaItem?.mediaId != expectedTrackId.toString()) return@withConnectedController
-                val actualOccurrence = connected.currentMediaItem?.queueOccurrenceId()
-                if (actualOccurrence != null && actualOccurrence != expectedOccurrenceId) return@withConnectedController
-                val accepted = progressiveQueue.attachFutureToSingleTrack(
-                    expectedTrackId = expectedTrackId,
-                    expectedOccurrenceId = expectedOccurrenceId,
-                    future = initial,
-                    sourceIds = allIds,
-                    pendingIds = orderedFuture.drop(headIds.size),
-                    mode = mode,
-                    seed = shuffleSeed,
-                )
+                val headIds = orderedFuture.take((ProgressiveQueue.GENERATED_BATCH_SIZE - 1).coerceAtLeast(1))
+                val prepared = runCatching { catalog.availableTracks(headIds) }
+                    .getOrElse { return@launch }.associateBy(PlayableTrack::id)
+                val initial = headIds.mapNotNull(prepared::get)
+                var modeChanged = false
+                withConnectedController { connected ->
+                    if (connected.currentMediaItem?.mediaId != expectedTrackId.toString()) return@withConnectedController
+                    val actualOccurrence = connected.currentMediaItem?.queueOccurrenceId()
+                    if (actualOccurrence != null && actualOccurrence != expectedOccurrenceId) return@withConnectedController
+                    if (progressiveQueue.snapshot()?.playbackMode != activeMode) {
+                        modeChanged = true
+                        return@withConnectedController
+                    }
+                    val accepted = progressiveQueue.attachFutureToSingleTrack(
+                        expectedTrackId = expectedTrackId,
+                        expectedOccurrenceId = expectedOccurrenceId,
+                        future = initial,
+                        sourceIds = allIds,
+                        pendingIds = orderedFuture.drop(headIds.size),
+                        mode = activeMode,
+                        seed = shuffleSeed,
+                    )
                 if (accepted) {
                     syncProgressiveFutureInPlace(connected)
                     // The first track may have ended while the Library IDs were loading.
@@ -686,6 +694,8 @@ class AndroidPlaybackController @Inject constructor(
                         connected.play()
                     }
                 }
+                }
+                if (!modeChanged) return@launch
             }
         }
     }
