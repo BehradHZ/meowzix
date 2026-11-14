@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -84,6 +85,42 @@ class PlayerActionsMenuTest {
         compose.onNodeWithTag("player-action-import-.lrc").performClick()
         compose.runOnIdle {
             assertEquals(1, imported)
+            assertEquals(false, expanded)
+        }
+    }
+
+    @Test fun viewInChatIsOnlyShownForTelegramSourcesAndInvokesTheSelectedTrackAction() {
+        val trackId = UUID.randomUUID()
+        var expanded by mutableStateOf(true)
+        var hasSource by mutableStateOf(false)
+        var opened by mutableIntStateOf(0)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                PlayerActionsMenu(
+                    expanded = expanded,
+                    trackId = trackId,
+                    lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId)),
+                    lyricsExpanded = false,
+                    sleepTimerLabel = "Off",
+                    onDismiss = { expanded = false },
+                    onWhyThisSong = {},
+                    onContinueVibe = {},
+                    onViewInChat = if (hasSource) ({ opened++ }) else null,
+                    onToggleLyrics = {},
+                    onImportLrc = {},
+                    onPasteLyrics = {},
+                    onAdjustDelay = {},
+                    onSelectVersion = {},
+                    onDeleteVersion = {},
+                )
+            }
+        }
+        compose.onNodeWithTag("player-action-view-in-chat").assertDoesNotExist()
+        compose.runOnIdle { hasSource = true }
+        compose.onNodeWithTag("player-action-view-in-chat").assertIsDisplayed()
+        compose.onNodeWithTag("player-action-view-in-chat").performClick()
+        compose.runOnIdle {
+            assertEquals(1, opened)
             assertEquals(false, expanded)
         }
     }
