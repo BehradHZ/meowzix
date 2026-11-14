@@ -74,10 +74,7 @@ fun DownloadsRoute(
         item { SettingToggle("Prefetch next track", settings.prefetchEnabled, viewModel::setPrefetch) }
         item { SettingToggle("Prefetch on metered networks", settings.prefetchOnMetered, viewModel::setPrefetchOnMetered, enabled = settings.prefetchEnabled && !settings.wifiOnlyDownloads) }
         item {
-            StoragePolicyCard(
-                usage = storageUsage,
-                onClearIncomplete = storageViewModel::clearTemporaryCache,
-            )
+            StoragePolicyCard(usage = storageUsage)
         }
         if (selectedChats.isNotEmpty()) {
             item { SectionTitle("Telegram sources") }
@@ -128,10 +125,7 @@ fun DownloadsRoute(
 }
 
 @Composable
-private fun StoragePolicyCard(
-    usage: ManagedStorageUsage?,
-    onClearIncomplete: () -> Unit,
-) {
+private fun StoragePolicyCard(usage: ManagedStorageUsage?) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
@@ -143,7 +137,7 @@ private fun StoragePolicyCard(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             } else {
                 Text(
-                    "Untracked ${formatBytes(usage.temporaryPlaybackBytes)} · Saved ${formatBytes(usage.pinnedOfflineBytes)} · Artwork ${formatBytes(usage.otherManagedBytes)}",
+                    "Saved audio ${formatBytes(usage.pinnedOfflineBytes)} · Artwork ${formatBytes(usage.otherManagedBytes)}",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -153,19 +147,13 @@ private fun StoragePolicyCard(
                 )
                 if (usage.lowSpace) {
                     Text(
-                        "Storage is low. Nonessential cache work is suspended until space recovers.",
+                        "Storage is low. Ongoing downloads may need more free space to finish.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
             }
-            Text("Completed downloads stay offline until you remove them.")
-            OutlinedButton(onClick = onClearIncomplete) { Text("Clear incomplete transfers") }
-            Text(
-                "Only interrupted partial files are cleared. Saved songs are always preserved.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-            )
+            Text("Streams keep downloading after playback moves on. Saved audio stays offline until you remove it.")
         }
     }
 }
