@@ -16,4 +16,19 @@ class TelegramProxyBadgeTest {
             assertEquals(TelegramProxyBadge.CONNECTING, telegramProxyBadge(true, status))
         }
     }
+
+    @Test fun connectionLabelsDescribeTheActualTransportState() {
+        assertEquals("Connecting to proxy…",
+            telegramProxyConnectionLabel(true, TelegramConnectionStatus.CONNECTING_TO_PROXY))
+        assertEquals("Connecting via proxy…",
+            telegramProxyConnectionLabel(true, TelegramConnectionStatus.CONNECTING))
+        assertEquals("Connected via proxy",
+            telegramProxyConnectionLabel(true, TelegramConnectionStatus.CONNECTED))
+        assertEquals("Connected directly",
+            telegramProxyConnectionLabel(false, TelegramConnectionStatus.CONNECTED))
+        assertEquals("Waiting for network",
+            telegramProxyConnectionLabel(true, TelegramConnectionStatus.WAITING_FOR_NETWORK))
+        assertEquals("Syncing Telegram…",
+            telegramProxyConnectionLabel(true, TelegramConnectionStatus.UPDATING))
+    }
 }
