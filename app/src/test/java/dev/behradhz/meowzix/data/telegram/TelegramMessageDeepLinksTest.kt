@@ -26,6 +26,29 @@ class TelegramMessageDeepLinksTest {
         )
     }
 
+    @Test fun profileMusicOpensItsOwnerProfileInsteadOfASyntheticMessage() {
+        assertEquals(
+            "https://t.me/MusicOwner?profile",
+            telegramProfileDeepLink(51234L, "MusicOwner"),
+        )
+        assertEquals(
+            "https://t.me/MusicOwner?profile",
+            telegramProfileDeepLink(51234L, "@MusicOwner"),
+        )
+        assertEquals(
+            "tg://openmessage?user_id=51234",
+            telegramProfileDeepLink(51234L, null),
+        )
+        assertEquals(
+            "tg://openmessage?user_id=51234",
+            telegramProfileDeepLink(51234L, "invalid/name"),
+        )
+        assertNull(telegramProfileDeepLink(0L, "MusicOwner"))
+        assertNull(telegramProfileDeepLink(-3L, null))
+        // The synthetic negative IDs must never be interpreted as message IDs.
+        assertNull(telegramMessageDeepLink(51234L, -12345L))
+    }
+
     @Test fun invalidIdentifiersDoNotProduceLinks() {
         assertNull(telegramMessageDeepLink(0L, 42L shl 20))
         assertNull(telegramMessageDeepLink(123L, -1L))
