@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceMode
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
+import dev.behradhz.meowzix.domain.telegram.TelegramSourceRetry
 import dev.behradhz.meowzix.domain.telegram.prioritizeTelegramSourceChats
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
@@ -100,13 +101,27 @@ internal fun TelegramMusicSourcePicker(
                 color = MaterialTheme.colorScheme.error.copy(alpha = 0.13f),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Row(
-                    modifier = Modifier.padding(start = 12.dp, end = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(message, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = onClearError) { Text("Dismiss") }
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    Text("Telegram needs attention", style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
+                    Text(message, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = 4.dp))
+                    Row(modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End) {
+                        state.retryAction?.let { retry ->
+                            TextButton(
+                                enabled = enabled && !state.isLoadingChats && !state.isSyncing,
+                                onClick = {
+                                    when (retry) {
+                                        TelegramSourceRetry.REFRESH_CHATS -> onRefresh()
+                                        TelegramSourceRetry.SYNC_SELECTED -> onSync()
+                                    }
+                                },
+                            ) { Text("Try again") }
+                        }
+                        TextButton(onClick = onClearError) { Text("Dismiss") }
+                    }
                 }
             }
         }
