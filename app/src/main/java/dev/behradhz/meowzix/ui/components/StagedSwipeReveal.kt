@@ -43,7 +43,9 @@ internal fun stagedActionSlidePx(
     return offsetPx * progress
 }
 
-/** Layer order: Remove at the bottom, first action above it, moving song card on top. */
+/** Layer order: Remove at the bottom, first action above it, moving song card on top.
+ * At the destructive threshold the action is fully tucked behind the song and Remove is exposed.
+ */
 @Composable
 fun BoxScope.StagedSwipeReveal(
     offsetPx: Float,
@@ -54,11 +56,12 @@ fun BoxScope.StagedSwipeReveal(
 ) {
     if (abs(offsetPx) <= 0.5f) return
     val swipingRight = offsetPx > 0f
+    val transitionDistance = with(LocalDensity.current) { 72.dp.toPx() }
     val slide = if (secondaryLabel != null) {
         stagedActionSlidePx(
             offsetPx,
-            secondaryThresholdPx,
-            with(LocalDensity.current) { 72.dp.toPx() },
+            secondStageStartPx = secondaryThresholdPx - transitionDistance,
+            transitionDistancePx = transitionDistance,
         )
     } else 0f
 
