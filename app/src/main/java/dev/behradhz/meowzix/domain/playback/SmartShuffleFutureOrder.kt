@@ -15,4 +15,19 @@ internal object SmartShuffleFutureOrder {
         val rankedSet = ranked.toHashSet()
         return ranked + eligibleFuture.filterNot { it in rankedSet }
     }
+
+    /**
+     * An explicit Library playback cycle must eventually cover every distinct selected
+     * Library track. Hard-filtered/unscored items remain at the back, where playback
+     * source resolution can safely skip ones that have actually become unavailable.
+     */
+    fun completeLibraryCycle(
+        requestedFuture: List<UUID>,
+        rankedTrackIds: List<UUID>,
+        eligibleTrackIds: Set<UUID>,
+    ): List<UUID> {
+        val ranked = order(requestedFuture, rankedTrackIds, eligibleTrackIds)
+        val included = ranked.toHashSet()
+        return ranked + requestedFuture.distinct().filterNot { included.add(it) }
+    }
 }
