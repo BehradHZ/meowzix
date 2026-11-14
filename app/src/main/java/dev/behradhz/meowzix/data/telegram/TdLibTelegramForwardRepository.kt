@@ -731,12 +731,16 @@ class TdLibTelegramForwardRepository @Inject constructor(
         } catch (_: SendCancellationRequested) {
             confirmSendCancellation(job, client, active)
         } catch (uncertain: DeliveryUncertainException) {
-            setState(
-                job,
-                TelegramSendState.VERIFYING,
-                attemptCount = attempt,
-                errorMessage = "Meowzix couldn't confirm delivery. Check Telegram before retrying so the song isn't sent twice.",
-            )
+            if (active.cancelSignal.isCompleted) {
+                confirmSendCancellation(job, client, active)
+            } else {
+                setState(
+                    job,
+                    TelegramSendState.VERIFYING,
+                    attemptCount = attempt,
+                    errorMessage = "Meowzix couldn't confirm delivery. Check Telegram before retrying so the song isn't sent twice.",
+                )
+            }
         } catch (error: Throwable) {
             if (active.cancelSignal.isCompleted) {
                 confirmSendCancellation(job, client, active)
