@@ -138,7 +138,7 @@ internal fun SettingsInformationContent(
                 telegramStatus,
                 downloadsStatus,
                 managedStorage,
-                "Only selected Telegram chats and channels are used as music sources. Deselecting a source does not remove completed offline downloads. Clearing incomplete transfers removes interrupted partial files, not completed songs.",
+                "Choose music chats under Telegram & chats. Streamed tracks are saved automatically, and completed downloads remain offline until you remove them under Downloads & offline.",
             ),
         )
         SettingsInformationCard(
