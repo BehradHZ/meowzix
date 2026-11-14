@@ -37,8 +37,8 @@ internal fun telegramErrorGuidance(error: Throwable): TelegramErrorGuidance {
             guidance("Telegram's file reference expired. Refresh the chat and retry the download.")
         "NO_SPACE" in raw || "ENOSPC" in raw || "DISK_FULL" in raw ->
             guidance("There is not enough free storage to finish this Telegram request. Free space and retry.")
-        code in listOf(500, 502, 503, 504) ->
-            guidance("Telegram is temporarily unavailable. The app will retry this read automatically.", true)
+        code != null && code in setOf(500, 502, 503, 504) ->
+            guidance("Telegram's servers are temporarily unavailable. Try again shortly; safe reads retry automatically.", true)
         "NETWORK" in raw || "CONNECTION" in raw || "TIMEOUT" in raw ||
             "TIMED OUT" in raw || "SOCKET" in raw || "TRANSPORT" in raw ->
             guidance("Can't reach Telegram. Check your internet or proxy; the app will retry safe reads.", true)
