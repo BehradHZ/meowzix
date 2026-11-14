@@ -26,8 +26,12 @@ class LibrarySearchPlaybackQueueTest {
     }
 
     @Test
-    fun `non search library playback retains existing ordered tail behavior`() {
-        assertEquals(ids.drop(700), buildLibraryPlaybackQueue(ids, ids[700], PlaybackMode.ORDERED, fromSearch = false))
+    fun `normal Library selection also reaches the complete library after wrapping`() {
+        val ordered = buildLibraryPlaybackQueue(ids, ids[700], PlaybackMode.ORDERED, fromSearch = false)
+        assertEquals(ids.size, ordered.size)
+        assertEquals(ids[700], ordered.first())
+        assertEquals(ids.drop(700) + ids.take(700), ordered)
+        assertEquals(ids.size, ordered.distinct().size)
     }
 
     @Test
