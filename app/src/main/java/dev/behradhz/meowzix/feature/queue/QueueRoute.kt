@@ -13,6 +13,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -105,7 +106,8 @@ import dev.behradhz.meowzix.domain.playback.QueueGroup
 import dev.behradhz.meowzix.domain.playback.QueueGroupKind
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
-import dev.behradhz.meowzix.ui.components.roundedSwipeReveal
+import dev.behradhz.meowzix.ui.components.StagedSwipeReveal
+import dev.behradhz.meowzix.ui.components.TRACK_CARD_ALPHA
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
 import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
@@ -664,39 +666,22 @@ private fun GroupQueueHeader(
     val haptics = rememberMeowzixHaptics()
     val animatedSwipeX by animateFloatAsState(
         targetValue = swipeX,
-        animationSpec = if (horizontalDrag) snap() else tween(190),
+        animationSpec = if (horizontalDrag) snap() else spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
         label = "group-swipe",
     )
     val swipingRight = animatedSwipeX > 0f
-    val deleting = abs(animatedSwipeX) >= removeThreshold
     Box(Modifier.fillMaxWidth().graphicsLayer { translationY = offsetY }) {
-        if (abs(animatedSwipeX) > 0.5f) {
-            Surface(
-                modifier = Modifier.matchParentSize().roundedSwipeReveal(animatedSwipeX),
-                shape = RoundedCornerShape(18.dp),
-                color = if (deleting) MaterialTheme.colorScheme.errorContainer
-                    else if (swipingRight) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.tertiaryContainer,
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                    horizontalArrangement = if (swipingRight) Arrangement.Start else Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        if (deleting) Icons.Rounded.Delete else if (swipingRight)
-                            Icons.Rounded.PlaylistPlay else Icons.Rounded.PlaylistAdd,
-                        contentDescription = null,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        if (deleting) "Remove group" else if (swipingRight) "Play next" else "Add to queue",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
-        }
+        StagedSwipeReveal(
+            offsetPx = animatedSwipeX,
+            primaryLabel = if (swipingRight) "Play next" else "Add to queue",
+            primaryIcon = if (swipingRight) Icons.Rounded.PlaylistPlay else Icons.Rounded.PlaylistAdd,
+            secondaryLabel = "Remove group",
+            secondaryThresholdPx = removeThreshold,
+        )
+
         Surface(
             modifier = Modifier.fillMaxWidth()
                 .graphicsLayer {
@@ -730,7 +715,8 @@ private fun GroupQueueHeader(
                     )
                 },
             shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.54f),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = TRACK_CARD_ALPHA),
+            border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)),
             tonalElevation = 0.dp,
         ) {
             Row(
@@ -879,12 +865,14 @@ private fun SwipeableQueueItem(
     var horizontalDragActive by remember(item.occurrenceId) { mutableStateOf(false) }
     val visualOffsetX by animateFloatAsState(
         targetValue = swipeOffsetX,
-        animationSpec = if (horizontalDragActive) snap() else tween(190),
+        animationSpec = if (horizontalDragActive) snap() else spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
         label = "queue-two-stage-swipe",
     )
     val swipeMagnitude = abs(visualOffsetX)
     val swipingRight = visualOffsetX >= 0f
-    val removeStage = swipeMagnitude >= removeThreshold
 
 
     Box(
@@ -893,46 +881,13 @@ private fun SwipeableQueueItem(
             .zIndex(if (isDragging) 1f else 0f)
             .graphicsLayer { translationY = dragOffsetY },
     ) {
-        if (swipeMagnitude > 0.5f) {
-            // One action surface replaces the two stacked, partially translated panels.
-            // The mask reveals only a rounded gutter so it cannot bleed through glass.
-            Surface(
-                modifier = Modifier.matchParentSize().roundedSwipeReveal(visualOffsetX),
-                shape = RoundedCornerShape(18.dp),
-                color = when {
-                    removeStage -> MaterialTheme.colorScheme.errorContainer
-                    swipingRight -> MaterialTheme.colorScheme.primaryContainer
-                    else -> MaterialTheme.colorScheme.tertiaryContainer
-                },
-                tonalElevation = 0.dp,
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
-                    horizontalArrangement = if (swipingRight) Arrangement.Start else Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val label = when {
-                        removeStage -> "Remove"
-                        swipingRight -> "Play next"
-                        else -> "Add to queue"
-                    }
-                    val icon = when {
-                        removeStage -> Icons.Rounded.Delete
-                        swipingRight -> Icons.Rounded.PlaylistPlay
-                        else -> Icons.Rounded.PlaylistAdd
-                    }
-                    if (swipingRight) {
-                        Icon(icon, contentDescription = null)
-                        Spacer(Modifier.size(8.dp))
-                        Text(label, fontWeight = FontWeight.SemiBold)
-                    } else {
-                        Text(label, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.size(8.dp))
-                        Icon(icon, contentDescription = null)
-                    }
-                }
-            }
-        }
+        StagedSwipeReveal(
+            offsetPx = visualOffsetX,
+            primaryLabel = if (swipingRight) "Play next" else "Add to queue",
+            primaryIcon = if (swipingRight) Icons.Rounded.PlaylistPlay else Icons.Rounded.PlaylistAdd,
+            secondaryLabel = "Remove",
+            secondaryThresholdPx = removeThreshold,
+        )
 
         Surface(
             modifier = Modifier
@@ -986,8 +941,9 @@ private fun SwipeableQueueItem(
                 }
                 .clickable(onClick = onPlay),
             shape = RoundedCornerShape(18.dp),
-            color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.66f)
-                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.56f),
+            color = (if (isCurrent) MaterialTheme.colorScheme.primaryContainer
+                     else MaterialTheme.colorScheme.surfaceVariant).copy(alpha = TRACK_CARD_ALPHA),
+            border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)),
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 0.dp,
             shadowElevation = if (isDragging) 6.dp else 0.dp,
