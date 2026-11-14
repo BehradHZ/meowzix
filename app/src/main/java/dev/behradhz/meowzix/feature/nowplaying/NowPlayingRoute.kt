@@ -140,6 +140,7 @@ fun NowPlayingRoute(
     onLyricsExpandedChange: (Boolean) -> Unit = {},
     onMoreActionsMenuExpandedChange: (Boolean) -> Unit = {},
     onMoreActionsButtonBoundsChanged: (Rect) -> Unit = {},
+    lockScreenMode: Boolean = false,
     viewModel: NowPlayingViewModel = hiltViewModel(),
     lyricsViewModel: NowPlayingLyricsViewModel = hiltViewModel(),
     libraryTools: LibraryToolsViewModel = hiltViewModel(),
@@ -170,12 +171,13 @@ fun NowPlayingRoute(
     }
     // Only capture FFT while the expanded waveform player is actually started.
     // Equalizer effects stay attached to the playback session independently.
-    LifecycleStartEffect(viewModel, appearance.playerSeekBarStyle) {
-        viewModel.setVisualizerCaptureEnabled(appearance.playerSeekBarStyle == PlayerSeekBarStyle.WAVEFORM)
+    LifecycleStartEffect(viewModel, appearance.playerSeekBarStyle, lockScreenMode) {
+        viewModel.setVisualizerCaptureEnabled(!lockScreenMode && appearance.playerSeekBarStyle == PlayerSeekBarStyle.WAVEFORM)
         onStopOrDispose { viewModel.setVisualizerCaptureEnabled(false) }
     }
-    LaunchedEffect(appearance.playerSeekBarStyle) {
-        if (appearance.playerSeekBarStyle != PlayerSeekBarStyle.WAVEFORM) return@LaunchedEffect
+    LaunchedEffect(appearance.playerSeekBarStyle, lockScreenMode) {
+        // Never trigger a microphone permission dialog over the secure keyguard.
+        if (lockScreenMode || appearance.playerSeekBarStyle != PlayerSeekBarStyle.WAVEFORM) return@LaunchedEffect
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
         ) {
@@ -234,6 +236,7 @@ fun NowPlayingRoute(
             NowPlayingScreen(
                 state = state,
                 queueState = queueState,
+                lockScreenMode = lockScreenMode,
                 liveBands = spectrum.bands,
                 isFavorite = isFavorite,
                 lyricsState = lyricsState,
@@ -335,6 +338,7 @@ fun NowPlayingRoute(
 private fun NowPlayingScreen(
     state: PlaybackState,
     queueState: QueueState,
+    lockScreenMode: Boolean,
     liveBands: FloatArray,
     isFavorite: Boolean,
     lyricsState: NowPlayingLyricsState,
@@ -436,6 +440,7 @@ private fun NowPlayingScreen(
             PlayerHeader(
                 currentTrackId = track.id,
                 hazeState = hazeState,
+                lockScreenMode = lockScreenMode,
                 lyricsExpanded = lyricsExpanded,
                 sleepTimer = sleepTimer,
                 sleepTimerPreferences = sleepTimerPreferences,
@@ -664,6 +669,7 @@ internal fun backdropSourceArtwork(settledRef: String?, transition: ArtworkBackd
 private fun PlayerHeader(
     currentTrackId: UUID,
     hazeState: HazeState,
+    lockScreenMode: Boolean,
     lyricsExpanded: Boolean,
     sleepTimer: SleepTimerState,
     sleepTimerPreferences: PlaybackPreferenceSettings,
@@ -744,13 +750,15 @@ private fun PlayerHeader(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onOpenForward) {
-                Icon(painterResource(R.drawable.ic_forward_paper_plane), contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
+            if (!lockScreenMode) {
+                IconButton(onClick = onOpenForward) {
+                    Icon(painterResource(R.drawable.ic_forward_paper_plane), contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
+                }
             }
             IconButton(onClick = onOpenQueue) {
                 Icon(Icons.Rounded.QueueMusic, contentDescription = "Open queue", tint = PlayerPrimaryContent)
             }
-            Box {
+            if (!lockScreenMode) Box {
                 IconButton(
                     onClick = { menuExpanded = true },
                     modifier = Modifier
@@ -866,7 +874,7 @@ private fun PlayerHeader(
             }
         }
     }
-    if (pasteDialog) {
+    if (!lockScreenMode && pasteDialog) {
         PasteLyricsDialog(
             onDismiss = { pasteDialog = false },
             onSave = { pasteDialog = false; onLyricsPaste(it) },

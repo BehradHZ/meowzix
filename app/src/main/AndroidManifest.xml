@@ -39,6 +39,15 @@
             android:exported="true"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- An opt-in Activity above the keyguard; never dismisses device authentication. -->
+        <activity
+            android:name=".LockScreenPlayerActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Meowzix" />
+
         <!-- Exactly one alias is enabled at a time. Original full-color artwork is unchanged. -->
         <activity-alias
             android:name=".LauncherIconMeowzixLight"

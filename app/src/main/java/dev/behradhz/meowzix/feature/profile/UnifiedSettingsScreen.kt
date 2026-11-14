@@ -1,6 +1,10 @@
 package dev.behradhz.meowzix.feature.profile
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import dev.behradhz.meowzix.LockScreenPlayerPreferences
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
@@ -138,6 +142,19 @@ fun UnifiedSettingsScreen(
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val hasCurrentTrack by viewModel.hasCurrentTrack.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var lockScreenEnabled by remember(context) {
+        mutableStateOf(LockScreenPlayerPreferences.isEnabled(context))
+    }
+    val lockScreenPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        val granted = Settings.canDrawOverlays(context)
+        LockScreenPlayerPreferences.setEnabled(context, granted)
+        lockScreenEnabled = granted
+        if (!granted) {
+            Toast.makeText(context, "Overlay permission is required for the lock screen player", Toast.LENGTH_LONG).show()
+        }
+    }
     val scope = rememberCoroutineScope()
     var includeHistoryInBackup by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<Pair<ByteArray, BackupPreview>?>(null) }
@@ -407,6 +424,34 @@ fun UnifiedSettingsScreen(
                             state.playback.pauseOnMicrophoneRecording,
                             viewModel::setPauseOnMicrophoneRecording,
                             showSubtitle = true,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Full-screen lock screen player",
+                            "While music is playing, show the player when you wake a locked phone. Scroll up for the queue.",
+                            Icons.Rounded.MusicNote,
+                            lockScreenEnabled && Settings.canDrawOverlays(context),
+                            onChecked = { enabled ->
+                                when {
+                                    !enabled -> {
+                                        LockScreenPlayerPreferences.setEnabled(context, false)
+                                        lockScreenEnabled = false
+                                    }
+                                    Settings.canDrawOverlays(context) -> {
+                                        LockScreenPlayerPreferences.setEnabled(context, true)
+                                        lockScreenEnabled = true
+                                    }
+                                    else -> {
+                                        val intent = Intent(
+                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            Uri.parse("package:${context.packageName}"),
+                                        )
+                                        lockScreenPermissionLauncher.launch(intent)
+                                    }
+                                }
+                            },
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
                         )
                         SettingsRowDivider()
                         SettingsToggleRow(
