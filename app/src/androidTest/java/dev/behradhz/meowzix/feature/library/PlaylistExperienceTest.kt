@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.feature.library
 
 import android.graphics.Bitmap
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
@@ -63,6 +64,8 @@ class PlaylistExperienceTest {
         var artist: UUID? = null
         var added: Pair<UUID, UUID>? = null
         var bulkLibraryIds: List<UUID> = emptyList()
+        val addedToLibrary = mutableListOf<UUID>()
+        val removedFromLibrary = mutableListOf<UUID>()
         var profileRefreshCount = 0
     }
 
@@ -78,7 +81,9 @@ class PlaylistExperienceTest {
         telegramPerson: Boolean = false,
         profileSongIds: Set<UUID> = emptySet(),
         chatSongIds: Set<UUID> = songs.map(Track::id).toSet() - profileSongIds,
+        librarySongIds: Set<UUID> = emptySet(),
     ): Calls {
+        val membership = mutableStateOf(librarySongIds)
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
@@ -105,6 +110,17 @@ class PlaylistExperienceTest {
                         onAddToQueue = { calls.queue++ },
                         onPinOffline = { calls.downloads++ },
                         onFavorite = { calls.favorites++ },
+                        libraryTrackIds = membership.value,
+                        onAddToLibrary = { song ->
+                            calls.addedToLibrary += song.id
+                            membership.value = membership.value + song.id
+                        },
+                        onRemoveTrack = { song, offline, fromLibrary ->
+                            if (fromLibrary && !offline) {
+                                calls.removedFromLibrary += song.id
+                                membership.value = membership.value - song.id
+                            }
+                        },
                         onAddToPlaylist = { song, id -> calls.added = song.id to id },
                         telegramPerson = telegramPerson,
                         profileTrackIds = profileSongIds,
@@ -131,6 +147,37 @@ class PlaylistExperienceTest {
         val tag = "playlist-track:${tracks.first().id}"
         compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
         compose.onNode(hasContentDescription("Track actions") and hasAnyAncestor(hasTestTag(tag)), useUnmergedTree = true).performClick()
+    }
+
+    @Test fun chatPlaylistDeepSwipeTogglesLibraryMembershipWithoutRemovingChatTrack() {
+        val song = tracks.first()
+        val calls = showDetail(
+            editable = false,
+            telegramPerson = true,
+            chatSongIds = setOf(song.id),
+            songs = listOf(song),
+        )
+        val tag = "playlist-track:${song.id}"
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
+        compose.onNodeWithTag(tag).performTouchInput { swipeRight() }
+        compose.runOnIdle {
+            assertEquals(listOf(song.id), calls.addedToLibrary)
+            assertTrue(calls.removedFromLibrary.isEmpty())
+            assertEquals(0, calls.next)
+            assertEquals(0, calls.queue)
+        }
+
+        // Membership changed: the same deep swipe in the other direction now removes
+        // only Library membership and leaves the Telegram chat track visible.
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
+        compose.onNodeWithTag(tag).performTouchInput { swipeLeft() }
+        compose.runOnIdle {
+            assertEquals(listOf(song.id), calls.removedFromLibrary)
+            assertEquals(0, calls.next)
+            assertEquals(0, calls.queue)
+        }
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
+        compose.onNodeWithTag(tag).assertExists()
     }
 
     @Test fun personPlaylistSeparatesProfileAndChatAndBulkAddsOnlySelectedSongs() {
