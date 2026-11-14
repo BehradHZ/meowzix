@@ -69,6 +69,10 @@ class LocalMusicLibraryRepository @Inject constructor(
         dao.addToLibrary(trackId.toString())
     }
 
+    override suspend fun removeFromLibrary(trackId: UUID) {
+        dao.removeFromLibrary(trackId.toString())
+    }
+
     override suspend fun addTracksToLibrary(trackIds: List<UUID>) {
         database.withTransaction {
             trackIds.distinct().chunked(400).forEach { ids ->
