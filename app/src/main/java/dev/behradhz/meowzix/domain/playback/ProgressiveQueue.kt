@@ -579,7 +579,7 @@ class ProgressiveQueue @Inject constructor() {
     fun removeUnavailableTrack(trackId: UUID): Boolean {
         val matches = tracks.indices.filter { tracks[it].id == trackId }
             .map { occurrenceIds[it] }
-        matches.forEach(::removeOccurrence)
+        matches.forEach { removeOccurrence(it) }
         val oldSources = sourceTrackIds.size
         val oldPending = pendingGeneratedIds.size
         sourceTrackIds = sourceTrackIds.filterNot { it == trackId }
