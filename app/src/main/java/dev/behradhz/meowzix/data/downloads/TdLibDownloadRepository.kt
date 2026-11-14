@@ -208,6 +208,13 @@ class TdLibDownloadRepository @Inject constructor(
         }
     }
 
+    override suspend fun discardUnavailableSource(trackId: UUID) {
+        pauseRequests.remove(trackId)
+        jobs.remove(trackId)?.cancelAndJoin()
+        // The source was confirmed unavailable; do not remove any saved audio files.
+        downloadDao.deleteByTrackId(trackId.toString())
+    }
+
     private fun deleteOwnedManagedFile(path: String) {
         val file = File(path).canonicalFile
         val parent = file.parentFile
