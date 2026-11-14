@@ -320,6 +320,8 @@ internal fun TrackActionsMenu(
                             if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                             if (favorite) "Unlike" else "Like",
                             highlighted = favorite,
+                            semanticLabel = if (favorite) "Unfavorite" else "Favorite",
+                            actionTag = "favorite",
                         ) { onDismiss(); onFavorite() }
                         ActionIcon(Icons.Rounded.Send, "Forward") { onDismiss(); onForward() }
                     }
@@ -411,6 +413,8 @@ private fun ActionIcon(
     label: String,
     highlighted: Boolean = false,
     danger: Boolean = false,
+    semanticLabel: String = label,
+    actionTag: String = label.lowercase().replace(' ', '-'),
     onClick: () -> Unit,
 ) {
     val color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
@@ -426,10 +430,10 @@ private fun ActionIcon(
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = { showLabel = true },
-                onClickLabel = label,
+                onClickLabel = semanticLabel,
                 onLongClickLabel = "Show $label",
             )
-            .testTag("track-action-${label.lowercase().replace(' ', '-')}"),
+            .testTag("track-action-$actionTag"),
         contentAlignment = Alignment.Center,
     ) {
         Surface(
@@ -442,7 +446,7 @@ private fun ActionIcon(
             ),
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(20.dp))
+                Icon(icon, contentDescription = semanticLabel, tint = color, modifier = Modifier.size(20.dp))
             }
         }
         if (showLabel) {
