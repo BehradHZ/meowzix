@@ -7,6 +7,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -69,7 +71,7 @@ class PlayerInlineQueueTest {
         compose.onNodeWithTag("queue-item-${items[1].occurrenceId}").assertExists()
         compose.onNodeWithContentDescription("Track actions").assertDoesNotExist()
         compose.onNodeWithContentDescription("Group actions").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Drag to reorder").assertExists()
+        compose.onAllNodesWithContentDescription("Drag to reorder").assertCountEquals(2)
         compose.onNodeWithTag("queue-item-${items[1].occurrenceId}").performClick()
         compose.runOnIdle { assertEquals(listOf(1), played.toList()) }
     }
