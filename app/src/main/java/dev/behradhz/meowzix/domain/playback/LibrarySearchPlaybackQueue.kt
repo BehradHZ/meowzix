@@ -7,6 +7,7 @@ import java.util.UUID
  * any Library song traverses the entire library once, wrapping at the end in ORDERED
  * mode and leaving all distinct candidates eligible in both shuffle modes.
  */
+@Suppress("UNUSED_PARAMETER") // Search no longer changes Library cycle coverage.
 fun buildLibraryPlaybackQueue(
     orderedLibraryIds: List<UUID>,
     selectedId: UUID,
