@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.library.RemoveTrackFromLocations
 import dev.behradhz.meowzix.domain.library.QueueTrackStatus
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
@@ -14,6 +15,9 @@ import dev.behradhz.meowzix.domain.playback.QueueRepository
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -35,11 +39,14 @@ class QueueViewModel @Inject constructor(
     private val queueRepository: QueueRepository,
     private val libraryRepository: MusicLibraryRepository,
     private val downloads: DownloadRepository,
+    private val trackRemoval: RemoveTrackFromLocations,
     private val playlists: PlaylistRepository,
 ) : ViewModel() {
     val state = queueRepository.queueState
     private val _aux = MutableStateFlow(QueueAuxState())
     val aux: StateFlow<QueueAuxState> = _aux.asStateFlow()
+    private val _removalErrors = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val removalErrors = _removalErrors.asSharedFlow()
 
     init {
         viewModelScope.launch {
@@ -79,6 +86,18 @@ class QueueViewModel @Inject constructor(
     fun playNext(trackId: UUID) = queueRepository.playNext(trackId)
     fun addToQueue(trackId: UUID) = queueRepository.addToQueue(trackId)
     fun pinOffline(trackId: UUID) = downloads.pinOffline(trackId)
+
+    fun removeTrack(trackId: UUID, offline: Boolean, fromLibrary: Boolean) {
+        viewModelScope.launch {
+            try {
+                trackRemoval(trackId, offline, fromLibrary)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _removalErrors.emit(error.message ?: "Unable to remove song")
+            }
+        }
+    }
     fun toggleFavorite(trackId: UUID) {
         val status = _aux.value.statuses[trackId] ?: return
         viewModelScope.launch { libraryRepository.setFavorite(trackId, !status.favorite) }
