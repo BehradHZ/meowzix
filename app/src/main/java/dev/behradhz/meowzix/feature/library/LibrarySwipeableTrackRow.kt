@@ -6,7 +6,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -115,12 +115,11 @@ internal fun SwipeableLibraryTrackRow(
     val visualOffsetX by animateFloatAsState(
         targetValue = swipeOffsetX,
         animationSpec = if (horizontalDragActive) snap() else spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
+            dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessMediumLow,
         ),
         label = "library-swipe-action",
     )
-    val swipeMagnitude = abs(visualOffsetX)
     val swipingRight = visualOffsetX >= 0f
 
     Box(modifier = Modifier.fillMaxWidth()) {
@@ -257,6 +256,7 @@ private fun LibraryTrackRowContent(
         shape = RoundedCornerShape(18.dp),
         color = (containerColor ?: MaterialTheme.colorScheme.surfaceVariant)
             .copy(alpha = TRACK_CARD_ALPHA),
+        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)),
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
