@@ -1576,6 +1576,12 @@ class PlaybackService : MediaLibraryService() {
                 val failedUri = uri
                 playbackRetryJob = serviceScope.launch {
                     delay(REMOTE_PLAYBACK_RETRY_BASE_DELAY_MS * attempt)
+                    // A source check wins over retrying the same stale Media3 URI.
+                    // If Telegram confirms deletion, the check closes the stream and
+                    // removes the occurrence; no retry may resurrect the old source.
+                    if (missingSourceMediaId == mediaId) {
+                        missingSourceCheckJob?.join()
+                    }
                     // A new user selection wins over any delayed recovery.
                     if (player.currentMediaItem?.mediaId != mediaId ||
                         player.currentMediaItem?.localConfiguration?.uri != failedUri
@@ -1649,10 +1655,13 @@ class PlaybackService : MediaLibraryService() {
             }
             if (!confirmed || !isStillFailedSource(mediaId, failedUri, expectedOccurrence)) return@launch
 
-            // Cancel any scheduled stream retry, retain the visible item briefly,
-            // and present a meaningful notice instead of an opaque source error.
+            // A download row can vanish before Media3 stops loading its cached URI.
+            // Stop the player immediately (which closes the blocking TDLib
+            // DataSource), then leave the selected item visible for the notice.
+            // Do not let another stream retry run during the five-second hold.
             clearPlaybackRetry()
             player.pause()
+            player.stop()
             val title = player.currentMediaItem?.mediaMetadata?.title?.toString()
                 ?.takeIf(String::isNotBlank) ?: "This song"
             queueActionFeedbackBus.emit(QueueActionKind.SOURCE_DELETED, title)
