@@ -40,7 +40,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,9 +77,9 @@ internal fun TelegramMusicSourcePicker(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("Music sources", style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold, color = Color.White)
+                    fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                 Text("${state.selectedChatIds.size} selected", style = MaterialTheme.typography.bodySmall,
-                    color = TelegramGlassChrome.muted)
+                    color = MaterialTheme.colorScheme.primary)
             }
             TextButton(onClick = onRefresh, enabled = enabled && !state.isLoadingChats) {
                 Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -88,7 +87,7 @@ internal fun TelegramMusicSourcePicker(
                 Text("Refresh")
             }
         }
-        Text("Tap a mode to cycle: None → Playlist only → Library. Offline copies are retained.",
+        Text("Tap a chat's mode to switch between None, Playlist only and Library. Offline music is kept.",
             style = MaterialTheme.typography.bodySmall, color = TelegramGlassChrome.muted)
         TelegramGlassInput(
             value = query, onValueChange = { query = it },
@@ -144,26 +143,31 @@ internal fun TelegramMusicSourcePicker(
                 val shape = RoundedCornerShape(20.dp)
                 Row(
                     modifier = Modifier.fillMaxWidth()
-                        .background(TelegramGlassChrome.base.copy(alpha = 0.28f), shape)
+                        .background(
+                            if (chat.selected) modeColor.copy(alpha = 0.09f)
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.035f),
+                            shape,
+                        )
                         .border(
                             1.dp,
                             if (chat.selected) modeColor.copy(alpha = 0.56f)
-                            else Color.White.copy(alpha = 0.055f),
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                             shape,
                         )
                         .padding(horizontal = 10.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ChatAvatar(chat.profilePhotoRef, chat.title, size = 46.dp)
-                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text(chat.title, style = MaterialTheme.typography.titleMedium,
+                    ChatAvatar(chat.profilePhotoRef, chat.title, size = 42.dp)
+                    Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text(chat.title, style = MaterialTheme.typography.bodyLarge,
                             fontWeight = if (chat.selected) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurface)
                         Text(chat.kind.displayName(), style = MaterialTheme.typography.bodySmall,
                             color = TelegramGlassChrome.muted)
                     }
                     Box(
-                        modifier = Modifier.widthIn(min = 112.dp)
+                        modifier = Modifier.widthIn(min = 104.dp)
                             .clip(RoundedCornerShape(14.dp))
                             .background(modeColor.copy(alpha = if (mode == TelegramMusicSourceMode.NONE) 0.08f else 0.18f))
                             .border(1.dp, modeColor.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
@@ -187,7 +191,8 @@ internal fun TelegramMusicSourcePicker(
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
-                                color = if (current == TelegramMusicSourceMode.NONE) TelegramGlassChrome.muted else Color.White,
+                                color = if (current == TelegramMusicSourceMode.NONE)
+                                    MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }
