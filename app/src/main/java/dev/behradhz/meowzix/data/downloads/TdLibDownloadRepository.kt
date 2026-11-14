@@ -243,8 +243,13 @@ class TdLibDownloadRepository @Inject constructor(
             ?: error("Connect Telegram before downloading.")
         val telegramSource = telegramDao.telegramSourceForTrack(accountId, trackId.toString())
             ?: return
+        val remoteSource = libraryDao.sourceById(telegramSource.trackSourceId) ?: return
+        if (remoteSource.availability == SourceAvailability.MISSING) {
+            // Durable deletion marker wins over stale WorkManager retries.
+            downloadDao.deleteByTrackId(trackId.toString())
+            return
+        }
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
-        val remoteSource = requireNotNull(libraryDao.sourceById(telegramSource.trackSourceId))
 
         val candidate = if (telegramSource.messageId < 0L) {
             findTelegramProfileAudio(
