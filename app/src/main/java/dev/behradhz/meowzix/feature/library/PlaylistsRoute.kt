@@ -177,6 +177,7 @@ fun PlaylistsRoute(
                 onAddToQueue = viewModel::addToQueue,
                 onPinOffline = viewModel::pinOffline,
                 onRemoveOfflineCopy = viewModel::removeOfflineCopy,
+                onRemoveTrack = viewModel::removeTrack,
                 onFavorite = viewModel::setFavorite,
                 onAddToPlaylist = viewModel::addToPlaylist,
                 libraryTrackIds = state.selectedPlaylistLibraryTrackIds,
