@@ -62,6 +62,8 @@ import dev.behradhz.meowzix.domain.telegram.TelegramProxyItem
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyKind
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyLinkParser
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyState
+import dev.behradhz.meowzix.domain.telegram.TelegramConnectionStatus
+import dev.behradhz.meowzix.domain.telegram.telegramProxyConnectionLabel
 import dev.behradhz.meowzix.domain.telegram.matchesEndpoint
 import dev.behradhz.meowzix.domain.telegram.rankTelegramProxiesByLatency
 import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
@@ -69,12 +71,13 @@ import dev.behradhz.meowzix.ui.components.TelegramGlassInput
 import dev.behradhz.meowzix.ui.components.TelegramGlassPill
 
 /**
- * The proxy manager is opened from the Settings header.
+ * The proxy manager can be opened from the persistent proxy header action.
  * Clipboard content is inspected only while the dialog is visible and foregrounded.
  */
 @Composable
 internal fun TelegramProxyPanel(
     state: TelegramProxyState,
+    connectionStatus: TelegramConnectionStatus = TelegramConnectionStatus.STARTING,
     onAdd: (TelegramProxyDraft) -> Unit,
     onImport: (String) -> Unit,
     onRefresh: () -> Unit,
@@ -95,6 +98,12 @@ internal fun TelegramProxyPanel(
     var lastSeenClipboard by remember { mutableStateOf<String?>(null) }
     val currentProxy = state.proxies.firstOrNull { it.enabled }
     val sortedProxies = rankTelegramProxiesByLatency(state.proxies)
+    val isConnecting = connectionStatus in setOf(
+        TelegramConnectionStatus.STARTING,
+        TelegramConnectionStatus.CONNECTING_TO_PROXY,
+        TelegramConnectionStatus.CONNECTING,
+        TelegramConnectionStatus.UPDATING,
+    )
 
     if (showTrigger) {
         Surface(
@@ -171,6 +180,40 @@ internal fun TelegramProxyPanel(
                         }
                     }
                     HorizontalDivider(color = TelegramGlassChrome.stroke.copy(alpha = 0.55f))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.09f),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            if (isConnecting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    if (connectionStatus == TelegramConnectionStatus.CONNECTED) Icons.Rounded.Check else Icons.Rounded.Shield,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            Column {
+                                Text("Telegram connection", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    telegramProxyConnectionLabel(currentProxy != null, connectionStatus),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Use proxy", style = MaterialTheme.typography.titleMedium)
