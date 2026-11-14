@@ -250,6 +250,7 @@ internal fun MorphingPlayerOverlay(
     }
 
     LaunchedEffect(morphState.targetExpanded, track.id) {
+        if (!morphState.targetExpanded) inlineQueueExpanded = false
         animateTo(if (morphState.targetExpanded) 1f else 0f)
     }
 
