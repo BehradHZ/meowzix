@@ -187,6 +187,59 @@ class ProgressiveQueueTailAppendTest {
         assertEquals(future.map { it.id }, requireNotNull(queue.snapshot()).tracks.drop(1).map { it.id })
     }
 
+    @Test
+    fun `Library startup attaches 99 upcoming songs and refills every 90 in all modes`() {
+        val all = tracks(320)
+        val ids = all.map { it.id }
+        for (mode in PlaybackMode.entries) {
+            val queue = ProgressiveQueue()
+            val selected = all.first()
+            queue.start(
+                listOf(selected), 0, mode, RepeatMode.OFF,
+                sourceIds = listOf(selected.id),
+            )
+            val occurrence = requireNotNull(queue.snapshot()).occurrenceIds.first()
+            assertTrue(queue.attachFutureToSingleTrack(
+                expectedTrackId = selected.id,
+                expectedOccurrenceId = occurrence,
+                future = all.drop(1).take(99),
+                sourceIds = ids,
+                pendingIds = ids.drop(100),
+                mode = mode,
+            ))
+            val initial = requireNotNull(queue.snapshot())
+            assertEquals(mode, initial.playbackMode)
+            assertEquals(100, initial.tracks.size)
+            assertEquals(99, initial.tracks.drop(1).size)
+            assertEquals(220, initial.pendingGeneratedIds.size)
+            assertEquals(selected.id, initial.tracks.first().id)
+            assertEquals(occurrence, initial.occurrenceIds.first())
+
+            queue.jumpTo(89)
+            assertEquals(null, queue.claimGeneratedRefill())
+            queue.jumpTo(90)
+            val second = requireNotNull(queue.claimGeneratedRefill())
+            assertEquals(ids.drop(100).take(100), second.ids)
+            assertEquals(null, queue.claimGeneratedRefill()) // Exactly one in-flight refill.
+            assertTrue(queue.appendGeneratedBatch(second, all.drop(100).take(100)))
+            assertEquals(200, requireNotNull(queue.snapshot()).tracks.size)
+
+            queue.jumpTo(190)
+            val third = requireNotNull(queue.claimGeneratedRefill())
+            assertEquals(ids.drop(200).take(100), third.ids)
+            assertTrue(queue.appendGeneratedBatch(third, all.drop(200).take(100)))
+
+            queue.jumpTo(290)
+            val last = requireNotNull(queue.claimGeneratedRefill())
+            assertEquals(ids.drop(300), last.ids)
+            assertTrue(queue.appendGeneratedBatch(last, all.drop(300)))
+            val final = requireNotNull(queue.snapshot())
+            assertEquals(320, final.tracks.size)
+            assertEquals(320, final.tracks.map { it.id }.distinct().size)
+            assertEquals(emptyList<UUID>(), final.pendingGeneratedIds)
+        }
+    }
+
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
         track("track-$index")
     }
