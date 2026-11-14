@@ -852,6 +852,62 @@ class TdLibTelegramForwardRepository @Inject constructor(
         return awaitDelivery(client, pending, job.id, null, active)
     }
 
+    /**
+     * Profile audio has no forwardable message. TDLib can send an existing server file
+     * by its file ID, which avoids re-uploading. Fall back only if that request is
+     * rejected BEFORE TDLib accepts a pending outgoing message.
+     */
+    private suspend fun sendProfileAudio(
+        client: TdLibClientAdapter,
+        job: TelegramSendJobEntity,
+        title: String,
+        artist: String?,
+        durationMs: Long,
+        source: TelegramTrackSourceEntity,
+        active: ActiveSend,
+    ): Long {
+        ensureNotCancelRequested(active)
+        val profileAudio = findTelegramProfileAudio(
+            client, source.chatId, source.messageId, source.tdPersistentFileId,
+        )
+        if (profileAudio != null) {
+            ensureNotCancelRequested(active)
+            setState(job, TelegramSendState.SENDING, progressPercent = 88, errorMessage = null)
+            val inputAudio = TdApi.InputAudio(
+                TdApi.InputFileId(profileAudio.audio.id),
+                null,
+                (durationMs / 1_000L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+                title,
+                artist.orEmpty(),
+            )
+            val pending = try {
+                active.submissionStarted = true
+                client.send(
+                    TdApi.SendMessage(
+                        job.targetChatId, null, null, null, null,
+                        TdApi.InputMessageAudio(inputAudio, TdApi.FormattedText("", null)),
+                    ),
+                )
+            } catch (error: TdLibException) {
+                // The call itself was rejected; no pending message exists to duplicate.
+                if (error.errorCode !in setOf(400, 404)) throw error
+                active.submissionStarted = false
+                ensureNotCancelRequested(active)
+                return sendLocalTrack(
+                    client, job, title, artist, durationMs, source,
+                    originalMessageMissing = false, active = active, profileAudio = profileAudio,
+                )
+            }
+            // Do not fall back if message delivery later fails or becomes uncertain.
+            return awaitDelivery(client, pending, job.id, null, active)
+        }
+
+        return sendLocalTrack(
+            client, job, title, artist, durationMs, source,
+            originalMessageMissing = false, active = active,
+        )
+    }
+
     private suspend fun sendLocalTrack(
         client: TdLibClientAdapter,
         job: TelegramSendJobEntity,
