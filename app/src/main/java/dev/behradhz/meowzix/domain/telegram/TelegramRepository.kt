@@ -97,6 +97,7 @@ enum class TelegramSendState {
     PREPARING_FILE,
     UPLOADING,
     SENDING,
+    CANCELING,
     VERIFYING,
     RETRYING,
     SENT,
