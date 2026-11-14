@@ -147,7 +147,6 @@ fun UnifiedSettingsScreen(
     var includeHistoryInBackup by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<Pair<ByteArray, BackupPreview>?>(null) }
     var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
-    var equalizerExpanded by rememberSaveable { mutableStateOf(false) }
     var pendingIconSource by remember { mutableStateOf<LauncherIconColorSource?>(null) }
     var versionTaps by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(enabled = selectedCategory != null) { selectedCategory = null }
@@ -507,18 +506,8 @@ fun UnifiedSettingsScreen(
             if (page == SettingsCategory.SOUND) {
                 item(key = "sound") {
                     SettingsGlassSection(hazeState, "Sound", "", Icons.Rounded.GraphicEq, showHeading = false) {
-                            SettingsActionRow(
-                                "Equalizer", "", Icons.Rounded.Equalizer,
-                                if (equalizerExpanded) "Hide" else "Adjust",
-                                onClick = { equalizerExpanded = !equalizerExpanded },
-                            )
-                            AnimatedVisibility(
-                                visible = equalizerExpanded,
-                                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(190)),
-                                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(140)),
-                            ) {
-                                SettingsEqualizerControls()
-                            }
+                            SettingsInfoRow("Equalizer", "", Icons.Rounded.Equalizer)
+                            SettingsEqualizerControls()
                         SettingsRowDivider()
                             SettingsToggleRow("Loudness normalization",
                                 "ReplayGain first; readable local audio may use conservative RMS dBFS, not LUFS.",
