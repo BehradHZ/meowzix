@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -386,6 +387,7 @@ private fun ForwardPickerBody(
     val trackJobs = remember(sendJobs, trackId, sentVisibilityClockMs) {
         sendJobs.filter { job ->
             job.trackId == trackId &&
+                job.state != TelegramSendState.CANCELED &&
                 (job.state != TelegramSendState.SENT ||
                     sentVisibilityClockMs - job.updatedAtEpochMs < SentStatusVisibilityMillis)
         }.take(4)
@@ -945,13 +947,18 @@ private fun TelegramSendStatusCard(
     onCancel: () -> Unit,
 ) {
     val canRetry = job.state == TelegramSendState.FAILED || job.state == TelegramSendState.VERIFYING
-    val canCancel = job.state in setOf(
+    val canCancelQueued = job.state in setOf(
         TelegramSendState.QUEUED,
         TelegramSendState.RETRYING,
         TelegramSendState.WAITING_FOR_NETWORK,
         TelegramSendState.WAITING_FOR_TELEGRAM,
-        TelegramSendState.FAILED,
-        TelegramSendState.VERIFYING,
+    )
+    val canDismiss = canRetry
+    val canStopActive = job.state in setOf(
+        TelegramSendState.CHECKING,
+        TelegramSendState.PREPARING_FILE,
+        TelegramSendState.UPLOADING,
+        TelegramSendState.SENDING,
     )
     val cardShape = RoundedCornerShape(18.dp)
 
@@ -982,14 +989,40 @@ private fun TelegramSendStatusCard(
                         },
                     )
                 }
-                when (job.state) {
-                    TelegramSendState.SENT -> Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    TelegramSendState.FAILED, TelegramSendState.VERIFYING -> Icon(
-                        Icons.Rounded.ErrorOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                    TelegramSendState.CANCELED -> Icon(Icons.Rounded.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f))
+                when {
+                    canStopActive -> {
+                        // The progress ring is the cancellation affordance for uploads,
+                        // including profile songs falling back to file upload.
+                        Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(
+                                progress = { (job.progressPercent.coerceAtLeast(4) / 100f) },
+                                modifier = Modifier.size(36.dp),
+                                strokeWidth = 3.dp,
+                            )
+                            IconButton(
+                                onClick = onCancel,
+                                modifier = Modifier.size(44.dp)
+                                    .testTag("telegram-send-cancel-upload-" + job.id),
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = "Cancel sending to " + (job.targetTitle ?: "Telegram"),
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
+                    canDismiss -> IconButton(
+                        onClick = onCancel,
+                        modifier = Modifier.testTag("telegram-send-dismiss-" + job.id),
+                    ) {
+                        Icon(Icons.Rounded.Close,
+                            contentDescription = "Dismiss unsuccessful send",
+                            tint = MaterialTheme.colorScheme.error)
+                    }
+                    job.state == TelegramSendState.SENT ->
+                        Icon(Icons.Rounded.Check, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary)
                     else -> CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 }
             }
@@ -1011,9 +1044,9 @@ private fun TelegramSendStatusCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (canRetry || canCancel) {
+            if (canRetry || canCancelQueued) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    if (canCancel) TextButton(onClick = onCancel) { Text("Cancel") }
+                    if (canCancelQueued) TextButton(onClick = onCancel) { Text("Cancel") }
                     if (canRetry) {
                         TextButton(onClick = onRetry) {
                             Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1034,6 +1067,7 @@ private fun TelegramSendJob.statusLabel(): String = when (state) {
     TelegramSendState.PREPARING_FILE -> "Preparing audio"
     TelegramSendState.UPLOADING -> "Uploading $progressPercent%"
     TelegramSendState.SENDING -> "Sending"
+    TelegramSendState.CANCELING -> "Canceling…"
     TelegramSendState.VERIFYING -> "Delivery needs verification"
     TelegramSendState.RETRYING -> "Retrying"
     TelegramSendState.SENT -> "Sent"
