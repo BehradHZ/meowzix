@@ -112,6 +112,7 @@ import dev.behradhz.meowzix.feature.library.LibraryToolsViewModel
 import dev.behradhz.meowzix.feature.library.LocalTrackChatLinkActions
 import dev.behradhz.meowzix.feature.library.TrackChatLinkActions
 import dev.behradhz.meowzix.feature.queue.PlayerInlineQueue
+import dev.behradhz.meowzix.feature.queue.QueueViewModel
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
 import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
@@ -159,6 +160,9 @@ fun NowPlayingRoute(
     val sleepTimerPreferences by viewModel.sleepTimerPreferences.collectAsStateWithLifecycle()
     val appearance by viewModel.appearanceSettings.collectAsStateWithLifecycle()
     val recommendationActions: RecommendationActionsViewModel = hiltViewModel()
+    // Create the Queue owner once, not during the first drag frame: acquiring
+    // Hilt/database flows mid-gesture would produce an avoidable animation hitch.
+    val inlineQueueViewModel: QueueViewModel = hiltViewModel()
     var lyricsExpanded by remember { mutableStateOf(false) }
     var inlineQueueExpanded by remember { mutableStateOf(false) }
 
@@ -252,6 +256,7 @@ fun NowPlayingRoute(
             NowPlayingScreen(
                 state = state,
                 queueState = queueState,
+                inlineQueueViewModel = inlineQueueViewModel,
                 lockScreenMode = lockScreenMode,
                 liveBands = spectrum.bands,
                 isFavorite = isFavorite,
@@ -368,6 +373,7 @@ fun NowPlayingRoute(
 private fun NowPlayingScreen(
     state: PlaybackState,
     queueState: QueueState,
+    inlineQueueViewModel: QueueViewModel,
     lockScreenMode: Boolean,
     liveBands: FloatArray,
     isFavorite: Boolean,
@@ -723,6 +729,7 @@ private fun NowPlayingScreen(
                             PlayerInlineQueue(
                                 modifier = Modifier.fillMaxSize(),
                                 onGoToArtist = onGoToArtist,
+                                viewModel = inlineQueueViewModel,
                             )
                         }
                     }
