@@ -38,6 +38,8 @@ interface MusicLibraryRepository {
     suspend fun unmergeSource(sourceId: UUID): UUID
     suspend fun setFavorite(trackId: UUID, favorite: Boolean)
     suspend fun addToLibrary(trackId: UUID)
+    /** Hide a song from Library without deleting local music or its source records. */
+    suspend fun removeFromLibrary(trackId: UUID)
     suspend fun addTracksToLibrary(trackIds: List<UUID>) {
         trackIds.distinct().forEach { addToLibrary(it) }
     }
