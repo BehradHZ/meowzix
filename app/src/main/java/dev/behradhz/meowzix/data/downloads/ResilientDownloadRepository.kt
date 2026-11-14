@@ -194,6 +194,12 @@ class ResilientDownloadRepository @Inject constructor(
         delegate.removeOfflineCopy(trackId)
     }
 
+    override suspend fun discardUnavailableSource(trackId: UUID) {
+        manuallyStopped.add(trackId)
+        workManager.cancelUniqueWork(workName(trackId))
+        delegate.discardUnavailableSource(trackId)
+    }
+
     override suspend fun storageBytes(): Long = delegate.storageBytes()
 
     override suspend fun clearTemporaryCache() = delegate.clearTemporaryCache()
