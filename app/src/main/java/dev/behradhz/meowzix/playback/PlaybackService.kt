@@ -545,6 +545,26 @@ class PlaybackService : MediaLibraryService() {
                 missingSourceCheckJob = null
                 missingSourceMediaId = null
             }
+            // A process restart may restore an old Media3 timeline after a
+            // confirmed Telegram deletion. Events are ephemeral; persisted
+            // SourceAvailability.MISSING is not. Stop that stream on selection.
+            val restoredUri = mediaItem?.localConfiguration?.uri
+            val restoredId = mediaItem?.mediaId
+            if (restoredUri?.scheme == TDLIB_SCHEME && restoredId != null) {
+                val trackId = runCatching { UUID.fromString(restoredId) }.getOrNull()
+                if (trackId != null) serviceScope.launch {
+                    val missing = withContext(Dispatchers.IO) {
+                        remotePlaybackResolver.isPreviouslyConfirmedMissing(trackId)
+                    }
+                    if (missing && player.currentMediaItem?.mediaId == restoredId &&
+                        player.currentMediaItem?.localConfiguration?.uri == restoredUri
+                    ) {
+                        investigateDeletedTelegramSource(
+                            restoredId, restoredUri, alreadyConfirmed = true,
+                        )
+                    }
+                }
+            }
             if (!isRestoring && (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK ||
                     reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
             ) {
