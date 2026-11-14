@@ -44,15 +44,15 @@ class DownloadDisplayOrderTest {
             ))
         }
         val dao = db.downloadDao()
-        assertEquals(ids, dao.observeDisplayRows().first().map { it.trackId })
+        assertEquals(ids.reversed(), dao.observeDisplayRows().first().map { it.trackId })
 
         dao.upsert(dao.byTrackId("a")!!.copy(downloadedBytes = 400, updatedAtEpochMs = 999))
         dao.upsert(dao.byTrackId("c")!!.copy(downloadedBytes = 900, updatedAtEpochMs = 2000))
         dao.upsert(dao.byTrackId("b")!!.copy(status = "QUEUED", updatedAtEpochMs = 3000))
-        assertEquals(ids, dao.observeDisplayRows().first().map { it.trackId })
+        assertEquals(ids.reversed(), dao.observeDisplayRows().first().map { it.trackId })
 
         dao.upsert(dao.byTrackId("b")!!.copy(status = "CANCELED", updatedAtEpochMs = 4000))
-        assertEquals(listOf("a", "c"), dao.observeDisplayRows().first().map { it.trackId })
+        assertEquals(listOf("c", "a"), dao.observeDisplayRows().first().map { it.trackId })
         // Keep the durable canceled status so WorkManager cannot revive this transfer.
         assertEquals("CANCELED", dao.byTrackId("b")!!.status)
     }
