@@ -35,7 +35,9 @@ internal class TdLibProxyCoordinator(
         val client = activeClient() ?: return@launch
         _state.update { it.copy(isLoading = true) }
         try {
-            val proxies = withTimeout(12_000) { client.send(TdApi.GetProxies()) }.proxies
+            val proxies = withTimeout(12_000) {
+                retryTransientTelegramRead { client.send(TdApi.GetProxies()) }
+            }.proxies
             _state.update { previous ->
                 val prior = previous.proxies.associateBy { it.id }
                 previous.copy(
@@ -65,8 +67,18 @@ internal class TdLibProxyCoordinator(
         } catch (cancelled: CancellationException) {
             _state.update { it.copy(isLoading = false) }
             throw cancelled
-        } catch (_: Throwable) {
-            _state.update { it.copy(isLoading = false, errorMessage = "Unable to read Telegram proxies. Retry or reset the Telegram connection.") }
+        } catch (error: Throwable) {
+            // Retain the user's selected proxy. Failing closed is safer than silently
+            // switching their Telegram traffic to a direct connection.
+            val advice = telegramErrorGuidance(error)
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    errorMessage = if (advice.retryable)
+                        "Couldn't load proxies while Telegram is reconnecting. Tap Reload to try again."
+                    else "Couldn't load Telegram proxies. Check the network or proxy settings and tap Reload.",
+                )
+            }
         }
     }
 
