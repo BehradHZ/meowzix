@@ -115,12 +115,13 @@ class PlaylistExperienceTest {
                             calls.addedToLibrary += song.id
                             membership.value = membership.value + song.id
                         },
-                        onRemoveTrack = { song, offline, fromLibrary ->
+                        onRemoveTrack = if (telegramPerson) ({
+                            song: Track, offline: Boolean, fromLibrary: Boolean ->
                             if (fromLibrary && !offline) {
                                 calls.removedFromLibrary += song.id
                                 membership.value = membership.value - song.id
                             }
-                        },
+                        }) else null,
                         onAddToPlaylist = { song, id -> calls.added = song.id to id },
                         telegramPerson = telegramPerson,
                         profileTrackIds = profileSongIds,
