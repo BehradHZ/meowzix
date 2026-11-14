@@ -101,6 +101,16 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         )
     }
 
+    override suspend fun isPreviouslyConfirmedMissing(trackId: UUID): Boolean {
+        val accountId = telegramRepository.musicSourceState.value.accountId ?: return false
+        val source = telegramDao.telegramSourceForTrack(accountId, trackId.toString()) ?: return false
+        if (libraryDao.sourceById(source.trackSourceId)?.availability != SourceAvailability.MISSING) {
+            return false
+        }
+        // A saved, verified audio copy remains playable independently of Telegram.
+        return cachedLocalTrack(trackId) == null
+    }
+
     /**
      * A source read error is not evidence that a song was deleted. Re-query the
      * original message/profile, and only purge the transfer if it is truly gone
