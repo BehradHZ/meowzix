@@ -35,10 +35,13 @@ class LibrarySearchPlaybackQueueTest {
     }
 
     @Test
-    fun `missing selection falls back safely to requested track`() {
+    fun `missing selection remains first without discarding the rest of Library`() {
         val missing = UUID.randomUUID()
-        assertEquals(listOf(missing), buildLibraryPlaybackQueue(ids, missing, PlaybackMode.ORDERED, fromSearch = true))
+        assertEquals(listOf(missing) + ids, buildLibraryPlaybackQueue(ids, missing, PlaybackMode.ORDERED, fromSearch = true))
         assertEquals(listOf(missing), buildLibraryPlaybackQueue(emptyList(), missing, PlaybackMode.ORDERED, fromSearch = true))
+        for (mode in listOf(PlaybackMode.PURE_SHUFFLE, PlaybackMode.SMART_SHUFFLE)) {
+            assertEquals(listOf(missing) + ids, buildLibraryPlaybackQueue(ids, missing, mode, fromSearch = false))
+        }
     }
 
     @Test
