@@ -200,6 +200,38 @@ fun QueueRoute(
     }
 }
 
+/** Shared Queue gestures and layout within the compact main/lock-screen player. */
+@Composable
+fun PlayerInlineQueue(
+    modifier: Modifier = Modifier,
+    onGoToArtist: (String) -> Unit = {},
+    viewModel: QueueViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val aux by viewModel.aux.collectAsStateWithLifecycle()
+    QueueScreen(
+        state = state,
+        aux = aux,
+        searchQuery = "",
+        onPlay = viewModel::play,
+        onMove = viewModel::move,
+        onRemove = viewModel::removeOccurrence,
+        onMoveGroup = viewModel::moveGroup,
+        onRemoveGroup = viewModel::removeGroup,
+        onClear = viewModel::clear,
+        onToggleShuffle = viewModel::toggleShuffle,
+        onPlayNext = viewModel::playNext,
+        onAddToQueue = viewModel::addToQueue,
+        onPinOffline = viewModel::pinOffline,
+        onRemoveTrack = viewModel::removeTrack,
+        onFavorite = viewModel::toggleFavorite,
+        onAddToPlaylist = viewModel::addToPlaylist,
+        onGoToArtist = onGoToArtist,
+        modifier = modifier,
+        inlineMode = true,
+    )
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun QueueScreen(
@@ -220,6 +252,8 @@ private fun QueueScreen(
     onFavorite: (UUID) -> Unit,
     onAddToPlaylist: (UUID, UUID) -> Unit,
     onGoToArtist: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    inlineMode: Boolean = false,
 ) {
     val listState = rememberLazyListState()
     val feedbackHazeState = rememberHazeState()
@@ -448,11 +482,14 @@ private fun QueueScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(feedbackHazeState),
+            modifier = Modifier.fillMaxSize()
+                .then(if (inlineMode) Modifier else Modifier.statusBarsPadding())
+                .hazeSource(feedbackHazeState),
             state = listState,
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = dockAwareBottomPadding(182.dp)),
+            contentPadding = if (inlineMode) PaddingValues(horizontal = 2.dp, vertical = 8.dp)
+                             else PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = dockAwareBottomPadding(182.dp)),
             // Adjacent grouped rows share one continuous glass container.
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
@@ -486,8 +523,10 @@ private fun QueueScreen(
                                     else -> "Next in the queue"
                                 },
                                 modifier = Modifier.fillMaxWidth()
-                                    .padding(start = 10.dp, top = 18.dp, bottom = 10.dp),
-                                style = MaterialTheme.typography.titleMedium,
+                                    .padding(start = 10.dp, top = if (inlineMode) 10.dp else 18.dp,
+                                             bottom = if (inlineMode) 6.dp else 10.dp),
+                                style = if (inlineMode) MaterialTheme.typography.labelLarge
+                                        else MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
@@ -567,6 +606,7 @@ private fun QueueScreen(
                                 onStop = { commit -> finishGroupDrag(group.id, commit) },
                                 onRemove = { onRemoveGroup(group.id) },
                                 onMoveToFront = { onMoveGroup(group.id, state.currentIndex + 1) },
+                                showOverflowActions = !inlineMode,
                                 onMoveToEnd = {
                                     val firstGenerated = state.items.indices.firstOrNull { index ->
                                         index > state.currentIndex && state.items[index].origin == QueueItemOrigin.GENERATED
@@ -622,6 +662,7 @@ private fun QueueScreen(
                             onFavorite = { onFavorite(item.id) },
                             onAddToPlaylist = { playlistId -> onAddToPlaylist(item.id, playlistId) },
                             onGoToArtist = { artist -> onGoToArtist(artist) },
+                            showOverflowActions = !inlineMode,
                         )
                         }
                         }
@@ -632,7 +673,7 @@ private fun QueueScreen(
             }
         }
 
-        MeowzixStickyHeader(
+        if (!inlineMode) MeowzixStickyHeader(
             title = "Queue",
             subtitle = when {
                 state.items.isEmpty() -> "Nothing queued"
@@ -670,6 +711,7 @@ private fun GroupQueueHeader(
     onRemove: () -> Unit,
     onMoveToFront: () -> Unit,
     onMoveToEnd: () -> Unit,
+    showOverflowActions: Boolean = true,
 ) {
     var menuExpanded by remember(group.id) { mutableStateOf(false) }
     var swipeX by remember(group.id) { mutableFloatStateOf(0f) }
@@ -771,7 +813,7 @@ private fun GroupQueueHeader(
                     Icon(Icons.Rounded.DragHandle, contentDescription = "Drag entire group",
                         tint = MaterialTheme.colorScheme.onSurface)
                 }
-                Box {
+                if (showOverflowActions) Box {
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
                         Icon(Icons.Rounded.MoreVert, contentDescription = "Group actions")
                     }
@@ -854,6 +896,7 @@ private fun SwipeableQueueItem(
     onFavorite: () -> Unit,
     onAddToPlaylist: (UUID) -> Unit,
     onGoToArtist: (String) -> Unit,
+    showOverflowActions: Boolean = true,
 ) {
     val recommendationActions = LocalLibraryRecommendationActions.current
     val trackToolsActions = LocalLibraryTrackToolsActions.current
@@ -1020,7 +1063,7 @@ private fun SwipeableQueueItem(
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (reorderEnabled) 1f else 0.28f),
                     )
                 }
-                Box {
+                if (showOverflowActions) Box {
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
                         Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
                     }
