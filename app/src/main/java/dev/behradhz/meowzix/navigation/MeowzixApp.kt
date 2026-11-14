@@ -441,7 +441,7 @@ fun MeowzixApp(
                     onBack = { navController.popBackStack() },
                 )
             }
-            composable(DOWNLOADS_ROUTE) { DownloadsRoute() }
+            composable(DOWNLOADS_ROUTE) { DownloadsRoute(onBack = { navController.popBackStack() }) }
             composable(HISTORY_ROUTE) { HistoryRoute() }
         }
         }
