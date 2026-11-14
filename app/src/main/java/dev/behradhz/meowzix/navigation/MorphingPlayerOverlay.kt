@@ -256,7 +256,7 @@ internal fun MorphingPlayerOverlay(
         viewModel.queueActionFeedback.collectLatest { event ->
             queueFeedback = event
             queueFeedbackVisible = true
-            delay(1_550)
+            delay(if (event.kind == QueueActionKind.SOURCE_DELETED) 5_000L else 1_550L)
             queueFeedbackVisible = false
             delay(260)
             if (queueFeedback == event) queueFeedback = null
@@ -502,6 +502,7 @@ private fun QueueActionFeedbackPill(
         QueueActionKind.ADD_TO_END -> "Added to queue"
         QueueActionKind.REMOVED -> "Removed from queue"
         QueueActionKind.CLEARED -> "Queue cleared"
+        QueueActionKind.SOURCE_DELETED -> "Deleted from Telegram"
     }
     GlassSurface(
         hazeState = hazeState,
@@ -515,14 +516,19 @@ private fun QueueActionFeedbackPill(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "✓",
+                text = if (feedback.kind == QueueActionKind.SOURCE_DELETED) "!" else "✓",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = if (feedback.kind == QueueActionKind.SOURCE_DELETED)
+                    MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.width(10.dp))
             Text(
-                text = if (feedback.kind == QueueActionKind.CLEARED) prefix
-                    else "$prefix · ${feedback.trackTitle}",
+                text = when (feedback.kind) {
+                    QueueActionKind.CLEARED -> prefix
+                    QueueActionKind.SOURCE_DELETED ->
+                        "Deleted: ${feedback.trackTitle} · Next in 5s"
+                    else -> "$prefix · ${feedback.trackTitle}"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
