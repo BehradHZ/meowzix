@@ -14,6 +14,8 @@ import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.network.NetworkPolicy
 import dev.behradhz.meowzix.data.network.NetworkUse
 import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
+import dev.behradhz.meowzix.data.telegram.TdLibException
+import dev.behradhz.meowzix.data.telegram.isConfirmedMissingTelegramMessage
 import dev.behradhz.meowzix.data.telegram.toAudioCandidate
 import dev.behradhz.meowzix.data.telegram.findTelegramProfileAudio
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
@@ -247,18 +249,37 @@ class TdLibDownloadRepository @Inject constructor(
                 client, telegramSource.chatId, telegramSource.messageId, telegramSource.tdPersistentFileId,
             )?.toAudioCandidate(telegramSource.messageId)
         } else {
-            client.send(TdApi.GetMessage(telegramSource.chatId, telegramSource.messageId)).toAudioCandidate()
+            val message = try {
+                client.send(TdApi.GetMessage(telegramSource.chatId, telegramSource.messageId))
+            } catch (error: TdLibException) {
+                if (isConfirmedMissingTelegramMessage(error.errorCode)) {
+                    // A 404 confirms the original is gone/inaccessible. Do not leave
+                    // a failed entry behind or retry it forever.
+                    libraryDao.updateAvailability(
+                        telegramSource.trackSourceId,
+                        SourceAvailability.MISSING,
+                        Instant.now().toEpochMilli(),
+                    )
+                    downloadDao.deleteByTrackId(trackId.toString())
+                    return
+                }
+                throw error
+            }
+            message.toAudioCandidate()
         }
         if (candidate == null) {
-            // Profile privacy changes should not permanently hide locally indexed music.
+            // A valid message that no longer contains audio is definitively gone.
+            // Profile lookup can be unavailable because of privacy; retain its
+            // record rather than interpreting every null as a deletion.
             if (telegramSource.messageId > 0L) {
                 libraryDao.updateAvailability(
-                    telegramSource.trackSourceId,
-                    SourceAvailability.MISSING,
+                    telegramSource.trackSourceId, SourceAvailability.MISSING,
                     Instant.now().toEpochMilli(),
                 )
+                downloadDao.deleteByTrackId(trackId.toString())
+                return
             }
-            error("Telegram audio is no longer available or is private.")
+            error("Telegram profile audio is unavailable; check access and retry.")
         }
         telegramDao.upsertTelegramTrackSource(
             telegramSource.copy(
