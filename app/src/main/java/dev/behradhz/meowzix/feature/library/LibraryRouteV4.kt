@@ -487,7 +487,7 @@ private fun PagedTrackListV4(
                         onGoToArtist = { onGoToArtist(row.track) },
                         onEnsureArtwork = { viewModel.ensureArtwork(row.track) },
                         artworkVisible = row.track.id.toString() in visibleTrackKeys,
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.56f),
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
                     )
                 }
             }
@@ -587,7 +587,7 @@ private fun LibraryDetailV4(
                     onGoToArtist = { onGoToArtist(track) },
                     onEnsureArtwork = { viewModel.ensureArtwork(track) },
                     artworkVisible = track.id.toString() in visibleTrackKeys,
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.56f),
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
                 )
             }
         }
