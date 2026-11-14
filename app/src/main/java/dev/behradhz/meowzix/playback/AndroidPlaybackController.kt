@@ -628,47 +628,44 @@ class AndroidPlaybackController @Inject constructor(
                 val remaining = allIds.filterNot { it == expectedTrackId }
                 val (orderedFuture, shuffleSeed) = runCatching {
                     when (activeMode) {
-                    PlaybackMode.ORDERED -> remaining to null
-                    PlaybackMode.PURE_SHUFFLE -> {
-                        val prefs = settings.playbackPreferenceSettings.first()
-                        val cycle = if (prefs.artistBalancedShuffle) {
-                            // Artist balancing uses lightweight metadata only, never decodes or
-                            // resolves every audio file before the 99-song queue can load.
-                            val artists = catalog.shuffleArtists(allIds)
-                            withContext(Dispatchers.Default) {
-                                ArtistBalancedShuffleEngine.newCycleStartingWith(
-                                    allIds.map { ArtistShuffleItem(it, artists[it]) },
-                                    expectedTrackId,
-                                    alpha = prefs.artistShuffleAlpha.toDouble(),
+                        PlaybackMode.ORDERED -> remaining to null
+                        PlaybackMode.PURE_SHUFFLE -> {
+                            val prefs = settings.playbackPreferenceSettings.first()
+                            val cycle = if (prefs.artistBalancedShuffle) {
+                                // Artist balance needs only metadata, not full audio resolution.
+                                val artists = catalog.shuffleArtists(allIds)
+                                withContext(Dispatchers.Default) {
+                                    ArtistBalancedShuffleEngine.newCycleStartingWith(
+                                        allIds.map { ArtistShuffleItem(it, artists[it]) },
+                                        expectedTrackId,
+                                        alpha = prefs.artistShuffleAlpha.toDouble(),
+                                    )
+                                }
+                            } else withContext(Dispatchers.Default) {
+                                PureShuffleEngine.newCycleStartingWith(allIds, expectedTrackId)
+                            }
+                            cycle.order.filterNot { it == expectedTrackId } to cycle.seed
+                        }
+                        PlaybackMode.SMART_SHUFFLE -> {
+                            // Ranking is bounded, so it cannot delay playback or queue forever.
+                            val recommendation = withTimeoutOrNull(2_000L) {
+                                recommendationEngine.generate(
+                                    allowedTrackIds = allIds,
+                                    currentTrackId = expectedTrackId,
+                                    timeBucket = currentTimeBucket(),
                                 )
                             }
-                        } else withContext(Dispatchers.Default) {
-                            // Pure Shuffle needs IDs only; never hydrate the full library.
-                            PureShuffleEngine.newCycleStartingWith(allIds, expectedTrackId)
-                        }
-                        cycle.order.filterNot { it == expectedTrackId } to cycle.seed
-                    }
-                    PlaybackMode.SMART_SHUFFLE -> {
-                        // An expensive or unavailable ranking must never stall the next track.
-                        // The neutral fallback still preserves every candidate for exploration.
-                        val recommendation = withTimeoutOrNull(2_000L) {
-                            recommendationEngine.generate(
-                                allowedTrackIds = allIds,
-                                currentTrackId = expectedTrackId,
-                                timeBucket = currentTimeBucket(),
-                            )
-                        }
-                        if (recommendation == null) remaining to null else {
-                            SmartShuffleFutureOrder.completeLibraryCycle(
-                                remaining, recommendation.trackIds, recommendation.eligibleTrackIds,
-                            ) to null
+                            if (recommendation == null) remaining to null else {
+                                SmartShuffleFutureOrder.completeLibraryCycle(
+                                    remaining, recommendation.trackIds, recommendation.eligibleTrackIds,
+                                ) to null
+                            }
                         }
                     }
+                }.getOrElse { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    return@launch
                 }
-            }.getOrElse { error ->
-                if (error is kotlinx.coroutines.CancellationException) throw error
-                return@launch
-            }
                 val headIds = orderedFuture.take((ProgressiveQueue.GENERATED_BATCH_SIZE - 1).coerceAtLeast(1))
                 var loaded: List<PlayableTrack>? = null
                 for (attempt in 1..3) {
@@ -702,15 +699,15 @@ class AndroidPlaybackController @Inject constructor(
                         mode = activeMode,
                         seed = shuffleSeed,
                     )
-                if (accepted) {
-                    syncProgressiveFutureInPlace(connected)
-                    // The first track may have ended while the Library IDs were loading.
-                    if (connected.playbackState == Player.STATE_ENDED && connected.hasNextMediaItem()) {
-                        connected.seekToNextMediaItem()
-                        connected.prepare()
-                        connected.play()
+                    if (accepted) {
+                        syncProgressiveFutureInPlace(connected)
+                        // The first song may have ended while catalog discovery ran.
+                        if (connected.playbackState == Player.STATE_ENDED && connected.hasNextMediaItem()) {
+                            connected.seekToNextMediaItem()
+                            connected.prepare()
+                            connected.play()
+                        }
                     }
-                }
                 }
                 if (!modeChanged) return@launch
             }
