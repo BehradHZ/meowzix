@@ -571,6 +571,24 @@ class ProgressiveQueue @Inject constructor() {
         return true
     }
 
+    /**
+     * A verified missing Telegram source must not linger in Next/Queue as another
+     * occurrence, nor be regenerated from a stale source candidate list.
+     */
+    @Synchronized
+    fun removeUnavailableTrack(trackId: UUID): Boolean {
+        val matches = tracks.indices.filter { tracks[it].id == trackId }
+            .map { occurrenceIds[it] }
+        matches.forEach(::removeOccurrence)
+        val oldSources = sourceTrackIds.size
+        val oldPending = pendingGeneratedIds.size
+        sourceTrackIds = sourceTrackIds.filterNot { it == trackId }
+        pendingGeneratedIds = pendingGeneratedIds.filterNot { it == trackId }
+        if (matches.isEmpty() && (oldSources != sourceTrackIds.size ||
+                oldPending != pendingGeneratedIds.size)) bumpRevision()
+        return matches.isNotEmpty()
+    }
+
     @Synchronized
     fun move(fromIndex: Int, toIndex: Int): Boolean {
         if (fromIndex <= currentIndex || toIndex <= currentIndex ||
