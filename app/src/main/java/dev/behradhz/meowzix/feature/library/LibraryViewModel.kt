@@ -17,6 +17,7 @@ import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.library.RemoveTrackFromLocations
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackController
@@ -31,6 +32,7 @@ import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,6 +84,7 @@ class LibraryViewModel @Inject constructor(
     private val playbackController: PlaybackController,
     private val queueRepository: QueueRepository,
     private val downloadRepository: DownloadRepository,
+    private val trackRemoval: RemoveTrackFromLocations,
     private val playlistRepository: PlaylistRepository,
     private val telegramRepository: TelegramRepository,
     private val artworkRepairCoordinator: ArtworkRepairCoordinator,
@@ -316,6 +319,21 @@ class LibraryViewModel @Inject constructor(
     fun removeOfflineCopy(track: Track) = viewModelScope.launch {
         runCatching { downloadRepository.removeOfflineCopy(track.id) }
             .onFailure { reportLoadError(it, "Unable to remove offline copy") }
+    }
+
+    fun removeTrack(track: Track, offline: Boolean, fromLibrary: Boolean) = viewModelScope.launch {
+        try {
+            trackRemoval(track.id, offline, fromLibrary)
+            if (fromLibrary) {
+                _state.update {
+                    it.copy(selectedPlaylistLibraryTrackIds = it.selectedPlaylistLibraryTrackIds - track.id)
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            reportLoadError(error, "Unable to remove song")
+        }
     }
 
     fun setFavorite(track: Track) = viewModelScope.launch {
