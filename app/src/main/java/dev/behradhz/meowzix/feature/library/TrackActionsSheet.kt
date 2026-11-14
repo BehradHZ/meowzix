@@ -49,6 +49,9 @@ import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,6 +79,7 @@ import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
+import dev.behradhz.meowzix.feature.telegram.ForwardOptionPill
 import java.util.UUID
 
 /** Forward the selected row, not necessarily the track currently playing. */
@@ -90,7 +94,7 @@ internal data class TrackChatLinkActions(
 )
 internal val LocalTrackChatLinkActions = staticCompositionLocalOf<TrackChatLinkActions?> { null }
 
-internal enum class TrackActionsPage { ACTIONS, PLAYLISTS }
+internal enum class TrackActionsPage { ACTIONS, PLAYLISTS, REMOVE }
 
 /** Compact popup anchored to the calling track's overflow button in Library and Queue. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -119,8 +123,20 @@ internal fun TrackActionsMenu(
     onAddToLibrary: (() -> Unit)? = null,
     onRemoveOfflineCopy: (() -> Unit)? = null,
     onViewInChat: (() -> Unit)? = null,
+    onRemoveFromLocations: ((offline: Boolean, library: Boolean) -> Unit)? = null,
+    canRemoveOffline: Boolean = false,
+    canRemoveFromLibrary: Boolean = true,
 ) {
     var page by remember(title, artist, isQueue) { mutableStateOf(TrackActionsPage.ACTIONS) }
+    var removeOffline by remember(title, artist, isQueue) { mutableStateOf(false) }
+    var removeLibrary by remember(title, artist, isQueue) { mutableStateOf(false) }
+    LaunchedEffect(expanded) {
+        if (!expanded) {
+            page = TrackActionsPage.ACTIONS
+            removeOffline = false
+            removeLibrary = false
+        }
+    }
     val accent = MaterialTheme.colorScheme.primary
     val glass = MaterialTheme.colorScheme.surface
     val menuShape = RoundedCornerShape(18.dp)
@@ -202,6 +218,86 @@ internal fun TrackActionsMenu(
                     }
                     Spacer(Modifier.height(12.dp))
                 }
+            } else if (activePage == TrackActionsPage.REMOVE) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp)
+                        .testTag("track-removal-panel"),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { page = TrackActionsPage.ACTIONS }) {
+                            Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to track actions")
+                        }
+                        Text("Remove song", style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold)
+                    }
+                    Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Remove from", modifier = Modifier.padding(start = 10.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ForwardOptionPill(
+                            title = "Offline",
+                            selected = removeOffline,
+                            onSelectedChange = { removeOffline = it },
+                            modifier = Modifier.weight(1f),
+                            enabled = canRemoveOffline,
+                            tag = "track-removal-offline",
+                        )
+                        ForwardOptionPill(
+                            title = "Library",
+                            selected = removeLibrary,
+                            onSelectedChange = { removeLibrary = it },
+                            modifier = Modifier.weight(1f),
+                            enabled = canRemoveFromLibrary,
+                            tag = "track-removal-library",
+                        )
+                    }
+                    Text(
+                        "Offline removes Meowzix-saved audio only. Library hides the song. " +
+                            "Your device's original files and Telegram messages stay untouched.",
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (!canRemoveOffline) {
+                        Text("No Meowzix offline copy to remove.",
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = { page = TrackActionsPage.ACTIONS }) {
+                            Text("Back")
+                        }
+                        Button(
+                            enabled = removeOffline || removeLibrary,
+                            onClick = {
+                                val offline = removeOffline
+                                val library = removeLibrary
+                                onDismiss()
+                                onRemoveFromLocations?.invoke(offline, library)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError,
+                            ),
+                            modifier = Modifier.testTag("track-removal-confirm"),
+                        ) {
+                            Text("Remove selected")
+                        }
+                    }
+                }
             } else {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
@@ -264,9 +360,19 @@ internal fun TrackActionsMenu(
                     ActionLine(Icons.Rounded.ContentCopy, "Manage duplicates") {
                         onDismiss(); onManageDuplicates()
                     }
-                    onRemoveOfflineCopy?.let { remove ->
-                        ActionLine(Icons.Rounded.DeleteOutline, "Remove offline download") {
-                            onDismiss(); remove()
+                    if (onRemoveFromLocations != null &&
+                        (canRemoveOffline || canRemoveFromLibrary)
+                    ) {
+                        ActionLine(Icons.Rounded.DeleteOutline, "Remove song", trailing = true) {
+                            removeOffline = false
+                            removeLibrary = false
+                            page = TrackActionsPage.REMOVE
+                        }
+                    } else {
+                        onRemoveOfflineCopy?.let { remove ->
+                            ActionLine(Icons.Rounded.DeleteOutline, "Remove offline download") {
+                                onDismiss(); remove()
+                            }
                         }
                     }
                     }
