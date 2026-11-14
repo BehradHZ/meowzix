@@ -922,8 +922,20 @@ class TdLibTelegramForwardRepository @Inject constructor(
                     originalMessageMissing = false, active = active, profileAudio = profileAudio,
                 )
             }
-            // Do not fall back if message delivery later fails or becomes uncertain.
-            return awaitDelivery(client, pending, job.id, null, active)
+            return try {
+                awaitDelivery(client, pending, job.id, null, active)
+            } catch (failure: TdLibException) {
+                // UpdateMessageSendFailed is an explicit negative delivery confirmation.
+                // Only for this confirmed rejection may we try the local upload path.
+                if (!canFallbackToProfileUpload(failure)) throw failure
+                ensureNotCancelRequested(active)
+                active.submissionStarted = false
+                active.pendingMessageId = null
+                sendLocalTrack(
+                    client, job, title, artist, durationMs, source,
+                    originalMessageMissing = false, active = active, profileAudio = profileAudio,
+                )
+            }
         }
 
         return sendLocalTrack(
@@ -1232,6 +1244,10 @@ internal fun telegramSendErrorMessage(failure: Throwable): String {
         else -> "Telegram couldn't send this track. Check your connection and try again."
     }
 }
+
+/** 400/404 from a confirmed profile-file send rejection permits a safe file-upload retry. */
+internal fun canFallbackToProfileUpload(error: Throwable): Boolean =
+    error is TdLibException && error.errorCode in setOf(400, 404)
 
 internal fun telegramSendDedupeKey(accountId: String, targetChatId: Long, trackId: String): String =
     "$accountId:$targetChatId:$trackId"
