@@ -291,7 +291,10 @@ private fun DownloadRowCard(
                 when (row.status) {
                     DownloadStatus.DOWNLOADING,
                     DownloadStatus.QUEUED,
-                    -> OutlinedButton(onClick = onPause) { Text("Pause") }
+                    -> {
+                        OutlinedButton(onClick = onPause) { Text("Pause") }
+                        OutlinedButton(onClick = onCancel) { Text("Cancel") }
+                    }
                     DownloadStatus.PAUSED -> Button(onClick = onResume) { Text("Resume") }
                     DownloadStatus.FAILED,
                     DownloadStatus.CANCELED,
