@@ -59,6 +59,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueActionKind
+import dev.behradhz.meowzix.domain.playback.DeletedTelegramSourceEvents
 import dev.behradhz.meowzix.domain.playback.mayBeginAnotherCycle
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.RepeatMode
@@ -98,6 +99,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var libraryRepository: MusicLibraryRepository
     @Inject lateinit var progressiveQueue: ProgressiveQueue
     @Inject lateinit var queueActionFeedbackBus: QueueActionFeedbackBus
+    @Inject lateinit var deletedSources: DeletedTelegramSourceEvents
     @Inject lateinit var sleepTimer: SleepTimerManager
     @Inject lateinit var equalizer: EqualizerRepository
     @Inject lateinit var loudnessNormalization: LoudnessNormalizationRepository
@@ -782,6 +784,16 @@ class PlaybackService : MediaLibraryService() {
             .setMediaButtonPreferences(mediaButtons())
             .build()
         PlaybackServiceBridge.register(this)
+
+        // Download validation may discover a deleted message while Media3 is
+        // silently buffering its cached TDLib URI (without onPlayerError).
+        // The database marks the source missing; this event closes that stale
+        // streaming session immediately instead of letting it retry forever.
+        serviceScope.launch {
+            deletedSources.deleted.collect { id ->
+                handleConfirmedDeletedTelegramSource(id)
+            }
+        }
 
         // Always monitor for the first frame of another app's MEDIA/GAME playback.
         // Automatic restart remains opt-in, but the early pause is unconditional.
@@ -1624,6 +1636,45 @@ class PlaybackService : MediaLibraryService() {
             serviceScope.launch { completeSleepTimer(SleepTimerTerminationReason.END_OF_TRACK_PLAYBACK_ERROR) }
         }
         schedulePersist()
+    }
+
+    private suspend fun handleConfirmedDeletedTelegramSource(trackId: UUID) {
+        val id = trackId.toString()
+        val previousItem = player.currentMediaItem
+        // Another source (e.g. a saved audio file or another Telegram message)
+        // can keep the canonical song playable. Never delete that copy.
+        val alternative = runCatching { playbackCatalog.playableTrack(trackId) }.getOrNull()
+        if (alternative != null) {
+            progressiveQueue.replacePlayableSource(trackId, alternative)
+            if (previousItem?.mediaId == id &&
+                previousItem.localConfiguration?.uri?.toString() != alternative.contentUri
+            ) {
+                val wasPlaying = player.playWhenReady
+                player.replaceMediaItem(
+                    player.currentMediaItemIndex,
+                    alternative.toMediaItem(
+                        currentPlaybackMode(), currentRepeatMode(), previousItem.queueOccurrenceId(),
+                    ),
+                )
+                player.prepare()
+                if (wasPlaying) player.play()
+                schedulePersist()
+            } else if (previousItem?.mediaId != id) {
+                syncProgressiveFutureInPlace()
+            }
+            return
+        }
+
+        if (previousItem?.mediaId == id) {
+            val uri = previousItem.localConfiguration?.uri ?: return
+            investigateDeletedTelegramSource(id, uri, alreadyConfirmed = true)
+            return
+        }
+        if (progressiveQueue.removeUnavailableTrack(trackId)) {
+            // Keep the current song and its Media3 decoder untouched.
+            syncProgressiveFutureInPlace()
+            schedulePersist()
+        }
     }
 
     /**
