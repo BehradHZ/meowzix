@@ -332,7 +332,8 @@ fun MeowzixApp(
         }
         CompositionLocalProvider(
             LocalMeowzixHeaderControls provides MeowzixHeaderControls(
-                onSettings = { toggleSettings() },
+                onSettings = if (currentRoute == SETTINGS_ROUTE || currentRoute in secondarySettingsRoutes) null
+                    else { { toggleSettings() } },
                 onProxy = { openProxyRequest++ },
                 proxyBadge = telegramProxyBadge(
                     proxyState.proxies.any { it.enabled },
@@ -550,6 +551,7 @@ fun MeowzixApp(
 
         TelegramProxyPanel(
             state = proxyState,
+            connectionStatus = telegramAuthState.connectionStatus,
             onAdd = telegramProxyViewModel::addProxy,
             onImport = telegramProxyViewModel::importProxyLink,
             onRefresh = telegramProxyViewModel::refreshProxies,
