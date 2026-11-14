@@ -69,6 +69,16 @@ enum class TelegramConnectionStatus {
 
 enum class TelegramProxyBadge { DISABLED, CONNECTING, CONNECTED }
 
+/** TDLib transport status, never inferred from a saved proxy or a successful ping. */
+fun telegramProxyConnectionLabel(usingProxy: Boolean, status: TelegramConnectionStatus): String = when (status) {
+    TelegramConnectionStatus.STARTING -> "Starting Telegram…"
+    TelegramConnectionStatus.WAITING_FOR_NETWORK -> "Waiting for network"
+    TelegramConnectionStatus.CONNECTING_TO_PROXY -> "Connecting to proxy…"
+    TelegramConnectionStatus.CONNECTING -> if (usingProxy) "Connecting via proxy…" else "Connecting directly…"
+    TelegramConnectionStatus.UPDATING -> "Syncing Telegram…"
+    TelegramConnectionStatus.CONNECTED -> if (usingProxy) "Connected via proxy" else "Connected directly"
+}
+
 /** A selected proxy is not necessarily connected. Trust the TDLib transport state. */
 fun telegramProxyBadge(enabled: Boolean, status: TelegramConnectionStatus): TelegramProxyBadge = when {
     !enabled -> TelegramProxyBadge.DISABLED
