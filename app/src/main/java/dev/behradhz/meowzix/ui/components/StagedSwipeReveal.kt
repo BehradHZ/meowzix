@@ -1,6 +1,9 @@
 package dev.behradhz.meowzix.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -62,47 +66,57 @@ fun BoxScope.StagedSwipeReveal(
 ) {
     if (abs(offsetPx) <= 0.5f) return
     val swipingRight = offsetPx > 0f
-    // No second timeline or stepped transition: the action follows the
-    // foreground's actual position on every drag frame (and on spring return).
-    val transitionDistance = with(LocalDensity.current) {
-        TRACK_SWIPE_REMOVE_THRESHOLD.toPx() - TRACK_SWIPE_ACTION_THRESHOLD.toPx()
-    }
-    val slide = if (secondaryLabel != null) {
+    // Restore the original quick 190ms tuck of the middle action underneath
+    // the foreground song. The first small pull still exposes Play next/Add.
+    val transitionDistance = with(LocalDensity.current) { 72.dp.toPx() }
+    val slideTarget = if (secondaryLabel != null) {
         stagedActionSlidePx(
             offsetPx,
             secondStageStartPx = secondaryThresholdPx - transitionDistance,
             transitionDistancePx = transitionDistance,
         )
     } else 0f
+    val animatedExitProgress by animateFloatAsState(
+        targetValue = if (offsetPx == 0f) 0f else slideTarget / offsetPx,
+        animationSpec = tween(durationMillis = 190),
+        label = "swipe-action-layer-exit",
+    )
+    val slide = offsetPx * animatedExitProgress
 
-    if (secondaryLabel != null && abs(slide) > 0.5f) {
+    // This clip MUST live in the stationary row's coordinates, not in the
+    // translated action layer. The foreground has alpha=0.30: an action
+    // rendered even one pixel under it would bleed through the glass.
+    // Paint nothing except the gutter actually uncovered by the song card.
+    Box(modifier = Modifier.matchParentSize().roundedSwipeReveal(offsetPx)) {
+        if (secondaryLabel != null && abs(slide) > 0.5f) {
+            Surface(
+                modifier = Modifier.matchParentSize().roundedSwipeReveal(slide),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.78f),
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                tonalElevation = 0.dp,
+            ) {
+                SwipeActionLabel(secondaryLabel, Icons.Rounded.Delete, swipingRight)
+            }
+        }
+
+        // The primary and Remove layers occupy disjoint parts of the exposed
+        // gutter. Clipping the parent as well as the individual layers prevents
+        // the primary card or its translucent Surface from showing through the
+        // foreground while the original fast animation is in flight.
         Surface(
-            // Reveal only the section no longer covered by the first panel.
-            // Avoid red bleeding through the translucent Play next/Add layer.
-            modifier = Modifier.matchParentSize().roundedSwipeReveal(slide),
+            modifier = Modifier.matchParentSize()
+                .graphicsLayer { translationX = slide }
+                .roundedSwipeReveal(offsetPx - slide),
             shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.78f),
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            color = (if (swipingRight) MaterialTheme.colorScheme.primaryContainer
+                     else MaterialTheme.colorScheme.tertiaryContainer).copy(alpha = 0.78f),
+            contentColor = if (swipingRight) MaterialTheme.colorScheme.onPrimaryContainer
+                           else MaterialTheme.colorScheme.onTertiaryContainer,
             tonalElevation = 0.dp,
         ) {
-            SwipeActionLabel(secondaryLabel, Icons.Rounded.Delete, swipingRight)
+            SwipeActionLabel(primaryLabel, primaryIcon, swipingRight)
         }
-    }
-
-    // The mask is in the translated card's local coordinates, so the primary
-    // panel is visible only between the moving foreground and the Remove panel.
-    Surface(
-        modifier = Modifier.matchParentSize()
-            .graphicsLayer { translationX = slide }
-            .roundedSwipeReveal(offsetPx - slide),
-        shape = RoundedCornerShape(18.dp),
-        color = (if (swipingRight) MaterialTheme.colorScheme.primaryContainer
-                 else MaterialTheme.colorScheme.tertiaryContainer).copy(alpha = 0.78f),
-        contentColor = if (swipingRight) MaterialTheme.colorScheme.onPrimaryContainer
-                       else MaterialTheme.colorScheme.onTertiaryContainer,
-        tonalElevation = 0.dp,
-    ) {
-        SwipeActionLabel(primaryLabel, primaryIcon, swipingRight)
     }
 }
 
