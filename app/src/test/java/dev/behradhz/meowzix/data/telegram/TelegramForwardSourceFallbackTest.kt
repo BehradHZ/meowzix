@@ -57,6 +57,15 @@ class TelegramForwardSourceFallbackTest {
         }
     }
 
+    @Test fun tdlibNotFoundIsExplainedWithoutRawErrorsOrSecrets() {
+        val message = telegramSendErrorMessage(TdLibException(404, "Not found"))
+        org.junit.Assert.assertTrue(message.contains("couldn't find"))
+        org.junit.Assert.assertFalse(message.equals("Not found", ignoreCase = true))
+
+        val privateFailure = telegramSendErrorMessage(TdLibException(400, "secret=private-info"))
+        org.junit.Assert.assertFalse(privateFailure.contains("private-info"))
+    }
+
     @Test fun localTrackWithoutTelegramSourceUploads() = runTest {
         val outcome = sendWithTelegramSourceFallback(
             sourceMessageId = null,
