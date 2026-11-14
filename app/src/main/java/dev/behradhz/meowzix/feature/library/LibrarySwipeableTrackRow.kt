@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistAdd
@@ -66,6 +67,7 @@ import dev.behradhz.meowzix.ui.components.TRACK_CARD_ALPHA
 import dev.behradhz.meowzix.ui.components.TRACK_ROW_HORIZONTAL_PADDING
 import dev.behradhz.meowzix.ui.components.TRACK_ROW_VERTICAL_PADDING
 import dev.behradhz.meowzix.ui.components.TRACK_SWIPE_ACTION_THRESHOLD
+import dev.behradhz.meowzix.ui.components.TRACK_SWIPE_REMOVE_THRESHOLD
 import dev.behradhz.meowzix.ui.components.TRACK_SWIPE_MAX_DISTANCE
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
@@ -101,6 +103,9 @@ internal fun SwipeableLibraryTrackRow(
     canRemoveFromLibrary: Boolean = true,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onAddToLibrary: (() -> Unit)? = null,
+    /** Non-null only for Telegram chat playlists; true when the song is in Library. */
+    chatLibraryMembership: Boolean? = null,
+    onChatLibraryToggle: (() -> Unit)? = null,
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
     containerColor: Color? = null,
@@ -114,7 +119,9 @@ internal fun SwipeableLibraryTrackRow(
     val density = LocalDensity.current
     val haptics = rememberMeowzixHaptics()
     val actionThreshold = with(density) { TRACK_SWIPE_ACTION_THRESHOLD.toPx() }
+    val libraryThreshold = with(density) { TRACK_SWIPE_REMOVE_THRESHOLD.toPx() }
     val maximumSwipe = with(density) { TRACK_SWIPE_MAX_DISTANCE.toPx() }
+    val hasChatLibraryAction = chatLibraryMembership != null && onChatLibraryToggle != null
     var swipeOffsetX by remember(track.id) { mutableFloatStateOf(0f) }
     var swipeStage by remember(track.id) { mutableIntStateOf(0) }
     var horizontalDragActive by remember(track.id) { mutableStateOf(false) }
@@ -133,6 +140,12 @@ internal fun SwipeableLibraryTrackRow(
             offsetPx = visualOffsetX,
             primaryLabel = if (swipingRight) "Play next" else "Add to queue",
             primaryIcon = if (swipingRight) Icons.Rounded.PlaylistPlay else Icons.Rounded.PlaylistAdd,
+            secondaryLabel = if (hasChatLibraryAction) chatLibrarySwipeLabel(chatLibraryMembership == true)
+                             else null,
+            secondaryThresholdPx = libraryThreshold,
+            secondaryIcon = if (chatLibraryMembership == true) Icons.Rounded.DeleteOutline
+                            else Icons.Rounded.LibraryMusic,
+            secondaryIsDestructive = chatLibraryMembership == true,
         )
 
         Box(
@@ -143,16 +156,25 @@ internal fun SwipeableLibraryTrackRow(
                     shape = RoundedCornerShape(18.dp)
                     clip = true
                 }
-                .pointerInput(track.id, actionThreshold) {
+                .pointerInput(track.id, actionThreshold, libraryThreshold, chatLibraryMembership,
+                    hasChatLibraryAction) {
                     detectHorizontalDragGestures(
                         onDragStart = {
                             horizontalDragActive = true
-                            swipeStage = if (abs(swipeOffsetX) >= actionThreshold) 1 else 0
+                            swipeStage = when {
+                                hasChatLibraryAction && abs(swipeOffsetX) >= libraryThreshold -> 2
+                                abs(swipeOffsetX) >= actionThreshold -> 1
+                                else -> 0
+                            }
                         },
                         onHorizontalDrag = { change, amount ->
                             change.consume()
                             val nextOffset = (swipeOffsetX + amount).coerceIn(-maximumSwipe, maximumSwipe)
-                            val nextStage = if (abs(nextOffset) >= actionThreshold) 1 else 0
+                            val nextStage = when {
+                                hasChatLibraryAction && abs(nextOffset) >= libraryThreshold -> 2
+                                abs(nextOffset) >= actionThreshold -> 1
+                                else -> 0
+                            }
                             if (nextStage > swipeStage) {
                                 haptics.perform(MeowzixHapticCue.Threshold)
                             }
@@ -169,9 +191,18 @@ internal fun SwipeableLibraryTrackRow(
                             horizontalDragActive = false
                             swipeStage = 0
                             swipeOffsetX = 0f
-                            when {
-                                releasedOffset >= actionThreshold -> onPlayNext()
-                                releasedOffset <= -actionThreshold -> onAddToQueue()
+                            when (chatLibrarySwipeActionForOffset(
+                                offsetPx = releasedOffset,
+                                actionThresholdPx = actionThreshold,
+                                libraryThresholdPx = libraryThreshold,
+                                chatLibraryMembership = chatLibraryMembership,
+                                libraryToggleAvailable = hasChatLibraryAction,
+                            )) {
+                                ChatLibrarySwipeAction.ADD_TO_LIBRARY,
+                                ChatLibrarySwipeAction.REMOVE_FROM_LIBRARY -> onChatLibraryToggle?.invoke()
+                                ChatLibrarySwipeAction.PLAY_NEXT -> onPlayNext()
+                                ChatLibrarySwipeAction.ADD_TO_QUEUE -> onAddToQueue()
+                                ChatLibrarySwipeAction.NONE -> Unit
                             }
                         },
                     )
