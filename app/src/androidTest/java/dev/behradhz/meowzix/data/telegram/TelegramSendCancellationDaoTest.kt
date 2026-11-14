@@ -43,6 +43,22 @@ class TelegramSendCancellationDaoTest {
         assertNull(updated.activeDedupeKey)
     }
 
+    @Test fun cancellationBeforeClaimPreventsSubmittingStaleQueuedWork() = runTest {
+        val dao = db.telegramSendDao()
+        val queued = job("QUEUED")
+        dao.insert(queued)
+        assertEquals(1, dao.cancel(queued.id, 10L))
+        assertEquals(0, dao.claimForProcessing(queued.id, 2, 20L))
+        assertEquals("CANCELED", dao.jobById(queued.id)!!.state)
+
+        val second = job("QUEUED")
+        dao.insert(second)
+        assertEquals(1, dao.claimForProcessing(second.id, 2, 20L))
+        assertEquals(0, dao.cancel(second.id, 30L))
+        assertEquals(1, dao.requestCancelActive(second.id, 30L))
+        assertEquals("CANCELING", dao.jobById(second.id)!!.state)
+    }
+
     @Test fun activeUploadCancellationCannotBeOverwrittenByProgressOrSuccess() = runTest {
         val dao = db.telegramSendDao()
         val upload = job("UPLOADING")
