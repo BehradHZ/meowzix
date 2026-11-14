@@ -11,6 +11,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -100,6 +102,63 @@ class TrackActionsMenuTest {
         compose.onNodeWithTag("track-action-play-next").assertDoesNotExist()
         compose.onNodeWithTag("track-action-remove-from-queue").performClick()
         compose.runOnIdle { assertEquals(1, removed) }
+    }
+
+    @Test fun removalOpensInsideSameMenuAndUsesTwoIndependentForwardStylePills() {
+        val confirmed = mutableListOf<Pair<Boolean, Boolean>>()
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                TrackActionsMenu(
+                    expanded = true,
+                    title = "Music", artist = "Artist", favorite = false, isQueue = false,
+                    playlists = emptyList(),
+                    onDismiss = {}, onPrimary = {}, onAddToQueue = {},
+                    onFavorite = {}, onForward = {}, onGoToArtist = {},
+                    onAddToPlaylist = {}, onContinueVibe = {},
+                    onEditMetadata = {}, onManageDuplicates = {}, onWhy = {},
+                    canRemoveOffline = true,
+                    onRemoveFromLocations = { offline, library -> confirmed += offline to library },
+                )
+            }
+        }
+
+        compose.onNodeWithTag("track-action-row-remove-song").performClick()
+        compose.onNodeWithTag("track-removal-panel").assertExists()
+        compose.onNodeWithTag("track-removal-confirm").assertIsNotEnabled()
+        compose.onNodeWithTag("track-removal-offline").performClick()
+        compose.onNodeWithTag("track-removal-confirm").assertIsEnabled()
+        compose.onNodeWithTag("track-removal-library").performClick()
+        compose.onNodeWithTag("track-removal-confirm").performClick()
+        compose.runOnIdle { assertEquals(listOf(true to true), confirmed) }
+    }
+
+    @Test fun noOfflineCopyCannotBeSelectedAndBackNeverDeletesAnything() {
+        val confirmed = mutableListOf<Pair<Boolean, Boolean>>()
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                TrackActionsMenu(
+                    expanded = true,
+                    title = "Only in the cloud", artist = null,
+                    favorite = false, isQueue = true, playlists = emptyList(),
+                    onDismiss = {}, onPrimary = {}, onAddToQueue = {},
+                    onFavorite = {}, onForward = {}, onGoToArtist = {},
+                    onAddToPlaylist = {}, onContinueVibe = {},
+                    onEditMetadata = {}, onManageDuplicates = {}, onWhy = {},
+                    canRemoveOffline = false,
+                    onRemoveFromLocations = { offline, library -> confirmed += offline to library },
+                )
+            }
+        }
+
+        compose.onNodeWithTag("queue-track-actions").assertExists()
+        compose.onNodeWithTag("track-action-row-remove-song").performClick()
+        compose.onNodeWithTag("track-removal-offline").assertIsNotEnabled()
+        compose.onNodeWithTag("track-removal-confirm").assertIsNotEnabled()
+        compose.onNodeWithTag("track-removal-library").performClick()
+        compose.onNodeWithTag("track-removal-confirm").assertIsEnabled()
+        compose.onNodeWithText("Back").performClick()
+        compose.onNodeWithTag("queue-track-actions").assertExists()
+        compose.runOnIdle { assertEquals(emptyList<Pair<Boolean, Boolean>>(), confirmed) }
     }
 
     @Test fun opensAtOverflowAnchorAndClosesAfterAction() {
