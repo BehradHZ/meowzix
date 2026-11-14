@@ -953,18 +953,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
             normalized.contains("TEMPORAR")
     }
 
-    private fun userFacingTelegramError(error: Throwable): String {
-        val raw = error.message.orEmpty()
-        val normalized = raw.uppercase()
-        return when {
-            normalized.contains("CHAT_WRITE_FORBIDDEN") -> "You can't send messages to this Telegram chat."
-            normalized.contains("USER_BANNED_IN_CHANNEL") -> "You can't send messages to this Telegram chat."
-            normalized.contains("CHAT_RESTRICTED") -> "Telegram doesn't allow sending audio to this chat."
-            normalized.contains("FILE_TOO_BIG") -> "This audio file is too large for Telegram to send."
-            raw.isNotBlank() -> raw
-            else -> "Telegram couldn't send this track."
-        }
-    }
+    private fun userFacingTelegramError(error: Throwable): String = telegramSendErrorMessage(error)
 
     private data class PreparedLocalAudio(val file: File, val temporary: Boolean)
     private class DeliveryUncertainException : Exception()
@@ -1004,6 +993,34 @@ internal suspend fun <T> sendWithTelegramSourceFallback(
         forwardMessage()
     } catch (_: OriginalTelegramMessageMissing) {
         sendAudioCopy()
+    }
+}
+
+/** Keep TDLib/transport internals out of the user-facing error surface. */
+internal fun telegramSendErrorMessage(failure: Throwable): String {
+    val raw = failure.message.orEmpty()
+    val normalized = raw.uppercase()
+    return when {
+        failure is TdLibException && failure.errorCode == 404 ->
+            "Telegram couldn't find the chat or original message. Refresh the destination list, or send a saved audio copy."
+        "CHAT_WRITE_FORBIDDEN" in normalized || "USER_BANNED_IN_CHANNEL" in normalized ->
+            "You don't have permission to send music to this chat."
+        "CHAT_RESTRICTED" in normalized ->
+            "This chat doesn't allow sending audio files."
+        "FILE_TOO_BIG" in normalized ->
+            "Telegram rejected the audio because the file is too large."
+        failure is IllegalStateException && (
+            raw.startsWith("This track") ||
+                raw.startsWith("This profile song") ||
+                raw.startsWith("The original Telegram message") ||
+                raw.startsWith("The destination chat") ||
+                raw.startsWith("Telegram couldn't finish downloading") ||
+                raw.startsWith("Telegram can't preserve source attribution") ||
+                raw.startsWith("The original Telegram message doesn't") ||
+                raw.startsWith("Telegram didn't create an outgoing message")
+            ) -> raw
+        failure is TdLibException -> telegramErrorGuidance(failure).message
+        else -> "Telegram couldn't send this track. Check your connection and try again."
     }
 }
 
