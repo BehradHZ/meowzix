@@ -18,3 +18,17 @@ internal fun telegramMessageDeepLink(chatId: Long, tdMessageId: Long): String? {
         else -> "tg://openmessage?chat_id=${-chatId}&message_id=$messageId"
     }
 }
+
+/**
+ * Profile music has a synthetic negative message ID, not a Telegram message.
+ * Prefer Telegram's documented profile link when the user has a public username.
+ * For private accounts, Android Telegram can open the peer via its user-ID route.
+ */
+internal fun telegramProfileDeepLink(userId: Long, username: String?): String? {
+    if (userId <= 0L) return null
+    val handle = username?.removePrefix("@")?.takeIf {
+        it.matches(Regex("[A-Za-z0-9_]{1,32}"))
+    }
+    return if (handle != null) "https://t.me/$handle?profile"
+    else "tg://openmessage?user_id=$userId"
+}
