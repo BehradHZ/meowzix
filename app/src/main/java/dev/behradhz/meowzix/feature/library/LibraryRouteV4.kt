@@ -84,6 +84,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.behradhz.meowzix.ui.components.TRACK_ROW_SPACING
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -448,8 +449,8 @@ private fun PagedTrackListV4(
         else -> LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 2.dp, bottom = dockAwareBottomPadding(188.dp)),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = dockAwareBottomPadding(188.dp)),
+            verticalArrangement = Arrangement.spacedBy(TRACK_ROW_SPACING),
         ) {
             items(
                 count = items.itemCount,
@@ -567,8 +568,8 @@ private fun LibraryDetailV4(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
-            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 100.dp, bottom = dockAwareBottomPadding(188.dp)),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = dockAwareBottomPadding(188.dp)),
+            verticalArrangement = Arrangement.spacedBy(TRACK_ROW_SPACING),
         ) {
             items(tracks, key = { it.id.toString() }, contentType = { "track" }) { track ->
                 SwipeableLibraryTrackRow(
