@@ -1,5 +1,7 @@
 package dev.behradhz.meowzix.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
@@ -57,13 +59,21 @@ fun BoxScope.StagedSwipeReveal(
     if (abs(offsetPx) <= 0.5f) return
     val swipingRight = offsetPx > 0f
     val transitionDistance = with(LocalDensity.current) { 72.dp.toPx() }
-    val slide = if (secondaryLabel != null) {
+    val slideTarget = if (secondaryLabel != null) {
         stagedActionSlidePx(
             offsetPx,
             secondStageStartPx = secondaryThresholdPx - transitionDistance,
             transitionDistancePx = transitionDistance,
         )
     } else 0f
+    // Restore the 190ms action-card exit from the original stacked swipe:
+    // the first panel eases underneath the foreground as Remove takes over.
+    val animatedExitProgress by animateFloatAsState(
+        targetValue = if (offsetPx == 0f) 0f else slideTarget / offsetPx,
+        animationSpec = tween(durationMillis = 190),
+        label = "swipe-action-layer-exit",
+    )
+    val slide = offsetPx * animatedExitProgress
 
     if (secondaryLabel != null && abs(slide) > 0.5f) {
         Surface(
