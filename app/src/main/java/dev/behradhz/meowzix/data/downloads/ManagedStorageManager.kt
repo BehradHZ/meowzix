@@ -68,11 +68,7 @@ class ManagedStorageManager @Inject constructor(
             .filter { it.pinned }
             .mapNotNull { it.localPath }
             .map(::File)
-            .filter { isOwnedBy(it, offlineRoot) || isOwnedBy(it, playbackRoot) }
-            .filter(File::isFile)
-        val savedBytes = uniqueBytes(
-            managedFiles(offlineRoot) + managedFiles(playbackRoot) + pinnedPaths,
-        )
+        val savedBytes = savedManagedAudioBytes(offlineRoot, playbackRoot, pinnedPaths)
         val otherBytes = uniqueBytes(managedFiles(artworkRoot))
         val protectedBytes = leases.protectedPaths().sumOf { path ->
             File(path).takeIf(File::isFile)?.length()?.coerceAtLeast(0L) ?: 0L
@@ -155,4 +151,22 @@ class ManagedStorageManager @Inject constructor(
         const val LOW_SPACE_PERCENT = 5L
         const val LOW_SPACE_MIN_BYTES = 256L * 1024L * 1024L
     }
+}
+
+/**
+ * Retain and account for any app-managed audio (complete or in progress) as Saved.
+ * Dedupe the same physical file across directories and records; exclude MediaStore paths.
+ */
+internal fun savedManagedAudioBytes(
+    offlineRoot: File,
+    playbackRoot: File,
+    trackedPaths: List<File>,
+): Long {
+    val roots = listOf(offlineRoot.canonicalFile, playbackRoot.canonicalFile)
+    return (roots.flatMap { root -> root.listFiles()?.filter(File::isFile).orEmpty() } + trackedPaths)
+        .asSequence()
+        .mapNotNull { file -> runCatching { file.canonicalFile }.getOrNull() }
+        .filter { file -> file.isFile && file.parentFile in roots }
+        .distinctBy(File::getPath)
+        .sumOf { file -> file.length().coerceAtLeast(0L) }
 }
