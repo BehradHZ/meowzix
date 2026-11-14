@@ -66,6 +66,14 @@ class TelegramForwardSourceFallbackTest {
         org.junit.Assert.assertFalse(privateFailure.contains("private-info"))
     }
 
+    @Test fun profileUploadFallbackRequiresExplicitFileRejection() {
+        org.junit.Assert.assertTrue(canFallbackToProfileUpload(TdLibException(400, "FILE_REFERENCE_EXPIRED")))
+        org.junit.Assert.assertTrue(canFallbackToProfileUpload(TdLibException(404, "Not found")))
+        org.junit.Assert.assertFalse(canFallbackToProfileUpload(TdLibException(429, "FLOOD_WAIT")))
+        org.junit.Assert.assertFalse(canFallbackToProfileUpload(TdLibException(500, "Server unavailable")))
+        org.junit.Assert.assertFalse(canFallbackToProfileUpload(IllegalStateException("Unknown delivery")))
+    }
+
     @Test fun localTrackWithoutTelegramSourceUploads() = runTest {
         val outcome = sendWithTelegramSourceFallback(
             sourceMessageId = null,
