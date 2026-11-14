@@ -5,31 +5,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StagedSwipeRevealTest {
-    private val removeStarts = 118f
-    private val transitionDistance = 72f
+    private val actionThreshold = 100f
+    private val removeThreshold = 176f
+    private val transitionDistance = removeThreshold - actionThreshold
 
-    @Test fun primaryActionStaysExposedDuringShortPull() {
-        assertEquals(0f, stagedActionSlidePx(75f, removeStarts, transitionDistance), 0.001f)
-        assertEquals(0f, stagedActionSlidePx(-110f, removeStarts, transitionDistance), 0.001f)
+    @Test fun primaryActionIsFullyExposedUntilTheReadableThreshold() {
+        assertEquals(0f, stagedActionSlidePx(75f, actionThreshold, transitionDistance), 0.001f)
+        assertEquals(0f, stagedActionSlidePx(-100f, actionThreshold, transitionDistance), 0.001f)
     }
 
-    @Test fun primaryPanelSlidesUnderSongAndRemoveReplacesItGradually() {
-        val offset = 154f
-        val slide = stagedActionSlidePx(offset, removeStarts, transitionDistance)
-        assertEquals(77f, slide, 0.001f)
-        assertTrue(slide > 0f && slide < offset)
-        // At the midpoint the primary and secondary gutter have equal exposed widths.
-        assertEquals(slide, offset - slide, 0.001f)
-        assertEquals(-slide, stagedActionSlidePx(-offset, removeStarts, transitionDistance), 0.001f)
+    @Test fun removeFollowsTheFingerContinuouslyWithoutASecondAnimation() {
+        val first = stagedActionSlidePx(101f, actionThreshold, transitionDistance)
+        val middle = stagedActionSlidePx(138f, actionThreshold, transitionDistance)
+        val last = stagedActionSlidePx(175f, actionThreshold, transitionDistance)
+        assertTrue(first > 0f)
+        assertTrue(middle > first)
+        assertTrue(last > middle)
+        assertTrue(last < 175f)
+        assertEquals(-middle, stagedActionSlidePx(-138f, actionThreshold, transitionDistance), 0.001f)
+        // No time-dependent animation state: identical pointer positions yield identical layers.
+        assertEquals(middle, stagedActionSlidePx(138f, actionThreshold, transitionDistance), 0.001f)
     }
 
-    @Test fun primaryPanelIsCompletelyConcealedAtRemoveThreshold() {
-        assertEquals(190f, stagedActionSlidePx(190f, removeStarts, transitionDistance), 0.001f)
-        assertEquals(-190f, stagedActionSlidePx(-190f, removeStarts, transitionDistance), 0.001f)
-        assertEquals(240f, stagedActionSlidePx(240f, removeStarts, transitionDistance), 0.001f)
+    @Test fun removeIsFullyExposedAtTheDestructiveThreshold() {
+        assertEquals(176f, stagedActionSlidePx(176f, actionThreshold, transitionDistance), 0.001f)
+        assertEquals(-176f, stagedActionSlidePx(-176f, actionThreshold, transitionDistance), 0.001f)
+        assertEquals(240f, stagedActionSlidePx(240f, actionThreshold, transitionDistance), 0.001f)
     }
 
-    @Test fun foregroundRemainsSeventyPercentTransparent() {
+    @Test fun foregroundKeepsSeventyPercentTransparency() {
         assertEquals(0.30f, TRACK_CARD_ALPHA, 0.001f)
+        assertEquals(100f, TRACK_SWIPE_ACTION_THRESHOLD.value, 0.001f)
+        assertEquals(176f, TRACK_SWIPE_REMOVE_THRESHOLD.value, 0.001f)
     }
 }
