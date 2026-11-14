@@ -99,6 +99,46 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         )
     }
 
+    /**
+     * A source read error is not evidence that a song was deleted. Re-query the
+     * original message/profile, and only purge the transfer if it is truly gone
+     * and there is no playable local copy to retain.
+     */
+    override suspend fun confirmDeletedSource(trackId: UUID): Boolean {
+        if (cachedLocalTrack(trackId) != null) return false
+        val accountId = telegramRepository.musicSourceState.value.accountId ?: return false
+        val source = telegramDao.telegramSourceForTrack(accountId, trackId.toString()) ?: return false
+        val client = TdLibClientAdapter.activeOrNull() ?: return false
+
+        val missing = if (source.messageId < 0L) {
+            // A completed profile-audio lookup can confirm removal; network/errors
+            // throw and must never be confused with deletion.
+            runCatching {
+                findTelegramProfileAudio(
+                    client, source.chatId, source.messageId, source.tdPersistentFileId,
+                ) == null
+            }.getOrDefault(false)
+        } else {
+            try {
+                val message = client.send(TdApi.GetMessage(source.chatId, source.messageId))
+                message.toAudioCandidate() == null
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: TdLibException) {
+                isConfirmedMissingTelegramMessage(failure.errorCode)
+            } catch (_: Exception) {
+                false
+            }
+        }
+        if (!missing) return false
+
+        libraryDao.updateAvailability(
+            source.trackSourceId, SourceAvailability.MISSING, Instant.now().toEpochMilli(),
+        )
+        downloads.discardUnavailableSource(trackId)
+        return true
+    }
+
     override fun prefetch(trackId: UUID) {
         cancelPrefetch()
         prefetchJob = scope.launch {
@@ -382,3 +422,5 @@ private fun localSourcePriority(source: TrackSourceEntity): Int = when (source.t
     TrackSourceType.LOCAL_MEDIASTORE -> 2
     else -> 3
 }
+/** 404 is a missing/inaccessible original message, not a transport timeout or flood limit. */
+internal fun isConfirmedMissingTelegramMessage(errorCode: Int): Boolean = errorCode == 404
