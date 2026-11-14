@@ -16,6 +16,7 @@ import dev.behradhz.meowzix.data.network.NetworkUse
 import dev.behradhz.meowzix.data.repository.isReadableForPlayback
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
+import dev.behradhz.meowzix.domain.playback.DeletedTelegramSourceEvents
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import java.io.File
@@ -41,6 +42,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val networkPolicy: NetworkPolicy,
     private val verifiedAudio: ManagedAudioIntegrityCache,
+    private val deletedSources: DeletedTelegramSourceEvents,
 ) : RemoteTrackPlaybackResolver {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var prefetchJob: Job? = null
@@ -140,6 +142,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             source.trackSourceId, SourceAvailability.MISSING, Instant.now().toEpochMilli(),
         )
         downloads.discardUnavailableSource(trackId)
+        deletedSources.notifyDeleted(trackId)
         return true
     }
 
