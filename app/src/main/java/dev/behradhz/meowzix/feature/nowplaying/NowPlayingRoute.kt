@@ -491,6 +491,7 @@ private fun NowPlayingScreen(
                 hazeState = hazeState,
                 lockScreenMode = lockScreenMode,
                 lyricsExpanded = lyricsExpanded,
+                queueExpanded = queueExpanded,
                 sleepTimer = sleepTimer,
                 sleepTimerPreferences = sleepTimerPreferences,
                 onSetSleepTimerEnabled = onSetSleepTimerEnabled,
@@ -795,6 +796,7 @@ private fun PlayerHeader(
     hazeState: HazeState,
     lockScreenMode: Boolean,
     lyricsExpanded: Boolean,
+    queueExpanded: Boolean,
     sleepTimer: SleepTimerState,
     sleepTimerPreferences: PlaybackPreferenceSettings,
     onSetSleepTimerEnabled: (Boolean) -> Unit,
@@ -880,7 +882,11 @@ private fun PlayerHeader(
                 }
             }
             IconButton(onClick = onOpenQueue) {
-                Icon(Icons.Rounded.QueueMusic, contentDescription = "Open queue", tint = PlayerPrimaryContent)
+                Icon(
+                    if (queueExpanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.QueueMusic,
+                    contentDescription = if (queueExpanded) "Collapse queue" else "Open queue",
+                    tint = PlayerPrimaryContent,
+                )
             }
             if (!lockScreenMode) Box {
                 IconButton(
