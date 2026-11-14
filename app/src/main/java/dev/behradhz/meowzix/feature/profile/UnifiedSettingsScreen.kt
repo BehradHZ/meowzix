@@ -148,7 +148,6 @@ fun UnifiedSettingsScreen(
     var pendingRestore by remember { mutableStateOf<Pair<ByteArray, BackupPreview>?>(null) }
     var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     var equalizerExpanded by rememberSaveable { mutableStateOf(false) }
-    var sleepTimerExpanded by rememberSaveable { mutableStateOf(false) }
     var pendingIconSource by remember { mutableStateOf<LauncherIconColorSource?>(null) }
     var versionTaps by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(enabled = selectedCategory != null) { selectedCategory = null }
@@ -477,17 +476,10 @@ fun UnifiedSettingsScreen(
                             lastMode = state.playback.sleepTimerLastMode,
                             lastMinutes = state.playback.sleepTimerLastMinutes,
                             endOfTrackEnabled = hasCurrentTrack,
-                            expanded = sleepTimerExpanded,
                             onToggle = viewModel::setSleepTimerEnabled,
-                            onExpand = { sleepTimerExpanded = !sleepTimerExpanded },
                         )
-                        AnimatedVisibility(
-                            visible = sleepTimerExpanded,
-                            enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(190)),
-                            exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(140)),
-                        ) {
-                            Column {
-                                SleepTimerMenuContent(
+                        Column {
+                            SleepTimerMenuContent(
                                     state = sleepTimer,
                                     endOfTrackEnabled = hasCurrentTrack,
                                     lastMinutes = state.playback.sleepTimerLastMinutes,
@@ -498,17 +490,16 @@ fun UnifiedSettingsScreen(
                                     onShorten = { viewModel.shortenSleepTimer(15) },
                                     onSetEnabled = viewModel::setSleepTimerEnabled,
                                     showStatusHeader = false,
-                                )
-                                SettingsRowDivider()
-                                SettingsToggleRow(
+                            )
+                            SettingsRowDivider()
+                            SettingsToggleRow(
                                     "Fade out",
                                     "Fade music during the final 5 seconds of the timer.",
                                     Icons.Rounded.Bedtime,
                                     state.playback.sleepTimerFadeEnabled,
                                     viewModel::setSleepTimerFadeEnabled,
                                     showSubtitle = true,
-                                )
-                            }
+                            )
                         }
                     }
                 }
