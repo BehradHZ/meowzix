@@ -1,25 +1,19 @@
 package dev.behradhz.meowzix.data.telegram
 
 import android.content.Context
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
-import dev.behradhz.meowzix.data.db.DownloadDao
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
-import dev.behradhz.meowzix.data.downloads.ImmutableManagedAudioFiles
-import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrity
 import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrityCache
-import dev.behradhz.meowzix.data.downloads.PermanentAudioRecordFactory
+import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.data.network.NetworkPolicy
 import dev.behradhz.meowzix.data.network.NetworkUse
 import dev.behradhz.meowzix.data.repository.isReadableForPlayback
-import dev.behradhz.meowzix.domain.downloads.DownloadStatus
-import dev.behradhz.meowzix.domain.downloads.ManagedStorageRepository
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
@@ -27,10 +21,8 @@ import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import java.io.File
 import java.time.Instant
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -45,8 +37,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     private val telegramRepository: TelegramRepository,
     private val telegramDao: TelegramDao,
     private val libraryDao: LibraryDao,
-    private val downloadDao: DownloadDao,
-    private val managedStorage: ManagedStorageRepository,
+    private val downloads: DownloadRepository,
     private val settingsRepository: SettingsRepository,
     private val networkPolicy: NetworkPolicy,
     private val verifiedAudio: ManagedAudioIntegrityCache,
@@ -54,8 +45,6 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var prefetchJob: Job? = null
     private var prefetchedFileId: Int? = null
-    private val fullDownloadJobs = ConcurrentHashMap<UUID, Job>()
-    private val playbackDirectory = File(context.filesDir, "playback-cache")
     private val artworkDirectory = File(context.filesDir, "artwork")
 
     override suspend fun prepareForPlayback(trackId: UUID): PlayableTrack? =
@@ -87,11 +76,12 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             )
         }.getOrNull()?.let(client.fileStates::publish)
 
-        // Artwork, metadata refinement and the permanent cache are deliberately parallel work.
-        // Missing artwork therefore falls back to the existing ref/placeholder instead of delaying
-        // first audio.
+        // Playback and an explicit Save use the same durable download pipeline. A stream
+        // starts a retained download that continues after the player moves on or pauses.
+        // Only the user's explicit Pause/Cancel/Remove action can stop that download.
+        // WorkManager restores unfinished transfers after process death.
+        downloads.pinOffline(trackId)
         upgradeArtworkAsync(trackId, source)
-        startPermanentDownload(trackId, source)
 
         val track = libraryDao.trackById(trackId.toString()) ?: return null
         return PlayableTrack(
@@ -373,142 +363,6 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             partial.delete()
             current
         }
-    }
-
-    private fun startPermanentDownload(trackId: UUID, source: ResolvedTelegramSource) {
-        if (fullDownloadJobs[trackId]?.isActive == true) return
-        fullDownloadJobs[trackId] = scope.launch {
-            val fileId = source.candidate.fileId
-            try {
-                try {
-                    val client = TdLibClientAdapter.activeOrNull() ?: return@launch
-                    val downloaded = client.send(
-                        // This is the same file currently being consumed by Media3, so keeping its
-                        // transfer at current-audio priority does not create a competing workload.
-                        TdApi.DownloadFile(fileId, TdDownloadPriority.CURRENT_TRACK_AUDIO, 0L, 0L, true),
-                    ).also(client.fileStates::publish)
-                    val tdPath = downloaded.local.path.takeIf {
-                        downloaded.local.isDownloadingCompleted && it.isNotBlank()
-                    } ?: return@launch
-                    val sourceFile = File(tdPath)
-                    val expectedBytes = ManagedAudioIntegrity.expectedBytes(
-                        source.candidate.fileSizeBytes,
-                        downloaded.size.toLong(),
-                        source.remoteSource.fileSizeBytes,
-                    )
-                    // No partial TDLib file is promoted to the persistent playback cache.
-                    if (!ManagedAudioIntegrity.isValid(sourceFile, expectedBytes)) return@launch
-                    val permanent = copyToPermanentCache(trackId, source.candidate.fileName, sourceFile)
-                    if (!ManagedAudioIntegrity.isValid(permanent, expectedBytes)) return@launch
-                    val now = Instant.now().toEpochMilli()
-                    val localSourceId = UUID.nameUUIDFromBytes(
-                        "tdlib-local:$trackId".toByteArray(),
-                    ).toString()
-                    val previousLocalSource = libraryDao.sourceById(localSourceId)
-                    val verifiedSha = ManagedAudioIntegrity.sha256(permanent)
-                    libraryDao.upsertSource(
-                        TrackSourceEntity(
-                            id = localSourceId,
-                            trackId = trackId.toString(),
-                            type = TrackSourceType.TDLIB_LOCAL,
-                            availability = SourceAvailability.AVAILABLE_LOCAL,
-                            contentUri = null,
-                            localPath = permanent.absolutePath,
-                            mimeType = source.candidate.mimeType ?: source.remoteSource.mimeType,
-                            fileSizeBytes = permanent.length(),
-                            contentHashSha256 = verifiedSha,
-                            trainingEligible = source.remoteSource.trainingEligible,
-                            createdAtEpochMs = previousLocalSource?.createdAtEpochMs ?: now,
-                            lastVerifiedAtEpochMs = now,
-                        ),
-                    )
-                    verifiedAudio.rememberVerified(permanent, verifiedSha)
-                    val previousDownload = downloadDao.byTrackId(trackId.toString())
-                    val alreadyRetained = previousDownload?.pinned == true &&
-                        previousDownload.status == DownloadStatus.COMPLETED.name &&
-                        previousDownload.localPath?.let(::File)?.isFile == true
-                    if (!alreadyRetained) {
-                        downloadDao.upsert(
-                            PermanentAudioRecordFactory.completed(
-                                trackId = trackId.toString(),
-                                sourceId = localSourceId,
-                                tdFileId = fileId,
-                                file = permanent,
-                                timestampMs = now,
-                                existing = previousDownload,
-                            ),
-                        )
-                    }
-                    extractFullArtwork(trackId, permanent)?.let { artworkUri ->
-                        libraryDao.setArtworkRef(trackId.toString(), artworkUri, Instant.now().toEpochMilli())
-                    }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Throwable) {
-                }
-            } finally {
-                fullDownloadJobs.remove(trackId)
-            }
-        }
-    }
-
-    private fun copyToPermanentCache(trackId: UUID, fileName: String?, source: File): File {
-        playbackDirectory.mkdirs()
-        val sourceDigest = fileDigest(source)
-        val sourceHash = sourceDigest.joinToString("") { "%02x".format(it) }
-        val preferred = ImmutableManagedAudioFiles.preferredDestination(
-            playbackDirectory, trackId, fileName, sourceHash,
-        )
-        if (preferred.isFile &&
-            java.security.MessageDigest.isEqual(fileDigest(preferred), sourceDigest)) return preferred
-        // Never unlink an earlier music file, including one that failed verification.
-        val destination = if (preferred.exists()) {
-            ImmutableManagedAudioFiles.alternateDestination(preferred)
-        } else preferred
-        val partial = File(playbackDirectory, destination.name + ".part")
-        val lease = managedStorage.acquireLease(partial.absolutePath, "playback-copy")
-        try {
-            source.inputStream().buffered().use { input ->
-                partial.outputStream().buffered().use(input::copyTo)
-            }
-            if (!java.security.MessageDigest.isEqual(fileDigest(partial), sourceDigest)) {
-                error("Audio changed during playback copy; partial preserved.")
-            }
-            if (!partial.renameTo(destination)) error("Unable to finalize playback cache")
-            return destination
-        } finally {
-            lease.close()
-        }
-    }
-
-    private fun fileDigest(file: File): ByteArray {
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-        file.inputStream().buffered().use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val length = input.read(buffer)
-                if (length <= 0) break
-                digest.update(buffer, 0, length)
-            }
-        }
-        return digest.digest()
-    }
-
-    private fun extractFullArtwork(trackId: UUID, audioFile: File): String? {
-        val bytes = runCatching {
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(audioFile.absolutePath)
-                retriever.embeddedPicture
-            } finally {
-                retriever.release()
-            }
-        }.getOrNull() ?: return null
-        if (bytes.isEmpty()) return null
-        artworkDirectory.mkdirs()
-        val artworkFile = File(artworkDirectory, "$trackId.jpg")
-        artworkFile.writeBytes(bytes)
-        return Uri.fromFile(artworkFile).toString()
     }
 
     private data class ResolvedTelegramSource(
