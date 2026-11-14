@@ -261,7 +261,7 @@ fun NowPlayingRoute(
                 onLyricsDeleteVersion = lyricsViewModel::deleteVersion,
                 onLyricsRemoveAll = lyricsViewModel::removeAllLyrics,
                 onLyricsRestoreAutomatic = lyricsViewModel::restoreAutomaticLyrics,
-        onLyricSeek = lyricsViewModel::seekToLine,
+                onLyricSeek = lyricsViewModel::seekToLine,
             )
         }
     }
