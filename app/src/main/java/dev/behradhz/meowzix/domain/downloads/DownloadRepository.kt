@@ -34,6 +34,8 @@ interface DownloadRepository {
     fun retry(trackId: UUID)
     fun cancel(trackId: UUID)
     suspend fun removeOfflineCopy(trackId: UUID)
+    /** Drop a confirmed unavailable remote transfer without deleting retained audio. */
+    suspend fun discardUnavailableSource(trackId: UUID) = Unit
     suspend fun storageBytes(): Long
     suspend fun clearTemporaryCache()
 }
