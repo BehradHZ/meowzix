@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -462,12 +463,17 @@ class AndroidPlaybackController @Inject constructor(
             val occurrence = selectedOccurrence ?: return@launch
             // Do not join this work to a ViewModel or block the player startup path.
             scope.launch {
-                val ids = try {
-                    withContext(Dispatchers.IO) { loadOrderedTrackIds() }
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (_: Throwable) {
-                    emptyList()
+                var ids: List<UUID> = emptyList()
+                for (attempt in 1..3) {
+                    try {
+                        ids = withContext(Dispatchers.IO) { loadOrderedTrackIds() }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        Log.w("MeowzixQueue", "Library catalog lookup failed (attempt $attempt)", error)
+                    }
+                    if (ids.isNotEmpty()) break
+                    if (attempt < 3) delay(450L)
                 }
                 val ordered = buildLibraryPlaybackQueue(ids, first.id, mode, fromSearch)
                 if (ordered.size > 1) {
@@ -664,8 +670,19 @@ class AndroidPlaybackController @Inject constructor(
                 return@launch
             }
                 val headIds = orderedFuture.take((ProgressiveQueue.GENERATED_BATCH_SIZE - 1).coerceAtLeast(1))
-                val prepared = runCatching { catalog.availableTracks(headIds) }
-                    .getOrElse { return@launch }.associateBy(PlayableTrack::id)
+                var loaded: List<PlayableTrack>? = null
+                for (attempt in 1..3) {
+                    try {
+                        loaded = catalog.availableTracks(headIds)
+                        break
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        Log.w("MeowzixQueue", "Generated queue hydration failed (attempt $attempt)", error)
+                        if (attempt < 3) delay(450L)
+                    }
+                }
+                val prepared = loaded?.associateBy(PlayableTrack::id) ?: return@launch
                 val initial = headIds.mapNotNull(prepared::get)
                 var modeChanged = false
                 withConnectedController { connected ->
