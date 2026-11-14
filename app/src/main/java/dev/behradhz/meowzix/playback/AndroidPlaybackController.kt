@@ -31,6 +31,7 @@ import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueRemovalPlan
 import dev.behradhz.meowzix.domain.playback.planQueueRemoval
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.playback.buildLibraryPlaybackQueue
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
@@ -52,6 +53,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
@@ -83,6 +85,7 @@ class AndroidPlaybackController @Inject constructor(
     private var userInterruptedPrevious = false
     private var lastRecordedExposureOccurrence: UUID? = null
     private var modeChangeJob: Job? = null
+    private var libraryStartupJob: Job? = null
 
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -407,6 +410,73 @@ class AndroidPlaybackController @Inject constructor(
         replaceAndPlayInternal(trackIds, startTrackId, mode)
     }
 
+    override fun playLibrarySelection(
+        trackId: UUID,
+        mode: PlaybackMode,
+        repeat: RepeatMode,
+        fromSearch: Boolean,
+        loadOrderedTrackIds: suspend () -> List<UUID>,
+    ) {
+        scope.launch {
+            val first = catalog.playableTrack(trackId)
+            if (first == null) showError("The selected track has no available playback source")
+            else replaceAndPlayLibraryPrepared(first, mode, repeat, fromSearch, loadOrderedTrackIds)
+        }
+    }
+
+    /**
+     * Commit one playable track to Media3 first; perform full Library discovery,
+     * shuffle ranking and bounded queue hydration in a separate, application-owned job.
+     * This job survives navigation away from Library.
+     */
+    fun replaceAndPlayLibraryPrepared(
+        first: PlayableTrack,
+        mode: PlaybackMode,
+        repeat: RepeatMode,
+        fromSearch: Boolean,
+        loadOrderedTrackIds: suspend () -> List<UUID>,
+    ) {
+        libraryStartupJob?.cancel()
+        libraryStartupJob = scope.launch {
+            var selectedOccurrence: UUID? = null
+            withConnectedController { connected ->
+                playbackOccurrenceId = UUID.randomUUID()
+                userSelectedOccurrence = true
+                val plan = progressiveQueue.start(
+                    orderedTracks = listOf(first),
+                    requestedStartIndex = 0,
+                    mode = mode,
+                    repeat = repeat,
+                    sourceIds = listOf(first.id),
+                )
+                selectedOccurrence = progressiveQueue.snapshot()?.occurrenceIds?.firstOrNull()
+                connected.setMediaItems(
+                    requireNotNull(progressiveQueue.snapshot()).mediaItems(),
+                    plan.startIndexInWindow,
+                    0,
+                )
+                connected.repeatMode = repeat.toPlayerRepeatMode(progressive = true)
+                connected.prepare()
+                connected.play()
+            }
+            val occurrence = selectedOccurrence ?: return@launch
+            // Do not join this work to a ViewModel or block the player startup path.
+            scope.launch {
+                val ids = try {
+                    withContext(Dispatchers.IO) { loadOrderedTrackIds() }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    emptyList()
+                }
+                val ordered = buildLibraryPlaybackQueue(ids, first.id, mode, fromSearch)
+                if (ordered.size > 1) {
+                    attachFutureToSingleTrack(first.id, ordered, mode, occurrence)
+                }
+            }
+        }
+    }
+
     fun replaceAndPlayPrepared(
         trackIds: List<UUID>,
         startTrackId: UUID,
@@ -525,6 +595,13 @@ class AndroidPlaybackController @Inject constructor(
         expectedTrackId: UUID,
         fullOrderedTrackIds: List<UUID>,
         mode: PlaybackMode,
+    ) = attachFutureToSingleTrack(expectedTrackId, fullOrderedTrackIds, mode, null)
+
+    private fun attachFutureToSingleTrack(
+        expectedTrackId: UUID,
+        fullOrderedTrackIds: List<UUID>,
+        mode: PlaybackMode,
+        requiredOccurrenceId: UUID?,
     ) {
         scope.launch {
             val allIds = fullOrderedTrackIds.distinct()
@@ -536,6 +613,7 @@ class AndroidPlaybackController @Inject constructor(
                 snapshot.currentIndex != 0 ||
                 snapshot.tracks.firstOrNull()?.id != expectedTrackId) return@launch
             val expectedOccurrenceId = snapshot.occurrenceIds.first()
+            if (requiredOccurrenceId != null && requiredOccurrenceId != expectedOccurrenceId) return@launch
             val first = snapshot.tracks.first()
 
             val remaining = allIds.filterNot { it == expectedTrackId }
@@ -545,9 +623,16 @@ class AndroidPlaybackController @Inject constructor(
                     PlaybackMode.PURE_SHUFFLE -> {
                         val prefs = settings.playbackPreferenceSettings.first()
                         val cycle = if (prefs.artistBalancedShuffle) {
-                            // Artist balance needs artists, but only after the first song starts.
-                            val candidates = catalog.availableTracks(remaining)
-                            makeShuffleCycle(listOf(first) + candidates, selectedTrackId = expectedTrackId)
+                            // Artist balancing uses lightweight metadata only, never decodes or
+                            // resolves every audio file before the 99-song queue can load.
+                            val artists = catalog.shuffleArtists(allIds)
+                            withContext(Dispatchers.Default) {
+                                ArtistBalancedShuffleEngine.newCycleStartingWith(
+                                    allIds.map { ArtistShuffleItem(it, artists[it]) },
+                                    expectedTrackId,
+                                    alpha = prefs.artistShuffleAlpha.toDouble(),
+                                )
+                            }
                         } else withContext(Dispatchers.Default) {
                             // Pure Shuffle needs IDs only; never hydrate the full library.
                             PureShuffleEngine.newCycleStartingWith(allIds, expectedTrackId)
@@ -555,16 +640,20 @@ class AndroidPlaybackController @Inject constructor(
                         cycle.order.filterNot { it == expectedTrackId } to cycle.seed
                     }
                     PlaybackMode.SMART_SHUFFLE -> {
-                        val recommendation = recommendationEngine.generate(
-                            allowedTrackIds = allIds,
-                            currentTrackId = expectedTrackId,
-                            timeBucket = currentTimeBucket(),
-                        )
-                        // The recommender scores a bounded pool. Retain every other
-                        // eligible ID in the tail without changing ranked positions.
-                        SmartShuffleFutureOrder.order(
-                            remaining, recommendation.trackIds, recommendation.eligibleTrackIds,
-                        ) to null
+                        // An expensive or unavailable ranking must never stall the next track.
+                        // The neutral fallback still preserves every candidate for exploration.
+                        val recommendation = withTimeoutOrNull(2_000L) {
+                            recommendationEngine.generate(
+                                allowedTrackIds = allIds,
+                                currentTrackId = expectedTrackId,
+                                timeBucket = currentTimeBucket(),
+                            )
+                        }
+                        if (recommendation == null) remaining to null else {
+                            SmartShuffleFutureOrder.order(
+                                remaining, recommendation.trackIds, recommendation.eligibleTrackIds,
+                            ) to null
+                        }
                     }
                 }
             }.getOrElse { error ->
@@ -588,7 +677,15 @@ class AndroidPlaybackController @Inject constructor(
                     mode = mode,
                     seed = shuffleSeed,
                 )
-                if (accepted) syncProgressiveFutureInPlace(connected)
+                if (accepted) {
+                    syncProgressiveFutureInPlace(connected)
+                    // The first track may have ended while the Library IDs were loading.
+                    if (connected.playbackState == Player.STATE_ENDED && connected.hasNextMediaItem()) {
+                        connected.seekToNextMediaItem()
+                        connected.prepare()
+                        connected.play()
+                    }
+                }
             }
         }
     }
