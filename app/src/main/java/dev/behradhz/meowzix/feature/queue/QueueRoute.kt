@@ -108,6 +108,12 @@ import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
 import dev.behradhz.meowzix.ui.components.StagedSwipeReveal
 import dev.behradhz.meowzix.ui.components.TRACK_CARD_ALPHA
+import dev.behradhz.meowzix.ui.components.TRACK_ROW_HORIZONTAL_PADDING
+import dev.behradhz.meowzix.ui.components.TRACK_ROW_VERTICAL_PADDING
+import dev.behradhz.meowzix.ui.components.TRACK_ROW_SPACING
+import dev.behradhz.meowzix.ui.components.TRACK_SWIPE_ACTION_THRESHOLD
+import dev.behradhz.meowzix.ui.components.TRACK_SWIPE_REMOVE_THRESHOLD
+import dev.behradhz.meowzix.ui.components.TRACK_SWIPE_MAX_DISTANCE
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
 import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
@@ -473,7 +479,7 @@ private fun QueueScreen(
                                     else -> "Next in the queue"
                                 },
                                 modifier = Modifier.fillMaxWidth()
-                                    .padding(start = 10.dp, top = 24.dp, bottom = 14.dp),
+                                    .padding(start = 10.dp, top = 18.dp, bottom = 10.dp),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
@@ -509,7 +515,7 @@ private fun QueueScreen(
                         Column(Modifier.animateContentSize()) {
                         Box(
                             modifier = Modifier.fillMaxWidth()
-                                .padding(bottom = if (groupId != null && !lastGroupMember) 0.dp else 6.dp)
+                                .padding(bottom = if (groupId != null && !lastGroupMember) 0.dp else TRACK_ROW_SPACING)
                                 .then(
                                     if (groupId != null) {
                                         Modifier
@@ -522,7 +528,7 @@ private fun QueueScreen(
                                                     bottomEnd = if (lastGroupMember) 20.dp else 0.dp,
                                                 ),
                                             )
-                                            .padding(start = 12.dp, end = 7.dp, top = 3.dp, bottom = 3.dp)
+                                            .padding(horizontal = 10.dp, vertical = 4.dp)
                                     } else Modifier
                                 ),
                         ) {
@@ -661,9 +667,10 @@ private fun GroupQueueHeader(
     var swipeX by remember(group.id) { mutableFloatStateOf(0f) }
     var horizontalDrag by remember(group.id) { mutableStateOf(false) }
     val density = LocalDensity.current
-    val actionThreshold = with(density) { 75.dp.toPx() }
-    val removeThreshold = with(density) { 190.dp.toPx() }
+    val actionThreshold = with(density) { TRACK_SWIPE_ACTION_THRESHOLD.toPx() }
+    val removeThreshold = with(density) { TRACK_SWIPE_REMOVE_THRESHOLD.toPx() }
     val haptics = rememberMeowzixHaptics()
+    val maximumSwipe = with(density) { TRACK_SWIPE_MAX_DISTANCE.toPx() }
     val animatedSwipeX by animateFloatAsState(
         targetValue = swipeX,
         animationSpec = if (horizontalDrag) snap() else spring(
@@ -695,7 +702,7 @@ private fun GroupQueueHeader(
                         onHorizontalDrag = { change, delta ->
                             change.consume()
                             val old = abs(swipeX)
-                            swipeX = (swipeX + delta).coerceIn(-removeThreshold * 2, removeThreshold * 2)
+                            swipeX = (swipeX + delta).coerceIn(-maximumSwipe, maximumSwipe)
                             if ((old < actionThreshold && abs(swipeX) >= actionThreshold) ||
                                 (old < removeThreshold && abs(swipeX) >= removeThreshold)) {
                                 haptics.perform(MeowzixHapticCue.Threshold)
@@ -722,7 +729,7 @@ private fun GroupQueueHeader(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = if (compact) 8.dp else 12.dp)
+                    .padding(horizontal = TRACK_ROW_HORIZONTAL_PADDING, vertical = if (compact) 8.dp else 10.dp)
                     .animateContentSize(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -858,9 +865,9 @@ private fun SwipeableQueueItem(
     }
     val density = LocalDensity.current
     val haptics = rememberMeowzixHaptics()
-    val actionThreshold = with(density) { 75.dp.toPx() }
-    val removeThreshold = with(density) { 190.dp.toPx() }
-    val maximumSwipe = with(density) { 300.dp.toPx() }
+    val actionThreshold = with(density) { TRACK_SWIPE_ACTION_THRESHOLD.toPx() }
+    val removeThreshold = with(density) { TRACK_SWIPE_REMOVE_THRESHOLD.toPx() }
+    val maximumSwipe = with(density) { TRACK_SWIPE_MAX_DISTANCE.toPx() }
     var swipeOffsetX by remember(item.occurrenceId) { mutableFloatStateOf(0f) }
     var swipeStage by remember(item.occurrenceId) { mutableIntStateOf(0) }
     var horizontalDragActive by remember(item.occurrenceId) { mutableStateOf(false) }
@@ -951,7 +958,7 @@ private fun SwipeableQueueItem(
             shadowElevation = if (isDragging) 6.dp else 0.dp,
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                modifier = Modifier.padding(horizontal = TRACK_ROW_HORIZONTAL_PADDING, vertical = TRACK_ROW_VERTICAL_PADDING),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 DownloadableTrackArtwork(
@@ -962,7 +969,7 @@ private fun SwipeableQueueItem(
                     download = download,
                     onDownload = onPinOffline,
                 )
-                Spacer(Modifier.size(12.dp))
+                Spacer(Modifier.size(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         item.title,
