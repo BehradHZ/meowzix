@@ -69,6 +69,35 @@ class LocalMusicLibraryRepositoryTest {
     }
 
     @Test
+    fun removingFromLibraryHidesTrackAcrossScansWithoutDeletingSourceAndReAddRestoresIt() = runTest {
+        scanner.tracks = listOf(track(1))
+        repository.refreshLocalMusic()
+        val song = repository.observeTracks().first().single()
+        val sourcesBefore = database.libraryDao().sourcesForTrack(song.id.toString())
+        repository.setFavorite(song.id, true)
+
+        repository.removeFromLibrary(song.id)
+        assertEquals(emptyList<dev.behradhz.meowzix.core.model.Track>(), repository.observeTracks().first())
+        val hidden = database.libraryDao().trackById(song.id.toString())!!
+        assertTrue(hidden.hidden)
+        assertFalse(hidden.addedToLibrary)
+        assertTrue(hidden.favorite)
+        assertEquals(sourcesBefore, database.libraryDao().sourcesForTrack(song.id.toString()))
+
+        // Local MediaStore scans must not silently reinsert a user-hidden song.
+        repository.refreshLocalMusic()
+        assertTrue(database.libraryDao().trackById(song.id.toString())!!.hidden)
+        assertEquals(0, repository.observeTracks().first().size)
+
+        // Explicit Add to Library is the inverse of Hide and must preserve identity.
+        repository.addToLibrary(song.id)
+        assertEquals(song.id, repository.observeTracks().first().single().id)
+        assertFalse(database.libraryDao().trackById(song.id.toString())!!.hidden)
+        assertTrue(database.libraryDao().trackById(song.id.toString())!!.addedToLibrary)
+        assertEquals(sourcesBefore, database.libraryDao().sourcesForTrack(song.id.toString()))
+    }
+
+    @Test
     fun removedSourceIsMarkedMissingWhileLogicalTrackIsRetained() = runTest {
         scanner.tracks = listOf(track(1))
         repository.refreshLocalMusic()
