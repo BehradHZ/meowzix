@@ -19,6 +19,7 @@ import dev.behradhz.meowzix.data.db.DownloadDao
 import dev.behradhz.meowzix.data.db.DownloadRecordEntity
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.core.model.TrackSourceType
+import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.domain.downloads.DownloadDisplayRecord
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
@@ -131,12 +132,20 @@ class ResilientDownloadRepository @Inject constructor(
         scope.launch {
             startMutex.withLock {
                 if (trackId in manuallyStopped) return@withLock
+                val telegramSources = libraryDao.sourcesForTrack(trackId.toString())
+                    .filter { it.type == TrackSourceType.TELEGRAM_REMOTE }
+                // A verified deleted source cannot silently reappear in Downloads
+                // when playback, prefetch, or WorkManager requests it again.
+                if (telegramSources.isNotEmpty() &&
+                    telegramSources.all { it.availability == SourceAvailability.MISSING }
+                ) return@withLock
                 // Persist user intent before waiting on Telegram or starting an async transfer.
                 // Playback-initiated streams are saved just like an explicit download tap.
                 val existing = downloadDao.byTrackId(trackId.toString())
                 if (existing == null) {
-                    val remote = libraryDao.sourcesForTrack(trackId.toString())
-                        .firstOrNull { it.type == TrackSourceType.TELEGRAM_REMOTE }
+                    val remote = telegramSources.firstOrNull {
+                        it.availability != SourceAvailability.MISSING
+                    }
                     if (remote != null) {
                         val now = Instant.now().toEpochMilli()
                         downloadDao.upsert(
