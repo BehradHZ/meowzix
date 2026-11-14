@@ -87,6 +87,46 @@ class RoomPlaylistRepositoryTest {
     }
 
     @Test
+    fun hiddenLibrarySongRemainsInTelegramChatButNotInPersonalPlaylist() = runTest {
+        val trackId = UUID.randomUUID()
+        database.libraryDao().upsertTrack(track(trackId, 0))
+        database.libraryDao().upsertSource(TrackSourceEntity(
+            id = "source-$trackId", trackId = trackId.toString(),
+            type = TrackSourceType.LOCAL_MEDIASTORE,
+            availability = SourceAvailability.AVAILABLE_LOCAL,
+            contentUri = "content://media/$trackId", localPath = null,
+            mimeType = "audio/mpeg", fileSizeBytes = 1,
+            contentHashSha256 = null, trainingEligible = true,
+            createdAtEpochMs = 1, lastVerifiedAtEpochMs = 1,
+        ))
+
+        val chatId = UUID.randomUUID()
+        database.playlistDao().upsertPlaylist(PlaylistEntity(
+            id = chatId.toString(), title = "Telegram chat",
+            createdAtEpochMs = 1, updatedAtEpochMs = 1,
+            telegramManaged = true,
+        ))
+        val personalId = repository.create("Personal playlist")
+        repository.addTrack(chatId, trackId)
+        repository.addTrack(personalId, trackId)
+
+        database.libraryDao().removeFromLibrary(trackId.toString())
+
+        assertEquals(listOf(trackId), repository.observeTracks(chatId).first().map { it.id })
+        assertEquals(listOf(trackId), database.playlistDao().browseTracks(chatId.toString(), 10, 0).map { UUID.fromString(it.id) })
+        assertEquals(1, repository.observePlaylists().first().first { it.id == chatId }.trackCount)
+        assertEquals(1, database.playlistDao().browsePlaylist(chatId.toString())!!.trackCount)
+
+        assertEquals(emptyList<UUID>(), repository.observeTracks(personalId).first().map { it.id })
+        assertEquals(0, repository.observePlaylists().first().first { it.id == personalId }.trackCount)
+
+        // Re-adding the same logical track is safe and restores normal visibility.
+        database.libraryDao().addToLibrary(trackId.toString())
+        assertEquals(listOf(trackId), repository.observeTracks(personalId).first().map { it.id })
+        assertEquals(listOf(trackId), repository.observeTracks(chatId).first().map { it.id })
+    }
+
+    @Test
     fun telegramResyncKeepsCustomPlaylistMetadata() = runTest {
         val playlistId = UUID.randomUUID()
         val initial = PlaylistEntity(
