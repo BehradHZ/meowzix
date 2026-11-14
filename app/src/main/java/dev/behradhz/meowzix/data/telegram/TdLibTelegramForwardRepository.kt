@@ -32,11 +32,13 @@ import dev.behradhz.meowzix.domain.telegram.TelegramSendEnqueueResult
 import dev.behradhz.meowzix.domain.telegram.TelegramSendJob
 import dev.behradhz.meowzix.domain.telegram.TelegramSendState
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
@@ -55,6 +57,7 @@ import kotlinx.coroutines.flow.lastOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -73,6 +76,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
 ) : TelegramForwardRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val queueMutex = Mutex()
+    private val activeSends = ConcurrentHashMap<String, ActiveSend>()
     private val folderLoadMutex = Mutex()
     private val folderCache = ForwardFolderMemoryCache<TelegramForwardFolder>()
     private val snapshots = ForwardDestinationSnapshotStore(context)
@@ -548,8 +552,39 @@ class TdLibTelegramForwardRepository @Inject constructor(
     }
 
     override suspend fun cancelSend(jobId: UUID) {
-        val changed = sendDao.cancel(jobId.toString(), System.currentTimeMillis())
-        if (changed == 0) error("This Telegram send is already being delivered or has finished.")
+        val id = jobId.toString()
+        val job = sendDao.jobById(id) ?: return
+        val state = TelegramSendState.valueOf(job.state)
+        when (state) {
+            TelegramSendState.CANCELED, TelegramSendState.CANCELING -> return
+            TelegramSendState.SENT ->
+                error("This song was already sent. Delete it in Telegram if needed.")
+            TelegramSendState.CHECKING,
+            TelegramSendState.PREPARING_FILE,
+            TelegramSendState.UPLOADING,
+            TelegramSendState.SENDING -> {
+                if (sendDao.requestCancelActive(id, System.currentTimeMillis()) > 0) {
+                    val active = activeSends[id]
+                    if (active == null) {
+                        // A prior process owns the delivery (or its confirmation was lost).
+                        // Never silently claim an unconfirmed send was canceled.
+                        sendDao.markCancelUncertain(
+                            id, "Cancellation couldn't be confirmed. Check the destination chat before trying again.",
+                            System.currentTimeMillis(),
+                        )
+                    } else {
+                        active.cancelSignal.complete(Unit)
+                    }
+                }
+            }
+            else -> {
+                // A failed or uncertain send is being dismissed, not re-sent.
+                val changed = sendDao.cancel(id, System.currentTimeMillis())
+                if (changed == 0 && sendDao.jobById(id)?.state != TelegramSendState.CANCELED.name) {
+                    error("This send is changing state. Try again.")
+                }
+            }
+        }
     }
 
     override suspend fun processPendingSends() {
@@ -600,15 +635,16 @@ class TdLibTelegramForwardRepository @Inject constructor(
     }
 
     private suspend fun processOne(job: TelegramSendJobEntity, client: TdLibClientAdapter) {
+        val active = ActiveSend()
+        activeSends[job.id] = active
         val attempt = job.attemptCount + 1
-        setState(
-            job,
-            TelegramSendState.CHECKING,
-            attemptCount = attempt,
-            errorMessage = null,
-        )
 
         try {
+            setState(
+                job, TelegramSendState.CHECKING,
+                attemptCount = attempt, errorMessage = null,
+            )
+            ensureNotCancelRequested(active)
             val knownDestinationSource = telegramDao.telegramSourceForTrackInChat(
                 job.accountId,
                 job.targetChatId,
@@ -624,6 +660,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 return
             }
 
+            ensureNotCancelRequested(active)
             val target = try {
                 client.send(TdApi.GetChat(job.targetChatId))
             } catch (cause: TdLibException) {
@@ -643,18 +680,33 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 sourceMessageId = telegramSource?.messageId,
                 forwardMessage = {
                     val source = checkNotNull(telegramSource)
-                    sendTelegramBackedTrack(client, job, target, source.chatId, source.messageId)
+                    sendTelegramBackedTrack(client, job, target, source.chatId, source.messageId, active)
                 },
                 sendAudioCopy = {
-                    sendLocalTrack(
-                        client, job, track.title, track.artist, track.durationMs, telegramSource,
-                        originalMessageMissing = (telegramSource?.messageId ?: 0L) > 0L,
-                    )
+                    if (telegramSource != null && telegramSource.messageId < 0L) {
+                        sendProfileAudio(client, job, track.title, track.artist, track.durationMs, telegramSource, active)
+                    } else {
+                        sendLocalTrack(
+                            client, job, track.title, track.artist, track.durationMs,
+                            telegramSource, originalMessageMissing = telegramSource != null,
+                            active = active,
+                        )
+                    }
                 },
             )
+            if (active.cancelSignal.isCompleted) {
+                active.pendingMessageId = deliveredMessageId
+                throw SendCancellationRequested()
+            }
             sendDao.markSent(job.id, deliveredMessageId, System.currentTimeMillis())
+            if (active.cancelSignal.isCompleted) {
+                active.pendingMessageId = deliveredMessageId
+                throw SendCancellationRequested()
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (_: SendCancellationRequested) {
+            confirmSendCancellation(job, client, active)
         } catch (uncertain: DeliveryUncertainException) {
             setState(
                 job,
@@ -663,6 +715,10 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 errorMessage = "Meowzix couldn't confirm delivery. Check Telegram before retrying so the song isn't sent twice.",
             )
         } catch (error: Throwable) {
+            if (active.cancelSignal.isCompleted) {
+                confirmSendCancellation(job, client, active)
+                return
+            }
             when {
                 !hasNetwork() -> setState(
                     job,
@@ -694,8 +750,55 @@ class TdLibTelegramForwardRepository @Inject constructor(
                     System.currentTimeMillis(),
                 )
             }
+        } finally {
+            activeSends.remove(job.id, active)
         }
     }
+
+    private suspend fun confirmSendCancellation(
+        job: TelegramSendJobEntity,
+        client: TdLibClientAdapter,
+        active: ActiveSend,
+    ) {
+        val pendingId = active.pendingMessageId
+        if (pendingId == null && active.submissionStarted) {
+            sendDao.markCancelUncertain(
+                job.id,
+                "Cancellation couldn't be confirmed. The send may have reached Telegram; check the chat before retrying.",
+                System.currentTimeMillis(),
+            )
+            return
+        }
+        if (pendingId != null) {
+            try {
+                // TDLib deletes pending outgoing messages to stop the upload/send.
+                // Revoke=true also covers the race where Telegram has just accepted it.
+                client.send(TdApi.DeleteMessages(job.targetChatId, longArrayOf(pendingId), true))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                sendDao.markCancelUncertain(
+                    job.id,
+                    "Telegram couldn't confirm cancellation. Check the destination chat before retrying.",
+                    System.currentTimeMillis(),
+                )
+                return
+            }
+        }
+        sendDao.cancel(job.id, System.currentTimeMillis())
+    }
+
+    private fun ensureNotCancelRequested(active: ActiveSend) {
+        if (active.cancelSignal.isCompleted) throw SendCancellationRequested()
+    }
+
+    private class ActiveSend(
+        val cancelSignal: CompletableDeferred<Unit> = CompletableDeferred(),
+        @Volatile var pendingMessageId: Long? = null,
+        @Volatile var submissionStarted: Boolean = false,
+    )
+
+    private class SendCancellationRequested : Exception()
 
     private suspend fun sendTelegramBackedTrack(
         client: TdLibClientAdapter,
@@ -703,6 +806,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
         target: TdApi.Chat,
         sourceChatId: Long,
         sourceMessageId: Long,
+        active: ActiveSend,
     ): Long {
         // Only the preflight is eligible for copy fallback. A send that has already
         // reached Telegram must NEVER be retried as an upload: delivery could be duplicated.
@@ -729,7 +833,9 @@ class TdLibTelegramForwardRepository @Inject constructor(
             }
         }
 
+        ensureNotCancelRequested(active)
         setState(job, TelegramSendState.SENDING, progressPercent = 90, errorMessage = null)
+        active.submissionStarted = true
         val result = client.send(
             TdApi.ForwardMessages(
                 job.targetChatId,
@@ -743,7 +849,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
         )
         val pending = result.messages.firstOrNull()
             ?: error("Telegram didn't create an outgoing message for this track.")
-        return awaitDelivery(client, pending, job.id, null)
+        return awaitDelivery(client, pending, job.id, null, active)
     }
 
     private suspend fun sendLocalTrack(
@@ -754,10 +860,14 @@ class TdLibTelegramForwardRepository @Inject constructor(
         durationMs: Long,
         telegramSource: TelegramTrackSourceEntity?,
         originalMessageMissing: Boolean,
+        active: ActiveSend,
+        profileAudio: TdApi.Audio? = null,
     ): Long {
+        ensureNotCancelRequested(active)
         setState(job, TelegramSendState.PREPARING_FILE, progressPercent = 2, errorMessage = null)
-        val prepared = prepareLocalAudio(client, job, telegramSource, originalMessageMissing)
+        val prepared = prepareLocalAudio(client, job, telegramSource, originalMessageMissing, profileAudio)
         try {
+            ensureNotCancelRequested(active)
             setState(job, TelegramSendState.UPLOADING, progressPercent = 5, errorMessage = null)
             val inputAudio = TdApi.InputAudio(
                 TdApi.InputFileLocal(prepared.file.absolutePath),
@@ -770,18 +880,12 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 inputAudio,
                 TdApi.FormattedText("", null),
             )
+            active.submissionStarted = true
             val pending = client.send(
-                TdApi.SendMessage(
-                    job.targetChatId,
-                    null,
-                    null,
-                    null,
-                    null,
-                    content,
-                ),
+                TdApi.SendMessage(job.targetChatId, null, null, null, null, content),
             )
             val fileId = (pending.content as? TdApi.MessageAudio)?.audio?.audio?.id
-            return awaitDelivery(client, pending, job.id, fileId)
+            return awaitDelivery(client, pending, job.id, fileId, active)
         } finally {
             if (prepared.temporary) runCatching { prepared.file.delete() }
         }
@@ -792,6 +896,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
         job: TelegramSendJobEntity,
         telegramSource: TelegramTrackSourceEntity?,
         originalMessageMissing: Boolean,
+        knownProfileAudio: TdApi.Audio? = null,
     ): PreparedLocalAudio {
         val candidates = libraryDao.sourcesForTrack(job.trackId)
             .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
@@ -831,7 +936,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
         // Fetch its audio via GetUserProfileAudios, not GetMessage/ForwardMessages. A previously
         // played song takes the local-file path above, without another remote download.
         if (telegramSource != null && telegramSource.messageId < 0L) {
-            val profileAudio = findTelegramProfileAudio(
+            val profileAudio = knownProfileAudio ?: findTelegramProfileAudio(
                 client,
                 telegramSource.chatId,
                 telegramSource.messageId,
@@ -862,7 +967,10 @@ class TdLibTelegramForwardRepository @Inject constructor(
         pending: TdApi.Message,
         jobId: String,
         uploadFileId: Int?,
+        active: ActiveSend,
     ): Long = coroutineScope {
+        active.pendingMessageId = pending.id
+        ensureNotCancelRequested(active)
         if (pending.sendingState == null) return@coroutineScope pending.id
 
         val progressJob = if (uploadFileId != null) {
@@ -894,25 +1002,33 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
         try {
             val delivery = withTimeout(SEND_CONFIRMATION_TIMEOUT_MS) {
-                client.updates.mapNotNull { update ->
-                    when (update) {
-                        is TdApi.UpdateMessageSendSucceeded -> if (update.oldMessageId == pending.id) {
-                            DeliveryResult.Success(update.message.id)
-                        } else {
-                            null
-                        }
-                        is TdApi.UpdateMessageSendFailed -> if (update.oldMessageId == pending.id) {
-                            DeliveryResult.Failure(update.error.code, update.error.message)
-                        } else {
-                            null
-                        }
-                        else -> null
+                coroutineScope {
+                    val deliveryWait = async {
+                        client.updates.mapNotNull { update ->
+                            when (update) {
+                                is TdApi.UpdateMessageSendSucceeded ->
+                                    if (update.oldMessageId == pending.id) DeliveryResult.Success(update.message.id) else null
+                                is TdApi.UpdateMessageSendFailed ->
+                                    if (update.oldMessageId == pending.id)
+                                        DeliveryResult.Failure(update.error.code, update.error.message) else null
+                                else -> null
+                            }
+                        }.first()
                     }
-                }.first()
+                    try {
+                        select<DeliveryResult> {
+                            deliveryWait.onAwait { it }
+                            active.cancelSignal.onAwait { DeliveryResult.Canceled }
+                        }
+                    } finally {
+                        deliveryWait.cancel()
+                    }
+                }
             }
             when (delivery) {
                 is DeliveryResult.Success -> delivery.messageId
                 is DeliveryResult.Failure -> throw TdLibException(delivery.code, delivery.message)
+                DeliveryResult.Canceled -> throw SendCancellationRequested()
             }
         } catch (_: TimeoutCancellationException) {
             throw DeliveryUncertainException()
@@ -961,6 +1077,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
     private sealed interface DeliveryResult {
         data class Success(val messageId: Long) : DeliveryResult
         data class Failure(val code: Int, val message: String) : DeliveryResult
+        data object Canceled : DeliveryResult
     }
 
     private companion object {
