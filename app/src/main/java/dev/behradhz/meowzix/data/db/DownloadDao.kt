@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface DownloadDao {
-    @Query("SELECT * FROM download_records ORDER BY createdAtEpochMs ASC, trackId ASC")
+    @Query("SELECT * FROM download_records ORDER BY createdAtEpochMs DESC, trackId ASC")
     fun observeAll(): Flow<List<DownloadRecordEntity>>
 
     @Query(
@@ -25,7 +25,7 @@ interface DownloadDao {
         FROM download_records d
         LEFT JOIN tracks t ON t.id = d.trackId
         WHERE d.status != 'CANCELED'
-        ORDER BY d.createdAtEpochMs ASC, d.trackId ASC
+        ORDER BY d.createdAtEpochMs DESC, d.trackId ASC
         """,
     )
     fun observeDisplayRows(): Flow<List<DownloadDisplayRow>>
