@@ -580,6 +580,27 @@ class ProgressiveQueueTest {
         assertEquals(9, after.tracks.size + after.pendingGeneratedIds.size)
     }
 
+    @Test
+    fun `deleted source disappears from current future duplicates and generated candidates`() {
+        val queue = ProgressiveQueue()
+        val songs = tracks(6)
+        queue.start(
+            songs, 2, PlaybackMode.ORDERED, RepeatMode.OFF,
+            sourceIds = songs.map { it.id }, pendingIds = listOf(songs[2].id, songs[5].id),
+        )
+        assertTrue(queue.insertNext(songs[2]))
+        assertTrue(queue.removeUnavailableTrack(songs[2].id))
+        val snapshot = requireNotNull(queue.snapshot())
+
+        assertEquals(songs[3].id, snapshot.tracks[snapshot.currentIndex].id)
+        assertFalse(snapshot.tracks.any { it.id == songs[2].id })
+        assertFalse(songs[2].id in snapshot.pendingGeneratedIds)
+        assertFalse(songs[2].id in snapshot.sourceTrackIds)
+        queue.resetWindow()
+        assertEquals(songs[3].id,
+            requireNotNull(queue.snapshot()).tracks[requireNotNull(queue.snapshot()).currentIndex].id)
+    }
+
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->
         PlayableTrack(
             id = UUID.nameUUIDFromBytes("track-$index".toByteArray()),
