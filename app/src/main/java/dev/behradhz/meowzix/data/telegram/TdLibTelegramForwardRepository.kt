@@ -19,6 +19,7 @@ import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramSendDao
 import dev.behradhz.meowzix.data.db.TelegramSendJobEntity
+import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
@@ -623,16 +624,31 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 return
             }
 
-            val target = client.send(TdApi.GetChat(job.targetChatId))
+            val target = try {
+                client.send(TdApi.GetChat(job.targetChatId))
+            } catch (error: TdLibException) {
+                if (error.errorCode == 404) {
+                    error("The destination chat is no longer available in Telegram. Refresh the destination list and choose another chat.")
+                }
+                throw error
+            }
             val track = libraryDao.trackById(job.trackId)
                 ?: error("This track is no longer in your Meowzix library.")
             val telegramSource = telegramDao.telegramSourceForTrack(job.accountId, job.trackId)
 
-            val deliveredMessageId = if (telegramSource != null) {
-                sendTelegramBackedTrack(client, job, target, telegramSource.chatId, telegramSource.messageId)
-            } else {
-                sendLocalTrack(client, job, track.title, track.artist, track.durationMs)
-            }
+            val deliveredMessageId = sendWithTelegramSourceFallback(
+                sourceMessageId = telegramSource?.messageId,
+                forwardMessage = {
+                    val source = checkNotNull(telegramSource)
+                    sendTelegramBackedTrack(client, job, target, source.chatId, source.messageId)
+                },
+                sendAudioCopy = {
+                    sendLocalTrack(
+                        client, job, track.title, track.artist, track.durationMs, telegramSource,
+                        originalMessageMissing = (telegramSource?.messageId ?: 0L) > 0L,
+                    )
+                },
+            )
             sendDao.markSent(job.id, deliveredMessageId, System.currentTimeMillis())
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -685,8 +701,15 @@ class TdLibTelegramForwardRepository @Inject constructor(
         sourceChatId: Long,
         sourceMessageId: Long,
     ): Long {
-        client.send(TdApi.GetMessage(sourceChatId, sourceMessageId))
-        val properties = client.send(TdApi.GetMessageProperties(sourceChatId, sourceMessageId))
+        // Only the preflight is eligible for copy fallback. A send that has already
+        // reached Telegram must NEVER be retried as an upload: delivery could be duplicated.
+        val properties = try {
+            client.send(TdApi.GetMessage(sourceChatId, sourceMessageId))
+            client.send(TdApi.GetMessageProperties(sourceChatId, sourceMessageId))
+        } catch (error: TdLibException) {
+            if (error.errorCode == 404) throw OriginalTelegramMessageMissing()
+            throw error
+        }
         val targetIsSecret = target.type is TdApi.ChatTypeSecret
 
         if (job.includeSourceAttribution) {
@@ -726,9 +749,11 @@ class TdLibTelegramForwardRepository @Inject constructor(
         title: String,
         artist: String?,
         durationMs: Long,
+        telegramSource: TelegramTrackSourceEntity?,
+        originalMessageMissing: Boolean,
     ): Long {
         setState(job, TelegramSendState.PREPARING_FILE, progressPercent = 2, errorMessage = null)
-        val prepared = prepareLocalAudio(job)
+        val prepared = prepareLocalAudio(client, job, telegramSource, originalMessageMissing)
         try {
             setState(job, TelegramSendState.UPLOADING, progressPercent = 5, errorMessage = null)
             val inputAudio = TdApi.InputAudio(
@@ -759,7 +784,12 @@ class TdLibTelegramForwardRepository @Inject constructor(
         }
     }
 
-    private suspend fun prepareLocalAudio(job: TelegramSendJobEntity): PreparedLocalAudio {
+    private suspend fun prepareLocalAudio(
+        client: TdLibClientAdapter,
+        job: TelegramSendJobEntity,
+        telegramSource: TelegramTrackSourceEntity?,
+        originalMessageMissing: Boolean,
+    ): PreparedLocalAudio {
         val candidates = libraryDao.sourcesForTrack(job.trackId)
             .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
             .sortedBy(TrackSourceEntity::sendPriority)
@@ -794,7 +824,34 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 runCatching { output.delete() }
             }
         }
-        error("This track isn't available as a readable local audio file, so Meowzix can't upload it to Telegram.")
+        // Profile music is indexed using a negative synthetic ID, not a Telegram message.
+        // Fetch its audio via GetUserProfileAudios, not GetMessage/ForwardMessages. A previously
+        // played song takes the local-file path above, without another remote download.
+        if (telegramSource != null && telegramSource.messageId < 0L) {
+            val profileAudio = findTelegramProfileAudio(
+                client,
+                telegramSource.chatId,
+                telegramSource.messageId,
+                telegramSource.tdPersistentFileId,
+            ) ?: error("This profile song is no longer available on Telegram and no saved audio copy was found.")
+            val downloaded = client.send(
+                TdApi.DownloadFile(
+                    profileAudio.audio.id,
+                    TdDownloadPriority.USER_REQUESTED_DOWNLOAD,
+                    0L, 0L, true,
+                ),
+            ).also(client.fileStates::publish)
+            val file = downloaded.local.path.takeIf {
+                downloaded.local.isDownloadingCompleted && it.isNotBlank()
+            }?.let(::File)?.takeIf { it.isFile && it.canRead() && it.length() > 0L }
+                ?: error("Telegram couldn't finish downloading this profile song. Try again when connected.")
+            // TDLib owns its downloaded file. Never delete this source after sending.
+            return PreparedLocalAudio(file, temporary = false)
+        }
+        if (originalMessageMissing) {
+            error("The original Telegram message was deleted or is inaccessible, and no saved audio copy was found. Play the song to save it, then retry.")
+        }
+        error("This track has no readable audio file. Restore the local file or play it to download before sending.")
     }
 
     private suspend fun awaitDelivery(
@@ -925,6 +982,25 @@ class TdLibTelegramForwardRepository @Inject constructor(
         const val MAX_AUTO_ATTEMPTS = 3
         const val SEND_CONFIRMATION_TIMEOUT_MS = 30L * 60L * 1_000L
         const val TELEGRAM_SEND_WORK_NAME = "telegram-send-queue"
+    }
+}
+
+/**
+ * A profile song has a synthetic negative ID and cannot be forwarded as a message.
+ * Fallback after a missing-message preflight is safe; fallback after an actual send is not.
+ */
+internal class OriginalTelegramMessageMissing : Exception()
+
+internal suspend fun <T> sendWithTelegramSourceFallback(
+    sourceMessageId: Long?,
+    forwardMessage: suspend () -> T,
+    sendAudioCopy: suspend () -> T,
+): T {
+    if (sourceMessageId == null || sourceMessageId <= 0L) return sendAudioCopy()
+    return try {
+        forwardMessage()
+    } catch (_: OriginalTelegramMessageMissing) {
+        sendAudioCopy()
     }
 }
 
