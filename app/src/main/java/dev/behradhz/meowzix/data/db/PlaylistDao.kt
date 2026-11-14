@@ -40,6 +40,14 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlist_tracks WHERE playlistId = :playlistId ORDER BY position")
     suspend fun entries(playlistId: String): List<PlaylistTrackEntity>
 
+    /** Explicit chat/queue playback may use a hidden Library track from Telegram. */
+    @Query("""
+        SELECT DISTINCT pt.trackId FROM playlist_tracks pt
+        INNER JOIN playlists p ON p.id = pt.playlistId
+        WHERE p.telegramManaged = 1 AND pt.trackId IN (:trackIds)
+    """)
+    suspend fun telegramManagedTrackIds(trackIds: List<String>): List<String>
+
     @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
     suspend fun playlist(playlistId: String): PlaylistEntity?
 
