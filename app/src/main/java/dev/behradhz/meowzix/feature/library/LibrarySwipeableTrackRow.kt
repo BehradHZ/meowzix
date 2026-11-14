@@ -63,6 +63,10 @@ import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.ui.components.StagedSwipeReveal
 import dev.behradhz.meowzix.ui.components.TRACK_CARD_ALPHA
+import dev.behradhz.meowzix.ui.components.TRACK_ROW_HORIZONTAL_PADDING
+import dev.behradhz.meowzix.ui.components.TRACK_ROW_VERTICAL_PADDING
+import dev.behradhz.meowzix.ui.components.TRACK_SWIPE_ACTION_THRESHOLD
+import dev.behradhz.meowzix.ui.components.TRACK_SWIPE_MAX_DISTANCE
 import dev.behradhz.meowzix.ui.components.DownloadableTrackArtwork
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
@@ -107,8 +111,8 @@ internal fun SwipeableLibraryTrackRow(
 
     val density = LocalDensity.current
     val haptics = rememberMeowzixHaptics()
-    val actionThreshold = with(density) { 75.dp.toPx() }
-    val maximumSwipe = with(density) { 190.dp.toPx() }
+    val actionThreshold = with(density) { TRACK_SWIPE_ACTION_THRESHOLD.toPx() }
+    val maximumSwipe = with(density) { TRACK_SWIPE_MAX_DISTANCE.toPx() }
     var swipeOffsetX by remember(track.id) { mutableFloatStateOf(0f) }
     var swipeStage by remember(track.id) { mutableIntStateOf(0) }
     var horizontalDragActive by remember(track.id) { mutableStateOf(false) }
@@ -264,7 +268,7 @@ private fun LibraryTrackRowContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 7.dp),
+                .padding(horizontal = TRACK_ROW_HORIZONTAL_PADDING, vertical = TRACK_ROW_VERTICAL_PADDING),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             DownloadableTrackArtwork(
@@ -275,7 +279,7 @@ private fun LibraryTrackRowContent(
                 download = download,
                 onDownload = onPinOffline,
             )
-            Spacer(Modifier.size(12.dp))
+            Spacer(Modifier.size(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (isCurrent) {
