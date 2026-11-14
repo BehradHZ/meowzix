@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Palette
@@ -34,16 +35,20 @@ import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.feature.library.PlaylistGlassPanel
 import dev.chrisbanes.haze.HazeState
 
-/** The whole settings hierarchy is the index and one category detail; no nested destinations. */
-internal enum class SettingsCategory(val title: String, val icon: ImageVector) {
+/** Telegram and Downloads are direct destinations; other categories stay inline. */
+internal enum class SettingsCategory(val title: String, val icon: ImageVector, val subtitle: String? = null) {
     APPEARANCE("Appearance", Icons.Rounded.Palette),
     PLAYBACK("Playback", Icons.Rounded.PlayCircle),
     SOUND("Sound", Icons.Rounded.GraphicEq),
     DISCOVERY("Discovery", Icons.Rounded.AutoAwesome),
-    CONNECTIONS("Telegram & downloads", Icons.Rounded.CloudDownload),
+    TELEGRAM("Telegram & chats", Icons.Rounded.FolderOpen, "Account, music chats and sync"),
+    DOWNLOADS("Downloads & offline", Icons.Rounded.CloudDownload, "Saved music, network rules and prefetch"),
     DATA("Privacy & data", Icons.Rounded.Shield),
     INFORMATION("About & how it works", Icons.Rounded.Info),
 }
+
+internal fun SettingsCategory.isDirectDestination(): Boolean =
+    this == SettingsCategory.TELEGRAM || this == SettingsCategory.DOWNLOADS
 
 @Composable
 internal fun SettingsCategoryIndex(
@@ -67,12 +72,20 @@ internal fun SettingsCategoryIndex(
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp),
                     )
-                    Text(
-                        category.title,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            category.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        category.subtitle?.let { subtitle ->
+                            Text(
+                                subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                     Icon(
                         Icons.Rounded.ChevronRight,
                         contentDescription = null,
