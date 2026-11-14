@@ -65,9 +65,11 @@ fun BoxScope.StagedSwipeReveal(
         )
     } else 0f
 
-    if (secondaryLabel != null) {
+    if (secondaryLabel != null && abs(slide) > 0.5f) {
         Surface(
-            modifier = Modifier.matchParentSize().roundedSwipeReveal(offsetPx),
+            // Reveal only the section no longer covered by the first panel.
+            // Avoid red bleeding through the translucent Play next/Add layer.
+            modifier = Modifier.matchParentSize().roundedSwipeReveal(slide),
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.78f),
             contentColor = MaterialTheme.colorScheme.onErrorContainer,
