@@ -38,6 +38,20 @@ interface TelegramSendDao {
     )
     suspend fun nextRunnable(): TelegramSendJobEntity?
 
+    /** Atomically claim a queued send, preventing cancel-vs-start races. */
+    @Query(
+        """
+        UPDATE telegram_send_jobs SET
+            state = 'CHECKING',
+            attemptCount = :attemptCount,
+            errorMessage = NULL,
+            updatedAtEpochMs = :updatedAtEpochMs
+        WHERE id = :id
+          AND state IN ('QUEUED', 'RETRYING', 'WAITING_FOR_NETWORK', 'WAITING_FOR_TELEGRAM')
+        """,
+    )
+    suspend fun claimForProcessing(id: String, attemptCount: Int, updatedAtEpochMs: Long): Int
+
     @Query(
         """
         UPDATE telegram_send_jobs
