@@ -251,8 +251,10 @@ class ResilientDownloadRepository @Inject constructor(
                 }
 
                 null -> {
+                    // The original Telegram source may have been verified as deleted.
+                    // A removed record must not cause an endless WorkManager retry.
                     if (System.currentTimeMillis() - startedAt >= RECORD_SETTLE_MS) {
-                        return PersistentAttemptResult.RETRY
+                        return PersistentAttemptResult.SUCCESS
                     }
                 }
             }
