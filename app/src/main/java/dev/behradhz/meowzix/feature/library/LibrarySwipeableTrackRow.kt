@@ -97,6 +97,8 @@ internal fun SwipeableLibraryTrackRow(
     onGoToArtist: () -> Unit,
     onEnsureArtwork: () -> Unit,
     onRemoveOfflineCopy: (() -> Unit)? = null,
+    onRemoveTrack: ((offline: Boolean, library: Boolean) -> Unit)? = null,
+    canRemoveFromLibrary: Boolean = true,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onAddToLibrary: (() -> Unit)? = null,
     onMoveUp: (() -> Unit)? = null,
@@ -191,6 +193,8 @@ internal fun SwipeableLibraryTrackRow(
                 onRemoveFromPlaylist = onRemoveFromPlaylist,
                 onAddToLibrary = onAddToLibrary,
                 onRemoveOfflineCopy = onRemoveOfflineCopy,
+                onRemoveTrack = onRemoveTrack,
+                canRemoveFromLibrary = canRemoveFromLibrary,
                 onMoveUp = onMoveUp,
                 onMoveDown = onMoveDown,
                 containerColor = containerColor,
@@ -219,6 +223,8 @@ private fun LibraryTrackRowContent(
     onRemoveFromPlaylist: (() -> Unit)?,
     onAddToLibrary: (() -> Unit)?,
     onRemoveOfflineCopy: (() -> Unit)?,
+    onRemoveTrack: ((offline: Boolean, library: Boolean) -> Unit)?,
+    canRemoveFromLibrary: Boolean,
     onMoveUp: (() -> Unit)?,
     onMoveDown: (() -> Unit)?,
     containerColor: Color?,
@@ -347,6 +353,10 @@ private fun LibraryTrackRowContent(
                         onRemoveOfflineCopy = if (download?.hasManagedCopy == true &&
                             download.status == dev.behradhz.meowzix.domain.downloads.DownloadStatus.COMPLETED
                         ) onRemoveOfflineCopy else null,
+                        onRemoveFromLocations = onRemoveTrack,
+                        canRemoveOffline = download != null &&
+                            download.status != dev.behradhz.meowzix.domain.downloads.DownloadStatus.CANCELED,
+                        canRemoveFromLibrary = canRemoveFromLibrary,
                     )
                 }
             }
