@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
@@ -127,6 +128,7 @@ internal fun PlayerActionsMenu(
     draggedTimerRequest: Int = 0,
     onActionBoundsChanged: (Int, Rect) -> Unit = { _, _ -> },
     playbackSpeed: Float = 1f,
+    onViewInChat: (() -> Unit)? = null,
 ) {
     var page by remember(trackId) { mutableStateOf(PlayerActionsPage.ACTIONS) }
     var pendingDelete by remember(trackId) { mutableStateOf<LyricsVersion?>(null) }
@@ -225,6 +227,15 @@ internal fun PlayerActionsMenu(
                             onBoundsChanged = { onActionBoundsChanged(3, it) },
                             onClick = { onDismiss(); onContinueVibe() },
                         )
+                        onViewInChat?.let { open ->
+                            PlayerMenuOptionRow(
+                                icon = Icons.Rounded.OpenInNew,
+                                title = "View in Chat",
+                                highlighted = draggedAction == 5,
+                                onBoundsChanged = { onActionBoundsChanged(5, it) },
+                                onClick = { onDismiss(); open() },
+                            )
+                        }
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.MusicNote,
                             title = "Lyrics",
