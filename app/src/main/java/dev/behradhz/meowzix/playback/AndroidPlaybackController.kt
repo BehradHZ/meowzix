@@ -659,7 +659,7 @@ class AndroidPlaybackController @Inject constructor(
                             )
                         }
                         if (recommendation == null) remaining to null else {
-                            SmartShuffleFutureOrder.order(
+                            SmartShuffleFutureOrder.completeLibraryCycle(
                                 remaining, recommendation.trackIds, recommendation.eligibleTrackIds,
                             ) to null
                         }
