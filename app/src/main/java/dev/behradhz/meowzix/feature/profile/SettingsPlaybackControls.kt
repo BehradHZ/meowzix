@@ -9,7 +9,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,8 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
@@ -367,9 +364,7 @@ internal fun SettingsSleepTimerHeader(
     lastMode: SleepTimerPresetMode,
     lastMinutes: Int,
     endOfTrackEnabled: Boolean,
-    expanded: Boolean,
     onToggle: (Boolean) -> Unit,
-    onExpand: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 12.dp),
@@ -385,8 +380,7 @@ internal fun SettingsSleepTimerHeader(
                 tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
         }
         Column(
-            modifier = Modifier.weight(1f).clickable(onClick = onExpand)
-                .testTag("settings-sleep-timer-expand"),
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Text("Sleep timer", style = MaterialTheme.typography.bodyLarge,
@@ -404,12 +398,6 @@ internal fun SettingsSleepTimerHeader(
             enabled = state.active || lastMode != SleepTimerPresetMode.END_OF_TRACK || endOfTrackEnabled,
             onCheckedChange = onToggle,
             modifier = Modifier.testTag("settings-sleep-timer-toggle"),
-        )
-        Icon(
-            if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-            contentDescription = if (expanded) "Collapse sleep timer" else "Expand sleep timer",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp).clickable(onClick = onExpand),
         )
     }
 }
