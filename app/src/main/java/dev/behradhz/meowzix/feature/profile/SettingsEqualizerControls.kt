@@ -24,7 +24,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.playback.EqualizerPreset
 
-/** The equalizer expands in the sound settings rather than opening another destination. */
+/** Equalizer controls are always visible on the Sound settings page. */
 @Composable
 internal fun SettingsEqualizerControls(
     viewModel: EqualizerViewModel = hiltViewModel(),
