@@ -662,12 +662,12 @@ private fun GroupQueueHeader(
     var horizontalDrag by remember(group.id) { mutableStateOf(false) }
     val density = LocalDensity.current
     val actionThreshold = with(density) { 75.dp.toPx() }
-    val removeThreshold = with(density) { 150.dp.toPx() }
+    val removeThreshold = with(density) { 190.dp.toPx() }
     val haptics = rememberMeowzixHaptics()
     val animatedSwipeX by animateFloatAsState(
         targetValue = swipeX,
         animationSpec = if (horizontalDrag) snap() else spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
+            dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessMediumLow,
         ),
         label = "group-swipe",
@@ -704,11 +704,12 @@ private fun GroupQueueHeader(
                         onDragEnd = {
                             val released = swipeX
                             horizontalDrag = false
-                            if (abs(released) < removeThreshold) swipeX = 0f
-                            when {
-                                abs(released) >= removeThreshold -> onRemove()
-                                released >= actionThreshold -> onMoveToFront()
-                                released <= -actionThreshold -> onMoveToEnd()
+                            swipeX = 0f // settle with spring, even when the action doesn't remove the row
+                            when (queueSwipeActionForOffset(released, actionThreshold, removeThreshold)) {
+                                QueueSwipeAction.REMOVE -> onRemove()
+                                QueueSwipeAction.PLAY_NEXT -> onMoveToFront()
+                                QueueSwipeAction.ADD_TO_QUEUE -> onMoveToEnd()
+                                QueueSwipeAction.NONE -> Unit
                             }
                         },
                         onDragCancel = { horizontalDrag = false; swipeX = 0f },
@@ -858,7 +859,7 @@ private fun SwipeableQueueItem(
     val density = LocalDensity.current
     val haptics = rememberMeowzixHaptics()
     val actionThreshold = with(density) { 75.dp.toPx() }
-    val removeThreshold = with(density) { 150.dp.toPx() }
+    val removeThreshold = with(density) { 190.dp.toPx() }
     val maximumSwipe = with(density) { 300.dp.toPx() }
     var swipeOffsetX by remember(item.occurrenceId) { mutableFloatStateOf(0f) }
     var swipeStage by remember(item.occurrenceId) { mutableIntStateOf(0) }
@@ -866,12 +867,11 @@ private fun SwipeableQueueItem(
     val visualOffsetX by animateFloatAsState(
         targetValue = swipeOffsetX,
         animationSpec = if (horizontalDragActive) snap() else spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
+            dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessMediumLow,
         ),
         label = "queue-two-stage-swipe",
     )
-    val swipeMagnitude = abs(visualOffsetX)
     val swipingRight = visualOffsetX >= 0f
 
 
@@ -928,12 +928,14 @@ private fun SwipeableQueueItem(
                                 val releasedOffset = swipeOffsetX
                                 horizontalDragActive = false
                                 swipeStage = 0
-                                // Preserve the swipe translation while the row animates out.
-                                if (abs(releasedOffset) < removeThreshold) swipeOffsetX = 0f
-                                when {
-                                    abs(releasedOffset) >= removeThreshold -> onRemove()
-                                    abs(releasedOffset) >= actionThreshold && releasedOffset > 0f -> onPlayNext()
-                                    abs(releasedOffset) >= actionThreshold -> onAddToQueue()
+                                swipeOffsetX = 0f // always settle, including actions that keep the row
+                                when (queueSwipeActionForOffset(
+                                    releasedOffset, actionThreshold, removeThreshold,
+                                )) {
+                                    QueueSwipeAction.REMOVE -> onRemove()
+                                    QueueSwipeAction.PLAY_NEXT -> onPlayNext()
+                                    QueueSwipeAction.ADD_TO_QUEUE -> onAddToQueue()
+                                    QueueSwipeAction.NONE -> Unit
                                 }
                             },
                         )
