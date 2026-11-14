@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -842,11 +843,14 @@ internal fun ForwardOptionPill(
     selected: Boolean,
     onSelectedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    tag: String = "telegram-option-${title.lowercase()}",
 ) {
     val accent = MaterialTheme.colorScheme.primary
     Box(
         modifier = modifier
             .height(44.dp)
+            .alpha(if (enabled) 1f else 0.40f)
             .background(
                 brush = if (selected) {
                     Brush.horizontalGradient(
@@ -866,10 +870,11 @@ internal fun ForwardOptionPill(
             )
             .toggleable(
                 value = selected,
+                enabled = enabled,
                 role = Role.Checkbox,
                 onValueChange = onSelectedChange,
             )
-            .testTag("telegram-option-${title.lowercase()}"),
+            .testTag(tag),
         contentAlignment = Alignment.Center,
     ) {
         Text(
