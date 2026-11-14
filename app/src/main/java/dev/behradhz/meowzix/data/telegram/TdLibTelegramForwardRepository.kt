@@ -626,11 +626,14 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
             val target = try {
                 client.send(TdApi.GetChat(job.targetChatId))
-            } catch (error: TdLibException) {
-                if (error.errorCode == 404) {
-                    error("The destination chat is no longer available in Telegram. Refresh the destination list and choose another chat.")
+            } catch (cause: TdLibException) {
+                if (cause.errorCode == 404) {
+                    throw IllegalStateException(
+                        "The destination chat is no longer available in Telegram. Refresh the destination list and choose another chat.",
+                        cause,
+                    )
                 }
-                throw error
+                throw cause
             }
             val track = libraryDao.trackById(job.trackId)
                 ?: error("This track is no longer in your Meowzix library.")
