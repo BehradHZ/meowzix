@@ -1,6 +1,9 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -55,6 +58,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -101,6 +105,9 @@ import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
 import dev.behradhz.meowzix.feature.recommendation.RecommendationActionDialogs
 import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
+import dev.behradhz.meowzix.feature.library.LibraryToolsViewModel
+import dev.behradhz.meowzix.feature.library.LocalTrackChatLinkActions
+import dev.behradhz.meowzix.feature.library.TrackChatLinkActions
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.SyntheticWaveformSeekBar
 import dev.behradhz.meowzix.ui.components.CurlyMusicSlider
@@ -133,6 +140,7 @@ fun NowPlayingRoute(
     onMoreActionsButtonBoundsChanged: (Rect) -> Unit = {},
     viewModel: NowPlayingViewModel = hiltViewModel(),
     lyricsViewModel: NowPlayingLyricsViewModel = hiltViewModel(),
+    libraryTools: LibraryToolsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val queueState by viewModel.queueState.collectAsStateWithLifecycle()
@@ -191,8 +199,24 @@ fun NowPlayingRoute(
         secondaryContainer = customAccent.copy(alpha = 0.13f).compositeOver(globalColors.surface),
         surface = customAccent.copy(alpha = 0.055f).compositeOver(globalColors.surface),
     )
-    MaterialTheme(colorScheme = effectiveColors) {
-        NowPlayingScreen(
+    CompositionLocalProvider(
+        LocalTrackChatLinkActions provides TrackChatLinkActions(
+            lookup = libraryTools::telegramMessageLink,
+            open = { link ->
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link))
+                    .addCategory(Intent.CATEGORY_BROWSABLE)
+                runCatching {
+                    context.startActivity(Intent(intent).setPackage("org.telegram.messenger"))
+                }.recoverCatching {
+                    context.startActivity(intent)
+                }.onFailure {
+                    Toast.makeText(context, "Unable to open Telegram", Toast.LENGTH_LONG).show()
+                }
+            },
+        ),
+    ) {
+        MaterialTheme(colorScheme = effectiveColors) {
+            NowPlayingScreen(
         state = state,
         queueState = queueState,
         liveBands = spectrum.bands,
@@ -238,7 +262,8 @@ fun NowPlayingRoute(
         onLyricsRemoveAll = lyricsViewModel::removeAllLyrics,
         onLyricsRestoreAutomatic = lyricsViewModel::restoreAutomaticLyrics,
         onLyricSeek = lyricsViewModel::seekToLine,
-        )
+            )
+        }
     }
 
     val track = forwardState.track ?: state.currentTrack
@@ -376,6 +401,7 @@ private fun NowPlayingScreen(
                 .padding(horizontal = 22.dp, vertical = 10.dp),
         ) {
             PlayerHeader(
+                currentTrackId = track.id,
                 hazeState = hazeState,
                 lyricsExpanded = lyricsExpanded,
                 sleepTimer = sleepTimer,
@@ -603,6 +629,7 @@ internal fun backdropSourceArtwork(settledRef: String?, transition: ArtworkBackd
 
 @Composable
 private fun PlayerHeader(
+    currentTrackId: UUID,
     hazeState: HazeState,
     lyricsExpanded: Boolean,
     sleepTimer: SleepTimerState,
@@ -639,6 +666,20 @@ private fun PlayerHeader(
     var draggedTimerRequest by remember { mutableIntStateOf(0) }
     var triggerBounds by remember { mutableStateOf(Rect.Zero) }
     val actionBounds = remember { mutableStateMapOf<Int, Rect>() }
+    val chatActions = LocalTrackChatLinkActions.current
+    var viewInChatLink by remember(currentTrackId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(menuExpanded, currentTrackId) {
+        viewInChatLink = null
+        if (menuExpanded) {
+            viewInChatLink = try {
+                chatActions?.lookup?.invoke(currentTrackId)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
     // The player-wide vertical swipe handler is suspended while this menu is visible.
     LaunchedEffect(menuExpanded) { onMoreActionsMenuExpandedChange(menuExpanded) }
     var pasteDialog by remember(lyricsState.trackId) { mutableStateOf(false) }
@@ -727,6 +768,10 @@ private fun PlayerHeader(
                                         2 -> { menuExpanded = false; onWhyThisSong() }
                                         3 -> { menuExpanded = false; onContinueVibe() }
                                         4 -> { draggedLyricsRequest++ }
+                                        5 -> {
+                                            menuExpanded = false
+                                            viewInChatLink?.let { link -> chatActions?.open?.invoke(link) }
+                                        }
                                         // A short drag just opens the menu; user can tap to select.
                                     }
                                 },
@@ -767,6 +812,9 @@ private fun PlayerHeader(
                     playbackSpeed = playbackSpeed,
                     onWhyThisSong = onWhyThisSong,
                     onContinueVibe = onContinueVibe,
+                    onViewInChat = viewInChatLink?.let { link ->
+                        { chatActions?.open?.invoke(link) }
+                    },
                     onToggleLyrics = onToggleLyrics,
                     onImportLrc = { importLauncher.launch(arrayOf("*/*")) },
                     onPasteLyrics = { pasteDialog = true },
