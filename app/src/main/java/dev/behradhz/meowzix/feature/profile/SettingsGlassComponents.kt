@@ -527,11 +527,6 @@ internal fun SettingsDangerRow(title: String, subtitle: String, icon: ImageVecto
 }
 
 internal enum class SettingsDangerAction(val title: String, val message: String, val confirm: String) {
-    CLEAR_CACHE(
-        "Clear incomplete transfers?",
-        "Only interrupted .part files will be deleted. Completed downloads and your device music are preserved.",
-        "Clear incomplete",
-    ),
     CLEAR_HISTORY(
         "Clear listening history?",
         "This deletes raw listening events and rebuild-derived state from that history. This cannot be undone.",
