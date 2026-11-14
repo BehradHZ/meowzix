@@ -68,6 +68,9 @@ data class TelegramSyncResult(
     val sourcesMarkedMissing: Int,
 )
 
+/** Retry actions map to safe user-initiated recovery operations. */
+enum class TelegramSourceRetry { REFRESH_CHATS, SYNC_SELECTED }
+
 data class TelegramMusicSourceState(
     val accountId: String? = null,
     val chats: List<TelegramChatSummary> = emptyList(),
@@ -78,6 +81,7 @@ data class TelegramMusicSourceState(
     val isSyncing: Boolean = false,
     val lastSyncResult: TelegramSyncResult? = null,
     val errorMessage: String? = null,
+    val retryAction: TelegramSourceRetry? = null,
 )
 
 data class TelegramForwardOptions(
