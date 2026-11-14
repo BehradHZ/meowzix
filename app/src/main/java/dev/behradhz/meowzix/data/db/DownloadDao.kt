@@ -24,6 +24,7 @@ interface DownloadDao {
                t.artworkRef AS artworkRef
         FROM download_records d
         LEFT JOIN tracks t ON t.id = d.trackId
+        WHERE d.status != 'CANCELED'
         ORDER BY d.createdAtEpochMs ASC, d.trackId ASC
         """,
     )
