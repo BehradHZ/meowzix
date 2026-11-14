@@ -471,7 +471,12 @@ private fun ForwardPickerBody(
                     }
                     if (isSending) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                     if (floatingOverlay) {
-                        TextButton(onClick = dismissWithMotion) {
+                        // Close is an explicit action: finish immediately even if the
+                        // exit animation was canceled by a concurrent send-state update.
+                        IconButton(
+                            onClick = { latestOnDismiss() },
+                            modifier = Modifier.testTag("telegram-forward-close"),
+                        ) {
                             Icon(Icons.Rounded.Close, contentDescription = "Close sharing")
                         }
                     }
