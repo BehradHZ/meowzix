@@ -234,10 +234,21 @@ internal fun TelegramProxyPanel(
                         )
                     }
                     state.errorMessage?.let { message ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(message, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error)
-                            TextButton(onClick = onClearError) { Text("Dismiss") }
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.09f), RoundedCornerShape(16.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Text("Proxy needs attention", style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                            Text(message, style = MaterialTheme.typography.bodySmall)
+                            Row(modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End) {
+                                TextButton(onClick = onRefresh,
+                                    enabled = !state.isLoading && !state.isChanging) { Text("Reload") }
+                                TextButton(onClick = onClearError) { Text("Dismiss") }
+                            }
                         }
                     }
                     if (state.isLoading || state.isChanging) {
