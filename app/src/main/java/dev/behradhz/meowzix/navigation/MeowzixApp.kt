@@ -439,7 +439,6 @@ fun MeowzixApp(
             composable(TELEGRAM_AUTH_ROUTE) {
                 TelegramAuthRoute(
                     onBack = { navController.popBackStack() },
-                    onOpenSettings = ::toggleSettings,
                 )
             }
             composable(DOWNLOADS_ROUTE) { DownloadsRoute() }
