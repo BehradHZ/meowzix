@@ -775,6 +775,7 @@ private fun NowPlayingScreen(
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth()
+                                    .then(queueDragGesture)
                                     .padding(start = 6.dp, end = 2.dp, top = 3.dp, bottom = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
