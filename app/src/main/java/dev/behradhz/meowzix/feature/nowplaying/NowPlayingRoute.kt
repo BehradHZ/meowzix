@@ -74,6 +74,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -91,6 +94,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Velocity
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -128,6 +132,13 @@ import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
+
+/** A deliberate downward pull or quick downward flick collapses the open inline queue. */
+internal fun shouldCollapseInlineQueue(
+    fraction: Float,
+    downwardVelocityPxPerSecond: Float,
+    dragRangePx: Float,
+): Boolean = fraction < 0.72f || downwardVelocityPxPerSecond > dragRangePx * 2.4f
 
 private val PlayerPrimaryContent: Color
     @Composable get() = MaterialTheme.colorScheme.onSurface
@@ -499,6 +510,52 @@ private fun NowPlayingScreen(
             )
         }
 
+        // Let the LazyColumn scroll and reorder normally. Only its unconsumed
+        // downward pull at the top is handed to the player's queue morph.
+        val queuePullNestedScrollConnection = remember(
+            queueExpanded, lyricsExpanded, playerActionsMenuOpen, dragRangePx,
+        ) {
+            object : NestedScrollConnection {
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    if (source != NestedScrollSource.UserInput || !queueDragActive) return Offset.Zero
+                    val previous = queueDragFraction
+                    queueDragFraction = (previous - available.y / dragRangePx).coerceIn(0.05f, 1f)
+                    if (queueDragFraction >= 1f && available.y < 0f) queueDragActive = false
+                    return Offset(0f, (previous - queueDragFraction) * dragRangePx)
+                }
+
+                override fun onPostScroll(
+                    consumed: Offset,
+                    available: Offset,
+                    source: NestedScrollSource,
+                ): Offset {
+                    if (source != NestedScrollSource.UserInput || !queueExpanded ||
+                        lyricsExpanded || playerActionsMenuOpen || available.y <= 0f
+                    ) return Offset.Zero
+
+                    if (!queueDragActive) {
+                        queueDragFraction = 1f
+                        queueDragActive = true
+                    }
+                    val previous = queueDragFraction
+                    // Keep the list composed until the gesture finishes and settles.
+                    queueDragFraction = (previous - available.y / dragRangePx).coerceIn(0.05f, 1f)
+                    return Offset(0f, (previous - queueDragFraction) * dragRangePx)
+                }
+
+                override suspend fun onPreFling(available: Velocity): Velocity {
+                    if (!queueDragActive) return Velocity.Zero
+                    val collapse = shouldCollapseInlineQueue(
+                        queueDragFraction, available.y, dragRangePx,
+                    )
+                    queueDragActive = false
+                    onQueueExpandedChange(!collapse)
+                    // The fling belongs to the sheet settle, not to the queue's list.
+                    return Velocity(0f, available.y)
+                }
+            }
+        }
+
     Box(Modifier.fillMaxSize()) {
         // The backdrop catches upward gestures on otherwise empty screen space
         // (including the narrow outer gutters). It sits behind all controls, so
@@ -742,7 +799,8 @@ private fun NowPlayingScreen(
                                 }
                             }
                             PlayerInlineQueue(
-                                modifier = Modifier.fillMaxSize(),
+                                modifier = Modifier.fillMaxSize()
+                                    .nestedScroll(queuePullNestedScrollConnection),
                                 onGoToArtist = onGoToArtist,
                                 viewModel = inlineQueueViewModel,
                             )
