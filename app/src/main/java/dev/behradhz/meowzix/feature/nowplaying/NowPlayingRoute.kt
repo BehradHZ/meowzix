@@ -470,6 +470,32 @@ private fun NowPlayingScreen(
             state.status == PlaybackStatus.BUFFERING ||
             state.status == PlaybackStatus.PREPARING
 
+        // One gesture recognizer is shared by header, artwork and playback controls.
+        // Do not attach it to the inline Queue's LazyColumn: the queue must scroll
+        // and reorder independently of the player's expand/collapse gesture.
+        val density = LocalDensity.current
+        val dragRangePx = with(density) { 260.dp.toPx() }
+        val queueDragGesture = Modifier.pointerInput(queueExpanded, lyricsExpanded) {
+            if (!lyricsExpanded) detectVerticalDragGestures(
+                onDragStart = {
+                    queueDragFraction = if (queueExpanded) 1f else 0f
+                    queueDragActive = true
+                },
+                onVerticalDrag = { change, dragY ->
+                    change.consume()
+                    queueDragFraction = (queueDragFraction - dragY / dragRangePx)
+                        .coerceIn(0f, 1f)
+                },
+                onDragEnd = {
+                    val expand = queueDragFraction >=
+                        (if (queueExpanded) 0.55f else 0.38f)
+                    queueDragActive = false
+                    onQueueExpandedChange(expand)
+                },
+                onDragCancel = { queueDragActive = false },
+            )
+        }
+
     Box(Modifier.fillMaxSize()) {
         // Read animation progress only in this child, not in the full player composition.
         AnimatedPlayerBackdrop(hazeState, settledBackdropRef, backdropTransition)
@@ -481,7 +507,8 @@ private fun NowPlayingScreen(
                 .navigationBarsPadding()
                 .padding(horizontal = 22.dp, vertical = 10.dp),
         ) {
-            PlayerHeader(
+            Box(Modifier.fillMaxWidth().then(queueDragGesture)) {
+                PlayerHeader(
                 currentTrackId = track.id,
                 hazeState = hazeState,
                 lockScreenMode = lockScreenMode,
@@ -512,41 +539,17 @@ private fun NowPlayingScreen(
                 onLyricsDeleteVersion = onLyricsDeleteVersion,
                 onLyricsRemoveAll = onLyricsRemoveAll,
                 onLyricsRestoreAutomatic = onLyricsRestoreAutomatic,
-            )
+                )
+            }
 
             Spacer(Modifier.height(8.dp))
 
             BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                val density = LocalDensity.current
                 var footerHeightPx by remember { mutableIntStateOf(with(density) { 160.dp.roundToPx() }) }
                 val fullHeroHeight = (maxHeight - with(density) { footerHeightPx.toDp() })
                     .coerceAtLeast(0.dp)
                 val fullHeroHeightPx = with(density) { fullHeroHeight.roundToPx() }
                 val heroHeight = lyricsMorphHeroHeight(fullHeroHeight, queueMorph)
-                val dragRangePx = with(density) { 260.dp.toPx() }
-                // Apply one gesture definition to hero and controls, not to the
-                // Queue LazyColumn. Vertical list scrolling is then never captured.
-                val queueDragGesture = Modifier.pointerInput(queueExpanded, lyricsExpanded) {
-                    if (!lyricsExpanded) detectVerticalDragGestures(
-                        onDragStart = {
-                            queueDragFraction = if (queueExpanded) 1f else 0f
-                            queueDragActive = true
-                        },
-                        onVerticalDrag = { change, dragY ->
-                            change.consume()
-                            queueDragFraction = (queueDragFraction - dragY / dragRangePx)
-                                .coerceIn(0f, 1f)
-                        },
-                        onDragEnd = {
-                            val expand = queueDragFraction >=
-                                (if (queueExpanded) 0.55f else 0.38f)
-                            queueDragActive = false
-                            onQueueExpandedChange(expand)
-                        },
-                        onDragCancel = { queueDragActive = false },
-                    )
-                }
-
                 Column(Modifier.fillMaxSize()) {
                     Box(
                         Modifier.fillMaxWidth().height(heroHeight).then(queueDragGesture),
