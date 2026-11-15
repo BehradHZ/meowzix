@@ -490,7 +490,7 @@ private fun LibraryTrackRowContent(
                 modifier = Modifier.width(14.dp).height(48.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                AnimatedVisibility(
+                androidx.compose.animation.AnimatedVisibility(
                     visible = isNewArrival,
                     enter = if (reduceMotion) EnterTransition.None else fadeIn(tween(250)),
                     exit = if (reduceMotion) ExitTransition.None else fadeOut(tween(420)),
