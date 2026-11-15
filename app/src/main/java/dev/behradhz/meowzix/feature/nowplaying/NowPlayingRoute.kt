@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
 import android.Manifest
+import android.content.res.Configuration
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -20,6 +21,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -39,6 +42,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
@@ -85,6 +90,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -139,6 +145,14 @@ internal fun shouldCollapseInlineQueue(
     downwardVelocityPxPerSecond: Float,
     dragRangePx: Float,
 ): Boolean = fraction < 0.72f || downwardVelocityPxPerSecond > dragRangePx * 2.4f
+
+/**
+ * Artwork is bounded by usable landscape height and the width left after reserving
+ * 300dp for seek, transport controls and the queue/lyrics panel.
+ */
+internal fun landscapeArtworkSize(width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
+    minOf((height - 58.dp).coerceAtLeast(0.dp), width * 0.42f,
+        (width - 320.dp).coerceAtLeast(0.dp), 430.dp)
 
 private val PlayerPrimaryContent: Color
     @Composable get() = MaterialTheme.colorScheme.onSurface
@@ -428,6 +442,261 @@ private fun NowPlayingScreen(
     val track = state.currentTrack
     if (track == null) {
         EmptyNowPlaying(onBack)
+        return
+    }
+
+
+    // Portrait's vertical hero reserves too much height in landscape. Keep one
+    // artwork pager on the left and put all interactive content in a right pane.
+    if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        val landscapeHaze = rememberHazeState()
+        val settledArt = remember { mutableStateOf(track.artworkRef) }
+        val landscapeBackdrop = remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
+        var landscapePendingSeek by remember(track.id) { mutableStateOf<Float?>(null) }
+        LaunchedEffect(track.id) {
+            if (landscapeBackdrop.value == null) settledArt.value = track.artworkRef
+        }
+        val duration = state.durationMs.coerceAtLeast(1L)
+        val position = landscapePendingSeek?.toLong() ?: state.positionMs.coerceIn(0L, duration)
+        val loading = state.status == PlaybackStatus.DOWNLOADING ||
+            state.status == PlaybackStatus.BUFFERING ||
+            state.status == PlaybackStatus.PREPARING
+
+        Box(Modifier.fillMaxSize()) {
+            AnimatedPlayerBackdrop(landscapeHaze, settledArt, landscapeBackdrop)
+            BoxWithConstraints(
+                Modifier.fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+            ) {
+                val artSize = landscapeArtworkSize(maxWidth, maxHeight)
+                Column(Modifier.fillMaxSize()) {
+                    PlayerHeader(
+                        currentTrackId = track.id,
+                        hazeState = landscapeHaze,
+                        lockScreenMode = lockScreenMode,
+                        lyricsExpanded = lyricsExpanded,
+                        queueExpanded = queueExpanded,
+                        sleepTimer = sleepTimer,
+                        sleepTimerPreferences = sleepTimerPreferences,
+                        onSetSleepTimerEnabled = onSetSleepTimerEnabled,
+                        onSetSleepTimerMinutes = onSetSleepTimerMinutes,
+                        onSetSleepTimerEndOfTrack = onSetSleepTimerEndOfTrack,
+                        onExtendSleepTimer = onExtendSleepTimer,
+                        onShortenSleepTimer = onShortenSleepTimer,
+                        onChangePlaybackSpeed = onChangePlaybackSpeed,
+                        onBack = onBack,
+                        onMoreActionsMenuExpandedChange = onMoreActionsMenuExpandedChange,
+                        onMoreActionsButtonBoundsChanged = onMoreActionsButtonBoundsChanged,
+                        onOpenForward = onOpenForward,
+                        onOpenQueue = onOpenQueue,
+                        playbackSpeed = state.playbackSpeed,
+                        onWhyThisSong = onWhyThisSong,
+                        onContinueVibe = onContinueVibe,
+                        onToggleLyrics = onToggleLyrics,
+                        lyricsState = lyricsState,
+                        onLyricsImport = onLyricsImport,
+                        onLyricsPaste = onLyricsPaste,
+                        onLyricsDelay = onLyricsDelay,
+                        onLyricsVersion = onLyricsVersion,
+                        onLyricsDeleteVersion = onLyricsDeleteVersion,
+                        onLyricsRemoveAll = onLyricsRemoveAll,
+                        onLyricsRestoreAutomatic = onLyricsRestoreAutomatic,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier.width(artSize).fillMaxHeight(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            NowPlayingArtworkPager(
+                                state = state,
+                                queueState = queueState,
+                                fallbackArtworkRef = track.artworkRef,
+                                fallbackArtworkDescription = track.title + " cover art",
+                                onBack = onBack,
+                                onPrevious = onPrevious,
+                                onNext = onNext,
+                                onBackdropTransition = { landscapeBackdrop.value = it },
+                                onTransitionSettled = { settledId ->
+                                    settledArt.value = queueState.items
+                                        .firstOrNull { it.id == settledId }?.artworkRef
+                                        ?: if (settledId == track.id) track.artworkRef else settledArt.value
+                                },
+                                cornerRadius = 22.dp,
+                                modifier = Modifier.size(artSize),
+                            )
+                        }
+                        GlassSurface(
+                            hazeState = landscapeHaze,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                            shape = RoundedCornerShape(24.dp),
+                            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.035f),
+                        ) {
+                            Column(
+                                Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp),
+                            ) {
+                                when {
+                                    queueExpanded -> {
+                                        LandscapePlayerPanelHeading(
+                                            title = "Up next",
+                                            subtitle = queueState.items.drop(
+                                                (queueState.currentIndex + 1).coerceAtLeast(0)
+                                            ).size.toString() + " upcoming",
+                                            onDone = { onQueueExpandedChange(false) },
+                                        )
+                                        PlayerInlineQueue(
+                                            modifier = Modifier.fillMaxWidth().weight(1f),
+                                            onGoToArtist = onGoToArtist,
+                                            viewModel = inlineQueueViewModel,
+                                        )
+                                        LandscapePlayerMiniTransport(
+                                            state, onPrevious, onTogglePlayPause, onNext,
+                                        )
+                                    }
+                                    lyricsExpanded -> {
+                                        LandscapePlayerPanelHeading(
+                                            title = "Lyrics",
+                                            subtitle = track.title,
+                                            onDone = onToggleLyrics,
+                                        )
+                                        ExpandedLyricsPanel(
+                                            state = lyricsState,
+                                            onLineSeek = onLyricSeek,
+                                            onImportLrc = onLyricsImport,
+                                            onPaste = onLyricsPaste,
+                                            onAdjustDelay = onLyricsDelay,
+                                            onSelectVersion = onLyricsVersion,
+                                            reduceMotion = reduceMotion,
+                                            modifier = Modifier.fillMaxWidth().weight(1f),
+                                        )
+                                        LandscapePlayerMiniTransport(
+                                            state, onPrevious, onTogglePlayPause, onNext,
+                                        )
+                                    }
+                                    else -> {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Column(Modifier.weight(1f)) {
+                                                Text(
+                                                    track.title,
+                                                    style = MaterialTheme.typography.titleLarge,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                val artist = track.artist?.takeIf(String::isNotBlank)
+                                                Text(
+                                                    artist ?: "Unknown artist",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.then(
+                                                        if (artist != null) Modifier.clickable {
+                                                            onGoToArtist(artist)
+                                                        } else Modifier,
+                                                    ),
+                                                )
+                                            }
+                                            IconButton(onClick = onToggleFavorite) {
+                                                Icon(
+                                                    if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                                    contentDescription = if (isFavorite) "Remove from favorites"
+                                                        else "Add to favorites",
+                                                    tint = if (isFavorite) MaterialTheme.colorScheme.primary
+                                                        else MaterialTheme.colorScheme.onSurface,
+                                                )
+                                            }
+                                            TextButton(onClick = onExpandLyrics) { Text("Lyrics") }
+                                        }
+                                        Spacer(Modifier.weight(1f))
+                                        state.errorMessage?.let { message ->
+                                            Text(
+                                                message,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.error,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                        Row(
+                                            Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text(
+                                                formatDuration(position),
+                                                style = MaterialTheme.typography.labelSmall,
+                                            )
+                                            Box(Modifier.weight(1f)) {
+                                                val finishSeek: () -> Unit = {
+                                                    landscapePendingSeek?.let { onSeek(it.toLong()) }
+                                                    landscapePendingSeek = null
+                                                }
+                                                if (seekBarStyle == PlayerSeekBarStyle.WAVEFORM) {
+                                                    SyntheticWaveformSeekBar(
+                                                        trackKey = track.id.toString(),
+                                                        liveBands = liveBands,
+                                                        value = position.toFloat(),
+                                                        onValueChange = { landscapePendingSeek = it },
+                                                        onValueChangeFinished = finishSeek,
+                                                        valueRange = 0f..duration.toFloat(),
+                                                        enabled = state.durationMs > 0L && !loading,
+                                                        isPlaying = state.status == PlaybackStatus.PLAYING,
+                                                        isLoading = loading,
+                                                        activeBarColor = MaterialTheme.colorScheme.primary,
+                                                        inactiveBarColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.24f),
+                                                        pointerColor = MaterialTheme.colorScheme.onSurface,
+                                                        loadingShimmerColor = MaterialTheme.colorScheme.tertiary,
+                                                        reduceMotion = reduceMotion,
+                                                        accessibilityLabel = "Playback position",
+                                                        accessibilityValue = formatDuration(position) + " of " + formatDuration(duration),
+                                                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                                                    )
+                                                } else {
+                                                    CurlyMusicSlider(
+                                                        value = position.toFloat().coerceIn(0f, duration.toFloat()),
+                                                        onValueChange = { landscapePendingSeek = it },
+                                                        onValueChangeFinished = finishSeek,
+                                                        valueRange = 0f..duration.toFloat(),
+                                                        enabled = state.durationMs > 0L && !loading,
+                                                        isPlaying = state.status == PlaybackStatus.PLAYING && !reduceMotion,
+                                                        modifier = Modifier.fillMaxWidth().height(46.dp)
+                                                            .semantics { contentDescription = "Playback position" },
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                "-" + formatDuration((duration - position).coerceAtLeast(0L)),
+                                                style = MaterialTheme.typography.labelSmall,
+                                            )
+                                        }
+                                        Spacer(Modifier.height(6.dp))
+                                        PlaybackControls(
+                                            state = state,
+                                            onPrevious = onPrevious,
+                                            onNext = onNext,
+                                            onTogglePlayPause = onTogglePlayPause,
+                                            onTogglePlaybackMode = onTogglePlaybackMode,
+                                            onCycleRepeatMode = onCycleRepeatMode,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         return
     }
 
@@ -829,6 +1098,74 @@ private fun NowPlayingScreen(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 )
             }
+        }
+    }
+}
+
+
+@Composable
+private fun LandscapePlayerPanelHeading(
+    title: String,
+    subtitle: String,
+    onDone: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(44.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        TextButton(onClick = onDone) { Text("Done") }
+    }
+}
+
+/** Keeps play/pause and navigation reachable while queue or lyrics own the right pane. */
+@Composable
+private fun LandscapePlayerMiniTransport(
+    state: PlaybackState,
+    onPrevious: () -> Unit,
+    onTogglePlayPause: () -> Unit,
+    onNext: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(48.dp),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            state.currentTrack?.title.orEmpty(),
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        IconButton(onClick = onPrevious, enabled = state.canSkipPrevious) {
+            Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous track")
+        }
+        Surface(
+            onClick = onTogglePlayPause,
+            modifier = Modifier.size(44.dp),
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.onSurface,
+            contentColor = MaterialTheme.colorScheme.surface,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    if (state.status == PlaybackStatus.PLAYING) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (state.status == PlaybackStatus.PLAYING) "Pause" else "Play",
+                )
+            }
+        }
+        IconButton(onClick = onNext, enabled = state.canSkipNext) {
+            Icon(Icons.Rounded.SkipNext, contentDescription = "Next track")
         }
     }
 }
