@@ -497,8 +497,15 @@ private fun NowPlayingScreen(
         }
 
     Box(Modifier.fillMaxSize()) {
-        // Read animation progress only in this child, not in the full player composition.
-        AnimatedPlayerBackdrop(hazeState, settledBackdropRef, backdropTransition)
+        // The backdrop catches upward gestures on otherwise empty screen space
+        // (including the narrow outer gutters). It sits behind all controls, so
+        // their clicks and drags still win hit-testing. Once Queue is visible,
+        // its LazyColumn owns vertical scrolling instead of this background.
+        Box(Modifier.fillMaxSize().then(
+            if (!queueExpanded && !lyricsExpanded) queueDragGesture else Modifier,
+        )) {
+            AnimatedPlayerBackdrop(hazeState, settledBackdropRef, backdropTransition)
+        }
 
         Column(
             modifier = Modifier
