@@ -1,6 +1,6 @@
 package dev.behradhz.meowzix.feature.library
 
-import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
