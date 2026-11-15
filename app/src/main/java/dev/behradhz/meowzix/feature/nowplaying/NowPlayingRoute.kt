@@ -447,6 +447,7 @@ private fun NowPlayingScreen(
     // the same Queue list used by QueueRoute. Lyrics and queue are exclusive.
     var queueDragActive by remember { mutableStateOf(false) }
     var queueDragFraction by remember { mutableFloatStateOf(0f) }
+    var playerActionsMenuOpen by remember { mutableStateOf(false) }
     val queueMorph by animateFloatAsState(
         targetValue = if (queueDragActive) queueDragFraction else if (queueExpanded) 1f else 0f,
         animationSpec = if (reduceMotion || queueDragActive) snap()
@@ -475,8 +476,8 @@ private fun NowPlayingScreen(
         // and reorder independently of the player's expand/collapse gesture.
         val density = LocalDensity.current
         val dragRangePx = with(density) { 260.dp.toPx() }
-        val queueDragGesture = Modifier.pointerInput(queueExpanded, lyricsExpanded) {
-            if (!lyricsExpanded) detectVerticalDragGestures(
+        val queueDragGesture = Modifier.pointerInput(queueExpanded, lyricsExpanded, playerActionsMenuOpen) {
+            if (!lyricsExpanded && !playerActionsMenuOpen) detectVerticalDragGestures(
                 onDragStart = {
                     queueDragFraction = if (queueExpanded) 1f else 0f
                     queueDragActive = true
@@ -502,7 +503,7 @@ private fun NowPlayingScreen(
         // their clicks and drags still win hit-testing. Once Queue is visible,
         // its LazyColumn owns vertical scrolling instead of this background.
         Box(Modifier.fillMaxSize().then(
-            if (!queueExpanded && !lyricsExpanded) queueDragGesture else Modifier,
+            if (!queueExpanded && !lyricsExpanded && !playerActionsMenuOpen) queueDragGesture else Modifier,
         )) {
             AnimatedPlayerBackdrop(hazeState, settledBackdropRef, backdropTransition)
         }
@@ -530,7 +531,10 @@ private fun NowPlayingScreen(
                 onShortenSleepTimer = onShortenSleepTimer,
                 onChangePlaybackSpeed = onChangePlaybackSpeed,
                 onBack = onBack,
-                onMoreActionsMenuExpandedChange = onMoreActionsMenuExpandedChange,
+                onMoreActionsMenuExpandedChange = { expanded ->
+                    playerActionsMenuOpen = expanded
+                    onMoreActionsMenuExpandedChange(expanded)
+                },
                 onMoreActionsButtonBoundsChanged = onMoreActionsButtonBoundsChanged,
                 onOpenForward = onOpenForward,
                 onOpenQueue = onOpenQueue,
