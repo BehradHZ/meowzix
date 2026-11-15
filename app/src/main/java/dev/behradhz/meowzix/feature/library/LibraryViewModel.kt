@@ -263,6 +263,12 @@ class LibraryViewModel @Inject constructor(
             }
     }
 
+    /** Room Flow updates the song's highlight and its playlist badge without blocking the UI. */
+    fun markNewTrackSeen(trackId: UUID) = viewModelScope.launch {
+        runCatching { playlistRepository.markNewTrackSeen(trackId) }
+            .onFailure { reportLoadError(it, "Unable to mark song as seen") }
+    }
+
     fun playTrack(track: Track, queueTracks: List<Track> = listOf(track)) {
         val queue = queueTracks.distinctBy { it.id }
         if (queue.isEmpty()) {

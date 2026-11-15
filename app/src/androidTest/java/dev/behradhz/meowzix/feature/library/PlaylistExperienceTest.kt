@@ -82,8 +82,11 @@ class PlaylistExperienceTest {
         profileSongIds: Set<UUID> = emptySet(),
         chatSongIds: Set<UUID> = songs.map(Track::id).toSet() - profileSongIds,
         librarySongIds: Set<UUID> = emptySet(),
+        newSongIds: Set<UUID> = emptySet(),
+        onNewInteraction: (Track) -> Unit = {},
     ): Calls {
         val membership = mutableStateOf(librarySongIds)
+        val unseenIds = mutableStateOf(newSongIds)
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
@@ -98,6 +101,11 @@ class PlaylistExperienceTest {
                         editable = editable,
                         canEditMetadata = canEditMetadata,
                         isFavorites = favorites,
+                        newTrackIds = unseenIds.value,
+                        onTrackInteracted = { song ->
+                            onNewInteraction(song)
+                            unseenIds.value = unseenIds.value - song.id
+                        },
                         currentTrackId = songs.firstOrNull()?.id,
                         availability = songs.associate { it.id to LibraryTrackAvailability.CLOUD },
                         downloads = emptyMap(),
@@ -148,6 +156,42 @@ class PlaylistExperienceTest {
         val tag = "playlist-track:${tracks.first().id}"
         compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
         compose.onNode(hasContentDescription("Track actions") and hasAnyAncestor(hasTestTag(tag)), useUnmergedTree = true).performClick()
+    }
+
+    @Test fun newBadgeFadesOnFirstTapAndOverflowButtonsStayAligned() {
+        val newTrack = tracks[0]
+        val seenTrack = tracks[1]
+        val touched = mutableListOf<UUID>()
+        showDetail(
+            songs = listOf(newTrack, seenTrack),
+            newSongIds = setOf(newTrack.id),
+            onNewInteraction = { touched += it.id },
+        )
+        val newTag = "playlist-track:${newTrack.id}"
+        val seenTag = "playlist-track:${seenTrack.id}"
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(newTag))
+        val newMenu = compose.onNode(
+            hasContentDescription("Track actions") and hasAnyAncestor(hasTestTag(newTag)),
+            useUnmergedTree = true,
+        ).getUnclippedBoundsInRoot()
+        val dot = compose.onNode(
+            hasContentDescription("New song") and hasAnyAncestor(hasTestTag(newTag)),
+            useUnmergedTree = true,
+        ).getUnclippedBoundsInRoot()
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(seenTag))
+        val seenMenu = compose.onNode(
+            hasContentDescription("Track actions") and hasAnyAncestor(hasTestTag(seenTag)),
+            useUnmergedTree = true,
+        ).getUnclippedBoundsInRoot()
+        assertTrue("New dot should be right of the overflow icon", dot.left >= newMenu.right)
+        assertEquals("Overflow buttons must share the same x-position", newMenu.left.value, seenMenu.left.value, 1f)
+
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(newTag))
+        compose.onNodeWithText(newTrack.title).performClick()
+        compose.mainClock.advanceTimeBy(650)
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(listOf(newTrack.id), touched) }
+        compose.onNodeWithContentDescription("New song").assertDoesNotExist()
     }
 
     @Test fun chatPlaylistDeepSwipeTogglesLibraryMembershipWithoutRemovingChatTrack() {

@@ -11,6 +11,9 @@ import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
+import dev.behradhz.meowzix.data.db.TelegramSelectedSourceEntity
+import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
+import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -208,6 +211,49 @@ class RoomPlaylistRepositoryTest {
         assertEquals(listOf(manualId.toString()), database.playlistDao().browsePlaylists(100, 0).map { it.id })
         assertNull(database.playlistDao().browsePlaylist(legacyId.toString()))
         assertEquals(2, database.playlistDao().allPlaylists().size)
+    }
+
+    @Test
+    fun firstInteractionClearsNewStatusAcrossChatsAndLastPlaylistBadge() = runTest {
+        val id = UUID.randomUUID()
+        val account = "1234"
+        val chats = listOf(41L, 42L)
+        database.libraryDao().upsertTrack(track(id, 0))
+        chats.forEach { chatId ->
+            database.telegramDao().upsertSelectedSource(
+                TelegramSelectedSourceEntity(
+                    accountId = account, chatId = chatId, title = "Chat $chatId",
+                    kind = "PRIVATE", newestMessageId = null,
+                    initialScanComplete = true, lastSyncedAtEpochMs = null,
+                ),
+            )
+            val sourceId = "tg-source-$chatId"
+            database.libraryDao().upsertSource(
+                TrackSourceEntity(
+                    id = sourceId, trackId = id.toString(), type = TrackSourceType.TELEGRAM_REMOTE,
+                    availability = SourceAvailability.REMOTE_ONLY,
+                    contentUri = "tg://test/$chatId", localPath = null, mimeType = "audio/mpeg",
+                    fileSizeBytes = 1L, contentHashSha256 = null, trainingEligible = true,
+                    createdAtEpochMs = 1L, lastVerifiedAtEpochMs = 1L,
+                ),
+            )
+            database.telegramDao().upsertTelegramTrackSource(
+                TelegramTrackSourceEntity(
+                    trackSourceId = sourceId, accountId = account, chatId = chatId,
+                    messageId = chatId shl 20, tdFileId = null, tdPersistentFileId = null,
+                    fileName = null, telegramTitle = null, telegramPerformer = null,
+                    remoteRevisionKey = null, isUnheardNew = true,
+                ),
+            )
+        }
+        chats.forEach { chatId ->
+            assertEquals(setOf(id), repository.observeUnheardNewTracks().first()[telegramPlaylistId(account, chatId)])
+        }
+        repository.markNewTrackSeen(id)
+        assertEquals(emptyMap<UUID, Set<UUID>>(), repository.observeUnheardNewTracks().first())
+        // A second interaction remains harmless and cannot reinstate the indicator.
+        repository.markNewTrackSeen(id)
+        assertEquals(emptyMap<UUID, Set<UUID>>(), repository.observeUnheardNewTracks().first())
     }
 
     private fun track(id: UUID, index: Int) = TrackEntity(

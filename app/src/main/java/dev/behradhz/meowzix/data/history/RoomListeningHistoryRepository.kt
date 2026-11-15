@@ -88,6 +88,9 @@ class RoomListeningHistoryRepository @Inject constructor(
 
     override suspend fun startPlayback(trackId: UUID, initiatedBy: PlaybackInitiator, mode: PlaybackMode): UUID = mutex.withLock {
         val playbackId = UUID.randomUUID()
+        // User-selected playback clears the new badge immediately, independently of history.
+        // Auto-advancing a queue does not count as a user interaction.
+        if (initiatedBy == PlaybackInitiator.USER) database.telegramDao().markTrackSeen(trackId.toString())
         if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) {
             unrecordedPlayback[playbackId] = trackId
             return@withLock playbackId
@@ -123,18 +126,15 @@ class RoomListeningHistoryRepository @Inject constructor(
         val type = ListeningEventSemantics.outcome(positionMs, durationMs, intentionalSkip)
         val unrecordedTrack = unrecordedPlayback.remove(playbackInstanceId)
         if (unrecordedTrack != null) {
-            if (type == ListeningEventType.PLAY_COMPLETED) database.telegramDao().markTrackHeard(unrecordedTrack.toString())
             return@withLock
         }
         val context = active[playbackInstanceId] ?: return@withLock
         if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) {
-            if (type == ListeningEventType.PLAY_COMPLETED) database.telegramDao().markTrackHeard(context.trackId.toString())
             active.remove(playbackInstanceId)
             return@withLock
         }
         database.withTransaction {
             insert(context, type, Instant.now(), positionMs, durationMs)
-            if (type == ListeningEventType.PLAY_COMPLETED) database.telegramDao().markTrackHeard(context.trackId.toString())
         }
         active.remove(playbackInstanceId)
         lastFinalized = context

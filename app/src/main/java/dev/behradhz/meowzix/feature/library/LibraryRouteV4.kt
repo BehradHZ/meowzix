@@ -489,6 +489,7 @@ private fun PagedTrackListV4(
                         onAddToPlaylist = { playlistId -> viewModel.addToPlaylist(row.track, playlistId) },
                         onGoToArtist = { onGoToArtist(row.track) },
                         onEnsureArtwork = { viewModel.ensureArtwork(row.track) },
+                        onTrackInteracted = { viewModel.markNewTrackSeen(row.track.id) },
                         artworkVisible = row.track.id.toString() in visibleTrackKeys,
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
                     )
@@ -590,6 +591,7 @@ private fun LibraryDetailV4(
                     onAddToPlaylist = { id -> viewModel.addToPlaylist(track, id) },
                     onGoToArtist = { onGoToArtist(track) },
                     onEnsureArtwork = { viewModel.ensureArtwork(track) },
+                    onTrackInteracted = { viewModel.markNewTrackSeen(track.id) },
                     artworkVisible = track.id.toString() in visibleTrackKeys,
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
                 )

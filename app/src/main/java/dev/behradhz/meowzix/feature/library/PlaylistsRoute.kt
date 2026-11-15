@@ -166,6 +166,7 @@ fun PlaylistsRoute(
                     playlistId?.let { state.newTelegramTracksByPlaylist[it] }.orEmpty() else emptySet(),
                 reduceMotion = reduceMotion,
                 onNewSongsToggle = { enabled -> playlistId?.let { viewModel.setNewTrackHighlightEnabled(it, enabled) } },
+                onTrackInteracted = { viewModel.markNewTrackSeen(it.id) },
                 currentTrackId = state.playback.currentTrack?.id,
                 availability = state.availability,
                 downloads = state.downloads,

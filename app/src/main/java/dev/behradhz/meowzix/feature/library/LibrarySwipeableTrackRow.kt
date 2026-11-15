@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -134,6 +135,7 @@ internal fun SwipeableLibraryTrackRow(
     isNewArrival: Boolean = false,
     reduceMotion: Boolean = false,
     artworkVisible: Boolean = true,
+    onTrackInteracted: () -> Unit = {},
     onLongClick: (() -> Unit)? = null,
 ) {
     LaunchedEffect(track.id, track.artworkRef, artworkVisible) {
@@ -215,13 +217,15 @@ internal fun SwipeableLibraryTrackRow(
                             horizontalDragActive = false
                             swipeStage = 0
                             swipeOffsetX = 0f
-                            when (chatLibrarySwipeActionForOffset(
+                            val action = chatLibrarySwipeActionForOffset(
                                 offsetPx = releasedOffset,
                                 actionThresholdPx = actionThreshold,
                                 libraryThresholdPx = libraryThreshold,
                                 chatLibraryMembership = chatLibraryMembership,
                                 libraryToggleAvailable = hasChatLibraryAction,
-                            )) {
+                            )
+                            if (action != ChatLibrarySwipeAction.NONE) onTrackInteracted()
+                            when (action) {
                                 ChatLibrarySwipeAction.ADD_TO_LIBRARY,
                                 ChatLibrarySwipeAction.REMOVE_FROM_LIBRARY -> onChatLibraryToggle?.invoke()
                                 ChatLibrarySwipeAction.PLAY_NEXT -> onPlayNext()
@@ -236,6 +240,7 @@ internal fun SwipeableLibraryTrackRow(
                 track = track,
                 isCurrent = isCurrent,
                 onClick = onClick,
+                onTrackInteracted = onTrackInteracted,
                 onPlayNext = onPlayNext,
                 onAddToQueue = onAddToQueue,
                 onPinOffline = onPinOffline,
@@ -268,6 +273,7 @@ private fun LibraryTrackRowContent(
     track: Track,
     isCurrent: Boolean,
     onClick: () -> Unit,
+    onTrackInteracted: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onPinOffline: () -> Unit,
@@ -353,8 +359,11 @@ private fun LibraryTrackRowContent(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick ?: { menuExpanded = true },
+                onClick = { onTrackInteracted(); onClick() },
+                onLongClick = {
+                    onTrackInteracted()
+                    if (onLongClick != null) onLongClick() else menuExpanded = true
+                },
             )
             .semantics {
                 customActions = buildList {
@@ -381,7 +390,7 @@ private fun LibraryTrackRowContent(
                 size = 52.dp,
                 isOffline = availability == LibraryTrackAvailability.OFFLINE,
                 download = download,
-                onDownload = onPinOffline,
+                onDownload = { onTrackInteracted(); onPinOffline() },
             )
             Spacer(Modifier.size(10.dp))
             Column(Modifier.weight(1f)) {
@@ -405,15 +414,6 @@ private fun LibraryTrackRowContent(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    AnimatedVisibility(
-                        visible = isNewArrival,
-                        enter = if (reduceMotion) EnterTransition.None else fadeIn(tween(250)) + expandHorizontally(),
-                        exit = if (reduceMotion) ExitTransition.None else fadeOut(tween(420)) + shrinkHorizontally(),
-                    ) {
-                        Box(Modifier.padding(start = 7.dp).size(7.dp)
-                            .background(MaterialTheme.colorScheme.tertiary, CircleShape)
-                            .semantics { contentDescription = "New song" })
-                    }
                 }
                 Text(
                     "${track.artist ?: "Unknown artist"} · ${libraryAvailabilityLabel(availability)}",
@@ -431,7 +431,7 @@ private fun LibraryTrackRowContent(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
             )
             Box {
-                IconButton(onClick = { menuExpanded = true }) {
+                IconButton(onClick = { onTrackInteracted(); menuExpanded = true }) {
                     Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
                 }
                 if (menuExpanded) {
@@ -481,6 +481,24 @@ private fun LibraryTrackRowContent(
                         canRemoveOffline = download != null &&
                             download.status != dev.behradhz.meowzix.domain.downloads.DownloadStatus.CANCELED,
                         canRemoveFromLibrary = canRemoveFromLibrary,
+                    )
+                }
+            }
+            // Always reserve this slot, including for already-seen songs. The overflow
+            // buttons therefore share one vertical axis while the dot fades in/out.
+            Box(
+                modifier = Modifier.width(14.dp).height(48.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                AnimatedVisibility(
+                    visible = isNewArrival,
+                    enter = if (reduceMotion) EnterTransition.None else fadeIn(tween(250)),
+                    exit = if (reduceMotion) ExitTransition.None else fadeOut(tween(420)),
+                ) {
+                    Box(
+                        Modifier.size(7.dp)
+                            .background(MaterialTheme.colorScheme.tertiary, CircleShape)
+                            .semantics { contentDescription = "New song" },
                     )
                 }
             }

@@ -43,13 +43,13 @@ interface TelegramDao {
     """)
     fun observeUnheardTrackRows(): Flow<List<UnheardTelegramTrackRow>>
 
-    /** A completed canonical track clears all of its source badges, even in other chats. */
+    /** First explicit user interaction clears this canonical track's badge across every chat. */
     @Query("""
         UPDATE telegram_track_sources SET isUnheardNew = 0
         WHERE isUnheardNew = 1 AND trackSourceId IN
             (SELECT id FROM track_sources WHERE trackId = :trackId)
     """)
-    suspend fun markTrackHeard(trackId: String)
+    suspend fun markTrackSeen(trackId: String)
 
     @Query("SELECT * FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId AND messageId = :messageId LIMIT 1")
     suspend fun telegramSourceForMessage(

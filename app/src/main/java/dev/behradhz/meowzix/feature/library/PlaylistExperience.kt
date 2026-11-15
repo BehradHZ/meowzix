@@ -335,6 +335,7 @@ internal fun PlaylistDetailScreenV3(
     newTrackIds: Set<UUID> = emptySet(),
     reduceMotion: Boolean = false,
     onNewSongsToggle: (Boolean) -> Unit = {},
+    onTrackInteracted: (Track) -> Unit = {},
     currentTrackId: UUID?,
     availability: Map<UUID, LibraryTrackAvailability>,
     downloads: Map<UUID, OfflineDownload>,
@@ -706,7 +707,7 @@ internal fun PlaylistDetailScreenV3(
                     ) {
                         if (selectionMode) Checkbox(
                             checked = track.id in selectedIds,
-                            onCheckedChange = { toggleSelection(track.id) },
+                            onCheckedChange = { onTrackInteracted(track); toggleSelection(track.id) },
                             modifier = Modifier.testTag("playlist-select:${track.id}"),
                         )
                         PlaylistGlassPanel(hazeState, Modifier.weight(1f).testTag("playlist-track:${track.id}"), radius = 20.dp) {
@@ -750,6 +751,7 @@ internal fun PlaylistDetailScreenV3(
                                 onMoveDown = if (editable && index < customTracks.lastIndex) ({ onMove(index, index + 1) }) else null,
                                 containerColor = Color.Transparent,
                                 isNewArrival = track.id in newTrackIds,
+                                onTrackInteracted = { onTrackInteracted(track) },
                                 reduceMotion = reduceMotion,
                                 onLongClick = {
                                     selectionMode = true
@@ -894,7 +896,7 @@ internal fun PlaylistDetailScreenV3(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                         if (selectionMode) Checkbox(
                             checked = track.id in selectedIds,
-                            onCheckedChange = { toggleSelection(track.id) },
+                            onCheckedChange = { onTrackInteracted(track); toggleSelection(track.id) },
                             modifier = Modifier.testTag("playlist-select:${track.id}"),
                         )
                         PlaylistGlassPanel(hazeState, Modifier.weight(1f).testTag("playlist-track:${track.id}"), radius = 20.dp) {
@@ -936,6 +938,7 @@ internal fun PlaylistDetailScreenV3(
                                 onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
                                 containerColor = Color.Transparent,
                                 isNewArrival = track.id in newTrackIds,
+                                onTrackInteracted = { onTrackInteracted(track) },
                                 reduceMotion = reduceMotion,
                                 onLongClick = {
                                     selectionMode = true

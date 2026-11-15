@@ -27,6 +27,8 @@ interface PlaylistRepository {
     fun observeTracks(playlistId: UUID): Flow<List<Track>>
     fun observeUnheardNewTracks(): Flow<Map<UUID, Set<UUID>>> = flowOf(emptyMap())
     suspend fun setNewTrackHighlightEnabled(playlistId: UUID, enabled: Boolean) {}
+    /** Mark an explicitly interacted-with song as no longer new, across Telegram chats. */
+    suspend fun markNewTrackSeen(trackId: UUID) {}
     suspend fun create(title: String): UUID
     suspend fun rename(playlistId: UUID, title: String)
     suspend fun updateMetadata(playlistId: UUID, title: String, description: String?, artworkRef: String?)

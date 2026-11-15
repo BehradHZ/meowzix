@@ -49,6 +49,9 @@ class RoomPlaylistRepository @Inject constructor(
     override suspend fun setNewTrackHighlightEnabled(playlistId: UUID, enabled: Boolean) =
         dao.setNewTrackHighlightEnabled(playlistId.toString(), enabled)
 
+    override suspend fun markNewTrackSeen(trackId: UUID) =
+        database.telegramDao().markTrackSeen(trackId.toString())
+
     override fun observeTracks(playlistId: UUID): Flow<List<Track>> =
         dao.observeTracks(playlistId.toString()).map { rows -> rows.map(TrackEntity::toPlaylistTrack) }
 
