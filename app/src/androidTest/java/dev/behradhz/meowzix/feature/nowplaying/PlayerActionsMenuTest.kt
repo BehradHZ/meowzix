@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.domain.playback.SleepTimerMode
+import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
 import dev.behradhz.meowzix.domain.playback.SleepTimerState
 import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.domain.lyrics.LyricsContentType
@@ -123,6 +124,33 @@ class PlayerActionsMenuTest {
             assertEquals(1, opened)
             assertEquals(false, expanded)
         }
+    }
+
+    @Test fun sourceActionIsPresentBeforeLookupAndRenamesToViewProfileAfterLookup() {
+        val id = UUID.randomUUID()
+        var origin by mutableStateOf<TelegramTrackOrigin?>(null)
+        var opened by mutableIntStateOf(0)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                PlayerActionsMenu(
+                    expanded = true, trackId = id,
+                    lyricsState = NowPlayingLyricsState(id, TrackLyrics(id)),
+                    lyricsExpanded = false, sleepTimerLabel = "Off",
+                    onDismiss = {}, onWhyThisSong = {}, onContinueVibe = {},
+                    onViewInChat = { opened++ }, viewInChatOrigin = origin,
+                    onToggleLyrics = {}, onImportLrc = {}, onPasteLyrics = {},
+                    onAdjustDelay = {}, onSelectVersion = {}, onDeleteVersion = {},
+                )
+            }
+        }
+        compose.onNodeWithTag("player-action-view-in-chat").assertIsDisplayed()
+        compose.runOnIdle {
+            origin = TelegramTrackOrigin(123L, "Friend", null, isProfileMusic = true)
+        }
+        compose.onNodeWithText("View Profile").assertIsDisplayed()
+        compose.onNodeWithText("View in Chat").assertDoesNotExist()
+        compose.onNodeWithTag("player-action-view-in-chat").performClick()
+        compose.runOnIdle { assertEquals(1, opened) }
     }
 
     @Test fun primaryMenuUsesRowsWithInlineTimerStatusAndPreservesActions() {

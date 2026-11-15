@@ -17,6 +17,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 import java.util.UUID
 import org.junit.Assert.assertEquals
@@ -79,6 +80,32 @@ class TrackActionsMenuTest {
                 )
             }
         }
+        compose.onNodeWithTag("track-action-row-view-in-chat").performClick()
+        compose.runOnIdle { assertEquals(1, opened) }
+    }
+
+    @Test fun sourceActionSwitchesToViewProfileWithoutChangingItsMenuPositionOrClickTarget() {
+        var origin by mutableStateOf<TelegramTrackOrigin?>(null)
+        var opened by mutableIntStateOf(0)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                TrackActionsMenu(
+                    expanded = true,
+                    title = "Telegram music", artist = "Artist", favorite = false, isQueue = false,
+                    playlists = emptyList(), onDismiss = {}, onPrimary = {}, onAddToQueue = {},
+                    onFavorite = {}, onForward = {}, onGoToArtist = {}, onAddToPlaylist = {},
+                    onContinueVibe = {}, onEditMetadata = {}, onManageDuplicates = {}, onWhy = {},
+                    onViewInChat = { opened++ }, viewInChatOrigin = origin,
+                )
+            }
+        }
+        // Visible before any asynchronous source/photo lookup completes.
+        compose.onNodeWithTag("track-action-row-view-in-chat").assertExists()
+        compose.runOnIdle {
+            origin = TelegramTrackOrigin(123L, "Friend", null, isProfileMusic = true)
+        }
+        compose.onNodeWithText("View Profile").assertExists()
+        compose.onNodeWithText("View in Chat").assertDoesNotExist()
         compose.onNodeWithTag("track-action-row-view-in-chat").performClick()
         compose.runOnIdle { assertEquals(1, opened) }
     }

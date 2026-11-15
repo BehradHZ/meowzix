@@ -31,6 +31,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramProxyDraft
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyState
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
+import dev.behradhz.meowzix.domain.telegram.telegramSourceIsProfileMusic
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceMode
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
 import dev.behradhz.meowzix.domain.telegram.TelegramSourceRetry
@@ -806,7 +807,37 @@ class TdLibTelegramRepository @Inject constructor(
             chatId = source.chatId,
             title = chat?.title ?: telegramDao.selectedSource(source.accountId, source.chatId)?.title ?: "Telegram chat",
             profilePhotoRef = chat?.profilePhotoRef,
+            isProfileMusic = telegramSourceIsProfileMusic(source.messageId),
         )
+    }
+
+    override suspend fun refreshChatOriginForTrack(trackId: UUID): TelegramTrackOrigin? {
+        // The UI receives the quick Room/StateFlow snapshot before requesting a photo.
+        // TDLib/photo IO happens only for the selected open menu.
+        val origin = chatOriginForTrack(trackId) ?: return null
+        if (origin.profilePhotoRef != null) return origin
+        val activeClient = client.takeIf { _authState.value.step == TelegramAuthStep.Ready }
+            ?: return origin
+        val chat = try {
+            activeClient.send(TdApi.GetChat(origin.chatId))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return origin
+        }
+        val photoRef = resolveChatPhotoRef(activeClient, chat)
+        val refreshed = origin.copy(
+            title = chat.title.takeIf(String::isNotBlank) ?: origin.title,
+            profilePhotoRef = photoRef,
+        )
+        _musicSourceState.update { state ->
+            state.copy(chats = state.chats.map { item ->
+                if (item.chatId == origin.chatId) item.copy(
+                    title = refreshed.title, profilePhotoRef = photoRef ?: item.profilePhotoRef,
+                ) else item
+            })
+        }
+        return refreshed
     }
 
     override suspend fun messageLinkForTrack(trackId: UUID): String? {

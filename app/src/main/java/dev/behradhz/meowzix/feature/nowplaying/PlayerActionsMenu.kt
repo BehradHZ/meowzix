@@ -236,10 +236,11 @@ internal fun PlayerActionsMenu(
                         onViewInChat?.let { open ->
                             PlayerMenuOptionRow(
                                 icon = Icons.Rounded.OpenInNew,
-                                title = "View in Chat",
+                                title = if (viewInChatOrigin?.isProfileMusic == true) "View Profile" else "View in Chat",
                                 subtitle = viewInChatOrigin?.title,
                                 showChatAvatar = true,
                                 chatAvatarRef = viewInChatOrigin?.profilePhotoRef,
+                                actionTag = "player-action-view-in-chat",
                                 highlighted = draggedAction == 5,
                                 onBoundsChanged = { onActionBoundsChanged(5, it) },
                                 onClick = { onDismiss(); open() },
@@ -531,6 +532,7 @@ private fun PlayerMenuOptionRow(
     switchChecked: Boolean? = null,
     showChatAvatar: Boolean = false,
     chatAvatarRef: String? = null,
+    actionTag: String = "player-action-" + title.lowercase().replace(' ', '-').replace("?", ""),
     switchEnabled: Boolean = true,
     onSwitchCheckedChange: ((Boolean) -> Unit)? = null,
     onClick: () -> Unit,
@@ -556,7 +558,7 @@ private fun PlayerMenuOptionRow(
             .clickable(role = Role.Button, onClick = onClick)
             .heightIn(min = 56.dp)
             .padding(horizontal = 10.dp, vertical = 7.dp)
-            .testTag("player-action-" + title.lowercase().replace(' ', '-').replace("?", "")),
+            .testTag(actionTag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(

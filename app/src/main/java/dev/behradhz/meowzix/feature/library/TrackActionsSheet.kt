@@ -95,6 +95,7 @@ internal data class TrackChatLinkActions(
     val lookup: suspend (UUID) -> String?,
     val open: (String) -> Unit,
     val originLookup: suspend (UUID) -> TelegramTrackOrigin? = { null },
+    val refreshOrigin: suspend (UUID) -> TelegramTrackOrigin? = { null },
 )
 internal val LocalTrackChatLinkActions = staticCompositionLocalOf<TrackChatLinkActions?> { null }
 
@@ -363,8 +364,10 @@ internal fun TrackActionsMenu(
                     }
                     onViewInChat?.let { open ->
                         ActionLine(
-                            Icons.Rounded.OpenInNew, "View in Chat",
+                            Icons.Rounded.OpenInNew,
+                            if (viewInChatOrigin?.isProfileMusic == true) "View Profile" else "View in Chat",
                             chatOrigin = viewInChatOrigin, showChatAvatar = true,
+                            actionTag = "track-action-row-view-in-chat",
                         ) {
                             onDismiss(); open()
                         }
@@ -500,6 +503,7 @@ private fun ActionLine(
     trailing: Boolean = false,
     chatOrigin: TelegramTrackOrigin? = null,
     showChatAvatar: Boolean = false,
+    actionTag: String = "track-action-row-" + title.lowercase().replace(' ', '-'),
     onClick: () -> Unit,
 ) {
     Row(
@@ -507,7 +511,7 @@ private fun ActionLine(
             .clickable(enabled = enabled, onClick = onClick)
             .height(44.dp)
             .padding(horizontal = 8.dp)
-            .testTag("track-action-row-${title.lowercase().replace(' ', '-')}"),
+            .testTag(actionTag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (showChatAvatar) {

@@ -47,6 +47,8 @@ class LibraryToolsViewModel @Inject constructor(
 
     suspend fun telegramMessageLink(trackId: UUID): String? = telegramRepository.messageLinkForTrack(trackId)
     suspend fun telegramChatOrigin(trackId: UUID): TelegramTrackOrigin? = telegramRepository.chatOriginForTrack(trackId)
+    suspend fun refreshTelegramChatOrigin(trackId: UUID): TelegramTrackOrigin? =
+        telegramRepository.refreshChatOriginForTrack(trackId)
 
     fun dismiss() {
         _state.update { LibraryToolsUiState() }

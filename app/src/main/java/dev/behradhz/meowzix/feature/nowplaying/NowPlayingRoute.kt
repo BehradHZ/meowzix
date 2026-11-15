@@ -233,6 +233,8 @@ fun NowPlayingRoute(
     CompositionLocalProvider(
         LocalTrackChatLinkActions provides TrackChatLinkActions(
             lookup = libraryTools::telegramMessageLink,
+            originLookup = libraryTools::telegramChatOrigin,
+            refreshOrigin = libraryTools::refreshTelegramChatOrigin,
             open = { link ->
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link))
                     .addCategory(Intent.CATEGORY_BROWSABLE)
@@ -856,6 +858,16 @@ private fun PlayerHeader(
             } catch (_: Exception) {
                 null
             }
+            if (viewInChatOrigin != null && viewInChatOrigin?.profilePhotoRef == null) {
+                val refreshed = try {
+                    chatActions?.refreshOrigin?.invoke(currentTrackId)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                if (refreshed != null) viewInChatOrigin = refreshed
+            }
         }
     }
     fun openChatMessage() {
@@ -967,7 +979,7 @@ private fun PlayerHeader(
                                         4 -> { draggedLyricsRequest++ }
                                         5 -> {
                                             menuExpanded = false
-                                            if (viewInChatOrigin != null) openChatMessage()
+                                            if (chatActions != null) openChatMessage()
                                         }
                                         // A short drag just opens the menu; user can tap to select.
                                     }
@@ -1009,7 +1021,7 @@ private fun PlayerHeader(
                     playbackSpeed = playbackSpeed,
                     onWhyThisSong = onWhyThisSong,
                     onContinueVibe = onContinueVibe,
-                    onViewInChat = if (viewInChatOrigin != null) ::openChatMessage else null,
+                    onViewInChat = if (chatActions != null) ::openChatMessage else null,
                     viewInChatOrigin = viewInChatOrigin,
                     onToggleLyrics = onToggleLyrics,
                     onImportLrc = { importLauncher.launch(arrayOf("*/*")) },

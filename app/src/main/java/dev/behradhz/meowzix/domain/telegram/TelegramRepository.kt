@@ -45,11 +45,15 @@ enum class TelegramMusicSourceMode(val label: String) {
     }
 }
 
+/** Telegram uses negative synthetic message IDs for profile music, positive IDs for chat messages. */
+internal fun telegramSourceIsProfileMusic(messageId: Long): Boolean = messageId < 0L
+
 /** Cached chat identity for a track; no TDLib or image decoding on the UI thread. */
 data class TelegramTrackOrigin(
     val chatId: Long,
     val title: String,
     val profilePhotoRef: String?,
+    val isProfileMusic: Boolean = false,
 )
 
 data class TelegramChatSummary(
@@ -170,6 +174,8 @@ interface TelegramRepository {
     suspend fun messageLinkForTrack(trackId: UUID): String? = null
     /** Fast local source lookup; profile-photo resolution uses existing chat snapshots only. */
     suspend fun chatOriginForTrack(trackId: UUID): TelegramTrackOrigin? = null
+    /** On-demand avatar refresh only for an open menu, not Library row binding. */
+    suspend fun refreshChatOriginForTrack(trackId: UUID): TelegramTrackOrigin? = null
     suspend fun trackIdsForChat(chatId: Long): List<UUID>
     /** Profile-pinned music belongs to private user chats, not their shared message history. */
     suspend fun profileTrackIdsForChat(chatId: Long): Set<UUID> = emptySet()

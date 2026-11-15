@@ -323,6 +323,17 @@ private fun LibraryTrackRowContent(
             } catch (_: Exception) {
                 null
             }
+            // Show the action immediately; hydrate only this open menu's avatar on demand.
+            if (chatOrigin != null && chatOrigin?.profilePhotoRef == null) {
+                val refreshed = try {
+                    chatLinkActions?.refreshOrigin?.invoke(track.id)
+                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    null
+                }
+                if (refreshed != null) chatOrigin = refreshed
+            }
         }
     }
     val neutralSurface = (containerColor ?: MaterialTheme.colorScheme.surfaceVariant).copy(alpha = TRACK_CARD_ALPHA)
@@ -436,7 +447,7 @@ private fun LibraryTrackRowContent(
                         onAddToQueue = onAddToQueue,
                         onFavorite = onFavorite,
                         onForward = { forwardAction(TrackForwardSelection(track.id, track.title, track.artist)) },
-                        onViewInChat = if (chatOrigin != null) {
+                        onViewInChat = if (chatLinkActions != null) {
                             {
                                 // Resolve TDLib's message link only when tapped, never while opening the menu.
                                 menuActionScope.launch {
