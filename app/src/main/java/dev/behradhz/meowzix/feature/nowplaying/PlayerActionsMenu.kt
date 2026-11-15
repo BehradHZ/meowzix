@@ -73,6 +73,9 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
 import dev.behradhz.meowzix.domain.playback.SleepTimerState
+import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
+import dev.behradhz.meowzix.ui.components.ChatAvatar
+import dev.behradhz.meowzix.ui.components.WhyThisSongLink
 import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.ui.components.SleepTimerMenuContent
 import dev.behradhz.meowzix.domain.lyrics.LyricsContentType
@@ -129,6 +132,7 @@ internal fun PlayerActionsMenu(
     onActionBoundsChanged: (Int, Rect) -> Unit = { _, _ -> },
     playbackSpeed: Float = 1f,
     onViewInChat: (() -> Unit)? = null,
+    viewInChatOrigin: TelegramTrackOrigin? = null,
 ) {
     var page by remember(trackId) { mutableStateOf(PlayerActionsPage.ACTIONS) }
     var pendingDelete by remember(trackId) { mutableStateOf<LyricsVersion?>(null) }
@@ -214,11 +218,13 @@ internal fun PlayerActionsMenu(
                             onClick = { page = PlayerActionsPage.SLEEP_TIMER },
                         )
                         PlayerMenuOptionRow(
-                            icon = Icons.Rounded.HelpOutline,
-                            title = "Why this song?",
-                            highlighted = draggedAction == 2,
-                            onBoundsChanged = { onActionBoundsChanged(2, it) },
-                            onClick = { onDismiss(); onWhyThisSong() },
+                            icon = Icons.Rounded.MusicNote,
+                            title = "Lyrics",
+                            highlighted = draggedAction == 4,
+                            onBoundsChanged = { onActionBoundsChanged(4, it) },
+                            subtitle = if (versions.isEmpty()) "Add lyrics" else
+                                versions.size.toString() + " version" + (if (versions.size == 1) "" else "s"),
+                            onClick = { page = PlayerActionsPage.LYRICS },
                         )
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.AutoAwesome,
@@ -231,20 +237,29 @@ internal fun PlayerActionsMenu(
                             PlayerMenuOptionRow(
                                 icon = Icons.Rounded.OpenInNew,
                                 title = "View in Chat",
+                                subtitle = viewInChatOrigin?.title,
+                                showChatAvatar = true,
+                                chatAvatarRef = viewInChatOrigin?.profilePhotoRef,
                                 highlighted = draggedAction == 5,
                                 onBoundsChanged = { onActionBoundsChanged(5, it) },
                                 onClick = { onDismiss(); open() },
                             )
                         }
-                        PlayerMenuOptionRow(
-                            icon = Icons.Rounded.MusicNote,
-                            title = "Lyrics",
-                            highlighted = draggedAction == 4,
-                            onBoundsChanged = { onActionBoundsChanged(4, it) },
-                            subtitle = if (versions.isEmpty()) "Add lyrics" else
-                                versions.size.toString() + " version" + (if (versions.size == 1) "" else "s"),
-                            onClick = { page = PlayerActionsPage.LYRICS },
-                        )
+                        WhyThisSongLink(
+                            tag = "player-action-why-this-song",
+                            modifier = Modifier.onGloballyPositioned { coordinates ->
+                                val topLeft = coordinates.positionOnScreen()
+                                if (topLeft != Offset.Unspecified) {
+                                    onActionBoundsChanged(2, Rect(
+                                        topLeft.x, topLeft.y,
+                                        topLeft.x + coordinates.size.width.toFloat(),
+                                        topLeft.y + coordinates.size.height.toFloat(),
+                                    ))
+                                }
+                            },
+                        ) {
+                            onDismiss(); onWhyThisSong()
+                        }
                     }
                 }
                 PlayerActionsPage.LYRICS -> {
@@ -514,6 +529,8 @@ private fun PlayerMenuOptionRow(
     highlighted: Boolean = false,
     onBoundsChanged: ((Rect) -> Unit)? = null,
     switchChecked: Boolean? = null,
+    showChatAvatar: Boolean = false,
+    chatAvatarRef: String? = null,
     switchEnabled: Boolean = true,
     onSwitchCheckedChange: ((Boolean) -> Unit)? = null,
     onClick: () -> Unit,
@@ -547,12 +564,21 @@ private fun PlayerMenuOptionRow(
                 .background(colors.primary.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = colors.primary,
-                modifier = Modifier.size(20.dp),
-            )
+            if (showChatAvatar) {
+                ChatAvatar(
+                    artworkRef = chatAvatarRef,
+                    description = subtitle ?: "Telegram chat",
+                    size = 40.dp,
+                    shape = RoundedCornerShape(12.dp),
+                )
+            } else {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = colors.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
         Column(
             modifier = Modifier.weight(1f).padding(start = 12.dp, end = 4.dp),

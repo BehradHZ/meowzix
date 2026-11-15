@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.domain.library.LibraryToolsRepository
 import dev.behradhz.meowzix.domain.library.TrackMergeJournal
 import dev.behradhz.meowzix.domain.library.TrackMetadataOverride
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +46,7 @@ class LibraryToolsViewModel @Inject constructor(
     fun openDuplicates(trackId: UUID) = load(trackId, LibraryToolsPanel.DUPLICATES)
 
     suspend fun telegramMessageLink(trackId: UUID): String? = telegramRepository.messageLinkForTrack(trackId)
+    suspend fun telegramChatOrigin(trackId: UUID): TelegramTrackOrigin? = telegramRepository.chatOriginForTrack(trackId)
 
     fun dismiss() {
         _state.update { LibraryToolsUiState() }

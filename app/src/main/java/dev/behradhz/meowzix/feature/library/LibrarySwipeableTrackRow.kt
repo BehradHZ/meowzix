@@ -50,11 +50,17 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -64,6 +70,9 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import kotlinx.coroutines.launch
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -285,13 +294,30 @@ private fun LibraryTrackRowContent(
     val trackToolsActions = LocalLibraryTrackToolsActions.current
     val forwardAction = LocalTrackForwardAction.current
     val chatLinkActions = LocalTrackChatLinkActions.current
-    var menuExpanded by remember { mutableStateOf(false) }
-    var chatLink by remember(track.id) { mutableStateOf<String?>(null) }
-    LaunchedEffect(menuExpanded, track.id) {
+    var menuExpanded by remember(track.id) { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    // Register only for the expanded popup, not for every item in the paged Library list.
+    DisposableEffect(lifecycleOwner, menuExpanded) {
         if (menuExpanded) {
-            chatLink = null
-            chatLink = try {
-                chatLinkActions?.lookup?.invoke(track.id)
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                    menuExpanded = false
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        } else {
+            onDispose {}
+        }
+    }
+    var chatOrigin by remember(track.id) { mutableStateOf<TelegramTrackOrigin?>(null) }
+    val menuActionScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    LaunchedEffect(menuExpanded, track.id) {
+        chatOrigin = null
+        if (menuExpanded) {
+            chatOrigin = try {
+                chatLinkActions?.originLookup?.invoke(track.id)
             } catch (cancel: kotlinx.coroutines.CancellationException) {
                 throw cancel
             } catch (_: Exception) {
@@ -299,7 +325,6 @@ private fun LibraryTrackRowContent(
             }
         }
     }
-
     val neutralSurface = (containerColor ?: MaterialTheme.colorScheme.surfaceVariant).copy(alpha = TRACK_CARD_ALPHA)
     val background by animateColorAsState(
         targetValue = if (isNewArrival) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.20f)
@@ -411,7 +436,23 @@ private fun LibraryTrackRowContent(
                         onAddToQueue = onAddToQueue,
                         onFavorite = onFavorite,
                         onForward = { forwardAction(TrackForwardSelection(track.id, track.title, track.artist)) },
-                        onViewInChat = chatLink?.let { link -> { chatLinkActions?.open?.invoke(link) } },
+                        onViewInChat = if (chatOrigin != null) {
+                            {
+                                // Resolve TDLib's message link only when tapped, never while opening the menu.
+                                menuActionScope.launch {
+                                    val link = try {
+                                        chatLinkActions?.lookup?.invoke(track.id)
+                                    } catch (cancel: kotlinx.coroutines.CancellationException) {
+                                        throw cancel
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                    if (link != null) chatLinkActions?.open?.invoke(link)
+                                    else Toast.makeText(context, "Telegram message unavailable", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        } else null,
+                        viewInChatOrigin = chatOrigin,
                         onGoToArtist = onGoToArtist,
                         onAddToPlaylist = onAddToPlaylist,
                         onContinueVibe = { recommendationActions?.continueVibe?.invoke(track.id) },

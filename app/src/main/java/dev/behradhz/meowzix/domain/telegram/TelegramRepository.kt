@@ -45,6 +45,13 @@ enum class TelegramMusicSourceMode(val label: String) {
     }
 }
 
+/** Cached chat identity for a track; no TDLib or image decoding on the UI thread. */
+data class TelegramTrackOrigin(
+    val chatId: Long,
+    val title: String,
+    val profilePhotoRef: String?,
+)
+
 data class TelegramChatSummary(
     val chatId: Long,
     val title: String,
@@ -161,6 +168,8 @@ interface TelegramRepository {
     fun syncSelectedSources()
     /** URL/deep link for the source message, or null for tracks without Telegram sources. */
     suspend fun messageLinkForTrack(trackId: UUID): String? = null
+    /** Fast local source lookup; profile-photo resolution uses existing chat snapshots only. */
+    suspend fun chatOriginForTrack(trackId: UUID): TelegramTrackOrigin? = null
     suspend fun trackIdsForChat(chatId: Long): List<UUID>
     /** Profile-pinned music belongs to private user chats, not their shared message history. */
     suspend fun profileTrackIdsForChat(chatId: Long): Set<UUID> = emptySet()

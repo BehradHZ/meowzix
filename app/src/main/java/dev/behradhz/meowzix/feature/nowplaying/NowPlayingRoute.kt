@@ -68,6 +68,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
@@ -125,6 +126,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import java.util.UUID
 import kotlin.math.abs
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 
 private val PlayerPrimaryContent: Color
@@ -825,17 +827,34 @@ private fun PlayerHeader(
     var triggerBounds by remember { mutableStateOf(Rect.Zero) }
     val actionBounds = remember { mutableStateMapOf<Int, Rect>() }
     val chatActions = LocalTrackChatLinkActions.current
-    var viewInChatLink by remember(currentTrackId) { mutableStateOf<String?>(null) }
+    val menuActionScope = rememberCoroutineScope()
+    val menuContext = LocalContext.current
+    var viewInChatOrigin by remember(currentTrackId) {
+        mutableStateOf<dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin?>(null)
+    }
     LaunchedEffect(menuExpanded, currentTrackId) {
-        viewInChatLink = null
+        viewInChatOrigin = null
         if (menuExpanded) {
-            viewInChatLink = try {
+            viewInChatOrigin = try {
+                chatActions?.originLookup?.invoke(currentTrackId)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+    fun openChatMessage() {
+        menuActionScope.launch {
+            val link = try {
                 chatActions?.lookup?.invoke(currentTrackId)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 null
             }
+            if (link != null) chatActions?.open?.invoke(link)
+            else Toast.makeText(menuContext, "Telegram message unavailable", Toast.LENGTH_SHORT).show()
         }
     }
     // The player-wide vertical swipe handler is suspended while this menu is visible.
@@ -934,7 +953,7 @@ private fun PlayerHeader(
                                         4 -> { draggedLyricsRequest++ }
                                         5 -> {
                                             menuExpanded = false
-                                            viewInChatLink?.let { link -> chatActions?.open?.invoke(link) }
+                                            if (viewInChatOrigin != null) openChatMessage()
                                         }
                                         // A short drag just opens the menu; user can tap to select.
                                     }
@@ -976,9 +995,8 @@ private fun PlayerHeader(
                     playbackSpeed = playbackSpeed,
                     onWhyThisSong = onWhyThisSong,
                     onContinueVibe = onContinueVibe,
-                    onViewInChat = viewInChatLink?.let { link ->
-                        { chatActions?.open?.invoke(link) }
-                    },
+                    onViewInChat = if (viewInChatOrigin != null) ::openChatMessage else null,
+                    viewInChatOrigin = viewInChatOrigin,
                     onToggleLyrics = onToggleLyrics,
                     onImportLrc = { importLauncher.launch(arrayOf("*/*")) },
                     onPasteLyrics = { pasteDialog = true },

@@ -122,7 +122,8 @@ class TrackActionsMenuTest {
             }
         }
 
-        compose.onNodeWithTag("track-action-row-remove-song").performClick()
+        compose.onNodeWithTag("track-action-row-remove-song").assertDoesNotExist()
+        compose.onNodeWithTag("track-action-remove").performClick()
         compose.onNodeWithTag("track-removal-panel").assertExists()
         compose.onNodeWithTag("track-removal-confirm").assertIsNotEnabled()
         compose.onNodeWithTag("track-removal-offline").performClick()

@@ -76,6 +76,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
+import dev.behradhz.meowzix.ui.components.ChatAvatar
+import dev.behradhz.meowzix.ui.components.WhyThisSongLink
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
@@ -91,6 +94,7 @@ internal val LocalTrackForwardAction =
 internal data class TrackChatLinkActions(
     val lookup: suspend (UUID) -> String?,
     val open: (String) -> Unit,
+    val originLookup: suspend (UUID) -> TelegramTrackOrigin? = { null },
 )
 internal val LocalTrackChatLinkActions = staticCompositionLocalOf<TrackChatLinkActions?> { null }
 
@@ -123,6 +127,7 @@ internal fun TrackActionsMenu(
     onAddToLibrary: (() -> Unit)? = null,
     onRemoveOfflineCopy: (() -> Unit)? = null,
     onViewInChat: (() -> Unit)? = null,
+    viewInChatOrigin: TelegramTrackOrigin? = null,
     onRemoveFromLocations: ((offline: Boolean, library: Boolean) -> Unit)? = null,
     canRemoveOffline: Boolean = false,
     canRemoveFromLibrary: Boolean = true,
@@ -324,6 +329,22 @@ internal fun TrackActionsMenu(
                             actionTag = "favorite",
                         ) { onDismiss(); onFavorite() }
                         ActionIcon(Icons.Rounded.Send, "Forward") { onDismiss(); onForward() }
+                        if (!isQueue) {
+                            if (onRemoveFromLocations != null && (canRemoveOffline || canRemoveFromLibrary)) {
+                                ActionIcon(Icons.Rounded.DeleteOutline, "Remove", danger = true) {
+                                    removeOffline = false
+                                    removeLibrary = false
+                                    page = TrackActionsPage.REMOVE
+                                }
+                            } else {
+                                onRemoveOfflineCopy?.let { remove ->
+                                    ActionIcon(Icons.Rounded.DeleteOutline, "Remove", danger = true) {
+                                        onDismiss()
+                                        remove()
+                                    }
+                                }
+                            }
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     Column(
@@ -341,7 +362,10 @@ internal fun TrackActionsMenu(
                         onDismiss(); onGoToArtist()
                     }
                     onViewInChat?.let { open ->
-                        ActionLine(Icons.Rounded.OpenInNew, "View in Chat") {
+                        ActionLine(
+                            Icons.Rounded.OpenInNew, "View in Chat",
+                            chatOrigin = viewInChatOrigin, showChatAvatar = true,
+                        ) {
                             onDismiss(); open()
                         }
                     }
@@ -353,32 +377,29 @@ internal fun TrackActionsMenu(
                     ActionLine(Icons.Rounded.PlaylistAdd, "Add to playlist", trailing = true) {
                         page = TrackActionsPage.PLAYLISTS
                     }
-                    ActionLine(Icons.Rounded.AutoAwesome, "Continue the vibe") {
-                        onDismiss(); onContinueVibe()
-                    }
                     ActionLine(Icons.Rounded.Edit, "Edit metadata") {
                         onDismiss(); onEditMetadata()
                     }
                     ActionLine(Icons.Rounded.ContentCopy, "Manage duplicates") {
                         onDismiss(); onManageDuplicates()
                     }
-                    if (onRemoveFromLocations != null &&
-                        (canRemoveOffline || canRemoveFromLibrary)
-                    ) {
-                        ActionLine(Icons.Rounded.DeleteOutline, "Remove song", trailing = true) {
-                            removeOffline = false
-                            removeLibrary = false
-                            page = TrackActionsPage.REMOVE
-                        }
-                    } else {
-                        onRemoveOfflineCopy?.let { remove ->
-                            ActionLine(Icons.Rounded.DeleteOutline, "Remove offline download") {
-                                onDismiss(); remove()
+                    if (isQueue) {
+                        if (onRemoveFromLocations != null && (canRemoveOffline || canRemoveFromLibrary)) {
+                            ActionLine(Icons.Rounded.DeleteOutline, "Remove song", trailing = true) {
+                                removeOffline = false
+                                removeLibrary = false
+                                page = TrackActionsPage.REMOVE
+                            }
+                        } else {
+                            onRemoveOfflineCopy?.let { remove ->
+                                ActionLine(Icons.Rounded.DeleteOutline, "Remove offline download") {
+                                    onDismiss(); remove()
+                                }
                             }
                         }
                     }
                     }
-                    // Keep playlist-only management operations while retaining Why as the last row.
+                    // Playlist-specific actions appear before the final recommendation action.
                     onMoveUp?.let { action ->
                         ActionLine(Icons.Rounded.PlaylistPlay, "Move up in playlist") { onDismiss(); action() }
                     }
@@ -388,16 +409,12 @@ internal fun TrackActionsMenu(
                     onRemoveFromPlaylist?.let { action ->
                         ActionLine(Icons.Rounded.DeleteOutline, "Remove from playlist") { onDismiss(); action() }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .background(Color.White.copy(alpha = 0.055f), RoundedCornerShape(13.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(13.dp))
-                            .padding(horizontal = 8.dp),
-                    ) {
-                        ActionLine(Icons.Rounded.HelpOutline, "Why this song") {
-                            onDismiss(); onWhy()
-                        }
+                    Spacer(Modifier.height(4.dp))
+                    ActionLine(Icons.Rounded.AutoAwesome, "Continue the vibe") {
+                        onDismiss(); onContinueVibe()
+                    }
+                    WhyThisSongLink(tag = "track-action-row-why-this-song") {
+                        onDismiss(); onWhy()
                     }
                 }
             }
@@ -481,6 +498,8 @@ private fun ActionLine(
     title: String,
     enabled: Boolean = true,
     trailing: Boolean = false,
+    chatOrigin: TelegramTrackOrigin? = null,
+    showChatAvatar: Boolean = false,
     onClick: () -> Unit,
 ) {
     Row(
@@ -491,9 +510,18 @@ private fun ActionLine(
             .testTag("track-action-row-${title.lowercase().replace(' ', '-')}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f),
-            modifier = Modifier.size(18.dp))
+        if (showChatAvatar) {
+            ChatAvatar(
+                artworkRef = chatOrigin?.profilePhotoRef,
+                description = chatOrigin?.title ?: "Telegram chat",
+                size = 24.dp,
+                shape = RoundedCornerShape(7.dp),
+            )
+        } else {
+            Icon(icon, contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f),
+                modifier = Modifier.size(18.dp))
+        }
         Text(title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(start = 10.dp),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
             fontWeight = FontWeight.Medium)

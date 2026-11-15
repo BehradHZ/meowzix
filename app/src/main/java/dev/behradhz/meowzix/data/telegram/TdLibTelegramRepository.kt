@@ -30,6 +30,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramConnectionStatus
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyDraft
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyState
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
+import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceMode
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
 import dev.behradhz.meowzix.domain.telegram.TelegramSourceRetry
@@ -793,6 +794,19 @@ class TdLibTelegramRepository @Inject constructor(
         }
         affectedTrackId?.let { searchIndexer.refreshTrack(it) }
         return created
+    }
+
+    override suspend fun chatOriginForTrack(trackId: UUID): TelegramTrackOrigin? {
+        val id = trackId.toString()
+        val source = currentUserId?.toString()?.let { telegramDao.telegramSourceForTrack(it, id) }
+            ?: telegramDao.telegramSourceForAnyAccountTrack(id) ?: return null
+        // A single indexed Room read, then an in-memory snapshot. No GetChat and no photo download.
+        val chat = _musicSourceState.value.chats.firstOrNull { it.chatId == source.chatId }
+        return TelegramTrackOrigin(
+            chatId = source.chatId,
+            title = chat?.title ?: telegramDao.selectedSource(source.accountId, source.chatId)?.title ?: "Telegram chat",
+            profilePhotoRef = chat?.profilePhotoRef,
+        )
     }
 
     override suspend fun messageLinkForTrack(trackId: UUID): String? {

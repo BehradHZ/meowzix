@@ -27,6 +27,7 @@ import dev.behradhz.meowzix.domain.lyrics.TrackLyrics
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 import java.util.UUID
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -170,6 +171,33 @@ class PlayerActionsMenuTest {
         compose.onNodeWithText("Open menu").performClick()
         compose.onNodeWithTag("player-action-continue-the-vibe").performClick()
         compose.runOnIdle { assertEquals(1, vibeOpened); assertEquals(false, expanded) }
+    }
+
+    @Test fun primaryActionOrderEndsWithCenteredExplanationLink() {
+        val trackId = UUID.randomUUID()
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                PlayerActionsMenu(
+                    expanded = true, trackId = trackId,
+                    lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId)),
+                    lyricsExpanded = false, sleepTimerLabel = "Off",
+                    onDismiss = {}, onWhyThisSong = {}, onContinueVibe = {},
+                    onViewInChat = {},
+                    onToggleLyrics = {}, onImportLrc = {}, onPasteLyrics = {},
+                    onAdjustDelay = {}, onSelectVersion = {}, onDeleteVersion = {},
+                )
+            }
+        }
+        val ordered = listOf(
+            "player-action-playback-speed",
+            "player-action-sleep-timer",
+            "player-action-lyrics",
+            "player-action-continue-the-vibe",
+            "player-action-view-in-chat",
+            "player-action-why-this-song",
+        )
+        val tops = ordered.map { compose.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot.top }
+        assertTrue("Player actions should match the requested vertical order", tops.zipWithNext().all { (a, b) -> a < b })
     }
 
     @Test fun quickTimerSwitchTogglesWithoutOpeningTimerConfiguration() {
