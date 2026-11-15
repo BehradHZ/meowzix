@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class StartupPermissionFlowTest {
-    @Test fun firstLaunchPromptsAreOrderedAndExcludeNotifications() {
+    @Test fun firstLaunchRequestsSystemAccessDirectlyInOrderWithoutNotifications() {
         var stage = StartupPermissionStage.restore(null)
         val visited = mutableListOf<StartupPermissionStage>()
         while (stage != StartupPermissionStage.COMPLETE) {
@@ -13,7 +13,6 @@ class StartupPermissionFlowTest {
         }
         assertEquals(
             listOf(
-                StartupPermissionStage.INTRO,
                 StartupPermissionStage.LOCAL_AUDIO,
                 StartupPermissionStage.LIVE_SPECTRUM,
                 StartupPermissionStage.OVERLAY,
@@ -22,12 +21,16 @@ class StartupPermissionFlowTest {
         )
     }
 
-    @Test fun completedOrDismissedSetupIsNotReplayedAfterRestart() {
+    @Test fun legacyIntroMigratesToFirstSystemPermissionWithoutPrePrompt() {
+        assertEquals(StartupPermissionStage.LOCAL_AUDIO, StartupPermissionStage.restore("INTRO"))
+    }
+
+    @Test fun completedSetupIsNotReplayedAfterRestart() {
         assertEquals(
             StartupPermissionStage.COMPLETE,
             StartupPermissionStage.restore(StartupPermissionStage.COMPLETE.name),
         )
         assertEquals(StartupPermissionStage.COMPLETE, StartupPermissionStage.COMPLETE.next())
-        assertEquals(StartupPermissionStage.INTRO, StartupPermissionStage.restore("invalid-old-stage"))
+        assertEquals(StartupPermissionStage.LOCAL_AUDIO, StartupPermissionStage.restore("invalid-old-stage"))
     }
 }

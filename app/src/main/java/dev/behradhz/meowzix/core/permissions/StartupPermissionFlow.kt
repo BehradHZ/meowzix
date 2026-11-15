@@ -9,11 +9,6 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,19 +17,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 
-/** One-time, non-blocking first-launch permission setup. The user can skip at either dialog. */
+/** Request OS permissions on the first launch only; a denial never blocks normal playback. */
 internal enum class StartupPermissionStage {
-    INTRO,
     LOCAL_AUDIO,
     LIVE_SPECTRUM,
     OVERLAY,
     COMPLETE;
 
     fun next(): StartupPermissionStage = when (this) {
-        INTRO -> LOCAL_AUDIO
         LOCAL_AUDIO -> LIVE_SPECTRUM
         LIVE_SPECTRUM -> OVERLAY
         OVERLAY, COMPLETE -> COMPLETE
@@ -42,7 +34,9 @@ internal enum class StartupPermissionStage {
 
     companion object {
         fun restore(value: String?): StartupPermissionStage =
-            entries.firstOrNull { it.name == value } ?: INTRO
+            // The old flow stored INTRO before showing its pre-permission dialog.
+            // Migrate that state to the first direct OS permission request.
+            entries.firstOrNull { it.name == value } ?: LOCAL_AUDIO
     }
 }
 
@@ -50,15 +44,16 @@ internal enum class StartupPermissionStage {
 internal fun StartupPermissionFlow() {
     val context = LocalContext.current
     val prefs = remember(context) {
-        context.applicationContext.getSharedPreferences("meowzix_first_launch_permissions", Context.MODE_PRIVATE)
+        context.applicationContext.getSharedPreferences(
+            "meowzix_first_launch_permissions", Context.MODE_PRIVATE,
+        )
     }
     var stage by remember {
         mutableStateOf(StartupPermissionStage.restore(prefs.getString("stage", null)))
     }
 
     fun advance(next: StartupPermissionStage) {
-        // Persist every result, including denials, so restarting the app never
-        // automatically repeats previously answered prompts.
+        // Record denials as well as grants: never nag at the next app launch.
         prefs.edit().putString("stage", next.name).apply()
         stage = next
     }
@@ -74,7 +69,9 @@ internal fun StartupPermissionFlow() {
         when (stage) {
             StartupPermissionStage.LOCAL_AUDIO -> {
                 val permission = AudioPermission.requiredPermission()
-                if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
+                if (ContextCompat.checkSelfPermission(context, permission) ==
+                    PackageManager.PERMISSION_GRANTED
+                ) {
                     advance(stage.next())
                 } else {
                     withFrameNanos { }
@@ -100,64 +97,25 @@ internal fun StartupPermissionFlow() {
                 }
             }
             StartupPermissionStage.OVERLAY -> {
-                if (Settings.canDrawOverlays(context)) advance(StartupPermissionStage.COMPLETE)
-            }
-            StartupPermissionStage.INTRO, StartupPermissionStage.COMPLETE -> Unit
-        }
-    }
-
-    if (stage == StartupPermissionStage.INTRO) {
-        AlertDialog(
-            onDismissRequest = { advance(StartupPermissionStage.COMPLETE) },
-            title = { Text("Set up Meowzix") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Meowzix will ask for these permissions once:")
-                    Text("Music access — find songs stored on this device.")
-                    Text("Microphone — Android requires this for the live playback spectrum. Meowzix does not record your voice.")
-                    Text("Display over other apps — show the floating music controls and optional lock-screen player.")
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { advance(StartupPermissionStage.LOCAL_AUDIO) }) {
-                    Text("Continue")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { advance(StartupPermissionStage.COMPLETE) }) {
-                    Text("Not now")
-                }
-            },
-        )
-    }
-
-    if (stage == StartupPermissionStage.OVERLAY && !Settings.canDrawOverlays(context)) {
-        AlertDialog(
-            onDismissRequest = { advance(StartupPermissionStage.COMPLETE) },
-            title = { Text("Allow floating music controls") },
-            text = {
-                Text("Enable 'Display over other apps' for Meowzix in Android Settings. This is optional; music playback works without it.")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    // Overlay is special app access, not a runtime permission dialog.
-                    // On Android 11+ the OS opens its general overlay-permission list.
+                if (!Settings.canDrawOverlays(context)) {
+                    // SYSTEM_ALERT_WINDOW has no runtime dialog. Go directly to the
+                    // Android special-access screen; on Android 11+ the package URI
+                    // is ignored and the system may display the list of apps.
                     val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
                         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
                             data = Uri.fromParts("package", context.packageName, null)
                         }
                     }
+                    withFrameNanos { }
+                    // Mark the flow complete before leaving the app so returning
+                    // from Settings does not reopen it, even when access was denied.
                     advance(StartupPermissionStage.COMPLETE)
                     runCatching { context.startActivity(intent) }
-                }) {
-                    Text("Open settings")
+                } else {
+                    advance(StartupPermissionStage.COMPLETE)
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { advance(StartupPermissionStage.COMPLETE) }) {
-                    Text("Not now")
-                }
-            },
-        )
+            }
+            StartupPermissionStage.COMPLETE -> Unit
+        }
     }
 }
