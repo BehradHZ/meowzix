@@ -36,8 +36,24 @@ class TelegramMessageDeepLinksTest {
             telegramProfileDeepLink(51234L, "@MusicOwner"),
         )
         assertEquals(
+            "https://t.me/+989123456789?profile",
+            telegramProfileDeepLink(51234L, null, "+989123456789"),
+        )
+        assertEquals(
+            "https://t.me/+989123456789?profile",
+            telegramProfileDeepLink(51234L, null, "989123456789"),
+        )
+        assertEquals(
+            "https://t.me/MusicOwner?profile",
+            telegramProfileDeepLink(51234L, "MusicOwner", "+989123456789"),
+        )
+        assertEquals(
             "tg://openmessage?user_id=51234",
             telegramProfileDeepLink(51234L, null),
+        )
+        assertEquals(
+            "tg://openmessage?user_id=51234",
+            telegramProfileDeepLink(51234L, null, "not a number"),
         )
         assertEquals(
             "tg://openmessage?user_id=51234",

@@ -861,11 +861,12 @@ class TdLibTelegramRepository @Inject constructor(
                     val privateChat = tdlib.send(TdApi.GetChat(source.chatId)).type
                         as? TdApi.ChatTypePrivate ?: return@runCatching null
                     val userId = privateChat.userId
-                    val username = runCatching {
-                        tdlib.send(TdApi.GetUser(userId)).usernames
-                            ?.activeUsernames?.firstOrNull()
-                    }.getOrNull()
-                    telegramProfileDeepLink(userId, username)
+                    val user = runCatching { tdlib.send(TdApi.GetUser(userId)) }.getOrNull()
+                    telegramProfileDeepLink(
+                        userId,
+                        user?.usernames?.activeUsernames?.firstOrNull(),
+                        user?.phoneNumber,
+                    )
                 }.getOrNull()
             }
             return resolved
