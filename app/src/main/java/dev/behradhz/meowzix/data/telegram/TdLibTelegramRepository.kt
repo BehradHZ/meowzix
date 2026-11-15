@@ -718,6 +718,7 @@ class TdLibTelegramRepository @Inject constructor(
         var affectedTrackId: String? = null
         val created = database.withTransaction {
             val existingTelegram = telegramDao.telegramSourceForMessage(accountId, chatId, messageId)
+            val selectedSource = telegramDao.selectedSource(accountId, chatId)
             val existingSource = existingTelegram?.let { libraryDao.sourceById(it.trackSourceId) }
             val existingTrack = existingSource?.let { libraryDao.trackById(it.trackId) }
             val created = existingSource == null
@@ -781,6 +782,11 @@ class TdLibTelegramRepository @Inject constructor(
                     telegramTitle = candidate.title,
                     telegramPerformer = candidate.artist,
                     remoteRevisionKey = null,
+                    isUnheardNew = existingTelegram?.isUnheardNew ?: (created && NewTelegramTrackPolicy.isNewAfterBaseline(
+                        selectedSource?.initialScanComplete == true,
+                        selectedSource?.newestMessageId,
+                        messageId,
+                    )),
                 ),
             )
             created

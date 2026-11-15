@@ -58,6 +58,8 @@ data class LibraryUiState(
     val downloads: Map<UUID, OfflineDownload> = emptyMap(),
     val playlists: List<PlaylistSummary> = emptyList(),
     val playlistArtwork: Map<UUID, String?> = emptyMap(),
+    val newTelegramTracksByPlaylist: Map<UUID, Set<UUID>> = emptyMap(),
+    val highlightNewTelegramTracks: Boolean = true,
     val selectedPlaylistId: UUID? = null,
     val selectedPlaylistTracks: List<Track> = emptyList(),
     val selectedPlaylistLibraryTrackIds: Set<UUID> = emptySet(),
@@ -122,6 +124,17 @@ class LibraryViewModel @Inject constructor(
                 .collect { playlists ->
                     _state.update { it.copy(playlists = playlists) }
                 }
+        }
+        viewModelScope.launch {
+            playlistRepository.observeUnheardNewTracks()
+                .catch { error -> reportLoadError(error, "Unable to load new songs") }
+                .collect { byPlaylist -> _state.update { it.copy(newTelegramTracksByPlaylist = byPlaylist) } }
+        }
+        viewModelScope.launch {
+            settingsRepository.libraryDisplaySettings
+                .map { it.highlightNewTelegramTracks }
+                .distinctUntilChanged()
+                .collect { enabled -> _state.update { it.copy(highlightNewTelegramTracks = enabled) } }
         }
         viewModelScope.launch {
             combine(
@@ -438,6 +451,11 @@ class LibraryViewModel @Inject constructor(
                 _state.update { it.copy(deletingPlaylistId = null) }
             }
         }
+    }
+
+    fun setNewTrackHighlightEnabled(playlistId: UUID, enabled: Boolean) = viewModelScope.launch {
+        runCatching { playlistRepository.setNewTrackHighlightEnabled(playlistId, enabled) }
+            .onFailure { reportLoadError(it, "Unable to update new-song highlights") }
     }
 
     fun addToPlaylist(track: Track, playlistId: UUID) = viewModelScope.launch {

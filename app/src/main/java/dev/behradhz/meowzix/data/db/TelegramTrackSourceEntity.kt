@@ -30,4 +30,5 @@ data class TelegramTrackSourceEntity(
     val telegramTitle: String?,
     val telegramPerformer: String?,
     val remoteRevisionKey: String?,
+    @androidx.room.ColumnInfo(defaultValue = "0") val isUnheardNew: Boolean = false,
 )

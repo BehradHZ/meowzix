@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.data.db
 import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TelegramDao {
@@ -32,6 +33,23 @@ interface TelegramDao {
 
     @Upsert
     suspend fun upsertTelegramTrackSource(source: TelegramTrackSourceEntity)
+
+    @Query("""
+        SELECT DISTINCT tg.accountId, tg.chatId, s.trackId
+        FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+        WHERE tg.isUnheardNew = 1 AND s.availability != 'MISSING'
+    """)
+    fun observeUnheardTrackRows(): Flow<List<UnheardTelegramTrackRow>>
+
+    /** A completed canonical track clears all of its source badges, even in other chats. */
+    @Query("""
+        UPDATE telegram_track_sources SET isUnheardNew = 0
+        WHERE isUnheardNew = 1 AND trackSourceId IN
+            (SELECT id FROM track_sources WHERE trackId = :trackId)
+    """)
+    suspend fun markTrackHeard(trackId: String)
 
     @Query("SELECT * FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId AND messageId = :messageId LIMIT 1")
     suspend fun telegramSourceForMessage(
@@ -127,3 +145,9 @@ interface TelegramDao {
         messageIds: List<Long>,
     ): List<String>
 }
+
+data class UnheardTelegramTrackRow(
+    val accountId: String,
+    val chatId: Long,
+    val trackId: String,
+)

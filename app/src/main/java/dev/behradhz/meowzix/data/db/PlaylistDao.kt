@@ -21,7 +21,7 @@ private const val VISIBLE_PLAYLIST_TRACK_COUNT =
 @Dao
 interface PlaylistDao {
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, p.newTrackHighlightEnabled, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id ORDER BY p.title COLLATE NOCASE",
@@ -62,7 +62,7 @@ interface PlaylistDao {
 
 
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, p.newTrackHighlightEnabled, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id ORDER BY p.title COLLATE NOCASE LIMIT :limit OFFSET :offset",
@@ -70,7 +70,7 @@ interface PlaylistDao {
     suspend fun browsePlaylists(limit: Int, offset: Int): List<PlaylistSummaryRow>
 
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, p.newTrackHighlightEnabled, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE p.id = :playlistId AND NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id LIMIT 1",
@@ -95,6 +95,9 @@ interface PlaylistDao {
     suspend fun renamePlaylist(playlistId: String, title: String, updatedAt: Long)
     @Query("UPDATE playlists SET title = :title, description = :description, artworkRef = :artworkRef, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
     suspend fun updatePlaylistMetadata(playlistId: String, title: String, description: String?, artworkRef: String?, updatedAt: Long)
+    @Query("UPDATE playlists SET newTrackHighlightEnabled = :enabled WHERE id = :playlistId AND telegramManaged = 1")
+    suspend fun setNewTrackHighlightEnabled(playlistId: String, enabled: Boolean)
+
     @Query("UPDATE playlists SET updatedAtEpochMs = :updatedAt WHERE id = :playlistId") suspend fun touchPlaylist(playlistId: String, updatedAt: Long)
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertTrack(entry: PlaylistTrackEntity): Long
     @Upsert suspend fun upsertTracks(entries: List<PlaylistTrackEntity>)
@@ -114,4 +117,5 @@ data class PlaylistSummaryRow(
     val titleOverridden: Boolean,
     val descriptionOverridden: Boolean,
     val artworkOverridden: Boolean,
+    val newTrackHighlightEnabled: Boolean = true,
 )

@@ -31,6 +31,7 @@ enum class LibraryGroupMode { NONE, ARTIST, ALBUM, YEAR }
 data class LibraryDisplaySettings(
     val sortMode: LibrarySortMode = LibrarySortMode.RECENTLY_ADDED,
     val groupMode: LibraryGroupMode = LibraryGroupMode.NONE,
+    val highlightNewTelegramTracks: Boolean = true,
 )
 
 enum class ThemePreference { SYSTEM, LIGHT, DARK }
@@ -114,6 +115,7 @@ interface SettingsRepository {
     suspend fun setTelegramForwardDefaults(includeSourceAttribution: Boolean, keepCaption: Boolean)
     suspend fun setLibrarySortMode(mode: LibrarySortMode)
     suspend fun setLibraryGroupMode(mode: LibraryGroupMode)
+    suspend fun setHighlightNewTelegramTracks(enabled: Boolean) {}
     suspend fun setWidgetTheme(mode: WidgetThemeMode)
     suspend fun setThemePreference(theme: ThemePreference)
     suspend fun setColorThemePreference(colorTheme: ColorThemePreference)

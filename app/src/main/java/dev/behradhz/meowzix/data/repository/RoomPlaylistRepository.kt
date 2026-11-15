@@ -9,6 +9,7 @@ import dev.behradhz.meowzix.data.db.PlaylistTrackEntity
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -34,9 +35,19 @@ class RoomPlaylistRepository @Inject constructor(
                 titleOverridden = row.titleOverridden,
                 descriptionOverridden = row.descriptionOverridden,
                 artworkOverridden = row.artworkOverridden,
+                newTrackHighlightEnabled = row.newTrackHighlightEnabled,
             )
         }
     }
+
+    override fun observeUnheardNewTracks(): Flow<Map<UUID, Set<UUID>>> =
+        database.telegramDao().observeUnheardTrackRows().map { rows ->
+            rows.groupBy { telegramPlaylistId(it.accountId, it.chatId) }
+                .mapValues { (_, chatRows) -> chatRows.mapTo(mutableSetOf()) { UUID.fromString(it.trackId) } }
+        }
+
+    override suspend fun setNewTrackHighlightEnabled(playlistId: UUID, enabled: Boolean) =
+        dao.setNewTrackHighlightEnabled(playlistId.toString(), enabled)
 
     override fun observeTracks(playlistId: UUID): Flow<List<Track>> =
         dao.observeTracks(playlistId.toString()).map { rows -> rows.map(TrackEntity::toPlaylistTrack) }

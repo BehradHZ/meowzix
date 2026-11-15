@@ -570,6 +570,16 @@ fun UnifiedSettingsScreen(
                 item(key = "recommendations") {
                     SettingsGlassSection(hazeState, "Discovery", "", Icons.Rounded.AutoAwesome, showHeading = false) {
                         SettingsToggleRow(
+                            "Highlight new Telegram songs",
+                            "Tint new songs and chat playlists until listened to. Each chat playlist can override this.",
+                            Icons.Rounded.MusicNote,
+                            state.libraryDisplay.highlightNewTelegramTracks,
+                            viewModel::setHighlightNewTelegramTracks,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
                             "Smart recommendations",
                             "Personalize music suggestions from your listening habits. Your data stays on this device.",
                             Icons.Rounded.AutoAwesome,

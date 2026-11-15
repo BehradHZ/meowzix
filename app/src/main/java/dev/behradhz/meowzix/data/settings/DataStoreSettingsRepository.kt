@@ -79,6 +79,7 @@ class DataStoreSettingsRepository @Inject constructor(
         LibraryDisplaySettings(
             sortMode = values[LIBRARY_SORT_MODE].enumOrDefault(LibrarySortMode.RECENTLY_ADDED),
             groupMode = values[LIBRARY_GROUP_MODE].enumOrDefault(LibraryGroupMode.NONE),
+            highlightNewTelegramTracks = values[HIGHLIGHT_NEW_TELEGRAM_TRACKS] ?: true,
         )
     }
 
@@ -206,6 +207,7 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setLibrarySortMode(mode: LibrarySortMode) = setEnum(LIBRARY_SORT_MODE, mode)
     override suspend fun setLibraryGroupMode(mode: LibraryGroupMode) = setEnum(LIBRARY_GROUP_MODE, mode)
+    override suspend fun setHighlightNewTelegramTracks(enabled: Boolean) = set(HIGHLIGHT_NEW_TELEGRAM_TRACKS, enabled)
     override suspend fun setWidgetTheme(mode: WidgetThemeMode) = setEnum(WIDGET_THEME, mode)
     override suspend fun setThemePreference(theme: ThemePreference) = setEnum(THEME, theme)
     override suspend fun setColorThemePreference(colorTheme: ColorThemePreference) = setEnum(COLOR_THEME, colorTheme)
@@ -245,6 +247,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val FORWARD_KEEP_CAPTION = booleanPreferencesKey("telegram_forward_keep_caption")
         val LIBRARY_SORT_MODE = stringPreferencesKey("library_sort_mode")
         val LIBRARY_GROUP_MODE = stringPreferencesKey("library_group_mode")
+        val HIGHLIGHT_NEW_TELEGRAM_TRACKS = booleanPreferencesKey("highlight_new_telegram_tracks")
         val THEME = stringPreferencesKey("theme_preference")
         val WIDGET_THEME = stringPreferencesKey("widget_theme_mode")
         val COLOR_THEME = stringPreferencesKey("color_theme_preference")

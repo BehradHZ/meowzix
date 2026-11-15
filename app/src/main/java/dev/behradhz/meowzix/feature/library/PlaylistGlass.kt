@@ -1,5 +1,9 @@
 package dev.behradhz.meowzix.feature.library
 
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -59,11 +63,30 @@ internal fun PlaylistGlassPanel(
     modifier: Modifier = Modifier,
     radius: Dp = 28.dp,
     accented: Boolean = false,
+    newArrival: Boolean = false,
+    reduceMotion: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val light = colors.background.luminance() > 0.5f
     val shape = RoundedCornerShape(radius)
+    val edgeTint by animateColorAsState(
+        targetValue = if (newArrival) colors.tertiary.copy(alpha = 0.58f)
+            else colors.primary.copy(alpha = if (accented) 0.24f else 0.08f),
+        animationSpec = if (reduceMotion) snap() else tween(520),
+        label = "playlist-new-edge",
+    )
+    val baseTint = if (accented) {
+        colors.primary.copy(alpha = 0.07f).compositeOver(colors.surface.copy(alpha = 0.68f))
+    } else {
+        colors.surface.copy(alpha = if (light) 0.72f else 0.60f)
+    }
+    val animatedTint by animateColorAsState(
+        targetValue = if (newArrival) colors.tertiary.copy(alpha = 0.14f)
+            .compositeOver(colors.surface.copy(alpha = if (light) 0.74f else 0.64f)) else baseTint,
+        animationSpec = if (reduceMotion) snap() else tween(520),
+        label = "playlist-new-surface",
+    )
     GlassSurface(
         hazeState = hazeState,
         modifier = modifier.border(
@@ -72,18 +95,14 @@ internal fun PlaylistGlassPanel(
                 colors = listOf(
                     Color.White.copy(alpha = if (light) 0.90f else 0.24f),
                     colors.outlineVariant.copy(alpha = 0.30f),
-                    colors.primary.copy(alpha = if (accented) 0.24f else 0.08f),
+                    edgeTint,
                 ),
             ),
             shape = shape,
         ),
         shape = shape,
         fallbackColor = colors.surface.copy(alpha = 0.96f),
-        tint = if (accented) {
-            colors.primary.copy(alpha = 0.07f).compositeOver(colors.surface.copy(alpha = 0.68f))
-        } else {
-            colors.surface.copy(alpha = if (light) 0.72f else 0.60f)
-        },
+        tint = animatedTint,
         content = content,
     )
 }

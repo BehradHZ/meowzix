@@ -3,6 +3,16 @@ package dev.behradhz.meowzix.feature.library
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -144,6 +154,8 @@ private enum class PlaylistGroupBy(val label: String) {
 internal fun PlaylistsSectionV3(
     playlists: List<PlaylistSummary>,
     playlistArtwork: Map<UUID, String?>,
+    newTracksByPlaylist: Map<UUID, Set<UUID>> = emptyMap(),
+    reduceMotion: Boolean = false,
     favoriteTracks: List<Track>,
     onOpenFavorites: () -> Unit,
     onOpenPlaylist: (UUID) -> Unit,
@@ -203,6 +215,8 @@ internal fun PlaylistsSectionV3(
                     artworkRef = playlist.artworkRef ?: playlistArtwork[playlist.id],
                     favorite = false,
                     trackCount = playlist.trackCount,
+                    newSongCount = if (playlist.newTrackHighlightEnabled) newTracksByPlaylist[playlist.id]?.size ?: 0 else 0,
+                    reduceMotion = reduceMotion,
                     onClick = { onOpenPlaylist(playlist.id) },
                 )
             }
@@ -249,7 +263,15 @@ private fun PlaylistMorphCardV3(
     favorite: Boolean,
     trackCount: Int,
     onClick: () -> Unit,
+    newSongCount: Int = 0,
+    reduceMotion: Boolean = false,
 ) {
+    val newArrival = newSongCount > 0
+    val titleTint by animateColorAsState(
+        targetValue = if (newArrival) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface,
+        animationSpec = if (reduceMotion) snap() else tween(480),
+        label = "playlist-new-title",
+    )
     PlaylistGlassPanel(
         hazeState = hazeState,
         modifier = Modifier.fillMaxWidth()
@@ -257,6 +279,8 @@ private fun PlaylistMorphCardV3(
             .testTag("playlist-card:$title")
             .clickable(role = Role.Button, onClick = onClick),
         accented = favorite,
+        newArrival = newArrival,
+        reduceMotion = reduceMotion,
     ) {
         if (favorite) {
             Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -272,7 +296,7 @@ private fun PlaylistMorphCardV3(
             Column(Modifier.fillMaxSize().padding(14.dp), horizontalAlignment = Alignment.Start) {
                 BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     val coverSize = minOf(maxWidth, 124.dp)
-                    PlaylistArtworkV3(artworkRef, title, false, coverSize)
+                    PlaylistArtworkV3(artworkRef, title, false, coverSize, newArrival, reduceMotion)
                 }
                 Spacer(Modifier.weight(1f))
                 Text(
@@ -280,6 +304,7 @@ private fun PlaylistMorphCardV3(
                     modifier = Modifier.heightIn(min = 48.dp),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    color = titleTint,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -307,6 +332,9 @@ internal fun PlaylistDetailScreenV3(
     artworkRef: String?,
     editable: Boolean,
     isFavorites: Boolean,
+    newTrackIds: Set<UUID> = emptySet(),
+    reduceMotion: Boolean = false,
+    onNewSongsToggle: (Boolean) -> Unit = {},
     currentTrackId: UUID?,
     availability: Map<UUID, LibraryTrackAvailability>,
     downloads: Map<UUID, OfflineDownload>,
@@ -468,7 +496,7 @@ internal fun PlaylistDetailScreenV3(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        PlaylistArtworkV3(artworkRef, title, isFavorites, 174.dp)
+                        PlaylistArtworkV3(artworkRef, title, isFavorites, 174.dp, newTrackIds.isNotEmpty(), reduceMotion)
                         Text(
                             title,
                             modifier = Modifier.padding(top = 22.dp),
@@ -632,6 +660,8 @@ internal fun PlaylistDetailScreenV3(
                     },
                     onToggleDirection = { ascending = !ascending },
                     showGrouping = !showProfileSections,
+                    newSongsHighlightEnabled = playlist?.takeIf { it.telegramManaged }?.newTrackHighlightEnabled,
+                    onNewSongsToggle = onNewSongsToggle,
                     onGroupBy = { selected ->
                         groupBy = selected
                         if (selected != PlaylistGroupBy.NONE && sort == PlaylistTrackSort.CUSTOM) {
@@ -719,6 +749,8 @@ internal fun PlaylistDetailScreenV3(
                                 onMoveUp = if (editable && index > 0) ({ onMove(index, index - 1) }) else null,
                                 onMoveDown = if (editable && index < customTracks.lastIndex) ({ onMove(index, index + 1) }) else null,
                                 containerColor = Color.Transparent,
+                                isNewArrival = track.id in newTrackIds,
+                                reduceMotion = reduceMotion,
                                 onLongClick = {
                                     selectionMode = true
                                     selectedIds = selectedIds + track.id
@@ -903,6 +935,8 @@ internal fun PlaylistDetailScreenV3(
                                 onEnsureArtwork = { onEnsureArtwork(track) },
                                 onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
                                 containerColor = Color.Transparent,
+                                isNewArrival = track.id in newTrackIds,
+                                reduceMotion = reduceMotion,
                                 onLongClick = {
                                     selectionMode = true
                                     selectedIds = selectedIds + track.id
@@ -976,6 +1010,8 @@ private fun PlaylistOrganizationControlsV3(
     onToggleDirection: () -> Unit,
     onGroupBy: (PlaylistGroupBy) -> Unit,
     showGrouping: Boolean = true,
+    newSongsHighlightEnabled: Boolean? = null,
+    onNewSongsToggle: (Boolean) -> Unit = {},
 ) {
     var sortMenu by remember { mutableStateOf(false) }
     var groupMenu by remember { mutableStateOf(false) }
@@ -1001,6 +1037,14 @@ private fun PlaylistOrganizationControlsV3(
                     )
                 }
             }
+        }
+        if (newSongsHighlightEnabled != null) {
+            PlaylistGlassAction(
+                hazeState,
+                if (newSongsHighlightEnabled) "New songs · On" else "New songs · Off",
+                Icons.Rounded.AutoAwesome,
+                { onNewSongsToggle(!newSongsHighlightEnabled) },
+            )
         }
         if (showGrouping) Box {
             PlaylistGlassAction(hazeState, "Group by · ${groupBy.label}", Icons.Rounded.KeyboardArrowDown, { groupMenu = true })
@@ -1158,6 +1202,8 @@ private fun PlaylistArtworkV3(
     title: String,
     favorite: Boolean,
     size: Dp,
+    newArrival: Boolean = false,
+    reduceMotion: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(24.dp)
@@ -1205,6 +1251,19 @@ private fun PlaylistArtworkV3(
                         tint = colors.primary,
                     )
                 }
+            }
+        }
+        AnimatedVisibility(
+            visible = newArrival,
+            modifier = Modifier.align(Alignment.TopEnd).padding(7.dp),
+            enter = if (reduceMotion) EnterTransition.None else fadeIn(tween(240)) + scaleIn(initialScale = 0.7f, animationSpec = tween(350)),
+            exit = if (reduceMotion) ExitTransition.None else fadeOut(tween(420)) + scaleOut(targetScale = 0.75f, animationSpec = tween(420)),
+        ) {
+            Box(
+                modifier = Modifier.size(29.dp).background(colors.tertiary, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.AutoAwesome, contentDescription = "New songs", modifier = Modifier.size(16.dp), tint = colors.onTertiary)
             }
         }
     }

@@ -336,10 +336,8 @@ class ResolvingPlaybackController @Inject constructor(
                     PlaybackMode.SMART_SHUFFLE -> PlaybackInitiator.SMART_SHUFFLE
                     PlaybackMode.ORDERED -> PlaybackInitiator.QUEUE
                 }
-                if (historyEnabledSafely()) {
-                    activeHistoryId = historySafely {
-                        history.startPlayback(newTrackId, initiator, playback.playbackMode).also { lastHistoryInstanceId = it }
-                    }
+                activeHistoryId = historySafely {
+                    history.startPlayback(newTrackId, initiator, playback.playbackMode).also { lastHistoryInstanceId = it }
                 }
                 nextInitiator = null
             }
@@ -352,7 +350,7 @@ class ResolvingPlaybackController @Inject constructor(
                 PlaybackMode.SMART_SHUFFLE -> PlaybackInitiator.SMART_SHUFFLE
                 PlaybackMode.ORDERED -> PlaybackInitiator.QUEUE
             }
-            if (historyEnabledSafely()) activeHistoryId = historySafely { history.startPlayback(newTrackId, initiator, playback.playbackMode).also { lastHistoryInstanceId = it } }
+            activeHistoryId = historySafely { history.startPlayback(newTrackId, initiator, playback.playbackMode).also { lastHistoryInstanceId = it } }
             nextInitiator = null
         }
         if (!occurrenceChanged && newTrackId == lastPlaybackState.currentTrack?.id && lastPlaybackState.status == PlaybackStatus.PLAYING) {
@@ -382,14 +380,6 @@ class ResolvingPlaybackController @Inject constructor(
     }
 
     private fun clearPendingSelection() { nextInitiator = null; intentionalSkip = false }
-
-    private suspend fun historyEnabledSafely(): Boolean = try {
-        settingsRepository.networkPlaybackSettings.first().listeningHistoryEnabled
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Throwable) {
-        false
-    }
 
     private suspend fun <T> historySafely(block: suspend () -> T): T? = try {
         block()

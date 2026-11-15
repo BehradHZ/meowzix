@@ -21,6 +21,7 @@ import dev.behradhz.meowzix.playback.SleepTimerManager
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackRepository
 import dev.behradhz.meowzix.domain.settings.AppearanceSettings
+import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.ColorThemePreference
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
@@ -58,6 +59,7 @@ data class UnifiedSettingsState(
     val recommendations: RecommendationPreferenceSettings = RecommendationPreferenceSettings(),
     val network: NetworkPlaybackSettings = NetworkPlaybackSettings(),
     val storage: StoragePolicySettings = StoragePolicySettings(),
+    val libraryDisplay: LibraryDisplaySettings = LibraryDisplaySettings(),
 )
 
 data class FeedbackSettingRow(
@@ -94,6 +96,8 @@ class UnifiedSettingsViewModel @Inject constructor(
         settings.storagePolicySettings,
     ) { appearance, playback, recommendations, network, storage ->
         UnifiedSettingsState(appearance, playback, recommendations, network, storage)
+    }.combine(settings.libraryDisplaySettings) { current, libraryDisplay ->
+        current.copy(libraryDisplay = libraryDisplay)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UnifiedSettingsState())
 
     // Observed only while the lazy Playback settings section is composed.
@@ -231,6 +235,7 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setArtistBalancedShuffle(value: Boolean) = launch { settings.setArtistBalancedShuffle(value) }
     fun setArtistShuffleAlpha(value: Float) = launch { settings.setArtistShuffleAlpha(value) }
     fun setSmart(value: Boolean) = launch { settings.setSmartRecommendationsEnabled(value) }
+    fun setHighlightNewTelegramTracks(value: Boolean) = launch { settings.setHighlightNewTelegramTracks(value) }
     fun setExploration(value: Int) = launch { settings.setExplorationPercent(value) }
     fun setAudioAnalysis(value: Boolean) = launch { settings.setAudioAnalysisEnabled(value) }
     fun setDiagnostics(value: Boolean) = launch { settings.setDiagnosticsVisible(value) }

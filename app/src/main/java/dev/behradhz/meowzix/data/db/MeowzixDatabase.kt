@@ -16,7 +16,7 @@ import androidx.room.TypeConverters
         TrackMetadataOverrideEntity::class, TrackMergeJournalEntity::class, RulePlaylistEntity::class,
         BackupUnresolvedReferenceEntity::class, LoudnessAnalysisEntity::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = true,
 )
 @TypeConverters(DbConverters::class)

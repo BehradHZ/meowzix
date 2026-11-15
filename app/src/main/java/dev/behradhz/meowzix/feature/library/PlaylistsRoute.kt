@@ -127,6 +127,8 @@ fun PlaylistsRoute(
             PlaylistsSectionV3(
                 playlists = state.playlists,
                 playlistArtwork = state.playlistArtwork,
+                newTracksByPlaylist = if (state.highlightNewTelegramTracks) state.newTelegramTracksByPlaylist else emptyMap(),
+                reduceMotion = reduceMotion,
                 favoriteTracks = state.tracks.filter(Track::favorite),
                 onOpenFavorites = {
                     viewModel.resetNavigationState()
@@ -160,6 +162,10 @@ fun PlaylistsRoute(
                 canEditMetadata = !favorites,
                 onRestoreTelegramMetadata = { playlistId?.let(viewModel::restoreTelegramPlaylistMetadata) },
                 isFavorites = favorites,
+                newTrackIds = if (state.highlightNewTelegramTracks && playlist?.newTrackHighlightEnabled == true)
+                    playlistId?.let { state.newTelegramTracksByPlaylist[it] }.orEmpty() else emptySet(),
+                reduceMotion = reduceMotion,
+                onNewSongsToggle = { enabled -> playlistId?.let { viewModel.setNewTrackHighlightEnabled(it, enabled) } },
                 currentTrackId = state.playback.currentTrack?.id,
                 availability = state.availability,
                 downloads = state.downloads,

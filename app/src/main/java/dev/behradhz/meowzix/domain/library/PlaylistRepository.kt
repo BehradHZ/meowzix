@@ -4,6 +4,7 @@ import dev.behradhz.meowzix.core.model.Track
 import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 data class PlaylistSummary(
     val id: UUID,
@@ -16,6 +17,7 @@ data class PlaylistSummary(
     val titleOverridden: Boolean = false,
     val descriptionOverridden: Boolean = false,
     val artworkOverridden: Boolean = false,
+    val newTrackHighlightEnabled: Boolean = true,
 ) {
     val modified: Boolean get() = titleOverridden || descriptionOverridden || artworkOverridden
 }
@@ -23,6 +25,8 @@ data class PlaylistSummary(
 interface PlaylistRepository {
     fun observePlaylists(): Flow<List<PlaylistSummary>>
     fun observeTracks(playlistId: UUID): Flow<List<Track>>
+    fun observeUnheardNewTracks(): Flow<Map<UUID, Set<UUID>>> = flowOf(emptyMap())
+    suspend fun setNewTrackHighlightEnabled(playlistId: UUID, enabled: Boolean) {}
     suspend fun create(title: String): UUID
     suspend fun rename(playlistId: UUID, title: String)
     suspend fun updateMetadata(playlistId: UUID, title: String, description: String?, artworkRef: String?)

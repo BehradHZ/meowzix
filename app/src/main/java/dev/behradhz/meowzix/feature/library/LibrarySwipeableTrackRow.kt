@@ -1,5 +1,14 @@
 package dev.behradhz.meowzix.feature.library
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -7,6 +16,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -49,6 +60,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -109,6 +121,8 @@ internal fun SwipeableLibraryTrackRow(
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
     containerColor: Color? = null,
+    isNewArrival: Boolean = false,
+    reduceMotion: Boolean = false,
     artworkVisible: Boolean = true,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -229,6 +243,8 @@ internal fun SwipeableLibraryTrackRow(
                 onMoveUp = onMoveUp,
                 onMoveDown = onMoveDown,
                 containerColor = containerColor,
+                isNewArrival = isNewArrival,
+                reduceMotion = reduceMotion,
                 artworkVisible = artworkVisible,
                 onLongClick = onLongClick,
             )
@@ -259,6 +275,8 @@ private fun LibraryTrackRowContent(
     onMoveUp: (() -> Unit)?,
     onMoveDown: (() -> Unit)?,
     containerColor: Color?,
+    isNewArrival: Boolean,
+    reduceMotion: Boolean,
     artworkVisible: Boolean,
     onLongClick: (() -> Unit)?,
 ) {
@@ -281,6 +299,19 @@ private fun LibraryTrackRowContent(
         }
     }
 
+    val neutralSurface = (containerColor ?: MaterialTheme.colorScheme.surfaceVariant).copy(alpha = TRACK_CARD_ALPHA)
+    val background by animateColorAsState(
+        targetValue = if (isNewArrival) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.20f)
+            .compositeOver(neutralSurface) else neutralSurface,
+        animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else tween(520),
+        label = "new-song-background",
+    )
+    val outline by animateColorAsState(
+        targetValue = if (isNewArrival) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.62f)
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f),
+        animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else tween(520),
+        label = "new-song-outline",
+    )
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -295,9 +326,8 @@ private fun LibraryTrackRowContent(
                 }
             },
         shape = RoundedCornerShape(18.dp),
-        color = (containerColor ?: MaterialTheme.colorScheme.surfaceVariant)
-            .copy(alpha = TRACK_CARD_ALPHA),
-        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)),
+        color = background,
+        border = BorderStroke(0.8.dp, outline),
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -336,7 +366,17 @@ private fun LibraryTrackRowContent(
                             else MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                    AnimatedVisibility(
+                        visible = isNewArrival,
+                        enter = if (reduceMotion) EnterTransition.None else fadeIn(tween(250)) + expandHorizontally(),
+                        exit = if (reduceMotion) ExitTransition.None else fadeOut(tween(420)) + shrinkHorizontally(),
+                    ) {
+                        Box(Modifier.padding(start = 7.dp).size(7.dp)
+                            .background(MaterialTheme.colorScheme.tertiary, CircleShape)
+                            .semantics { contentDescription = "New song" })
+                    }
                 }
                 Text(
                     "${track.artist ?: "Unknown artist"} · ${libraryAvailabilityLabel(availability)}",
