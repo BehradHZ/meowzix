@@ -10,6 +10,8 @@ import dev.behradhz.meowzix.data.db.DownloadRecordEntity
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.TelegramDao
+import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
+import dev.behradhz.meowzix.data.telegram.TelegramAudioCandidate
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.network.NetworkPolicy
 import dev.behradhz.meowzix.data.network.NetworkUse
