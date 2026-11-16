@@ -54,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -82,6 +83,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -91,6 +93,7 @@ import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.feature.downloads.DownloadsRoute
 import dev.behradhz.meowzix.feature.history.HistoryRoute
 import dev.behradhz.meowzix.feature.home.HomeRoute
+import dev.behradhz.meowzix.feature.home.HomeSessionIds
 import dev.behradhz.meowzix.feature.library.LibraryRoute
 import dev.behradhz.meowzix.feature.library.PlaylistsRoute
 import dev.behradhz.meowzix.data.repository.AlbumSummary
@@ -139,6 +142,13 @@ fun MeowzixApp(
     onApplyLauncherIcon: (dev.behradhz.meowzix.domain.settings.LauncherIconColorSource) -> Unit = {},
     playerViewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
+    // A new session starts when the application returns to the foreground.
+    var foregroundSessionId by remember { mutableLongStateOf(0L) }
+    LifecycleStartEffect(Unit) {
+        foregroundSessionId = HomeSessionIds.next()
+        onStopOrDispose { }
+    }
+
     val navController = rememberNavController()
     val hazeState = rememberHazeState()
     val morphingPlayerState = rememberMorphingPlayerState()
@@ -380,6 +390,8 @@ fun MeowzixApp(
                 HomeRoute(
                     hazeState = hazeState,
                     scrollToTopRequest = homeScrollToTopRequest,
+                    foregroundSessionId = foregroundSessionId,
+                    reduceMotion = reduceMotion,
                     currentTrack = libraryState.tracks.firstOrNull { it.id == playbackState.currentTrack?.id },
                     onPlayCollection = { tracks ->
                         libraryViewModel.playCollection(

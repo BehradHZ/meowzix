@@ -1,6 +1,5 @@
 package dev.behradhz.meowzix.feature.home
 
-import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,22 +16,15 @@ import dev.behradhz.meowzix.domain.playback.QueueRepository
 import kotlinx.coroutines.withTimeoutOrNull
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -73,9 +65,10 @@ class HomeViewModel @Inject constructor(
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
     private var homePlayGeneration = 0L
 
+    /** Explicit reload remains possible; routine updates happen once per foreground session. */
     fun refresh() = viewModelScope.launch {
-        cachedAtElapsedRealtime = 0L
-        refreshIfDue(forceWhenEmpty = true)
+        val sessionId = visibleSessionId
+        if (sessionId > 0L) refreshForSession(sessionId, force = true)
     }
 
     /** Start the selected song without waiting for model inference. */
@@ -108,43 +101,13 @@ class HomeViewModel @Inject constructor(
     }
 
     private var activeRefreshJob: Job? = null
+    private var visibleSessionId: Long = 0L
 
-    /**
-     * Home data is only observed while Home is visible. Back-stack ViewModels must not
-     * keep polling or running recommendation queries while another screen is open.
-     */
-    @OptIn(FlowPreview::class)
-    fun onHomeVisible() {
-        if (activeRefreshJob?.isActive == true) return
-        activeRefreshJob = viewModelScope.launch {
-            coroutineScope {
-                launch {
-                    // A one-track history projection is enough to detect a new play.
-                    // Avoid observing and materializing every track's preference statistics.
-                    history.recentTrackIds(eventLimit = 4, trackLimit = 1)
-                        .distinctUntilChanged()
-                        .drop(1)
-                        .debounce(HOME_HISTORY_DEBOUNCE_MS)
-                        .collect {
-                            cachedAtElapsedRealtime = 0L
-                            refreshIfDue(forceWhenEmpty = true)
-                        }
-                }
-                launch {
-                    refreshIfDue(forceWhenEmpty = true)
-                    while (isActive) {
-                        val age = cacheAgeMs()
-                        val waitMs = if (age == Long.MAX_VALUE) {
-                            HOME_REFRESH_INTERVAL_MS
-                        } else {
-                            (HOME_REFRESH_INTERVAL_MS - age).coerceAtLeast(MIN_REFRESH_CHECK_MS)
-                        }
-                        delay(waitMs)
-                        refreshIfDue(forceWhenEmpty = false)
-                    }
-                }
-            }
-        }
+    /** Refresh once for each app foreground session; switching tabs never starts a new session. */
+    fun onHomeVisible(sessionId: Long) {
+        visibleSessionId = sessionId
+        if (sessionId <= 0L || activeRefreshJob?.isActive == true) return
+        activeRefreshJob = viewModelScope.launch { refreshForSession(sessionId) }
     }
 
     fun onHomeHidden() {
@@ -160,43 +123,34 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private suspend fun refreshIfDue(forceWhenEmpty: Boolean) {
-        val now = SystemClock.elapsedRealtime()
-        val hasRenderableSnapshot = cachedState?.isReady == true
-        if (
-            hasRenderableSnapshot &&
-            now - cachedAtElapsedRealtime < HOME_REFRESH_INTERVAL_MS
-        ) {
-            cachedState?.let { snapshot ->
-                if (_state.value !== snapshot) _state.value = snapshot
-            }
+    private suspend fun refreshForSession(sessionId: Long, force: Boolean = false) {
+        if (!force && !HomeSessionRefreshPolicy.needsRefresh(
+                sessionId, cachedSessionId, cachedState?.isReady == true
+            )) {
+            cachedState?.let { _state.value = it }
             return
         }
-        if (!forceWhenEmpty && hasRenderableSnapshot && cacheAgeMs() < HOME_REFRESH_INTERVAL_MS) return
 
         refreshMutex.withLock {
-            val lockedNow = SystemClock.elapsedRealtime()
-            val lockedSnapshot = cachedState
-            if (
-                lockedSnapshot?.isReady == true &&
-                lockedNow - cachedAtElapsedRealtime < HOME_REFRESH_INTERVAL_MS
-            ) {
-                _state.value = lockedSnapshot
+            if (!force && !HomeSessionRefreshPolicy.needsRefresh(
+                    sessionId, cachedSessionId, cachedState?.isReady == true
+                )) {
+                cachedState?.let { _state.value = it }
                 return@withLock
             }
 
-            runCatching { buildHomeFeed() }
-                .onSuccess { snapshot ->
-                    cachedState = snapshot
-                    cachedAtElapsedRealtime = SystemClock.elapsedRealtime()
-                    _state.value = snapshot
-                }
-                .onFailure { failure ->
-                    if (failure is kotlinx.coroutines.CancellationException) throw failure
-                    if (cachedState == null) {
-                        _state.update { current -> current.copy(isReady = true) }
-                    }
-                }
+            try {
+                // Keep the previous snapshot visible until every section is ready.
+                val snapshot = buildHomeFeed()
+                cachedState = snapshot
+                cachedSessionId = sessionId
+                _state.value = snapshot
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A failed attempt is not cached as a completed session.
+                if (cachedState == null) _state.value = HomeUiState(isReady = true)
+            }
         }
     }
 
@@ -207,15 +161,6 @@ class HomeViewModel @Inject constructor(
         // The bounded track lookup already enforces source availability.
         // Do not enumerate the entire music library merely to show 12 recent rows.
         val recent = library.tracks(recentTrackIds).take(12)
-
-        // Render basic Home content before ML inference and artist aggregation.
-        val recentlyAdded = library.recentlyAdded(12)
-        _state.value = HomeUiState(
-            recent = recent,
-            recentlyAdded = recentlyAdded,
-            playlists = playlistRows.sortedByDescending(PlaylistSummary::updatedAt).take(10),
-            isReady = true,
-        )
 
         // Select only the content Home actually displays; the other recommendation
         // sections are computed on demand by their respective screens.
@@ -244,24 +189,22 @@ class HomeViewModel @Inject constructor(
         )
     }
 
-    private fun cacheAgeMs(): Long {
-        if (cachedState == null || cachedAtElapsedRealtime == 0L) return Long.MAX_VALUE
-        return (SystemClock.elapsedRealtime() - cachedAtElapsedRealtime).coerceAtLeast(0L)
-    }
-
     private companion object {
-        const val HOME_REFRESH_INTERVAL_MS = 5L * 60L * 1_000L
-        const val MIN_REFRESH_CHECK_MS = 30_000L
-        const val HOME_HISTORY_DEBOUNCE_MS = 1_500L
         const val HOME_VIBE_SIZE = 15
         val refreshMutex = Mutex()
-
-        @Volatile
-        var cachedState: HomeUiState? = null
-
-        @Volatile
-        var cachedAtElapsedRealtime: Long = 0L
+        @Volatile var cachedState: HomeUiState? = null
+        @Volatile var cachedSessionId: Long = 0L
     }
+}
+
+internal object HomeSessionIds {
+    private val sequence = AtomicLong(0L)
+    fun next(): Long = sequence.incrementAndGet()
+}
+
+internal object HomeSessionRefreshPolicy {
+    fun needsRefresh(requestedSessionId: Long, cachedSessionId: Long, hasReadySnapshot: Boolean): Boolean =
+        requestedSessionId > 0L && (!hasReadySnapshot || requestedSessionId != cachedSessionId)
 }
 
 /** Preserve the existing Home artist order while limiting previews to eight distinct artists. */

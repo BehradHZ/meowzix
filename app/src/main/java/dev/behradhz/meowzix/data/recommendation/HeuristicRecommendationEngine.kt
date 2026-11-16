@@ -23,7 +23,6 @@ class HeuristicRecommendationEngine @Inject constructor(
     private val recommendationDao: RecommendationDao,
     private val historyDao: HistoryDao,
     private val audioFeatureExtractor: AudioFeatureExtractor,
-    private val audioFeatureExtractionCoordinator: AudioFeatureExtractionCoordinator,
     private val settings: SettingsRepository,
     private val personalizationModel: PersonalizationModel,
     private val feedbackRepository: RecommendationFeedbackRepository,
@@ -178,9 +177,6 @@ class HeuristicRecommendationEngine @Inject constructor(
                 track.normalizedArtist?.let(artistStats::get)?.let { PersonalizationFeatureVectorizer.affinity(it) } ?: 0.0, breakdown)
         }
         val validSet = valid.mapTo(hashSetOf()) { it.trackId }
-        // Small opportunistic work is bounded; bulk analysis is an explicit maintenance action.
-        // Optional background analysis must never prevent a usable recommendation/Smart queue.
-        safely { audioFeatureExtractionCoordinator.schedule(valid.take(20).map { it.trackId }) }
         return RankedPool(ranked.filter { it.candidate.trackId in validSet }, ranked.filter { it.candidate in anchorCandidates },
             context, allowed.toSet(), explorationPercent, artistAlpha)
     }

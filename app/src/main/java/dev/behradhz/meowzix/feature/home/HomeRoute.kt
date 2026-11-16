@@ -1,5 +1,7 @@
 package dev.behradhz.meowzix.feature.home
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -68,6 +70,8 @@ fun HomeRoute(
     onOpenLibrary: () -> Unit,
     onOpenPlaylist: (java.util.UUID) -> Unit,
     scrollToTopRequest: Int = 0,
+    foregroundSessionId: Long = 1L,
+    reduceMotion: Boolean = false,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -76,8 +80,8 @@ fun HomeRoute(
     val headerHazeState = rememberHazeState()
     HomeScrollToTopEffect(listState, scrollToTopRequest)
 
-    LifecycleStartEffect(viewModel) {
-        viewModel.onHomeVisible()
+    LifecycleStartEffect(viewModel, foregroundSessionId) {
+        viewModel.onHomeVisible(foregroundSessionId)
         onStopOrDispose { viewModel.onHomeHidden() }
     }
 
@@ -113,54 +117,89 @@ fun HomeRoute(
     
                 if (state.recommended.isNotEmpty()) {
                     item("recommended") {
-                        FeaturedRecommendations(
-                            hazeState = hazeState,
-                            tracks = state.recommended,
-                            onPlay = { track -> viewModel.playFromHome(track.id) },
-                        )
+                        Crossfade(
+                            targetState = state.recommended,
+                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
+                            label = "homeRecommendations",
+                        ) { entries ->
+                            FeaturedRecommendations(
+                                hazeState = hazeState,
+                                tracks = entries,
+                                onPlay = { track -> viewModel.playFromHome(track.id) },
+                            )
+                        }
                     }
                 }
     
                 if (state.recent.isNotEmpty()) {
                     item("recent") {
-                        RecentGlassList(
-                            hazeState = hazeState,
-                            tracks = state.recent,
-                            onPlay = { track -> viewModel.playFromHome(track.id) },
-                        )
+                        Crossfade(
+                            targetState = state.recent,
+                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
+                            label = "homeRecent",
+                        ) { entries ->
+                            RecentGlassList(
+                                hazeState = hazeState,
+                                tracks = entries,
+                                onPlay = { track -> viewModel.playFromHome(track.id) },
+                            )
+                        }
                     }
                 }
     
                 if (state.artists.isNotEmpty()) {
                     item("artists") {
-                        ArtistOrbit(
-                            hazeState = hazeState,
-                            artists = state.artists,
-                            onPlayArtist = { artist ->
-                                viewModel.playArtist(artist.normalizedName, onPlayCollection)
-                            },
-                        )
+                        Crossfade(
+                            targetState = state.artists,
+                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
+                            label = "homeArtists",
+                        ) { entries ->
+                            ArtistOrbit(
+                                hazeState = hazeState,
+                                artists = entries,
+                                onPlayArtist = { artist ->
+                                    viewModel.playArtist(artist.normalizedName, onPlayCollection)
+                                },
+                            )
+                        }
                     }
                 }
     
                 if (state.playlists.isNotEmpty()) {
                     item("playlists") {
-                        PlaylistGlassRail(
-                            hazeState = hazeState,
-                            playlists = state.playlists,
-                            onOpenPlaylist = onOpenPlaylist,
-                        )
+                        Crossfade(
+                            targetState = state.playlists,
+                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
+                            label = "homePlaylists",
+                        ) { entries ->
+                            PlaylistGlassRail(
+                                hazeState = hazeState,
+                                playlists = entries,
+                                onOpenPlaylist = onOpenPlaylist,
+                            )
+                        }
                     }
                 }
     
                 if (state.recentlyAdded.isNotEmpty()) {
                     item("recently-added") {
-                        RecentlyAddedGlassPanel(
-                            hazeState = hazeState,
-                            tracks = state.recentlyAdded,
-                            onPlay = { track -> viewModel.playFromHome(track.id) },
-                            onOpenLibrary = onOpenLibrary,
-                        )
+                        Crossfade(
+                            targetState = state.recentlyAdded,
+                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
+                            label = "homeRecentlyAdded",
+                        ) { entries ->
+                            RecentlyAddedGlassPanel(
+                                hazeState = hazeState,
+                                tracks = entries,
+                                onPlay = { track -> viewModel.playFromHome(track.id) },
+                                onOpenLibrary = onOpenLibrary,
+                            )
+                        }
                     }
                 } else if (state.isReady) {
                     item("empty") {
