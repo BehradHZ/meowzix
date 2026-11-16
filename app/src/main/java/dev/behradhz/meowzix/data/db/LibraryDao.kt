@@ -15,6 +15,8 @@ interface LibraryDao {
     suspend fun updateContentHash(sourceId: String, hash: String)
     @Query("SELECT DISTINCT t.* FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL' AND t.hidden = 0 ORDER BY t.normalizedTitle")
     fun observeAvailableLocalTracks(): Flow<List<TrackEntity>>
+    @Query("SELECT COUNT(*) FROM tracks t WHERE t.hidden = 0 AND EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')")
+    fun observeAvailableLocalTrackCount(): Flow<Int>
 
     @Query(
         """
@@ -296,6 +298,8 @@ interface LibraryDao {
     /** Hide this logical track without removing sources, favorites or user-owned media. */
     @Query("UPDATE tracks SET addedToLibrary = 0, hidden = 1 WHERE id = :trackId")
     suspend fun removeFromLibrary(trackId: String)
+    @Query("UPDATE tracks SET addedToLibrary = 0, hidden = 1 WHERE id IN (:trackIds)")
+    suspend fun removeTracksFromLibrary(trackIds: List<String>)
 
     @Query("UPDATE tracks SET addedToLibrary = 1, hidden = 0 WHERE id IN (:trackIds)")
     suspend fun addTracksToLibrary(trackIds: List<String>)

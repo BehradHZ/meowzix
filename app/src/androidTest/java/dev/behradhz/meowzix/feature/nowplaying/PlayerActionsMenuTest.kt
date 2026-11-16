@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -124,6 +125,27 @@ class PlayerActionsMenuTest {
             assertEquals(1, opened)
             assertEquals(false, expanded)
         }
+    }
+
+    @Test fun localOriginShowsDisabledLocalLabel() {
+        var opened by mutableIntStateOf(0)
+        val id = UUID.randomUUID()
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                PlayerActionsMenu(
+                    expanded = true, trackId = id,
+                    lyricsState = NowPlayingLyricsState(id, TrackLyrics(id)),
+                    lyricsExpanded = false, sleepTimerLabel = "Off",
+                    onDismiss = {}, onWhyThisSong = {}, onContinueVibe = {},
+                    onViewInChat = { opened++ }, isLocalSource = true,
+                    onToggleLyrics = {}, onImportLrc = {}, onPasteLyrics = {},
+                    onAdjustDelay = {}, onSelectVersion = {}, onDeleteVersion = {},
+                )
+            }
+        }
+        compose.onNodeWithTag("player-action-view-in-chat").assertIsNotEnabled()
+        compose.onNodeWithText("Local").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(0, opened) }
     }
 
     @Test fun sourceActionIsPresentBeforeLookupAndRenamesToViewProfileAfterLookup() {

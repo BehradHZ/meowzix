@@ -256,6 +256,40 @@ class RoomPlaylistRepositoryTest {
         assertEquals(emptyMap<UUID, Set<UUID>>(), repository.observeUnheardNewTracks().first())
     }
 
+    @Test
+    fun localMusicQueryTracksMediaStoreAvailabilityAndBulkLibraryRemoval() = runTest {
+        val first = UUID.randomUUID()
+        val second = UUID.randomUUID()
+        val remote = UUID.randomUUID()
+        listOf(first, second, remote).forEachIndexed { index, id ->
+            database.libraryDao().upsertTrack(track(id, index))
+            database.libraryDao().upsertSource(TrackSourceEntity(
+                id = "source-$id", trackId = id.toString(),
+                type = if (id == remote) TrackSourceType.TELEGRAM_REMOTE else TrackSourceType.LOCAL_MEDIASTORE,
+                availability = if (id == remote) SourceAvailability.REMOTE_ONLY else SourceAvailability.AVAILABLE_LOCAL,
+                contentUri = if (id == remote) null else "content://media/$id",
+                localPath = null, mimeType = "audio/mpeg", fileSizeBytes = 1L,
+                contentHashSha256 = null, trainingEligible = true,
+                createdAtEpochMs = 1L, lastVerifiedAtEpochMs = 1L,
+            ))
+        }
+        val dao = database.libraryDao()
+        assertEquals(2, dao.observeAvailableLocalTrackCount().first())
+        assertEquals(setOf(first, second), dao.observeAvailableLocalTracks().first().map { UUID.fromString(it.id) }.toSet())
+
+        // Mixed selections must not delete any TrackSource or original audio.
+        dao.removeTracksFromLibrary(listOf(first.toString(), remote.toString()))
+        assertEquals(setOf(second), dao.observeAvailableLocalTracks().first().map { UUID.fromString(it.id) }.toSet())
+        assertEquals(1, dao.observeAvailableLocalTrackCount().first())
+        assertEquals(3, dao.allTracks().size)
+        assertEquals(3, dao.allSources().size)
+
+        dao.addToLibrary(first.toString())
+        assertEquals(2, dao.observeAvailableLocalTrackCount().first())
+        dao.updateAvailability(listOf("source-$second"), SourceAvailability.MISSING, 2L)
+        assertEquals(1, dao.observeAvailableLocalTrackCount().first())
+    }
+
     private fun track(id: UUID, index: Int) = TrackEntity(
         id = id.toString(),
         title = "Track $index",

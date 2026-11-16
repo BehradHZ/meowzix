@@ -73,6 +73,16 @@ class LocalMusicLibraryRepository @Inject constructor(
         dao.removeFromLibrary(trackId.toString())
     }
 
+    override suspend fun removeTracksFromLibrary(trackIds: List<UUID>) {
+        val ids = trackIds.distinct()
+        if (ids.isEmpty()) return
+        database.withTransaction {
+            ids.chunked(400).forEach { chunk ->
+                dao.removeTracksFromLibrary(chunk.map(UUID::toString))
+            }
+        }
+    }
+
     override suspend fun addTracksToLibrary(trackIds: List<UUID>) {
         database.withTransaction {
             trackIds.distinct().chunked(400).forEach { ids ->
@@ -89,6 +99,13 @@ class LocalMusicLibraryRepository @Inject constructor(
     override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableTracks()
         .map { rows -> rows.map(TrackEntity::toDomain) }
         .flowOn(Dispatchers.Default)
+
+    override fun observeLocalTracks(): Flow<List<Track>> = dao.observeAvailableLocalTracks()
+        .map { rows -> rows.map(TrackEntity::toDomain) }
+        .flowOn(Dispatchers.Default)
+
+    override fun observeLocalTrackCount(): Flow<Int> = dao.observeAvailableLocalTrackCount()
+        .distinctUntilChanged()
 
     override fun observeTrack(trackId: UUID): Flow<Track?> =
         dao.observeTrackById(trackId.toString())

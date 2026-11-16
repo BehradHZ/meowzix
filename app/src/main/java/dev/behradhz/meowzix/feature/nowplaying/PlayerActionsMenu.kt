@@ -133,6 +133,7 @@ internal fun PlayerActionsMenu(
     playbackSpeed: Float = 1f,
     onViewInChat: (() -> Unit)? = null,
     viewInChatOrigin: TelegramTrackOrigin? = null,
+    isLocalSource: Boolean = false,
 ) {
     var page by remember(trackId) { mutableStateOf(PlayerActionsPage.ACTIONS) }
     var pendingDelete by remember(trackId) { mutableStateOf<LyricsVersion?>(null) }
@@ -233,18 +234,28 @@ internal fun PlayerActionsMenu(
                             onBoundsChanged = { onActionBoundsChanged(3, it) },
                             onClick = { onDismiss(); onContinueVibe() },
                         )
-                        onViewInChat?.let { open ->
+                        if (isLocalSource) {
                             PlayerMenuOptionRow(
-                                icon = Icons.Rounded.OpenInNew,
-                                title = if (viewInChatOrigin?.isProfileMusic == true) "View Profile" else "View in Chat",
-                                subtitle = viewInChatOrigin?.title,
-                                showChatAvatar = true,
-                                chatAvatarRef = viewInChatOrigin?.profilePhotoRef,
+                                icon = Icons.Rounded.MusicNote,
+                                title = "Local",
+                                enabled = false,
                                 actionTag = "player-action-view-in-chat",
-                                highlighted = draggedAction == 5,
-                                onBoundsChanged = { onActionBoundsChanged(5, it) },
-                                onClick = { onDismiss(); open() },
+                                onClick = {},
                             )
+                        } else {
+                            onViewInChat?.let { open ->
+                                PlayerMenuOptionRow(
+                                    icon = Icons.Rounded.OpenInNew,
+                                    title = if (viewInChatOrigin?.isProfileMusic == true) "View Profile" else "View in Chat",
+                                    subtitle = viewInChatOrigin?.title,
+                                    showChatAvatar = true,
+                                    chatAvatarRef = viewInChatOrigin?.profilePhotoRef,
+                                    actionTag = "player-action-view-in-chat",
+                                    highlighted = draggedAction == 5,
+                                    onBoundsChanged = { onActionBoundsChanged(5, it) },
+                                    onClick = { onDismiss(); open() },
+                                )
+                            }
                         }
                         WhyThisSongLink(
                             tag = "player-action-why-this-song",
@@ -534,6 +545,7 @@ private fun PlayerMenuOptionRow(
     chatAvatarRef: String? = null,
     actionTag: String = "player-action-" + title.lowercase().replace(' ', '-').replace("?", ""),
     switchEnabled: Boolean = true,
+    enabled: Boolean = true,
     onSwitchCheckedChange: ((Boolean) -> Unit)? = null,
     onClick: () -> Unit,
 ) {
@@ -555,7 +567,7 @@ private fun PlayerMenuOptionRow(
                     )
                 }
             }
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .heightIn(min = 56.dp)
             .padding(horizontal = 10.dp, vertical = 7.dp)
             .testTag(actionTag),
@@ -577,7 +589,7 @@ private fun PlayerMenuOptionRow(
                 Icon(
                     icon,
                     contentDescription = null,
-                    tint = colors.primary,
+                    tint = colors.primary.copy(alpha = if (enabled) 1f else 0.38f),
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -590,7 +602,7 @@ private fun PlayerMenuOptionRow(
                 title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = colors.onSurface,
+                color = colors.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
             )
             if (subtitle != null) {
                 Text(

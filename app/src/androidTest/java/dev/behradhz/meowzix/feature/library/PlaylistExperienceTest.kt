@@ -136,6 +136,10 @@ class PlaylistExperienceTest {
                         messageTrackIds = chatSongIds,
                         onRefreshProfile = { calls.profileRefreshCount++ },
                         onBulkAddToLibrary = { calls.bulkLibraryIds = it.map(Track::id) },
+                        onBulkRemoveFromLibrary = { selected ->
+                            calls.removedFromLibrary.addAll(selected.map(Track::id))
+                            membership.value = membership.value - selected.map(Track::id).toSet()
+                        },
                         onGoToArtist = { calls.artist = it.id },
                         onMove = { from, to -> calls.moves.add(from to to) },
                         onRemove = { calls.removed = it.id },
@@ -223,6 +227,24 @@ class PlaylistExperienceTest {
         }
         compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
         compose.onNodeWithTag(tag).assertExists()
+    }
+
+    @Test fun bulkRemoveFromLibrarySkipsSelectedSongsNotInLibrary() {
+        val members = setOf(tracks.first().id, tracks.last().id)
+        val calls = showDetail(
+            editable = false,
+            telegramPerson = true,
+            librarySongIds = members,
+        )
+        scrollToText("Select songs for bulk actions")
+        compose.onNodeWithText("Select", substring = false).performClick()
+        compose.onNodeWithText("Select all").performClick()
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("bulk-remove-library"))
+        compose.onNodeWithTag("bulk-remove-library").performClick()
+        compose.onNodeWithText("Remove 2 songs from Library?").assertIsDisplayed()
+        compose.onNodeWithText("Remove 2").performClick()
+        compose.runOnIdle { assertEquals(members, calls.removedFromLibrary.toSet()) }
     }
 
     @Test fun personPlaylistSeparatesProfileAndChatAndBulkAddsOnlySelectedSongs() {

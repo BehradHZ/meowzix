@@ -1258,8 +1258,10 @@ private fun PlayerHeader(
     var viewInChatOrigin by remember(currentTrackId) {
         mutableStateOf<dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin?>(null)
     }
+    var chatOriginLoaded by remember(currentTrackId) { mutableStateOf(false) }
     LaunchedEffect(menuExpanded, currentTrackId) {
         viewInChatOrigin = null
+        chatOriginLoaded = false
         if (menuExpanded) {
             viewInChatOrigin = try {
                 chatActions?.originLookup?.invoke(currentTrackId)
@@ -1278,6 +1280,7 @@ private fun PlayerHeader(
                 }
                 if (refreshed != null) viewInChatOrigin = refreshed
             }
+            chatOriginLoaded = true
         }
     }
     fun openChatMessage() {
@@ -1389,7 +1392,7 @@ private fun PlayerHeader(
                                         4 -> { draggedLyricsRequest++ }
                                         5 -> {
                                             menuExpanded = false
-                                            if (chatActions != null) openChatMessage()
+                                            if (chatActions != null && viewInChatOrigin != null) openChatMessage()
                                         }
                                         // A short drag just opens the menu; user can tap to select.
                                     }
@@ -1431,8 +1434,9 @@ private fun PlayerHeader(
                     playbackSpeed = playbackSpeed,
                     onWhyThisSong = onWhyThisSong,
                     onContinueVibe = onContinueVibe,
-                    onViewInChat = if (chatActions != null) ::openChatMessage else null,
+                    onViewInChat = if (chatActions != null && viewInChatOrigin != null) ::openChatMessage else null,
                     viewInChatOrigin = viewInChatOrigin,
+                    isLocalSource = chatOriginLoaded && viewInChatOrigin == null,
                     onToggleLyrics = onToggleLyrics,
                     onImportLrc = { importLauncher.launch(arrayOf("*/*")) },
                     onPasteLyrics = { pasteDialog = true },

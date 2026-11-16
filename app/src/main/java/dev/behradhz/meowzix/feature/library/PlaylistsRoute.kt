@@ -158,8 +158,8 @@ fun PlaylistsRoute(
                 artworkRef = playlist?.artworkRef
                     ?: playlistId?.let(state.playlistArtwork::get)
                     ?: tracks.firstOrNull()?.artworkRef,
-                editable = !favorites && !telegramManaged,
-                canEditMetadata = !favorites,
+                editable = !favorites && !telegramManaged && playlist?.localManaged != true,
+                canEditMetadata = !favorites && playlist?.localManaged != true,
                 onRestoreTelegramMetadata = { playlistId?.let(viewModel::restoreTelegramPlaylistMetadata) },
                 isFavorites = favorites,
                 newTrackIds = if (state.highlightNewTelegramTracks && playlist?.newTrackHighlightEnabled == true)
@@ -187,9 +187,10 @@ fun PlaylistsRoute(
                 onRemoveTrack = viewModel::removeTrack,
                 onFavorite = viewModel::setFavorite,
                 onAddToPlaylist = viewModel::addToPlaylist,
-                libraryTrackIds = state.selectedPlaylistLibraryTrackIds,
+                libraryTrackIds = if (favorites) tracks.map(Track::id).toSet() else state.selectedPlaylistLibraryTrackIds,
                 onAddToLibrary = viewModel::addToLibrary,
                 onBulkAddToLibrary = viewModel::addTracksToLibrary,
+                onBulkRemoveFromLibrary = viewModel::removeTracksFromLibrary,
                 onBulkAddToPlaylist = viewModel::addTracksToPlaylist,
                 onBulkAddToQueue = viewModel::addTracksToQueue,
                 onBulkLike = viewModel::likeTracks,

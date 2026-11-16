@@ -370,6 +370,7 @@ internal fun PlaylistDetailScreenV3(
     profileRefreshError: String? = null,
     onRefreshProfile: () -> Unit = {},
     onBulkAddToLibrary: (List<Track>) -> Unit = {},
+    onBulkRemoveFromLibrary: (List<Track>) -> Unit = {},
     onBulkAddToPlaylist: (List<Track>, UUID) -> Unit = { _, _ -> },
     onBulkAddToQueue: (List<Track>) -> Unit = {},
     onBulkLike: (List<Track>) -> Unit = {},
@@ -424,6 +425,7 @@ internal fun PlaylistDetailScreenV3(
     var selectionMode by rememberSaveable(playlist?.id, isFavorites) { mutableStateOf(false) }
     var selectedIds by remember(playlist?.id, isFavorites) { mutableStateOf(emptySet<UUID>()) }
     var bulkPlaylistMenu by remember { mutableStateOf(false) }
+    var showBulkLibraryRemoval by rememberSaveable(playlist?.id, isFavorites) { mutableStateOf(false) }
     BackHandler(enabled = selectionMode) { selectionMode = false; selectedIds = emptySet() }
     LaunchedEffect(tracks) { selectedIds = selectedIds.intersect(tracks.map(Track::id).toSet()) }
     val showProfileSections = telegramPerson && playlist?.telegramManaged == true && !isFavorites
@@ -453,6 +455,7 @@ internal fun PlaylistDetailScreenV3(
     }
     val selectedTracks = sortedTracks.filter { it.id in selectedIds }
     val selectedToLibrary = selectedTracks.filterNot { it.id in libraryTrackIds }
+    val selectedInLibrary = selectedTracks.filter { it.id in libraryTrackIds }
     val grouped: List<Pair<String?, List<Track>>> = remember(
         sortedTracks, groupBy, showProfileSections, profileTrackIds, messageTrackIds,
     ) {
@@ -468,6 +471,25 @@ internal fun PlaylistDetailScreenV3(
             PlaylistGroupBy.YEAR -> sortedTracks.groupBy { it.year?.toString() ?: "Unknown year" }
                 .toSortedMap(compareByDescending<String> { it.toIntOrNull() ?: Int.MIN_VALUE }).toList()
         }
+    }
+
+    if (showBulkLibraryRemoval) {
+        AlertDialog(
+            onDismissRequest = { showBulkLibraryRemoval = false },
+            title = { Text("Remove ${selectedInLibrary.size} songs from Library?") },
+            text = { Text("Only the selected songs already in Library will be hidden. Audio files and playlist entries will not be deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBulkLibraryRemoval = false
+                    onBulkRemoveFromLibrary(selectedInLibrary)
+                    selectionMode = false
+                    selectedIds = emptySet()
+                }) { Text("Remove ${selectedInLibrary.size}", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBulkLibraryRemoval = false }) { Text("Cancel") }
+            },
+        )
     }
 
     fun finishDrag(commit: Boolean) {
@@ -596,6 +618,13 @@ internal fun PlaylistDetailScreenV3(
                                     onClick = { onBulkAddToLibrary(selectedToLibrary) },
                                 )
                                 PlaylistBulkIconAction(
+                                    label = "Remove from Library",
+                                    icon = Icons.Rounded.DeleteOutline,
+                                    tag = "bulk-remove-library",
+                                    enabled = selectedInLibrary.isNotEmpty(),
+                                    onClick = { showBulkLibraryRemoval = true },
+                                )
+                                PlaylistBulkIconAction(
                                     label = "Add to queue",
                                     icon = Icons.Rounded.QueueMusic,
                                     tag = "bulk-add-queue",
@@ -614,14 +643,14 @@ internal fun PlaylistDetailScreenV3(
                                         label = "Add to playlist",
                                         icon = Icons.Rounded.PlaylistAdd,
                                         tag = "bulk-add-playlist",
-                                        enabled = selectedTracks.isNotEmpty() && playlists.any { !it.telegramManaged },
+                                        enabled = selectedTracks.isNotEmpty() && playlists.any { !it.telegramManaged && !it.localManaged },
                                         onClick = { bulkPlaylistMenu = true },
                                     )
                                     DropdownMenu(
                                         expanded = bulkPlaylistMenu,
                                         onDismissRequest = { bulkPlaylistMenu = false },
                                     ) {
-                                        playlists.filterNot(PlaylistSummary::telegramManaged).forEach { target ->
+                                        playlists.filter { !it.telegramManaged && !it.localManaged }.forEach { target ->
                                             DropdownMenuItem(
                                                 text = { Text(target.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                                 onClick = {

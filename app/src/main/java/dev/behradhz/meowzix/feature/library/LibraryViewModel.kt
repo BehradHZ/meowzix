@@ -15,6 +15,7 @@ import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
+import dev.behradhz.meowzix.domain.library.LOCAL_PLAYLIST_ID
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.library.RemoveTrackFromLocations
@@ -119,7 +120,17 @@ class LibraryViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
-            playlistRepository.observePlaylists()
+            combine(
+                playlistRepository.observePlaylists(),
+                repository.observeLocalTrackCount(),
+            ) { playlists, localCount ->
+                listOf(PlaylistSummary(
+                    id = LOCAL_PLAYLIST_ID,
+                    title = "Local",
+                    trackCount = localCount,
+                    localManaged = true,
+                )) + playlists
+            }
                 .catch { error -> reportLoadError(error, "Unable to load playlists") }
                 .collect { playlists ->
                     _state.update { it.copy(playlists = playlists) }
@@ -383,6 +394,7 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun addTracksToPlaylist(tracks: List<Track>, playlistId: UUID) = viewModelScope.launch {
+        if (playlistId == LOCAL_PLAYLIST_ID) return@launch
         runCatching { tracks.distinctBy(Track::id).forEach { playlistRepository.addTrack(playlistId, it.id) } }
             .onFailure { reportLoadError(it, "Unable to add selected tracks to playlist") }
     }
@@ -397,10 +409,26 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun removePlaylistTracks(tracks: List<Track>) {
-        val playlistId = _state.value.selectedPlaylistId ?: return
+        val playlistId = _state.value.selectedPlaylistId?.takeUnless { it == LOCAL_PLAYLIST_ID } ?: return
         viewModelScope.launch {
             runCatching { tracks.distinctBy(Track::id).forEach { playlistRepository.removeTrack(playlistId, it.id) } }
                 .onFailure { reportLoadError(it, "Unable to remove selected tracks") }
+        }
+    }
+
+    fun removeTracksFromLibrary(tracks: List<Track>) = viewModelScope.launch {
+        val inLibrary = _state.value.selectedPlaylistLibraryTrackIds
+        val ids = tracks.map(Track::id).distinct().filter { it in inLibrary }
+        if (ids.isEmpty()) return@launch
+        try {
+            repository.removeTracksFromLibrary(ids)
+            _state.update { state ->
+                state.copy(selectedPlaylistLibraryTrackIds = state.selectedPlaylistLibraryTrackIds - ids.toSet())
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            reportLoadError(error, "Unable to remove selected songs from Library")
         }
     }
 
@@ -411,7 +439,7 @@ class LibraryViewModel @Inject constructor(
     fun createPlaylist() = createPlaylist(onCreated = null)
 
     fun createPlaylist(onCreated: ((UUID) -> Unit)?) = viewModelScope.launch {
-        runCatching { playlistRepository.create("Playlist ${_state.value.playlists.size + 1}") }
+        runCatching { playlistRepository.create("Playlist ${_state.value.playlists.count { !it.localManaged } + 1}") }
             .onSuccess { id -> selectPlaylist(id); onCreated?.invoke(id) }
             .onFailure { reportLoadError(it, "Unable to create playlist") }
     }
@@ -465,6 +493,7 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun addToPlaylist(track: Track, playlistId: UUID) = viewModelScope.launch {
+        if (playlistId == LOCAL_PLAYLIST_ID) return@launch
         runCatching { playlistRepository.addTrack(playlistId, track.id) }
             .onFailure { reportLoadError(it, "Unable to update playlist") }
     }
@@ -491,7 +520,7 @@ class LibraryViewModel @Inject constructor(
         playlistTracksJob = viewModelScope.launch {
             // The chat-picker cache may be empty when Playlists is first opened.
             // Resolve from persisted source selection instead.
-            val personChatId = try {
+            val personChatId = if (playlistId == LOCAL_PLAYLIST_ID) null else try {
                 telegramRepository.personChatIdForPlaylist(playlistId)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
@@ -507,7 +536,8 @@ class LibraryViewModel @Inject constructor(
                     )
                 } else current
             }
-            playlistRepository.observeTracks(playlistId)
+            (if (playlistId == LOCAL_PLAYLIST_ID) repository.observeLocalTracks()
+            else playlistRepository.observeTracks(playlistId))
                 .catch { error -> reportLoadError(error, "Unable to load playlist") }
                 .collect { tracks ->
                     val included = repository.visibleTrackIds(tracks.map { it.id })
@@ -576,7 +606,7 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun movePlaylistTrack(fromIndex: Int, toIndex: Int) {
-        val id = _state.value.selectedPlaylistId ?: return
+        val id = _state.value.selectedPlaylistId?.takeUnless { it == LOCAL_PLAYLIST_ID } ?: return
         viewModelScope.launch {
             runCatching { playlistRepository.moveTrack(id, fromIndex, toIndex) }
                 .onFailure { reportLoadError(it, "Unable to reorder playlist") }
@@ -584,7 +614,7 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun removePlaylistTrack(track: Track) {
-        val id = _state.value.selectedPlaylistId ?: return
+        val id = _state.value.selectedPlaylistId?.takeUnless { it == LOCAL_PLAYLIST_ID } ?: return
         viewModelScope.launch {
             runCatching { playlistRepository.removeTrack(id, track.id) }
                 .onFailure { reportLoadError(it, "Unable to update playlist") }

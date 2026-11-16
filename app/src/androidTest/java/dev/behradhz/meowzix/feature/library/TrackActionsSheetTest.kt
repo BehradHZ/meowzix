@@ -110,6 +110,25 @@ class TrackActionsMenuTest {
         compose.runOnIdle { assertEquals(1, opened) }
     }
 
+    @Test fun localOriginIsVisibleButDisabled() {
+        var opened by mutableIntStateOf(0)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                TrackActionsMenu(
+                    expanded = true, title = "Device audio", artist = "Artist",
+                    favorite = false, isQueue = false, playlists = emptyList(),
+                    onDismiss = {}, onPrimary = {}, onAddToQueue = {}, onFavorite = {},
+                    onForward = {}, onGoToArtist = {}, onAddToPlaylist = {},
+                    onContinueVibe = {}, onEditMetadata = {}, onManageDuplicates = {}, onWhy = {},
+                    onViewInChat = { opened++ }, isLocalSource = true,
+                )
+            }
+        }
+        compose.onNodeWithTag("track-action-row-view-in-chat").assertIsNotEnabled()
+        compose.onNodeWithText("Local").assertExists()
+        compose.runOnIdle { assertEquals(0, opened) }
+    }
+
     @Test fun queueReplacesPlayNextWithRemoveButKeepsOtherQuickActions() {
         var removed by mutableIntStateOf(0)
         compose.setContent {

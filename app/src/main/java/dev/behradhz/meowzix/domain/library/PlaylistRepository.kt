@@ -6,6 +6,9 @@ import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
+/** Virtual, read-only playlist reflecting visible device MediaStore music. */
+val LOCAL_PLAYLIST_ID: UUID = UUID.nameUUIDFromBytes("meowzix:local-media-playlist".toByteArray(Charsets.UTF_8))
+
 data class PlaylistSummary(
     val id: UUID,
     val title: String,
@@ -18,6 +21,7 @@ data class PlaylistSummary(
     val descriptionOverridden: Boolean = false,
     val artworkOverridden: Boolean = false,
     val newTrackHighlightEnabled: Boolean = true,
+    val localManaged: Boolean = false,
 ) {
     val modified: Boolean get() = titleOverridden || descriptionOverridden || artworkOverridden
 }

@@ -341,10 +341,12 @@ private fun LibraryTrackRowContent(
         }
     }
     var chatOrigin by remember(track.id) { mutableStateOf<TelegramTrackOrigin?>(null) }
+    var chatOriginLoaded by remember(track.id) { mutableStateOf(false) }
     val menuActionScope = rememberCoroutineScope()
     val context = LocalContext.current
     LaunchedEffect(menuExpanded, track.id) {
         chatOrigin = null
+        chatOriginLoaded = false
         if (menuExpanded) {
             chatOrigin = try {
                 chatLinkActions?.originLookup?.invoke(track.id)
@@ -364,6 +366,7 @@ private fun LibraryTrackRowContent(
                 }
                 if (refreshed != null) chatOrigin = refreshed
             }
+            chatOriginLoaded = true
         }
     }
     val neutralSurface = (containerColor ?: MaterialTheme.colorScheme.surfaceVariant).copy(alpha = TRACK_CARD_ALPHA)
@@ -471,7 +474,7 @@ private fun LibraryTrackRowContent(
                         onAddToQueue = onAddToQueue,
                         onFavorite = onFavorite,
                         onForward = { forwardAction(TrackForwardSelection(track.id, track.title, track.artist)) },
-                        onViewInChat = if (chatLinkActions != null) {
+                        onViewInChat = if (chatLinkActions != null && chatOrigin != null) {
                             {
                                 // Resolve TDLib's message link only when tapped, never while opening the menu.
                                 menuActionScope.launch {
@@ -488,6 +491,7 @@ private fun LibraryTrackRowContent(
                             }
                         } else null,
                         viewInChatOrigin = chatOrigin,
+                        isLocalSource = chatOriginLoaded && chatOrigin == null,
                         onGoToArtist = onGoToArtist,
                         onAddToPlaylist = onAddToPlaylist,
                         onContinueVibe = { recommendationActions?.continueVibe?.invoke(track.id) },

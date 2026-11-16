@@ -129,6 +129,7 @@ internal fun TrackActionsMenu(
     onRemoveOfflineCopy: (() -> Unit)? = null,
     onViewInChat: (() -> Unit)? = null,
     viewInChatOrigin: TelegramTrackOrigin? = null,
+    isLocalSource: Boolean = false,
     onRemoveFromLocations: ((offline: Boolean, library: Boolean) -> Unit)? = null,
     canRemoveOffline: Boolean = false,
     canRemoveFromLibrary: Boolean = true,
@@ -189,7 +190,8 @@ internal fun TrackActionsMenu(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(start = 44.dp, bottom = 8.dp))
-                    if (playlists.isEmpty()) {
+                    val editablePlaylists = playlists.filter { !it.localManaged && !it.telegramManaged }
+                    if (editablePlaylists.isEmpty()) {
                         Text("No playlists yet", modifier = Modifier.padding(12.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
@@ -198,11 +200,11 @@ internal fun TrackActionsMenu(
                             // SubcomposeLayout, so both dimensions must be explicit here.
                             // Menu width is 280.dp, with 10.dp padding on each side.
                             modifier = Modifier.width(260.dp)
-                                .height((playlists.size * 68).coerceAtMost(250).dp)
+                                .height((editablePlaylists.size * 68).coerceAtMost(250).dp)
                                 .testTag("track-playlist-picker"),
                             verticalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
-                            items(playlists, key = { it.id }) { playlist ->
+                            items(editablePlaylists, key = { it.id }) { playlist ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth()
                                         .background(accent.copy(alpha = 0.075f), RoundedCornerShape(16.dp))
@@ -362,14 +364,22 @@ internal fun TrackActionsMenu(
                     ActionLine(Icons.Rounded.Person, "Go to artist", enabled = !artist.isNullOrBlank()) {
                         onDismiss(); onGoToArtist()
                     }
-                    onViewInChat?.let { open ->
+                    if (isLocalSource) {
                         ActionLine(
-                            Icons.Rounded.OpenInNew,
-                            if (viewInChatOrigin?.isProfileMusic == true) "View Profile" else "View in Chat",
-                            chatOrigin = viewInChatOrigin, showChatAvatar = true,
+                            Icons.Rounded.OpenInNew, "Local",
+                            enabled = false,
                             actionTag = "track-action-row-view-in-chat",
-                        ) {
-                            onDismiss(); open()
+                        ) {}
+                    } else {
+                        onViewInChat?.let { open ->
+                            ActionLine(
+                                Icons.Rounded.OpenInNew,
+                                if (viewInChatOrigin?.isProfileMusic == true) "View Profile" else "View in Chat",
+                                chatOrigin = viewInChatOrigin, showChatAvatar = true,
+                                actionTag = "track-action-row-view-in-chat",
+                            ) {
+                                onDismiss(); open()
+                            }
                         }
                     }
                     onAddToLibrary?.let { add ->
