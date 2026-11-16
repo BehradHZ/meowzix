@@ -2515,7 +2515,7 @@ class PlaybackService : MediaLibraryService() {
             currentRepeatMode() == saved.repeatMode &&
             persistedWindowMatches(saved, (0 until player.mediaItemCount).map { index ->
                 val item = player.getMediaItemAt(index)
-                item.mediaId to item.localConfiguration?.uri?.toString()
+                Triple(item.mediaId, item.localConfiguration?.uri?.toString(), item.queueOccurrenceId())
             })
 
     private suspend fun restoreLogicalQueueAfterInitialPlayback(saved: PersistedPlaybackSession) {
@@ -2550,17 +2550,18 @@ class PlaybackService : MediaLibraryService() {
         // Keep saved window positions stable even if a cached source disappeared.
         // Their last playable URI is already in Media3; normal missing-source
         // handling can skip/fallback when that occurrence is actually selected.
-        saved.items.forEach { item ->
-            val id = runCatching { UUID.fromString(item.mediaId) }.getOrNull()
-                ?: return@forEach
+        saved.items.forEachIndexed { index, old ->
+            val live = player.getMediaItemAt(index).toPersistedPlaybackItem() ?: old
+            val id = runCatching { UUID.fromString(live.mediaId) }.getOrNull()
+                ?: return@forEachIndexed
             available.putIfAbsent(id, PlayableTrack(
                 id = id,
-                title = item.title,
-                artist = item.artist,
+                title = live.title,
+                artist = live.artist,
                 album = null,
-                durationMs = item.durationMs,
-                artworkRef = item.artworkUri,
-                contentUri = item.uri,
+                durationMs = live.durationMs,
+                artworkRef = live.artworkUri,
+                contentUri = live.uri,
             ))
         }
         if (currentId !in available) return
@@ -2619,7 +2620,15 @@ class PlaybackService : MediaLibraryService() {
     private fun schedulePersist() {
         if (isRestoring) return
         pendingDeferredQueueRestore?.let { saved ->
-            if (savedWindowStillActive(saved)) return
+            if (savedWindowStillActive(saved)) {
+                // Save a seek/pause cursor without overwriting unhydrated Queue topology.
+                val mediaId = player.currentMediaItem?.mediaId
+                val positionMs = player.currentPosition.coerceAtLeast(0L)
+                serviceScope.launch(Dispatchers.IO) {
+                    stateStore.savePosition(mediaId, positionMs)
+                }
+                return
+            }
             // An explicit user edit supersedes unfinished disk restoration.
             pendingDeferredQueueRestore = null
             deferredQueueRestoreJob?.cancel()

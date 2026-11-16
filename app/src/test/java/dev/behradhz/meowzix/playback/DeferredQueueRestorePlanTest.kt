@@ -46,13 +46,22 @@ class DeferredQueueRestorePlanTest {
         ))
     }
 
+    @Test fun repairedAudioUriKeepsSameOccurrenceButReplacementSessionIsRejected() {
+        val id = song(7).toString()
+        val occurrence = UUID.randomUUID()
+        val session = saved(listOf(song(7))).copy(logicalOccurrenceIds = listOf(occurrence.toString()))
+        assertTrue(persistedWindowMatches(session, listOf(Triple(id, "file:///repaired.mp3", occurrence))))
+        assertFalse(persistedWindowMatches(session, listOf(Triple(id, "content://song", UUID.randomUUID()))))
+        assertFalse(persistedWindowMatches(session, listOf(Triple(id, "content://song", null))))
+    }
+
     @Test fun editedMediaWindowCannotBeOverwrittenByStaleDeferredRestore() {
         val id = song(7).toString()
         val initial = saved(listOf(song(7))).copy(items = listOf(
             PersistedPlaybackItem(id, "content://original", "Song", null, null, 1000),
         ))
-        assertTrue(persistedWindowMatches(initial, listOf(id to "content://original")))
-        assertFalse(persistedWindowMatches(initial, listOf(id to "content://replacement")))
+        assertTrue(persistedWindowMatches(initial, listOf(Triple(id, "content://original", null))))
+        assertFalse(persistedWindowMatches(initial, listOf(Triple(id, "content://replacement", null))))
         assertFalse(persistedWindowMatches(initial, emptyList()))
     }
 }

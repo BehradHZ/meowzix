@@ -35,9 +35,18 @@ internal data class DeferredQueueRestorePlan(
 /** A mode change, URI replacement or timeline edit supersedes a pending restore. */
 internal fun persistedWindowMatches(
     saved: PersistedPlaybackSession,
-    actual: List<Pair<String, String?>>,
+    actual: List<Triple<String, String?, UUID?>>,
 ): Boolean = saved.items.size == actual.size &&
     saved.items.indices.all { index ->
+        val expectedOccurrence = saved.logicalOccurrenceIds
+            .getOrNull(saved.materializedStartIndex + index)
+            ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
         actual[index].first == saved.items[index].mediaId &&
-            actual[index].second == saved.items[index].uri
+            if (expectedOccurrence != null) {
+                // An occurrence's local audio source may be repaired during restore.
+                actual[index].third == expectedOccurrence
+            } else {
+                // For legacy snapshots without occurrence IDs, compare URIs too.
+                actual[index].second == saved.items[index].uri
+            }
     }
