@@ -899,14 +899,31 @@ private fun SwipeableQueueItem(
     val chatActions = LocalTrackChatLinkActions.current
     var menuExpanded by remember { mutableStateOf(false) }
     var chatLink by remember(item.id) { mutableStateOf<String?>(null) }
+    var chatOrigin by remember(item.id) {
+        mutableStateOf<dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin?>(null)
+    }
+    var chatOriginLoaded by remember(item.id) { mutableStateOf(false) }
     LaunchedEffect(menuExpanded, item.id) {
+        chatLink = null
+        chatOrigin = null
+        chatOriginLoaded = false
         if (menuExpanded) {
-            chatLink = try {
-                chatActions?.lookup?.invoke(item.id)
+            chatOrigin = try {
+                chatActions?.originLookup?.invoke(item.id)
             } catch (cancel: kotlinx.coroutines.CancellationException) {
                 throw cancel
             } catch (_: Exception) {
                 null
+            }
+            chatOriginLoaded = true
+            if (chatOrigin != null) {
+                chatLink = try {
+                    chatActions?.lookup?.invoke(item.id)
+                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    null
+                }
             }
         }
     }
@@ -1074,6 +1091,8 @@ private fun SwipeableQueueItem(
                             onFavorite = onFavorite,
                             onForward = { forwardAction(TrackForwardSelection(item.id, item.title, item.artist)) },
                             onViewInChat = chatLink?.let { link -> { chatActions?.open?.invoke(link) } },
+                            viewInChatOrigin = chatOrigin,
+                            isLocalSource = chatOriginLoaded && chatOrigin == null,
                             onGoToArtist = { item.artist?.let(onGoToArtist) },
                             onAddToPlaylist = onAddToPlaylist,
                             onContinueVibe = { recommendationActions?.continueVibe?.invoke(item.id) },
