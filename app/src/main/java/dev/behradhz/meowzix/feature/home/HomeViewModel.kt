@@ -161,6 +161,7 @@ class HomeViewModel @Inject constructor(
         // The bounded track lookup already enforces source availability.
         // Do not enumerate the entire music library merely to show 12 recent rows.
         val recent = library.tracks(recentTrackIds).take(12)
+        val recentlyAdded = library.recentlyAdded(12)
 
         // Select only the content Home actually displays; the other recommendation
         // sections are computed on demand by their respective screens.
