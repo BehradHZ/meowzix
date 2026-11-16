@@ -1083,7 +1083,6 @@ private fun NowPlayingScreen(
                                     viewModel = inlineQueueViewModel,
                                 )
                             }
-                        }
                     }.single().measure(Constraints.fixed(width, heights.queueHeight))
                 } else null
 
