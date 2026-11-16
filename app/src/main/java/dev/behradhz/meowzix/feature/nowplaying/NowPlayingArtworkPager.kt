@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -54,6 +55,22 @@ private enum class ArtworkCropRole { CURRENT, TARGET }
 private enum class ArtworkGestureAxis { UNDECIDED, HORIZONTAL, VERTICAL }
 private const val ArtworkCommitThreshold = 0.35f
 
+internal enum class ArtworkVerticalSwipeAction { NONE, OPEN_QUEUE, CLOSE_PLAYER }
+
+/** Keep vertical queue gestures separate from the horizontal track-changing pager. */
+internal fun artworkVerticalSwipeAction(
+    drag: Offset,
+    openThresholdPx: Float,
+    closeThresholdPx: Float,
+): ArtworkVerticalSwipeAction {
+    if (abs(drag.y) <= abs(drag.x)) return ArtworkVerticalSwipeAction.NONE
+    return when {
+        drag.y <= -openThresholdPx -> ArtworkVerticalSwipeAction.OPEN_QUEUE
+        drag.y >= closeThresholdPx -> ArtworkVerticalSwipeAction.CLOSE_PLAYER
+        else -> ArtworkVerticalSwipeAction.NONE
+    }
+}
+
 internal data class ArtworkBackdropTransition(
     val fromArtworkRef: String?,
     val toArtworkRef: String?,
@@ -78,6 +95,7 @@ internal fun NowPlayingArtworkPager(
     onBack: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onSwipeUp: () -> Unit = {},
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit = {},
     onTransitionSettled: (java.util.UUID) -> Unit = {},
     cornerRadius: Dp = 28.dp,
@@ -87,6 +105,11 @@ internal fun NowPlayingArtworkPager(
     // view model as the route. Keeping the tap action here avoids duplicating gesture ownership.
     val viewModel: NowPlayingViewModel = hiltViewModel()
     val haptics = rememberMeowzixHaptics()
+    val latestSwipeUp by rememberUpdatedState(onSwipeUp)
+    val latestBack by rememberUpdatedState(onBack)
+    val density = LocalDensity.current
+    val openThresholdPx = with(density) { 72.dp.toPx() }
+    val closeThresholdPx = with(density) { 96.dp.toPx() }
 
     val activeIndex = remember(
         state.currentTrack?.id,
@@ -115,7 +138,29 @@ internal fun NowPlayingArtworkPager(
         LaunchedEffect(state.currentTrack?.id) {
             state.currentTrack?.id?.let(onTransitionSettled)
         }
-        BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
+        BoxWithConstraints(
+            modifier = modifier.pointerInput(openThresholdPx, closeThresholdPx) {
+                var verticalDrag = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { verticalDrag = 0f },
+                    onVerticalDrag = { change, amount ->
+                        verticalDrag += amount
+                        change.consume()
+                    },
+                    onDragEnd = {
+                        when (artworkVerticalSwipeAction(
+                            Offset(0f, verticalDrag), openThresholdPx, closeThresholdPx,
+                        )) {
+                            ArtworkVerticalSwipeAction.OPEN_QUEUE -> latestSwipeUp()
+                            ArtworkVerticalSwipeAction.CLOSE_PLAYER -> latestBack()
+                            ArtworkVerticalSwipeAction.NONE -> Unit
+                        }
+                    },
+                    onDragCancel = { verticalDrag = 0f },
+                )
+            },
+            contentAlignment = Alignment.Center,
+        ) {
             val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
             NowPlayingArtwork(
 
@@ -145,9 +190,7 @@ internal fun NowPlayingArtworkPager(
     PreloadNowPlayingArtwork(queueState.items.getOrNull(activeIndex - 1)?.artworkRef)
     PreloadNowPlayingArtwork(queueState.items.getOrNull(activeIndex + 1)?.artworkRef)
 
-    val density = LocalDensity.current
     val axisThresholdPx = with(density) { 10.dp.toPx() }
-    val closeThresholdPx = with(density) { 96.dp.toPx() }
     val separatorGapPx = with(density) { 12.dp.toPx() }
     val artworkCornerRadiusPx = with(density) { cornerRadius.toPx() }
     val scope = rememberCoroutineScope()
@@ -422,8 +465,12 @@ internal fun NowPlayingArtworkPager(
                         }
 
                         ArtworkGestureAxis.VERTICAL -> {
-                            if (totalDrag.y >= closeThresholdPx && abs(totalDrag.y) > abs(totalDrag.x)) {
-                                onBack()
+                            when (artworkVerticalSwipeAction(
+                                totalDrag, openThresholdPx, closeThresholdPx,
+                            )) {
+                                ArtworkVerticalSwipeAction.OPEN_QUEUE -> latestSwipeUp()
+                                ArtworkVerticalSwipeAction.CLOSE_PLAYER -> latestBack()
+                                ArtworkVerticalSwipeAction.NONE -> Unit
                             }
                         }
 
