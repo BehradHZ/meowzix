@@ -54,6 +54,7 @@ data class TelegramTrackOrigin(
     val title: String,
     val profilePhotoRef: String?,
     val isProfileMusic: Boolean = false,
+    val availableChatCount: Int = 1,
 )
 
 data class TelegramChatSummary(

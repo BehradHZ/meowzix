@@ -818,6 +818,7 @@ class TdLibTelegramRepository @Inject constructor(
             title = chat?.title ?: telegramDao.selectedSource(source.accountId, source.chatId)?.title ?: "Telegram chat",
             profilePhotoRef = chat?.profilePhotoRef,
             isProfileMusic = telegramSourceIsProfileMusic(source.messageId),
+            availableChatCount = telegramDao.availableChatIdsForTrack(source.accountId, id).size,
         )
     }
 

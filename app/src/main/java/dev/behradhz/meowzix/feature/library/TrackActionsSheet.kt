@@ -526,9 +526,20 @@ private fun ActionLine(
                 tint = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f),
                 modifier = Modifier.size(18.dp))
         }
-        Text(title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(start = 10.dp),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
-            fontWeight = FontWeight.Medium)
+        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+            Text(
+                title, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
+                fontWeight = FontWeight.Medium,
+            )
+            if (showChatAvatar && (chatOrigin?.availableChatCount ?: 0) > 1) {
+                Text(
+                    "Available in ${chatOrigin!!.availableChatCount} Telegram chats",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         if (trailing) Icon(Icons.Rounded.ChevronRight, contentDescription = null)
     }
 }
