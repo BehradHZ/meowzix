@@ -2,7 +2,7 @@ package dev.behradhz.meowzix.navigation
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -96,7 +96,7 @@ class GlobalSearchOverlayTest {
     @Test fun artistsExposeTheSharedQueueActions() {
         var queued = 0
         render(songs = emptyList(), onQueueArtist = { queued++ })
-        compose.onNodeWithContentDescription("Queue actions").performClick()
+        compose.onAllNodesWithContentDescription("Queue actions")[0].performClick()
         compose.onNodeWithText("Add to queue").performClick()
         compose.runOnIdle { assertEquals(1, queued) }
     }
