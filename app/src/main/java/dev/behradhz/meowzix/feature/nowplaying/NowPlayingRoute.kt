@@ -83,9 +83,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -100,6 +100,7 @@ import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
 import androidx.core.content.ContextCompat
@@ -884,199 +885,212 @@ private fun NowPlayingScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                var footerHeightPx by remember { mutableIntStateOf(with(density) { 160.dp.roundToPx() }) }
-                val fullHeroHeight = (maxHeight - with(density) { footerHeightPx.toDp() })
-                    .coerceAtLeast(0.dp)
-                val fullHeroHeightPx = with(density) { fullHeroHeight.roundToPx() }
-                val heroHeight = lyricsMorphHeroHeight(fullHeroHeight, queueMorph)
-                Column(Modifier.fillMaxSize()) {
-                    Box(
-                        Modifier.fillMaxWidth().height(heroHeight).then(queueDragGesture),
-                    ) {
-                // The artwork, title and artist each have ONE composable instance throughout
-                // expansion and collapse. Their bounds interpolate into the same 76.dp header.
-                MorphingPlayerHero(
-                    state = state,
-                    queueState = queueState,
-                    progress = maxOf(lyricsMorph, queueMorph),
-                    collapsedHeightPx = fullHeroHeightPx,
-                    lyricsLayoutVisible = reservedLyricsLayout,
-                    onBack = onBack,
-                    onPrevious = onPrevious,
-                    onNext = onNext,
-                    onToggleFavorite = onToggleFavorite,
-                    onGoToArtist = onGoToArtist,
-                    favorite = isFavorite,
-                    reduceMotion = reduceMotion,
-                    onBackdropTransition = { backdropTransition.value = it },
-                    onArtworkSettled = { settledId ->
-                        settledArtworkTrackId = settledId
-                        settledBackdropRef.value = queueState.items.firstOrNull { it.id == settledId }?.artworkRef
-                            ?: if (settledId == track.id) track.artworkRef else settledBackdropRef.value
-                    },
-                    compactLyrics = {
-                        if (settledArtworkTrackId == currentTrackId && currentTrackHasLyrics) {
-                            CompactLyricsPreview(
-                                state = lyricsState,
-                                onExpand = onExpandLyrics,
-                                reduceMotion = reduceMotion,
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(heroHeight),
-                )
+            // Measure the transport before the hero. A size callback can miss the
+            // first frame, leaving the full-height cover to obscure the controls.
+            SubcomposeLayout(modifier = Modifier.fillMaxWidth().weight(1f)) { constraints ->
+                val width = constraints.maxWidth
+                val footer = subcompose("transport") {
+                    Column(Modifier.fillMaxWidth().then(queueDragGesture)) {
+                        // v0.5 kept the identity immediately above the waveform with a compact 12.dp gap.
+                        Spacer(Modifier.height(12.dp))
 
-                // Keep lyrics composed until the reverse morph has finished as well.
-                if (lyricsExpanded || lyricsMorph > 0.005f) {
-                    ExpandedLyricsPanel(
-                        state = lyricsState,
-                        onLineSeek = onLyricSeek,
-                        onImportLrc = onLyricsImport,
-                        onPaste = onLyricsPaste,
-                        onAdjustDelay = onLyricsDelay,
-                        onSelectVersion = onLyricsVersion,
-                        reduceMotion = reduceMotion,
-                        showToolbar = false,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = lyricsMorphHeroHeight(fullHeroHeight, lyricsMorph) + 8.dp)
-                            .graphicsLayer {
-                                alpha = ((lyricsMorph - 0.18f) / 0.62f).coerceIn(0f, 1f)
+                        val onDragSeek: (Float) -> Unit = { pendingSeek = it }
+                        val finishSeek: () -> Unit = {
+                            pendingSeek?.let { value ->
+                                val target = value.toLong()
+                                settlingSeekTarget = target
+                                onSeek(target)
                             }
-                            .semantics { if (lyricsMorph < 0.8f) invisibleToUser() },
-                    )
-                }
-                    }
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth()
-                            .onSizeChanged { footerHeightPx = it.height }
-                            .then(queueDragGesture),
-                    ) {
-            // v0.5 kept the identity immediately above the waveform with a compact 12.dp gap.
-            Spacer(Modifier.height(12.dp))
-
-            val onDragSeek: (Float) -> Unit = { pendingSeek = it }
-            val finishSeek: () -> Unit = {
-                pendingSeek?.let { value ->
-                    val target = value.toLong()
-                    settlingSeekTarget = target
-                    onSeek(target)
-                }
-                pendingSeek = null
-            }
-            // Playback timestamps share a line with the seek bar instead of consuming
-            // another row beneath it. Preserve both seek-bar styles and their gestures.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text(
-                    formatDuration(shownPosition),
-                    modifier = Modifier.widthIn(min = 40.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = PlayerSecondaryContent,
-                    maxLines = 1,
-                )
-                Box(Modifier.weight(1f)) {
-                    if (seekBarStyle == PlayerSeekBarStyle.WAVEFORM) {
-                        SyntheticWaveformSeekBar(
-                            trackKey = track.id.toString(),
-                            liveBands = liveBands,
-                            value = shownPosition.toFloat(),
-                            onValueChange = onDragSeek,
-                            onValueChangeFinished = finishSeek,
-                            valueRange = 0f..duration.toFloat(),
-                            enabled = state.durationMs > 0L && !isLoading,
-                            isPlaying = state.status == PlaybackStatus.PLAYING,
-                            isLoading = isLoading,
-                            activeBarColor = MaterialTheme.colorScheme.primary,
-                            inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),
-                            pointerColor = PlayerPrimaryContent,
-                            loadingShimmerColor = PlayerLoadingShimmer,
-                            reduceMotion = reduceMotion,
-                            accessibilityLabel = "Playback position",
-                            accessibilityValue = "${formatDuration(shownPosition)} of ${formatDuration(duration)}",
+                            pendingSeek = null
+                        }
+                        // Playback timestamps share a line with the seek bar instead of consuming
+                        // another row beneath it. Preserve both seek-bar styles and their gestures.
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                        )
-                    } else {
-                        CurlyMusicSlider(
-                            value = shownPosition.toFloat().coerceIn(0f, duration.toFloat()),
-                            onValueChange = onDragSeek,
-                            onValueChangeFinished = finishSeek,
-                            valueRange = 0f..duration.toFloat(),
-                            enabled = state.durationMs > 0L && !isLoading,
-                            isPlaying = state.status == PlaybackStatus.PLAYING && !reduceMotion,
-                            modifier = Modifier.fillMaxWidth().height(58.dp).semantics {
-                                contentDescription = "Playback position"
-                            },
-                        )
-                    }
-                }
-                Text(
-                    "-${formatDuration((duration - shownPosition).coerceAtLeast(0L))}",
-                    modifier = Modifier.widthIn(min = 40.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = PlayerSecondaryContent,
-                    maxLines = 1,
-                )
-            }
-
-            Spacer(Modifier.height(14.dp))
-            PlaybackControls(
-                state = state,
-                onPrevious = onPrevious,
-                onNext = onNext,
-                onTogglePlayPause = onTogglePlayPause,
-                onTogglePlaybackMode = onTogglePlaybackMode,
-                onCycleRepeatMode = onCycleRepeatMode,
-            )
-            Spacer(Modifier.height(12.dp))
-                    }
-
-                    if (queueMorph > 0.005f && !lyricsExpanded) {
-                        Column(
-                            Modifier.fillMaxWidth().weight(1f)
-                                .graphicsLayer {
-                                    alpha = ((queueMorph - 0.06f) / 0.35f).coerceIn(0f, 1f)
-                                },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth()
-                                    .then(queueDragGesture)
-                                    .padding(start = 6.dp, end = 2.dp, top = 3.dp, bottom = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Column {
-                                    Text(
-                                        "Up next",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.SemiBold,
+                            Text(
+                                formatDuration(shownPosition),
+                                modifier = Modifier.widthIn(min = 40.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = PlayerSecondaryContent,
+                                maxLines = 1,
+                            )
+                            Box(Modifier.weight(1f)) {
+                                if (seekBarStyle == PlayerSeekBarStyle.WAVEFORM) {
+                                    SyntheticWaveformSeekBar(
+                                        trackKey = track.id.toString(),
+                                        liveBands = liveBands,
+                                        value = shownPosition.toFloat(),
+                                        onValueChange = onDragSeek,
+                                        onValueChangeFinished = finishSeek,
+                                        valueRange = 0f..duration.toFloat(),
+                                        enabled = state.durationMs > 0L && !isLoading,
+                                        isPlaying = state.status == PlaybackStatus.PLAYING,
+                                        isLoading = isLoading,
+                                        activeBarColor = MaterialTheme.colorScheme.primary,
+                                        inactiveBarColor = PlayerPrimaryContent.copy(alpha = 0.24f),
+                                        pointerColor = PlayerPrimaryContent,
+                                        loadingShimmerColor = PlayerLoadingShimmer,
+                                        reduceMotion = reduceMotion,
+                                        accessibilityLabel = "Playback position",
+                                        accessibilityValue = "${formatDuration(shownPosition)} of ${formatDuration(duration)}",
+                                        modifier = Modifier.fillMaxWidth(),
                                     )
-                                    Text(
-                                        "${queueState.items.drop((queueState.currentIndex + 1).coerceAtLeast(0)).size} upcoming",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                IconButton(onClick = { onQueueExpandedChange(false) }) {
-                                    Icon(
-                                        Icons.Rounded.KeyboardArrowDown,
-                                        contentDescription = "Collapse queue",
+                                } else {
+                                    CurlyMusicSlider(
+                                        value = shownPosition.toFloat().coerceIn(0f, duration.toFloat()),
+                                        onValueChange = onDragSeek,
+                                        onValueChangeFinished = finishSeek,
+                                        valueRange = 0f..duration.toFloat(),
+                                        enabled = state.durationMs > 0L && !isLoading,
+                                        isPlaying = state.status == PlaybackStatus.PLAYING && !reduceMotion,
+                                        modifier = Modifier.fillMaxWidth().height(58.dp).semantics {
+                                            contentDescription = "Playback position"
+                                        },
                                     )
                                 }
                             }
-                            PlayerInlineQueue(
-                                modifier = Modifier.fillMaxSize()
-                                    .nestedScroll(queuePullNestedScrollConnection),
-                                onGoToArtist = onGoToArtist,
-                                viewModel = inlineQueueViewModel,
+                            Text(
+                                "-${formatDuration((duration - shownPosition).coerceAtLeast(0L))}",
+                                modifier = Modifier.widthIn(min = 40.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = PlayerSecondaryContent,
+                                maxLines = 1,
+                            )
+                        }
+
+                        Spacer(Modifier.height(14.dp))
+                        PlaybackControls(
+                            state = state,
+                            onPrevious = onPrevious,
+                            onNext = onNext,
+                            onTogglePlayPause = onTogglePlayPause,
+                            onTogglePlaybackMode = onTogglePlaybackMode,
+                            onCycleRepeatMode = onCycleRepeatMode,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+                }.single().measure(
+                    Constraints(minWidth = width, maxWidth = width, minHeight = 0, maxHeight = constraints.maxHeight),
+                )
+
+                val heights = portraitPlayerSpace(
+                    availableHeight = constraints.maxHeight,
+                    footerHeight = footer.height,
+                    queueProgress = queueMorph,
+                    compactHeroHeight = 76.dp.roundToPx(),
+                )
+                val fullHeroHeightPx = heights.fullHeroHeight
+                val fullHeroHeight = fullHeroHeightPx.toDp()
+                val heroHeight = heights.heroHeight.toDp()
+                val hero = subcompose("hero") {
+                    Box(Modifier.fillMaxWidth().height(heroHeight).then(queueDragGesture)) {
+                        // The artwork, title and artist each have ONE composable instance throughout
+                        // expansion and collapse. Their bounds interpolate into the same 76.dp header.
+                        MorphingPlayerHero(
+                            state = state,
+                            queueState = queueState,
+                            progress = maxOf(lyricsMorph, queueMorph),
+                            collapsedHeightPx = fullHeroHeightPx,
+                            lyricsLayoutVisible = reservedLyricsLayout,
+                            onBack = onBack,
+                            onPrevious = onPrevious,
+                            onNext = onNext,
+                            onToggleFavorite = onToggleFavorite,
+                            onGoToArtist = onGoToArtist,
+                            favorite = isFavorite,
+                            reduceMotion = reduceMotion,
+                            onBackdropTransition = { backdropTransition.value = it },
+                            onArtworkSettled = { settledId ->
+                                settledArtworkTrackId = settledId
+                                settledBackdropRef.value = queueState.items.firstOrNull { it.id == settledId }?.artworkRef
+                                    ?: if (settledId == track.id) track.artworkRef else settledBackdropRef.value
+                            },
+                            compactLyrics = {
+                                if (settledArtworkTrackId == currentTrackId && currentTrackHasLyrics) {
+                                    CompactLyricsPreview(
+                                        state = lyricsState,
+                                        onExpand = onExpandLyrics,
+                                        reduceMotion = reduceMotion,
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(heroHeight),
+                        )
+
+                        // Keep lyrics composed until the reverse morph has finished as well.
+                        if (lyricsExpanded || lyricsMorph > 0.005f) {
+                            ExpandedLyricsPanel(
+                                state = lyricsState,
+                                onLineSeek = onLyricSeek,
+                                onImportLrc = onLyricsImport,
+                                onPaste = onLyricsPaste,
+                                onAdjustDelay = onLyricsDelay,
+                                onSelectVersion = onLyricsVersion,
+                                reduceMotion = reduceMotion,
+                                showToolbar = false,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = lyricsMorphHeroHeight(fullHeroHeight, lyricsMorph) + 8.dp)
+                                    .graphicsLayer {
+                                        alpha = ((lyricsMorph - 0.18f) / 0.62f).coerceIn(0f, 1f)
+                                    }
+                                    .semantics { if (lyricsMorph < 0.8f) invisibleToUser() },
                             )
                         }
                     }
+                }.single().measure(Constraints.fixed(width, heights.heroHeight))
+
+                val queue = if (queueMorph > 0.005f && !lyricsExpanded) {
+                    subcompose("queue") {
+                        Column(
+                            Modifier.fillMaxWidth().graphicsLayer {
+                                alpha = ((queueMorph - 0.06f) / 0.35f).coerceIn(0f, 1f)
+                            },
+                        ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth()
+                                        .then(queueDragGesture)
+                                        .padding(start = 6.dp, end = 2.dp, top = 3.dp, bottom = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Column {
+                                        Text(
+                                            "Up next",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Text(
+                                            "${queueState.items.drop((queueState.currentIndex + 1).coerceAtLeast(0)).size} upcoming",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    IconButton(onClick = { onQueueExpandedChange(false) }) {
+                                        Icon(
+                                            Icons.Rounded.KeyboardArrowDown,
+                                            contentDescription = "Collapse queue",
+                                        )
+                                    }
+                                }
+                                PlayerInlineQueue(
+                                    modifier = Modifier.fillMaxSize()
+                                        .nestedScroll(queuePullNestedScrollConnection),
+                                    onGoToArtist = onGoToArtist,
+                                    viewModel = inlineQueueViewModel,
+                                )
+                            }
+                        }
+                    }.single().measure(Constraints.fixed(width, heights.queueHeight))
+                } else null
+
+                layout(width, constraints.maxHeight) {
+                    hero.placeRelative(0, 0)
+                    footer.placeRelative(0, heights.heroHeight)
+                    queue?.placeRelative(0, heights.heroHeight + footer.height)
                 }
             }
         }
