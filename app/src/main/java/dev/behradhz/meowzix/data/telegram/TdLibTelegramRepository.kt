@@ -732,18 +732,28 @@ class TdLibTelegramRepository @Inject constructor(
                     normalizedArtist = normalizedArtist,
                     durationMs = candidate.durationMs,
                 ),
+                accountId,
+                candidate.persistentFileId,
             ) ?: UUID.randomUUID().toString()
             affectedTrackId = trackId
             val sourceId = existingSource?.id ?: UUID.randomUUID().toString()
             val canonicalTrack = existingTrack ?: libraryDao.trackById(trackId)
+            // A new occurrence must not overwrite the established song's display metadata.
+            // A refresh of the same occurrence may still refine its own metadata.
+            val trackTitle = if (existingSource == null && canonicalTrack != null &&
+                canonicalTrack.normalizedTitle != "unknown track"
+            ) canonicalTrack.title else candidate.title
+            val trackArtist = if (existingSource == null && canonicalTrack != null) {
+                canonicalTrack.artist ?: candidate.artist
+            } else candidate.artist
 
             libraryDao.upsertTrack(
                 TrackEntity(
                     id = trackId,
-                    title = candidate.title,
-                    normalizedTitle = normalizedTitle,
-                    artist = candidate.artist,
-                    normalizedArtist = TextNormalizer.normalize(candidate.artist),
+                    title = trackTitle,
+                    normalizedTitle = TextNormalizer.normalize(trackTitle) ?: "unknown track",
+                    artist = trackArtist,
+                    normalizedArtist = TextNormalizer.normalize(trackArtist),
                     album = canonicalTrack?.album,
                     durationMs = candidate.durationMs.takeIf { it > 0L } ?: canonicalTrack?.durationMs ?: 0L,
                     trackNumber = canonicalTrack?.trackNumber,
@@ -784,7 +794,7 @@ class TdLibTelegramRepository @Inject constructor(
                     telegramTitle = candidate.title,
                     telegramPerformer = candidate.artist,
                     remoteRevisionKey = null,
-                    isUnheardNew = existingTelegram?.isUnheardNew ?: (created && NewTelegramTrackPolicy.isNewAfterBaseline(
+                    isUnheardNew = existingTelegram?.isUnheardNew ?: (created && canonicalTrack == null && NewTelegramTrackPolicy.isNewAfterBaseline(
                         selectedSource?.initialScanComplete == true,
                         selectedSource?.newestMessageId,
                         messageId,
@@ -961,7 +971,17 @@ class TdLibTelegramRepository @Inject constructor(
         return File(path).takeIf(File::isFile)?.let { Uri.fromFile(it).toString() }
     }
 
-    private suspend fun findMatchingTrack(incoming: IncomingTrackIdentity): String? {
+    private suspend fun findMatchingTrack(
+        incoming: IncomingTrackIdentity,
+        accountId: String,
+        persistentFileId: String?,
+    ): String? {
+        if (!persistentFileId.isNullOrBlank()) {
+            // Exact TDLib file identity is stronger than titles (often absent in documents).
+            // Ambiguous pre-existing duplicate canonical IDs are left untouched for safe review.
+            telegramDao.trackIdsForPersistentTelegramFile(accountId, persistentFileId)
+                .distinct().singleOrNull()?.let { return it }
+        }
         val artist = incoming.normalizedArtist ?: return null
         val candidates = libraryDao.matchingTracks(incoming.normalizedTitle, artist).map { track ->
             TrackMatchCandidate(

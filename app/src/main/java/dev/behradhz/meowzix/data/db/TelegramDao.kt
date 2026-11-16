@@ -34,6 +34,54 @@ interface TelegramDao {
     @Upsert
     suspend fun upsertTelegramTrackSource(source: TelegramTrackSourceEntity)
 
+    /**
+     * The TDLib remote unique ID represents identical bytes across forwarded/reuploaded
+     * messages. It is a content identity, not a chat/file-id identity.
+     */
+    @Query("""
+        SELECT DISTINCT s.trackId
+        FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND tg.tdPersistentFileId = :persistentFileId
+    """)
+    suspend fun trackIdsForPersistentTelegramFile(
+        accountId: String,
+        persistentFileId: String,
+    ): List<String>
+
+    /** All playable occurrences, ordered for retry if a message disappears. */
+    @Query("""
+        SELECT tg.* FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND s.trackId = :trackId
+          AND s.availability != 'MISSING'
+        ORDER BY tg.messageId DESC
+    """)
+    suspend fun telegramSourcesForTrack(
+        accountId: String,
+        trackId: String,
+    ): List<TelegramTrackSourceEntity>
+
+    /** Includes missing occurrences so deletion can be distinguished from an unknown track. */
+    @Query("""
+        SELECT tg.* FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND s.trackId = :trackId
+        ORDER BY tg.messageId DESC
+    """)
+    suspend fun allTelegramSourcesForTrack(
+        accountId: String,
+        trackId: String,
+    ): List<TelegramTrackSourceEntity>
+
+    @Query("""
+        SELECT DISTINCT tg.chatId FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND s.trackId = :trackId
+          AND s.availability != 'MISSING'
+    """)
+    suspend fun availableChatIdsForTrack(accountId: String, trackId: String): List<Long>
+
     @Query("""
         SELECT DISTINCT tg.accountId, tg.chatId, s.trackId
         FROM telegram_track_sources tg

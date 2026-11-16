@@ -241,55 +241,56 @@ class TdLibDownloadRepository @Inject constructor(
         networkPolicy.blockReason(settings, NetworkUse.USER_REQUEST)?.let(::error)
         val accountId = telegramRepository.musicSourceState.value.accountId
             ?: error("Connect Telegram before downloading.")
-        val telegramSource = telegramDao.telegramSourceForTrack(accountId, trackId.toString())
-            ?: return
-        val remoteSource = libraryDao.sourceById(telegramSource.trackSourceId) ?: return
-        if (remoteSource.availability == SourceAvailability.MISSING) {
-            // Durable deletion marker wins over stale WorkManager retries.
-            downloadDao.deleteByTrackId(trackId.toString())
-            return
-        }
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
+        val sources = telegramDao.telegramSourcesForTrack(accountId, trackId.toString())
+        var selected: Pair<TelegramTrackSourceEntity, TelegramAudioCandidate>? = null
 
-        val candidate = if (telegramSource.messageId < 0L) {
-            findTelegramProfileAudio(
-                client, telegramSource.chatId, telegramSource.messageId, telegramSource.tdPersistentFileId,
-            )?.toAudioCandidate(telegramSource.messageId)
-        } else {
-            val message = try {
-                client.send(TdApi.GetMessage(telegramSource.chatId, telegramSource.messageId))
-            } catch (error: TdLibException) {
-                if (isConfirmedMissingTelegramMessage(error.errorCode)) {
-                    // A 404 confirms the original is gone/inaccessible. Do not leave
-                    // a failed entry behind or retry it forever.
-                    libraryDao.updateAvailability(
-                        telegramSource.trackSourceId,
-                        SourceAvailability.MISSING,
-                        Instant.now().toEpochMilli(),
-                    )
-                    downloadDao.deleteByTrackId(trackId.toString())
-                    deletedSources.notifyDeleted(trackId)
-                    return
+        for (source in sources) {
+            val audio = if (source.messageId < 0L) {
+                findTelegramProfileAudio(
+                    client, source.chatId, source.messageId, source.tdPersistentFileId,
+                )?.toAudioCandidate(source.messageId)
+            } else {
+                val message = try {
+                    client.send(TdApi.GetMessage(source.chatId, source.messageId))
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: TdLibException) {
+                    if (isConfirmedMissingTelegramMessage(failure.errorCode)) {
+                        libraryDao.updateAvailability(
+                            source.trackSourceId, SourceAvailability.MISSING, Instant.now().toEpochMilli(),
+                        )
+                        continue
+                    }
+                    throw failure
                 }
-                throw error
+                message.toAudioCandidate()
             }
-            message.toAudioCandidate()
+            if (audio == null) {
+                if (source.messageId > 0L) {
+                    libraryDao.updateAvailability(
+                        source.trackSourceId, SourceAvailability.MISSING, Instant.now().toEpochMilli(),
+                    )
+                }
+                continue
+            }
+            selected = source to audio
+            break
         }
-        if (candidate == null) {
-            // A valid message that no longer contains audio is definitively gone.
-            // Profile lookup can be unavailable because of privacy; retain its
-            // record rather than interpreting every null as a deletion.
-            if (telegramSource.messageId > 0L) {
-                libraryDao.updateAvailability(
-                    telegramSource.trackSourceId, SourceAvailability.MISSING,
-                    Instant.now().toEpochMilli(),
-                )
+
+        val (telegramSource, candidate) = selected ?: run {
+            // Do not delete a shared track/download when another chat still has a valid
+            // source (or when profile-audio access is temporarily unavailable).
+            if (telegramDao.telegramSourcesForTrack(accountId, trackId.toString()).isEmpty()) {
                 downloadDao.deleteByTrackId(trackId.toString())
-                deletedSources.notifyDeleted(trackId)
+                if (telegramDao.allTelegramSourcesForTrack(accountId, trackId.toString()).isNotEmpty()) {
+                    deletedSources.notifyDeleted(trackId)
+                }
                 return
             }
-            error("Telegram profile audio is unavailable; check access and retry.")
+            error("Telegram audio is unavailable from the selected chats; check access and retry.")
         }
+        val remoteSource = libraryDao.sourceById(telegramSource.trackSourceId) ?: return
         telegramDao.upsertTelegramTrackSource(
             telegramSource.copy(
                 tdFileId = candidate.fileId,

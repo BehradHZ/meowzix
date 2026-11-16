@@ -103,54 +103,54 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
 
     override suspend fun isPreviouslyConfirmedMissing(trackId: UUID): Boolean {
         val accountId = telegramRepository.musicSourceState.value.accountId ?: return false
-        val source = telegramDao.telegramSourceForTrack(accountId, trackId.toString()) ?: return false
-        if (libraryDao.sourceById(source.trackSourceId)?.availability != SourceAvailability.MISSING) {
-            return false
-        }
-        // A saved, verified audio copy remains playable independently of Telegram.
-        return cachedLocalTrack(trackId) == null
+        val id = trackId.toString()
+        if (telegramDao.telegramSourcesForTrack(accountId, id).isNotEmpty()) return false
+        // Only mark the logical song gone when *all* its Telegram occurrences are missing.
+        return telegramDao.allTelegramSourcesForTrack(accountId, id).isNotEmpty() &&
+            cachedLocalTrack(trackId) == null
     }
 
     /**
-     * A source read error is not evidence that a song was deleted. Re-query the
-     * original message/profile, and only purge the transfer if it is truly gone
-     * and there is no playable local copy to retain.
+     * Confirm deletion per message. One deleted occurrence must never delete a shared
+     * canonical Track, its download, or its other still-usable chat occurrences.
      */
     override suspend fun confirmDeletedSource(trackId: UUID): Boolean {
         if (cachedLocalTrack(trackId) != null) return false
         val accountId = telegramRepository.musicSourceState.value.accountId ?: return false
-        val source = telegramDao.telegramSourceForTrack(accountId, trackId.toString()) ?: return false
+        val sources = telegramDao.telegramSourcesForTrack(accountId, trackId.toString())
+        if (sources.isEmpty()) return isPreviouslyConfirmedMissing(trackId)
         val client = TdLibClientAdapter.activeOrNull() ?: return false
 
-        val missing = if (source.messageId < 0L) {
-            // A completed profile-audio lookup can confirm removal; network/errors
-            // throw and must never be confused with deletion.
-            try {
-                findTelegramProfileAudio(
-                    client, source.chatId, source.messageId, source.tdPersistentFileId,
-                ) == null
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                false
+        for (source in sources) {
+            val missing = if (source.messageId < 0L) {
+                try {
+                    findTelegramProfileAudio(
+                        client, source.chatId, source.messageId, source.tdPersistentFileId,
+                    ) == null
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    false
+                }
+            } else {
+                try {
+                    client.send(TdApi.GetMessage(source.chatId, source.messageId)).toAudioCandidate() == null
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: TdLibException) {
+                    isConfirmedMissingTelegramMessage(failure.errorCode)
+                } catch (_: Exception) {
+                    false
+                }
             }
-        } else {
-            try {
-                val message = client.send(TdApi.GetMessage(source.chatId, source.messageId))
-                message.toAudioCandidate() == null
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (failure: TdLibException) {
-                isConfirmedMissingTelegramMessage(failure.errorCode)
-            } catch (_: Exception) {
-                false
-            }
+            if (!missing) return false
+            libraryDao.updateAvailability(
+                source.trackSourceId, SourceAvailability.MISSING, Instant.now().toEpochMilli(),
+            )
         }
-        if (!missing) return false
 
-        libraryDao.updateAvailability(
-            source.trackSourceId, SourceAvailability.MISSING, Instant.now().toEpochMilli(),
-        )
+        if (telegramDao.telegramSourcesForTrack(accountId, trackId.toString()).isNotEmpty()) return false
+        if (cachedLocalTrack(trackId) != null) return false
         downloads.discardUnavailableSource(trackId)
         deletedSources.notifyDeleted(trackId)
         return true
@@ -246,33 +246,34 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
      */
     private suspend fun resolveSource(trackId: UUID): ResolvedTelegramSource? {
         val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
-        val telegramSource = telegramDao.telegramSourceForTrack(accountId, trackId.toString()) ?: return null
-        val remoteSource = libraryDao.sourceById(telegramSource.trackSourceId) ?: return null
-        if (remoteSource.availability == SourceAvailability.MISSING) return null
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
+        for (telegramSource in telegramDao.telegramSourcesForTrack(accountId, trackId.toString())) {
+            val remoteSource = libraryDao.sourceById(telegramSource.trackSourceId) ?: continue
 
-        telegramSource.tdFileId?.let { persistedFileId ->
-            val persisted = runCatching { client.seedFileState(persistedFileId) }.getOrNull()
-            // Numeric TDLib IDs can be reused after reconnecting. Never bind a
-            // playable song to an ID without verifying its stable file identity.
-            if (persisted != null && matchesTelegramFileIdentity(
-                    telegramSource.tdPersistentFileId,
-                    persisted.remote.uniqueId,
-                )
-            ) {
-                return ResolvedTelegramSource(
-                    telegramTrackSourceId = telegramSource.trackSourceId,
-                    remoteSource = remoteSource,
-                    candidate = persistedCandidate(trackId, telegramSource, remoteSource, persistedFileId),
-                )
+            telegramSource.tdFileId?.let { persistedFileId ->
+                val persisted = runCatching { client.seedFileState(persistedFileId) }.getOrNull()
+                // Numeric TDLib IDs can be reused after reconnecting. The remote unique
+                // file ID must still match before using cached state.
+                if (persisted != null && matchesTelegramFileIdentity(
+                        telegramSource.tdPersistentFileId, persisted.remote.uniqueId,
+                    )
+                ) {
+                    return ResolvedTelegramSource(
+                        telegramTrackSourceId = telegramSource.trackSourceId,
+                        remoteSource = remoteSource,
+                        candidate = persistedCandidate(trackId, telegramSource, remoteSource, persistedFileId),
+                    )
+                }
             }
-        }
 
-        return if (telegramSource.messageId < 0L) {
-            refreshSourceFromProfile(trackId, telegramSource, remoteSource, client)
-        } else {
-            refreshSourceFromMessage(trackId, telegramSource, remoteSource, client)
+            val refreshed = if (telegramSource.messageId < 0L) {
+                refreshSourceFromProfile(trackId, telegramSource, remoteSource, client)
+            } else {
+                refreshSourceFromMessage(trackId, telegramSource, remoteSource, client)
+            }
+            if (refreshed != null) return refreshed
         }
+        return null
     }
 
     private suspend fun refreshSourceFromProfile(
@@ -303,9 +304,22 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         remoteSource: TrackSourceEntity,
         client: TdLibClientAdapter,
     ): ResolvedTelegramSource? {
-        val message = runCatching {
+        val message = try {
             client.send(TdApi.GetMessage(telegramSource.chatId, telegramSource.messageId))
-        }.getOrNull() ?: return null
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: TdLibException) {
+            if (isConfirmedMissingTelegramMessage(failure.errorCode)) {
+                libraryDao.updateAvailability(
+                    telegramSource.trackSourceId,
+                    SourceAvailability.MISSING,
+                    Instant.now().toEpochMilli(),
+                )
+            }
+            return null
+        } catch (_: Exception) {
+            return null
+        }
         val candidate = message.toAudioCandidate()
         if (candidate == null) {
             libraryDao.updateAvailability(
