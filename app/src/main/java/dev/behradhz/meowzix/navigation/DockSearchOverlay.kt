@@ -25,6 +25,7 @@ import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.feature.library.SwipeableLibraryTrackRow
+import dev.behradhz.meowzix.feature.library.SwipeableCollectionRow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -77,6 +78,10 @@ internal fun DockSearchOverlay(
     onGoToArtist: (Track) -> Unit,
     onEnsureArtwork: (Track) -> Unit,
     onTrackInteracted: (Track) -> Unit,
+    onPlayNextArtist: (ArtistSummary) -> Unit,
+    onQueueArtist: (ArtistSummary) -> Unit,
+    onPlayNextAlbum: (AlbumSummary) -> Unit,
+    onQueueAlbum: (AlbumSummary) -> Unit,
     onOpenArtist: (ArtistSummary) -> Unit,
     onOpenAlbum: (AlbumSummary) -> Unit,
     onOpenPlaylist: (PlaylistSummary) -> Unit,
@@ -144,39 +149,6 @@ internal fun DockSearchOverlay(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        if (artistResults.isNotEmpty()) {
-                            item(key = "artists-header") { SearchCategoryHeading("Artists") }
-                            items(artistResults, key = { "artist:${it.normalizedName}" }) { artist ->
-                                SearchEntityRow(
-                                    title = artist.name,
-                                    subtitle = "${artist.trackCount} songs",
-                                    symbol = { Icon(Icons.Rounded.Person, contentDescription = null) },
-                                    onClick = { onOpenArtist(artist) },
-                                )
-                            }
-                        }
-                        if (albumResults.isNotEmpty()) {
-                            item(key = "albums-header") { SearchCategoryHeading("Albums") }
-                            items(albumResults, key = { "album:${it.name}:${it.normalizedArtist}" }) { album ->
-                                SearchEntityRow(
-                                    title = album.name,
-                                    subtitle = album.artist,
-                                    symbol = { Icon(Icons.Rounded.Album, contentDescription = null) },
-                                    onClick = { onOpenAlbum(album) },
-                                )
-                            }
-                        }
-                        if (playlistResults.isNotEmpty()) {
-                            item(key = "playlists-header") { SearchCategoryHeading("Playlists") }
-                            items(playlistResults, key = { "playlist:${it.id}" }) { playlist ->
-                                SearchEntityRow(
-                                    title = playlist.title,
-                                    subtitle = "${playlist.trackCount} songs",
-                                    symbol = { Icon(Icons.Rounded.PlaylistPlay, contentDescription = null) },
-                                    onClick = { onOpenPlaylist(playlist) },
-                                )
-                            }
-                        }
                         if (libraryResults.isNotEmpty()) {
                             item(key = "songs-header") { SearchCategoryHeading("Songs") }
                             items(libraryResults, key = { "track:${it.id}" }) { track ->
@@ -201,6 +173,44 @@ internal fun DockSearchOverlay(
                                 )
                             }
                         }
+                        if (artistResults.isNotEmpty()) {
+                            item(key = "artists-header") { SearchCategoryHeading("Artists") }
+                            items(artistResults, key = { "artist:${it.normalizedName}" }) { artist ->
+                                SwipeableCollectionRow(
+                                    title = artist.name,
+                                    subtitle = "${artist.trackCount} songs",
+                                    icon = Icons.Rounded.Person,
+                                    onClick = { onOpenArtist(artist) },
+                                    onPlayNext = { onPlayNextArtist(artist) },
+                                    onAddToQueue = { onQueueArtist(artist) },
+                                )
+                            }
+                        }
+                        if (albumResults.isNotEmpty()) {
+                            item(key = "albums-header") { SearchCategoryHeading("Albums") }
+                            items(albumResults, key = { "album:${it.name}:${it.normalizedArtist}" }) { album ->
+                                SwipeableCollectionRow(
+                                    title = album.name,
+                                    subtitle = "${album.artist} · ${album.trackCount} songs",
+                                    icon = Icons.Rounded.Album,
+                                    onClick = { onOpenAlbum(album) },
+                                    onPlayNext = { onPlayNextAlbum(album) },
+                                    onAddToQueue = { onQueueAlbum(album) },
+                                )
+                            }
+                        }
+                        if (playlistResults.isNotEmpty()) {
+                            item(key = "playlists-header") { SearchCategoryHeading("Playlists") }
+                            items(playlistResults, key = { "playlist:${it.id}" }) { playlist ->
+                                SearchEntityRow(
+                                    title = playlist.title,
+                                    subtitle = "${playlist.trackCount} songs",
+                                    symbol = { Icon(Icons.Rounded.PlaylistPlay, contentDescription = null) },
+                                    onClick = { onOpenPlaylist(playlist) },
+                                )
+                            }
+                        }
+
                     }
                 }
             }

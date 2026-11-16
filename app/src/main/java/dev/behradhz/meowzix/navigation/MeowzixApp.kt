@@ -95,6 +95,7 @@ import dev.behradhz.meowzix.feature.library.LibraryRoute
 import dev.behradhz.meowzix.feature.library.PlaylistsRoute
 import dev.behradhz.meowzix.data.repository.AlbumSummary
 import dev.behradhz.meowzix.feature.library.LibraryViewModel
+import dev.behradhz.meowzix.feature.library.LibraryTracksViewModel
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.profile.SettingsRoute
 import dev.behradhz.meowzix.feature.queue.QueueRoute
@@ -142,6 +143,7 @@ fun MeowzixApp(
     val hazeState = rememberHazeState()
     val morphingPlayerState = rememberMorphingPlayerState()
     val libraryViewModel: LibraryViewModel = hiltViewModel()
+    val libraryTracksViewModel: LibraryTracksViewModel = hiltViewModel()
     val searchViewModel: SearchViewModel = hiltViewModel()
     val telegramProxyViewModel: TelegramAuthViewModel = hiltViewModel()
     val proxyState by telegramProxyViewModel.proxyState.collectAsStateWithLifecycle()
@@ -492,6 +494,10 @@ fun MeowzixApp(
                     },
                     onEnsureArtwork = libraryViewModel::ensureArtwork,
                     onTrackInteracted = { track -> libraryViewModel.markNewTrackSeen(track.id) },
+                    onPlayNextArtist = { artist -> libraryTracksViewModel.queueArtist(artist, next = true) },
+                    onQueueArtist = { artist -> libraryTracksViewModel.queueArtist(artist, next = false) },
+                    onPlayNextAlbum = { album -> libraryTracksViewModel.queueAlbum(album, next = true) },
+                    onQueueAlbum = { album -> libraryTracksViewModel.queueAlbum(album, next = false) },
                     onOpenArtist = { artist ->
                         pendingArtist = artist.name
                         navigateTopLevel(LIBRARY_ROUTE)
