@@ -112,9 +112,6 @@ import dev.behradhz.meowzix.ui.components.TRACK_CARD_ALPHA
 import dev.behradhz.meowzix.ui.components.TRACK_ROW_HORIZONTAL_PADDING
 import dev.behradhz.meowzix.ui.components.TRACK_ROW_VERTICAL_PADDING
 import dev.behradhz.meowzix.ui.components.TRACK_ROW_SPACING
-import dev.behradhz.meowzix.ui.components.TRACK_SWIPE_ACTION_THRESHOLD
-import dev.behradhz.meowzix.ui.components.TRACK_SWIPE_REMOVE_THRESHOLD
-import dev.behradhz.meowzix.ui.components.TRACK_SWIPE_MAX_DISTANCE
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
 import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
@@ -718,16 +715,13 @@ private fun GroupQueueHeader(
     var swipeX by remember(group.id) { mutableFloatStateOf(0f) }
     var horizontalDrag by remember(group.id) { mutableStateOf(false) }
     val density = LocalDensity.current
-    val actionThreshold = with(density) { TRACK_SWIPE_ACTION_THRESHOLD.toPx() }
-    val removeThreshold = with(density) { TRACK_SWIPE_REMOVE_THRESHOLD.toPx() }
+    val actionThreshold = with(density) { 75.dp.toPx() }
+    val removeThreshold = with(density) { 150.dp.toPx() }
     val haptics = rememberMeowzixHaptics()
-    val maximumSwipe = with(density) { TRACK_SWIPE_MAX_DISTANCE.toPx() }
+    val maximumSwipe = with(density) { 300.dp.toPx() }
     val animatedSwipeX by animateFloatAsState(
         targetValue = swipeX,
-        animationSpec = if (horizontalDrag) snap() else spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow,
-        ),
+        animationSpec = if (horizontalDrag) snap() else tween(190),
         label = "group-swipe",
     )
     val swipingRight = animatedSwipeX > 0f
@@ -762,7 +756,7 @@ private fun GroupQueueHeader(
                         onDragEnd = {
                             val released = swipeX
                             horizontalDrag = false
-                            swipeX = 0f // settle with spring, even when the action doesn't remove the row
+                            swipeX = 0f // settle with the original 190ms tween
                             when (queueSwipeActionForOffset(released, actionThreshold, removeThreshold)) {
                                 QueueSwipeAction.REMOVE -> onRemove()
                                 QueueSwipeAction.PLAY_NEXT -> onMoveToFront()
@@ -918,18 +912,15 @@ private fun SwipeableQueueItem(
     }
     val density = LocalDensity.current
     val haptics = rememberMeowzixHaptics()
-    val actionThreshold = with(density) { TRACK_SWIPE_ACTION_THRESHOLD.toPx() }
-    val removeThreshold = with(density) { TRACK_SWIPE_REMOVE_THRESHOLD.toPx() }
-    val maximumSwipe = with(density) { TRACK_SWIPE_MAX_DISTANCE.toPx() }
+    val actionThreshold = with(density) { 75.dp.toPx() }
+    val removeThreshold = with(density) { 150.dp.toPx() }
+    val maximumSwipe = with(density) { 300.dp.toPx() }
     var swipeOffsetX by remember(item.occurrenceId) { mutableFloatStateOf(0f) }
     var swipeStage by remember(item.occurrenceId) { mutableIntStateOf(0) }
     var horizontalDragActive by remember(item.occurrenceId) { mutableStateOf(false) }
     val visualOffsetX by animateFloatAsState(
         targetValue = swipeOffsetX,
-        animationSpec = if (horizontalDragActive) snap() else spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow,
-        ),
+        animationSpec = if (horizontalDragActive) snap() else tween(190),
         label = "queue-two-stage-swipe",
     )
     val swipingRight = visualOffsetX >= 0f
