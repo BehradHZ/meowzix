@@ -332,6 +332,7 @@ internal fun PlaylistDetailScreenV3(
     artworkRef: String?,
     editable: Boolean,
     isFavorites: Boolean,
+    searchQuery: String = "",
     newTrackIds: Set<UUID> = emptySet(),
     reduceMotion: Boolean = false,
     onNewSongsToggle: (Boolean) -> Unit = {},
@@ -453,22 +454,30 @@ internal fun PlaylistDetailScreenV3(
             PlaylistTrackSort.MODIFIED -> tracks.sortedBy(Track::updatedAt).let { if (ascending) it else it.reversed() }
         }
     }
+    val visibleTracks = remember(sortedTracks, searchQuery) { filterPlaylistTracks(sortedTracks, searchQuery) }
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isNotBlank()) {
+            selectedIds = emptySet()
+            // Move matches above the keyboard, without changing the saved playlist order.
+            listState.scrollToItem(3)
+        }
+    }
     val selectedTracks = sortedTracks.filter { it.id in selectedIds }
     val selectedToLibrary = selectedTracks.filterNot { it.id in libraryTrackIds }
     val selectedInLibrary = selectedTracks.filter { it.id in libraryTrackIds }
     val grouped: List<Pair<String?, List<Track>>> = remember(
-        sortedTracks, groupBy, showProfileSections, profileTrackIds, messageTrackIds,
+        visibleTracks, groupBy, showProfileSections, profileTrackIds, messageTrackIds, searchQuery,
     ) {
         if (showProfileSections) listOf(
-            "Profile music" to sortedTracks.filter { it.id in profileTrackIds },
-            "Shared in chat" to sortedTracks.filter { it.id in messageTrackIds },
-        ) else when (groupBy) {
-            PlaylistGroupBy.NONE -> listOf<String?>(null).map { it to sortedTracks }
-            PlaylistGroupBy.ARTIST -> sortedTracks.groupBy { it.artist?.takeIf(String::isNotBlank) ?: "Unknown artist" }
+            "Profile music" to visibleTracks.filter { it.id in profileTrackIds },
+            "Shared in chat" to visibleTracks.filter { it.id in messageTrackIds },
+        ).filter { searchQuery.isBlank() || it.second.isNotEmpty() } else when (groupBy) {
+            PlaylistGroupBy.NONE -> listOf<String?>(null).map { it to visibleTracks }
+            PlaylistGroupBy.ARTIST -> visibleTracks.groupBy { it.artist?.takeIf(String::isNotBlank) ?: "Unknown artist" }
                 .toSortedMap(String.CASE_INSENSITIVE_ORDER).toList()
-            PlaylistGroupBy.ALBUM -> sortedTracks.groupBy { it.album?.takeIf(String::isNotBlank) ?: "Unknown album" }
+            PlaylistGroupBy.ALBUM -> visibleTracks.groupBy { it.album?.takeIf(String::isNotBlank) ?: "Unknown album" }
                 .toSortedMap(String.CASE_INSENSITIVE_ORDER).toList()
-            PlaylistGroupBy.YEAR -> sortedTracks.groupBy { it.year?.toString() ?: "Unknown year" }
+            PlaylistGroupBy.YEAR -> visibleTracks.groupBy { it.year?.toString() ?: "Unknown year" }
                 .toSortedMap(compareByDescending<String> { it.toIntOrNull() ?: Int.MIN_VALUE }).toList()
         }
     }
@@ -591,8 +600,8 @@ internal fun PlaylistDetailScreenV3(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             if (selectionMode) TextButton(
-                                enabled = tracks.isNotEmpty(),
-                                onClick = { selectedIds = tracks.map(Track::id).toSet() },
+                                enabled = visibleTracks.isNotEmpty(),
+                                onClick = { selectedIds = visibleTracks.map(Track::id).toSet() },
                             ) { Text("Select all") }
                             TextButton(onClick = {
                                 selectionMode = !selectionMode
@@ -701,17 +710,36 @@ internal fun PlaylistDetailScreenV3(
                 )
             }
 
+            if (searchQuery.isNotBlank()) {
+                item(key = "playlist-filter-status") {
+                    Text(
+                        "${visibleTracks.size} matching songs",
+                        modifier = Modifier.padding(start = 4.dp).testTag("playlist-filter-count"),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             errorMessage?.let { message ->
                 item(key = "playlist-error") {
                     Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            if (editable && !selectionMode && sort == PlaylistTrackSort.CUSTOM && tracks.isNotEmpty()) {
+            if (editable && !selectionMode && searchQuery.isBlank() && sort == PlaylistTrackSort.CUSTOM && tracks.isNotEmpty()) {
                 item(key = "reorder-hint") {
                     Text("Hold the handle to reorder", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
                 }
             }
-            if (sortedTracks.isEmpty() && !showProfileSections) {
+            if (searchQuery.isNotBlank() && visibleTracks.isEmpty()) {
+                item(key = "playlist-no-search-results") {
+                    Text(
+                        "No songs match “${searchQuery.trim()}”",
+                        modifier = Modifier.padding(24.dp).testTag("playlist-search-empty"),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            } else if (sortedTracks.isEmpty() && !showProfileSections) {
                 item(key = "playlist-empty") {
                     PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth()) {
                         Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -724,7 +752,7 @@ internal fun PlaylistDetailScreenV3(
                         }
                     }
                 }
-            } else if (!showProfileSections && sort == PlaylistTrackSort.CUSTOM && groupBy == PlaylistGroupBy.NONE) {
+            } else if (searchQuery.isBlank() && !showProfileSections && sort == PlaylistTrackSort.CUSTOM && groupBy == PlaylistGroupBy.NONE) {
                 itemsIndexed(customTracks, key = { _, track -> "track:${track.id}" }) { index, track ->
                     val isDragging = draggedTrackId == track.id
                     Row(
@@ -911,7 +939,7 @@ internal fun PlaylistDetailScreenV3(
                             }
                         }
                     }
-                    if (showProfileSections && groupTracks.isEmpty()) {
+                    if (showProfileSections && groupTracks.isEmpty() && searchQuery.isBlank()) {
                         item(key = "empty:$groupTitle") {
                             Text(
                                 if (groupTitle == "Profile music") "No music visible on this profile" else "No music shared in this chat",

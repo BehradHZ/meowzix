@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.core.model.Track
+import dev.behradhz.meowzix.feature.search.matchesGlobalSearch
 import java.util.UUID
 
 private const val FAVORITES_KEY = "favorites"
@@ -92,6 +93,7 @@ fun PlaylistsRoute(
     viewModel: LibraryViewModel,
     onOpenNowPlaying: () -> Unit,
     onGoToArtist: (String) -> Unit,
+    searchQuery: String = "",
     requestedPlaylistId: UUID? = null,
     onPlaylistRequestConsumed: () -> Unit = {},
     reduceMotion: Boolean = false,
@@ -125,7 +127,9 @@ fun PlaylistsRoute(
         onGridSettled = viewModel::resetNavigationState,
         gridContent = {
             PlaylistsSectionV3(
-                playlists = state.playlists,
+                playlists = if (searchQuery.isBlank()) state.playlists else state.playlists.filter {
+                    matchesGlobalSearch(searchQuery, it.title, it.description)
+                },
                 playlistArtwork = state.playlistArtwork,
                 newTracksByPlaylist = if (state.highlightNewTelegramTracks) state.newTelegramTracksByPlaylist else emptyMap(),
                 reduceMotion = reduceMotion,
@@ -155,6 +159,7 @@ fun PlaylistsRoute(
                 playlist = playlist,
                 title = if (favorites) "Favorites" else playlist?.title ?: "Playlist",
                 tracks = tracks,
+                searchQuery = searchQuery,
                 artworkRef = playlist?.artworkRef
                     ?: playlistId?.let(state.playlistArtwork::get)
                     ?: tracks.firstOrNull()?.artworkRef,

@@ -180,6 +180,7 @@ fun MeowzixApp(
     val searchActive = searchContextRoute != null
     val searchScope = when (searchContextRoute) {
         LIBRARY_ROUTE -> DockSearchScope.LIBRARY
+        PLAYLISTS_ROUTE -> DockSearchScope.PLAYLIST
         QUEUE_ROUTE -> DockSearchScope.QUEUE
         else -> DockSearchScope.GLOBAL
     }
@@ -408,6 +409,7 @@ fun MeowzixApp(
             composable(PLAYLISTS_ROUTE) {
                 PlaylistsRoute(
                     viewModel = libraryViewModel,
+                    searchQuery = if (searchActive && searchScope == DockSearchScope.PLAYLIST) searchQuery else "",
                     onOpenNowPlaying = { morphingPlayerState.expand() },
                     onGoToArtist = { artist ->
                         pendingArtist = artist
@@ -466,12 +468,30 @@ fun MeowzixApp(
                     artistResults = searchArtists,
                     albumResults = searchAlbums,
                     playlistResults = searchPlaylists,
+                    allPlaylists = libraryState.playlists,
+                    libraryAvailability = libraryState.availability,
+                    downloads = libraryState.downloads,
                     queueState = queueState,
                     currentTrackId = playbackState.currentTrack?.id,
                     onPlayLibraryTrack = { track ->
                         clearSearchState()
                         libraryViewModel.playLibrarySearchTrack(track)
                     },
+                    onPlayNext = libraryViewModel::playNext,
+                    onAddToQueue = libraryViewModel::addToQueue,
+                    onPinOffline = libraryViewModel::pinOffline,
+                    onRemoveOfflineCopy = libraryViewModel::removeOfflineCopy,
+                    onRemoveTrack = libraryViewModel::removeTrack,
+                    onFavorite = libraryViewModel::setFavorite,
+                    onAddToPlaylist = libraryViewModel::addToPlaylist,
+                    onGoToArtist = { track ->
+                        track.artist?.takeIf(String::isNotBlank)?.let { artist ->
+                            pendingArtist = artist
+                            navigateTopLevel(LIBRARY_ROUTE)
+                        }
+                    },
+                    onEnsureArtwork = libraryViewModel::ensureArtwork,
+                    onTrackInteracted = { track -> libraryViewModel.markNewTrackSeen(track.id) },
                     onOpenArtist = { artist ->
                         pendingArtist = artist.name
                         navigateTopLevel(LIBRARY_ROUTE)
@@ -511,6 +531,7 @@ fun MeowzixApp(
                         searchQuery = ""
                         searchContextRoute = when (currentRoute) {
                             LIBRARY_ROUTE -> LIBRARY_ROUTE
+                            PLAYLISTS_ROUTE -> PLAYLISTS_ROUTE
                             QUEUE_ROUTE -> QUEUE_ROUTE
                             else -> HOME_ROUTE
                         }
