@@ -63,6 +63,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackGainCoordinator
 import dev.behradhz.meowzix.domain.playback.PlaybackGainState
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueActionKind
@@ -93,6 +94,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -279,6 +281,9 @@ class PlaybackService : MediaLibraryService() {
     private var remoteFallbackMediaId: String? = null
     private var retryCount = 0
     private var isRestoring = true
+    // Keep the complete saved logical queue durable until background hydration commits.
+    private var pendingDeferredQueueRestore: PersistedPlaybackSession? = null
+    private var deferredQueueRestoreJob: Job? = null
     private var isChangingQueueCycle = false
     private var isExpandingWindow = false
     private var currentFavorite = false
@@ -2459,77 +2464,166 @@ class PlaybackService : MediaLibraryService() {
                 else -> RepeatMode.OFF
             }
 
+    /**
+     * Phase 1: publish the saved (small) Media3 window immediately. This prepares
+     * the active song and makes its metadata visible without reading the Catalog.
+     * Phase 2 runs after that initial player/UI update and resolves only saved
+     * logical IDs, prioritizing the next ten and previous three.
+     */
     private suspend fun restoreSession() {
-        val saved = stateStore.load()
+        // Codec decoding and merge-journal reads must not run on the UI thread.
+        val saved = withContext(Dispatchers.IO) { stateStore.load() }
         if (player.mediaItemCount != 0 || saved.items.isEmpty()) {
             isRestoring = false
             return
         }
-
-        val logicalIds = saved.logicalMediaIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
-        val restoredProgressive = if (logicalIds.isNotEmpty()) {
-            val available = runCatching { playbackCatalog.availableTracks().associateBy { it.id } }.getOrNull()
-            available != null && progressiveQueue.restore(
-                orderedTrackIds = logicalIds,
-                availableTracks = available,
-                requestedCurrentIndex = saved.logicalCurrentIndex,
-                requestedMaterializedStartIndex = saved.materializedStartIndex,
-                requestedMaterializedEndExclusive = saved.materializedEndExclusive,
-                mode = saved.playbackMode,
-                repeat = saved.repeatMode,
-                seed = saved.shuffleSeed,
-                requestedOrigins = saved.logicalOrigins,
-                requestedOccurrenceIds = saved.logicalOccurrenceIds.mapNotNull {
-                    runCatching { UUID.fromString(it) }.getOrNull()
-                }.takeIf { it.size == saved.logicalMediaIds.size },
-                requestedGroupIds = saved.logicalGroupIds.map { id ->
-                    id?.let { runCatching { UUID.fromString(it) }.getOrNull() }
-                }.takeIf { it.size == saved.logicalMediaIds.size },
-                requestedGroups = saved.logicalGroups.mapNotNull {
-                    runCatching {
-                        dev.behradhz.meowzix.domain.playback.QueueGroup(
-                            UUID.fromString(it.id),
-                            dev.behradhz.meowzix.domain.playback.QueueGroupKind.valueOf(it.kind),
-                            it.title,
-                        )
-                    }.getOrNull()
-                },
-                sourceIds = saved.sourceMediaIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() },
-                pendingIds = saved.pendingMediaIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() },
-                generatedStartedCount = saved.generatedStarted,
-                nextGenerationThreshold = saved.nextGenerationAt,
-            )
-        } else {
-            false
+        val initial = saved.items.mapIndexed { windowIndex, item ->
+            val logicalIndex = saved.materializedStartIndex + windowIndex
+            val occurrence = saved.logicalOccurrenceIds.getOrNull(logicalIndex)
+                ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            item.toMediaItem(saved.playbackMode, saved.repeatMode, occurrence)
         }
-
-        if (restoredProgressive) {
-            if (!progressiveQueue.updateCurrentFromWindowIndex(saved.currentIndex)) {
-                progressiveQueue.updateCurrent(saved.items.getOrNull(saved.currentIndex)?.mediaId)
+        // The Media3 restore snapshot already contains the currently playing URI.
+        // Do not wait for Room or re-prepare this item when the Queue is hydrated.
+        player.repeatMode = saved.repeatMode.toPlayerRepeatMode(progressive = false)
+        player.setMediaItems(initial, saved.currentIndex.coerceIn(initial.indices), saved.positionMs)
+        player.prepare()
+        if (saved.logicalMediaIds.isNotEmpty()) {
+            pendingDeferredQueueRestore = saved
+            deferredQueueRestoreJob?.cancel()
+            deferredQueueRestoreJob = serviceScope.launch {
+                // Let the newly prepared track, controller and first UI frame run first.
+                delay(250L)
+                try {
+                    restoreLogicalQueueAfterInitialPlayback(saved)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // Never destroy the saved full Queue on a temporary DB failure.
+                    Log.w(TAG, "Deferred Queue restore failed; preserving saved session", error)
+                }
             }
-            val plan = progressiveQueue.resetWindow()
-            player.repeatMode = saved.repeatMode.toPlayerRepeatMode(progressive = true)
-            player.setMediaItems(
-                requireNotNull(progressiveQueue.snapshot()).mediaItems(),
-                plan.startIndexInWindow,
-                saved.positionMs,
-            )
-            player.prepare()
-        } else {
-            progressiveQueue.clear()
-            player.repeatMode = saved.repeatMode.toPlayerRepeatMode(progressive = false)
-            player.setMediaItems(
-                saved.items.map { it.toMediaItem(saved.playbackMode, saved.repeatMode) },
-                saved.currentIndex,
-                saved.positionMs,
-            )
-            player.prepare()
         }
         isRestoring = false
     }
 
+    private fun savedWindowStillActive(saved: PersistedPlaybackSession): Boolean =
+        pendingDeferredQueueRestore === saved &&
+            progressiveQueue.snapshot() == null &&
+            activeCrossfade == null &&
+            currentPlaybackMode() == saved.playbackMode &&
+            currentRepeatMode() == saved.repeatMode &&
+            persistedWindowMatches(saved, (0 until player.mediaItemCount).map { index ->
+                val item = player.getMediaItemAt(index)
+                item.mediaId to item.localConfiguration?.uri?.toString()
+            })
+
+    private suspend fun restoreLogicalQueueAfterInitialPlayback(saved: PersistedPlaybackSession) {
+        val plan = withContext(Dispatchers.Default) { DeferredQueueRestorePlan.from(saved) }
+            ?: return
+
+        // All Room/source work is off-main. The saved Media3 window remains usable
+        // throughout, including seek, pause and ordinary Next/Previous navigation.
+        val available = withContext(Dispatchers.IO) {
+            val resolved = LinkedHashMap<UUID, PlayableTrack>()
+            for (batch in plan.batches) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                playbackCatalog.availableTracks(batch).forEach { resolved[it.id] = it }
+            }
+            resolved
+        }
+
+        if (pendingDeferredQueueRestore !== saved) return
+        if (!savedWindowStillActive(saved)) {
+            // User replaced/reordered the playback timeline during hydration.
+            // Their new session wins over this stale disk snapshot.
+            pendingDeferredQueueRestore = null
+            schedulePersist()
+            return
+        }
+
+        val windowIndex = player.currentMediaItemIndex
+        val originalIndex = saved.materializedStartIndex + windowIndex
+        val currentId = plan.logicalIds.getOrNull(originalIndex) ?: return
+        if (player.currentMediaItem?.mediaId != currentId.toString()) return
+
+        // Keep saved window positions stable even if a cached source disappeared.
+        // Their last playable URI is already in Media3; normal missing-source
+        // handling can skip/fallback when that occurrence is actually selected.
+        saved.items.forEach { item ->
+            val id = runCatching { UUID.fromString(item.mediaId) }.getOrNull()
+                ?: return@forEach
+            available.putIfAbsent(id, PlayableTrack(
+                id = id,
+                title = item.title,
+                artist = item.artist,
+                album = null,
+                durationMs = item.durationMs,
+                artworkRef = item.artworkUri,
+                contentUri = item.uri,
+            ))
+        }
+        if (currentId !in available) return
+
+        val restored = progressiveQueue.restore(
+            orderedTrackIds = plan.logicalIds,
+            availableTracks = available,
+            requestedCurrentIndex = originalIndex,
+            requestedMaterializedStartIndex = saved.materializedStartIndex,
+            requestedMaterializedEndExclusive = saved.materializedEndExclusive,
+            mode = saved.playbackMode,
+            repeat = saved.repeatMode,
+            seed = saved.shuffleSeed,
+            requestedOrigins = saved.logicalOrigins,
+            requestedOccurrenceIds = saved.logicalOccurrenceIds.mapNotNull {
+                runCatching { UUID.fromString(it) }.getOrNull()
+            }.takeIf { it.size == saved.logicalMediaIds.size },
+            requestedGroupIds = saved.logicalGroupIds.map { id ->
+                id?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            }.takeIf { it.size == saved.logicalMediaIds.size },
+            requestedGroups = saved.logicalGroups.mapNotNull {
+                runCatching {
+                    dev.behradhz.meowzix.domain.playback.QueueGroup(
+                        UUID.fromString(it.id),
+                        dev.behradhz.meowzix.domain.playback.QueueGroupKind.valueOf(it.kind),
+                        it.title,
+                    )
+                }.getOrNull()
+            },
+            sourceIds = saved.sourceMediaIds.mapNotNull {
+                runCatching { UUID.fromString(it) }.getOrNull()
+            },
+            pendingIds = saved.pendingMediaIds.mapNotNull {
+                runCatching { UUID.fromString(it) }.getOrNull()
+            },
+            generatedStartedCount = saved.generatedStarted,
+            nextGenerationThreshold = saved.nextGenerationAt,
+        )
+        if (!restored) return
+        val snapshot = progressiveQueue.snapshot()
+        if (snapshot?.tracks?.getOrNull(snapshot.currentIndex)?.id != currentId) {
+            progressiveQueue.clear()
+            return
+        }
+
+        pendingDeferredQueueRestore = null
+        lastTransitionOccurrenceId = snapshot.occurrenceIds.getOrNull(snapshot.currentIndex)
+        // This only replaces upcoming items. It never resets Media3's current item,
+        // playWhenReady, playback position or audio decoder.
+        syncProgressiveFutureInPlace()
+        refreshMediaButtons()
+        refreshPlaybackWidget()
+        schedulePersist()
+    }
+
     private fun schedulePersist() {
         if (isRestoring) return
+        pendingDeferredQueueRestore?.let { saved ->
+            if (savedWindowStillActive(saved)) return
+            // An explicit user edit supersedes unfinished disk restoration.
+            pendingDeferredQueueRestore = null
+            deferredQueueRestoreJob?.cancel()
+        }
         persistJob?.cancel()
         persistJob = serviceScope.launch {
             delay(PERSIST_DEBOUNCE_MS)

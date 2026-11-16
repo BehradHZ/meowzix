@@ -54,6 +54,7 @@ internal fun MediaItem.queueOccurrenceId(): UUID? =
 fun PersistedPlaybackItem.toMediaItem(
     playbackMode: PlaybackMode = PlaybackMode.ORDERED,
     repeatMode: RepeatMode = RepeatMode.OFF,
+    occurrenceId: UUID? = null,
 ): MediaItem = MediaItem.Builder()
     .setMediaId(mediaId)
     .setUri(uri)
@@ -64,7 +65,7 @@ fun PersistedPlaybackItem.toMediaItem(
             .setArtworkUri(artworkUri?.let(Uri::parse))
             .setDurationMs(durationMs)
             .setIsPlayable(true)
-            .setExtras(queuePolicyBundle(playbackMode, repeatMode))
+            .setExtras(queuePolicyBundle(playbackMode, repeatMode, occurrenceId))
             .build(),
     )
     .build()

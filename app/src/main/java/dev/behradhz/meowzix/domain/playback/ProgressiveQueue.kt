@@ -170,9 +170,11 @@ class ProgressiveQueue @Inject constructor() {
         val restoredOrigins = requestedOrigins ?: QueueProvenanceRestoreHints.consume(orderedTrackIds)
         // Missing provenance must never mark all future tracks as manually queued.
         val fallbackOrigin = QueueItemOrigin.GENERATED
-        val restored = orderedTrackIds.mapIndexedNotNull { index, id ->
+        // Missing earlier songs must not silently shift the restored cursor
+        // to a different Queue occurrence.
+        val indexedRestored = orderedTrackIds.mapIndexedNotNull { index, id ->
             availableTracks[id]?.let { track ->
-                RestoredEntry(
+                index to RestoredEntry(
                     track,
                     restoredOrigins?.getOrNull(index) ?: fallbackOrigin,
                     requestedOccurrenceIds?.getOrNull(index) ?: UUID.randomUUID(),
@@ -180,6 +182,7 @@ class ProgressiveQueue @Inject constructor() {
                 )
             }
         }
+        val restored = indexedRestored.map { it.second }
         if (restored.isEmpty()) {
             clearLocked()
             return false
@@ -198,15 +201,19 @@ class ProgressiveQueue @Inject constructor() {
         requestedGroups.filter { it.id in groupIds }.forEach { groups[it.id] = it }
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
-        currentIndex = requestedCurrentIndex.coerceIn(tracks.indices)
+        val requested = requestedCurrentIndex.coerceIn(orderedTrackIds.indices)
+        currentIndex = indexedRestored.indexOfFirst { it.first == requested }.takeIf { it >= 0 }
+            ?: indexedRestored.indexOfFirst { it.first > requested }.takeIf { it >= 0 }
+            ?: tracks.lastIndex
         for (index in currentIndex + 1 until tracks.size) {
             if (origins[index] == QueueItemOrigin.MANUAL) fixedOccurrences += occurrenceIds[index]
         }
         // Previous entries belong to history. Preserve explicit provenance on
         // the selected entry, but never treat it as a pending fixed occurrence.
         for (index in 0 until currentIndex) origins[index] = QueueItemOrigin.GENERATED
-        materializedStartIndex = requestedMaterializedStartIndex.coerceIn(0, currentIndex)
-        materializedEndExclusive = requestedMaterializedEndExclusive
+        materializedStartIndex = indexedRestored.count { it.first < requestedMaterializedStartIndex }
+            .coerceIn(0, currentIndex)
+        materializedEndExclusive = indexedRestored.count { it.first < requestedMaterializedEndExclusive }
             .coerceIn(currentIndex + 1, tracks.size)
         playbackMode = mode
         repeatMode = repeat

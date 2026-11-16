@@ -64,6 +64,45 @@ class QueuePlaybackRecoveryTest {
         assertEquals(song(20).id, after.tracks[after.currentIndex].id)
     }
 
+    @Test fun missingEarlierSongDoesNotMoveRestoredCurrentToAnotherOccurrence() {
+        val songs = (0..7).map(::song)
+        val ids = songs.map { it.id }
+        val occurrences = ids.map { UUID.randomUUID() }
+        val queue = ProgressiveQueue()
+        val available = songs.filterIndexed { index, _ -> index != 1 && index != 5 }
+            .associateBy { it.id }
+
+        assertTrue(queue.restore(
+            orderedTrackIds = ids,
+            availableTracks = available,
+            requestedCurrentIndex = 3,
+            requestedMaterializedStartIndex = 1,
+            requestedMaterializedEndExclusive = 7,
+            mode = PlaybackMode.SMART_SHUFFLE,
+            repeat = RepeatMode.ALL,
+            seed = 42L,
+            requestedOrigins = listOf(QueueItemOrigin.GENERATED, QueueItemOrigin.GENERATED,
+                QueueItemOrigin.GENERATED, QueueItemOrigin.GENERATED, QueueItemOrigin.MANUAL,
+                QueueItemOrigin.GENERATED, QueueItemOrigin.GENERATED, QueueItemOrigin.GENERATED),
+            requestedOccurrenceIds = occurrences,
+            sourceIds = ids,
+            pendingIds = listOf(UUID.randomUUID()),
+        ))
+        val restored = requireNotNull(queue.snapshot())
+        assertEquals(songs[3].id, restored.tracks[restored.currentIndex].id)
+        assertEquals(occurrences[3], restored.occurrenceIds[restored.currentIndex])
+        assertEquals(2, restored.currentIndex)
+        assertEquals(1, restored.materializedStartIndex)
+        assertEquals(5, restored.materializedEndExclusive)
+        assertEquals(PlaybackMode.SMART_SHUFFLE, restored.playbackMode)
+        assertEquals(RepeatMode.ALL, restored.repeatMode)
+        assertEquals(42L, restored.shuffleSeed)
+        assertEquals(ids, restored.sourceTrackIds)
+        assertTrue(restored.origins.indices.any { index ->
+            restored.tracks[index].id == songs[4].id && queue.isFixedOccurrence(index)
+        })
+    }
+
     @Test fun oldPersistedInterleavingIsRestoredAsOneQueueThenOneNext() {
         val songs = (0..7).map(::song)
         val queue = ProgressiveQueue()
