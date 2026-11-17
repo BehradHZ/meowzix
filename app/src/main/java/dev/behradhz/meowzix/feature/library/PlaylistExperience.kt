@@ -449,7 +449,10 @@ internal fun PlaylistDetailScreenV3(
     LaunchedEffect(newTrackIds, refreshBaseline, refreshing) {
         val baseline = refreshBaseline ?: return@LaunchedEffect
         if ((newTrackIds - baseline).isNotEmpty()) {
-            listState.animateScrollToItem(0)
+            // The first three LazyColumn items are the hero, selection and sort
+            // controls. Index 3 brings the new song rows into view instead of
+            // stopping on the cover artwork.
+            listState.animateScrollToItem(3.coerceAtMost(listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
             refreshBaseline = null
         } else if (!refreshing) {
             delay(800)
