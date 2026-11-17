@@ -98,6 +98,7 @@ import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -117,6 +118,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -124,6 +126,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -640,6 +643,8 @@ internal fun PlaylistDetailScreenV3(
                     hazeState, Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                     radius = 28.dp, accented = true,
                 ) {
+                    // Physical positions remain stable even when Android uses an RTL locale.
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp),
                     ) {
@@ -755,6 +760,7 @@ internal fun PlaylistDetailScreenV3(
                                 hazeState, "Add to queue", Icons.Rounded.QueueMusic, hasTracks,
                             ) { sortedTracks.distinctBy(Track::id).forEach(onAddToQueue) }
                         }
+                    }
                     }
                 }
             }
