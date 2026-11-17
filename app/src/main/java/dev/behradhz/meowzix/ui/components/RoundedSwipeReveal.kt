@@ -5,7 +5,9 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -26,4 +28,32 @@ fun Modifier.roundedSwipeReveal(offsetPx: Float, radius: Dp = 18.dp): Modifier =
             addRoundRect(RoundRect(left, 0f, right, size.height, CornerRadius(corner)))
         }
         clipPath(gutter) { this@drawWithContent.drawContent() }
+    }
+
+/**
+ * Paint swipe actions ONLY outside the rounded silhouette of the moving song card.
+ *
+ * Unlike a rounded gutter clip, this follows the ACTUAL foreground corners:
+ * there is no straight cut at the card's moving edge. The action itself remains
+ * square/full-size, and cannot bleed through the card's translucent glass fill.
+ *
+ * The stationary bounds clip keeps the action inside its own list row.
+ */
+fun Modifier.maskBehindSwipeTrack(offsetPx: Float, radius: Dp = 18.dp): Modifier =
+    drawWithContent {
+        if (offsetPx == 0f) return@drawWithContent
+        val corner = minOf(radius.toPx(), size.width / 2f, size.height / 2f)
+        val foreground = Path().apply {
+            addRoundRect(
+                RoundRect(
+                    offsetPx, 0f, size.width + offsetPx, size.height,
+                    CornerRadius(corner),
+                ),
+            )
+        }
+        clipRect {
+            clipPath(foreground, clipOp = ClipOp.Difference) {
+                this@drawWithContent.drawContent()
+            }
+        }
     }
