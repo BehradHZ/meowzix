@@ -297,12 +297,16 @@ class LibraryViewModel @Inject constructor(
                     _state.update { it.copy(lastRefresh = result) }
                     "Device scanned · ${result.created} new, ${result.updated} updated, ${result.markedMissing} missing"
                 }
-                _state.update { it.copy(playlistRefreshStatus = status) }
+                _state.update {
+                    if (it.selectedPlaylistId == playlistId) it.copy(playlistRefreshStatus = status) else it
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 _state.update {
-                    it.copy(playlistRefreshError = error.message ?: "Unable to refresh this playlist.")
+                    if (it.selectedPlaylistId == playlistId) {
+                        it.copy(playlistRefreshError = error.message ?: "Unable to refresh this playlist.")
+                    } else it
                 }
             } finally {
                 _state.update {
