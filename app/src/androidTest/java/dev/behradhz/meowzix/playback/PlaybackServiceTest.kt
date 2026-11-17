@@ -57,9 +57,16 @@ class PlaybackServiceTest {
     private lateinit var controllerFuture: ListenableFuture<MediaController>
     private lateinit var controller: MediaController
     private val files = mutableListOf<File>()
+    private var previousStartupPermissionStage: String? = null
 
     @Before
     fun setUp() {
+        // The playback tests do not test first-run permission onboarding. Keep the app
+        // foregrounded instead of letting runtime permission or overlay Settings screens
+        // intercept the return from the notification's forward picker.
+        val startupPrefs = context.getSharedPreferences("meowzix_first_launch_permissions", Context.MODE_PRIVATE)
+        previousStartupPermissionStage = startupPrefs.getString("stage", null)
+        check(startupPrefs.edit().putString("stage", "COMPLETE").commit())
         // Android 15+ intentionally rejects audio-focus requests from a background-only app. Keep
         // the app foregrounded so these tests exercise the same lifecycle as a user pressing Play.
         activityScenario = ActivityScenario.launch(MainActivity::class.java)
@@ -87,6 +94,11 @@ class PlaybackServiceTest {
         }
         onMain { MediaController.releaseFuture(controllerFuture) }
         activityScenario.close()
+        val startupPrefs = context.getSharedPreferences("meowzix_first_launch_permissions", Context.MODE_PRIVATE)
+        val editor = startupPrefs.edit()
+        if (previousStartupPermissionStage == null) editor.remove("stage")
+        else editor.putString("stage", previousStartupPermissionStage)
+        editor.commit()
         files.forEach(File::delete)
     }
 
