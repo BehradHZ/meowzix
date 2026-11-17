@@ -5,6 +5,7 @@ import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
+import dev.behradhz.meowzix.data.repository.playbackLocalSourcePriority
 import dev.behradhz.meowzix.data.db.DownloadDao
 import dev.behradhz.meowzix.data.db.DownloadRecordEntity
 import dev.behradhz.meowzix.data.db.LibraryDao
@@ -429,7 +430,7 @@ class TdLibDownloadRepository @Inject constructor(
 
         val localSources = libraryDao.sourcesForTrack(trackId.toString())
             .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
-            .sortedBy(::localReusePriority)
+            .sortedBy(::playbackLocalSourcePriority)
 
         for (source in localSources) {
             when {
@@ -625,10 +626,4 @@ class TdLibDownloadRepository @Inject constructor(
     }
 }
 
-private fun localReusePriority(source: TrackSourceEntity): Int = when (source.type) {
-    TrackSourceType.APP_OFFLINE_COPY -> 0
-    TrackSourceType.TDLIB_LOCAL -> 1
-    TrackSourceType.LOCAL_MEDIASTORE -> 2
-    else -> 3
-}
 

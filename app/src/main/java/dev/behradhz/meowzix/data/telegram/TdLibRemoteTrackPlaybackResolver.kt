@@ -5,6 +5,7 @@ import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
+import dev.behradhz.meowzix.data.repository.playbackLocalSourcePriority
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
@@ -201,7 +202,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         val allSources = libraryDao.sourcesForTrack(trackId.toString())
         val sources = allSources
             .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
-            .sortedBy(::localSourcePriority)
+            .sortedBy(::playbackLocalSourcePriority)
         val telegramSizes = allSources
             .filter { it.type == TrackSourceType.TELEGRAM_REMOTE }
             .map { it.fileSizeBytes }
@@ -447,11 +448,5 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     }
 }
 
-private fun localSourcePriority(source: TrackSourceEntity): Int = when (source.type) {
-    TrackSourceType.APP_OFFLINE_COPY -> 0
-    TrackSourceType.TDLIB_LOCAL -> 1
-    TrackSourceType.LOCAL_MEDIASTORE -> 2
-    else -> 3
-}
 /** 404 is a missing/inaccessible original message, not a transport timeout or flood limit. */
 internal fun isConfirmedMissingTelegramMessage(errorCode: Int): Boolean = errorCode == 404
