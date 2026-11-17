@@ -345,6 +345,39 @@ class PlaylistExperienceTest {
         compose.onNodeWithText("Group by · None").assertIsDisplayed()
     }
 
+    @Test fun newPlaylistEditorWaitsForSaveAndCanBeCancelled() {
+        var saved: Triple<String, String?, String?>? = null
+        var cancelled = 0
+        compose.setContent {
+            MeowzixTheme {
+                PlaylistEditScreenV3(
+                    initialTitle = "Playlist 3",
+                    initialDescription = null,
+                    initialArtworkRef = null,
+                    telegramManaged = false,
+                    isModified = false,
+                    onRestore = {},
+                    creating = true,
+                    onBack = { cancelled++ },
+                    onSave = { title, description, artwork -> saved = Triple(title, description, artwork) },
+                )
+            }
+        }
+        compose.onNodeWithTag("playlist-edit-list").performScrollToNode(hasText("Playlist name"))
+        compose.onNodeWithText("Playlist name").performTextReplacement("  Weekend mix  ")
+        compose.onNodeWithText("Description").performTextReplacement("  Great tracks.  ")
+        compose.runOnIdle { assertEquals(null, saved) }
+        compose.onNodeWithContentDescription("Cancel").performClick()
+        compose.runOnIdle {
+            assertEquals(1, cancelled)
+            assertEquals(null, saved)
+        }
+        compose.onNodeWithContentDescription("Create playlist").performClick()
+        compose.runOnIdle {
+            assertEquals(Triple("Weekend mix", "Great tracks.", null), saved)
+        }
+    }
+
     @Test fun editingValidatesNameAndSavesTrimmedMetadata() {
         val calls = showDetail()
         compose.onNodeWithContentDescription("Edit playlist").performClick()
