@@ -11,7 +11,12 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface LibraryDao {
-    @Query("SELECT id FROM tracks WHERE isUnheardNew = 1 AND hidden = 0")
+    @Query("""
+        SELECT t.id FROM tracks t
+        WHERE t.isUnheardNew = 1 AND t.hidden = 0
+          AND EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id
+                      AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')
+    """)
     fun observeUnheardTrackIds(): Flow<List<String>>
 
     @Query("UPDATE tracks SET isUnheardNew = 0 WHERE id = :trackId AND isUnheardNew = 1")

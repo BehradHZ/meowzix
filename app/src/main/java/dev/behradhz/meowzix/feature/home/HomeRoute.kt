@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.feature.home
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateBounds
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,8 +41,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.LookaheadScope
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -134,15 +137,11 @@ fun HomeRoute(
     
                 if (state.recent.isNotEmpty()) {
                     item("recent") {
-                        Crossfade(
-                            targetState = state.recent,
-                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
-                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
-                            label = "homeRecent",
-                        ) { entries ->
+                        Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
                             RecentGlassList(
                                 hazeState = hazeState,
-                                tracks = entries,
+                                tracks = state.recent,
+                                reduceMotion = reduceMotion,
                                 onPlay = { track -> viewModel.playFromHome(track.id) },
                             )
                         }
@@ -187,15 +186,11 @@ fun HomeRoute(
     
                 if (state.recentlyAdded.isNotEmpty()) {
                     item("recently-added") {
-                        Crossfade(
-                            targetState = state.recentlyAdded,
-                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
-                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
-                            label = "homeRecentlyAdded",
-                        ) { entries ->
+                        Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
                             RecentlyAddedGlassPanel(
                                 hazeState = hazeState,
-                                tracks = entries,
+                                tracks = state.recentlyAdded,
+                                reduceMotion = reduceMotion,
                                 onPlay = { track -> viewModel.playFromHome(track.id) },
                                 onOpenLibrary = onOpenLibrary,
                             )
@@ -401,6 +396,7 @@ private fun FeaturedRecommendations(
 private fun RecentGlassList(
     hazeState: HazeState,
     tracks: List<Track>,
+    reduceMotion: Boolean,
     onPlay: (Track) -> Unit,
 ) {
     Column {
@@ -418,11 +414,14 @@ private fun RecentGlassList(
             fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.64f),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f),
         ) {
+            LookaheadScope {
             Column(Modifier.padding(vertical = 5.dp)) {
                 tracks.take(5).forEach { track ->
+                    key(track.id) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .then(if (reduceMotion) Modifier else Modifier.animateBounds(this@LookaheadScope))
                             .clickable { onPlay(track) }
                             .padding(horizontal = 10.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -451,7 +450,9 @@ private fun RecentGlassList(
                             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f),
                         )
                     }
+                    }
                 }
+            }
             }
         }
     }
@@ -569,6 +570,7 @@ private fun PlaylistGlassRail(
 private fun RecentlyAddedGlassPanel(
     hazeState: HazeState,
     tracks: List<Track>,
+    reduceMotion: Boolean,
     onPlay: (Track) -> Unit,
     onOpenLibrary: () -> Unit,
 ) {
@@ -583,11 +585,14 @@ private fun RecentlyAddedGlassPanel(
             fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.64f),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f),
         ) {
+            LookaheadScope {
             Column(Modifier.padding(vertical = 6.dp)) {
                 tracks.take(4).forEach { track ->
+                    key(track.id) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .then(if (reduceMotion) Modifier else Modifier.animateBounds(this@LookaheadScope))
                             .clickable { onPlay(track) }
                             .padding(horizontal = 12.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -611,6 +616,7 @@ private fun RecentlyAddedGlassPanel(
                             )
                         }
                     }
+                    }
                 }
                 Row(
                     modifier = Modifier
@@ -632,6 +638,7 @@ private fun RecentlyAddedGlassPanel(
                         tint = MaterialTheme.colorScheme.primary,
                     )
                 }
+            }
             }
         }
     }

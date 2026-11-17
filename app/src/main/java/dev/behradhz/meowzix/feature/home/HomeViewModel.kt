@@ -22,6 +22,10 @@ import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -49,6 +53,7 @@ data class HomeUiState(
     val playlists: List<PlaylistSummary> = emptyList(),
     val artists: List<SuggestedArtist> = emptyList(),
     val isReady: Boolean = false,
+    val libraryRevision: Long = 0L,
     val sections: List<HomeRecommendationSection> = emptyList(),
 )
 
@@ -102,17 +107,41 @@ class HomeViewModel @Inject constructor(
 
     private var activeRefreshJob: Job? = null
     private var visibleSessionId: Long = 0L
+    private var homeChangesJob: Job? = null
 
     /** Refresh once for each app foreground session; switching tabs never starts a new session. */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
     fun onHomeVisible(sessionId: Long) {
         visibleSessionId = sessionId
-        if (sessionId <= 0L || activeRefreshJob?.isActive == true) return
-        activeRefreshJob = viewModelScope.launch { refreshForSession(sessionId) }
+        if (sessionId <= 0L) return
+        if (activeRefreshJob?.isActive != true) {
+            activeRefreshJob = viewModelScope.launch { refreshForSession(sessionId) }
+        }
+        // Room invalidations drive changes only while Home is visible. Group bursts
+        // of imports so one Telegram sync does not recompute the feed per song.
+        homeChangesJob?.cancel()
+        homeChangesJob = viewModelScope.launch {
+            combine(library.observeTrackRevision(), playlists.observePlaylists()) { revision, entries ->
+                revision to entries.sortedByDescending(PlaylistSummary::updatedAt).take(10)
+            }
+                .distinctUntilChanged()
+                .debounce(650)
+                .collect { (revision, entries) ->
+                    if (visibleSessionId == sessionId && _state.value.isReady &&
+                        (revision != _state.value.libraryRevision || entries != _state.value.playlists)
+                    ) {
+                        refreshForSession(sessionId, force = true)
+                    }
+                }
+        }
     }
 
     fun onHomeHidden() {
         activeRefreshJob?.cancel()
         activeRefreshJob = null
+        homeChangesJob?.cancel()
+        homeChangesJob = null
+        visibleSessionId = 0L
     }
 
     /** Load the entire catalog only when the listener actually selects an artist. */
@@ -178,6 +207,7 @@ class HomeViewModel @Inject constructor(
         )
 
         HomeUiState(
+            libraryRevision = library.trackRevision(),
             recommended = recommended,
             recent = recent,
             recentlyAdded = recentlyAdded,
