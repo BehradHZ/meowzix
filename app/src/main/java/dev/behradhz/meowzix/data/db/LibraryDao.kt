@@ -11,9 +11,22 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface LibraryDao {
+    @Query("SELECT id FROM tracks WHERE isUnheardNew = 1 AND hidden = 0")
+    fun observeUnheardTrackIds(): Flow<List<String>>
+
+    @Query("UPDATE tracks SET isUnheardNew = 0 WHERE id = :trackId AND isUnheardNew = 1")
+    suspend fun markNewTrackPlayed(trackId: String)
+
+    /** Home observes only a revision scalar, without loading all tracks. */
+    @Query("SELECT COALESCE(MAX(updatedAtEpochMs), 0) FROM tracks")
+    fun observeLatestTrackRevision(): Flow<Long>
+
+    @Query("SELECT COALESCE(MAX(updatedAtEpochMs), 0) FROM tracks")
+    suspend fun latestTrackRevision(): Long
+
     @Query("UPDATE track_sources SET contentHashSha256 = :hash WHERE id = :sourceId")
     suspend fun updateContentHash(sourceId: String, hash: String)
-    @Query("SELECT DISTINCT t.* FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL' AND t.hidden = 0 ORDER BY t.normalizedTitle")
+    @Query("SELECT DISTINCT t.* FROM tracks t INNER JOIN track_sources s ON s.trackId = t.id WHERE s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL' AND t.hidden = 0 ORDER BY t.isUnheardNew DESC, t.createdAtEpochMs DESC, t.normalizedTitle")
     fun observeAvailableLocalTracks(): Flow<List<TrackEntity>>
     @Query("SELECT COUNT(*) FROM tracks t WHERE t.hidden = 0 AND EXISTS (SELECT 1 FROM track_sources s WHERE s.trackId = t.id AND s.type = 'LOCAL_MEDIASTORE' AND s.availability = 'AVAILABLE_LOCAL')")
     fun observeAvailableLocalTrackCount(): Flow<Int>

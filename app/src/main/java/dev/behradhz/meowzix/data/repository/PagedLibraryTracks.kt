@@ -167,7 +167,7 @@ class PagedLibraryTracks @Inject constructor(
                 "(EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id " +
                 "AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') " +
                 "OR $cloudExists)$favoriteClause$searchClause",
-            orderBy = orderBy,
+            orderBy = "t.isUnheardNew DESC, $orderBy",
             args = args,
         )
     }

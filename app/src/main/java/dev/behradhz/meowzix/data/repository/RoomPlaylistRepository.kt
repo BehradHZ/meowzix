@@ -7,6 +7,7 @@ import dev.behradhz.meowzix.data.db.PlaylistDao
 import dev.behradhz.meowzix.data.db.PlaylistEntity
 import dev.behradhz.meowzix.data.db.PlaylistTrackEntity
 import dev.behradhz.meowzix.data.db.TrackEntity
+import dev.behradhz.meowzix.domain.library.LOCAL_PLAYLIST_ID
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
@@ -15,6 +16,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 @Singleton
@@ -41,16 +43,28 @@ class RoomPlaylistRepository @Inject constructor(
     }
 
     override fun observeUnheardNewTracks(): Flow<Map<UUID, Set<UUID>>> =
-        database.telegramDao().observeUnheardTrackRows().map { rows ->
-            rows.groupBy { telegramPlaylistId(it.accountId, it.chatId) }
-                .mapValues { (_, chatRows) -> chatRows.mapTo(mutableSetOf()) { UUID.fromString(it.trackId) } }
+        combine(
+            database.telegramDao().observeUnheardTrackRows(),
+            database.libraryDao().observeUnheardTrackIds(),
+        ) { telegramRows, localUnheard ->
+            val byPlaylist = telegramRows.groupBy { telegramPlaylistId(it.accountId, it.chatId) }
+                .mapValues { (_, rows) -> rows.mapTo(mutableSetOf()) { UUID.fromString(it.trackId) } }
+                .toMutableMap()
+            if (localUnheard.isNotEmpty()) {
+                byPlaylist[LOCAL_PLAYLIST_ID] = localUnheard.mapTo(mutableSetOf(), UUID::fromString)
+            }
+            byPlaylist
         }
 
     override suspend fun setNewTrackHighlightEnabled(playlistId: UUID, enabled: Boolean) =
         dao.setNewTrackHighlightEnabled(playlistId.toString(), enabled)
 
-    override suspend fun markNewTrackSeen(trackId: UUID) =
-        database.telegramDao().markTrackSeen(trackId.toString())
+    override suspend fun markNewTrackSeen(trackId: UUID) {
+        database.withTransaction {
+            database.libraryDao().markNewTrackPlayed(trackId.toString())
+            database.telegramDao().markTrackSeen(trackId.toString())
+        }
+    }
 
     override fun observeTracks(playlistId: UUID): Flow<List<Track>> =
         dao.observeTracks(playlistId.toString()).map { rows -> rows.map(TrackEntity::toDomain) }

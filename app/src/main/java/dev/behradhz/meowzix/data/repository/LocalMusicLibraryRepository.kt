@@ -195,6 +195,7 @@ class LocalMusicLibraryRepository @Inject constructor(
                     existingTrack = null,
                     now = now,
                     pendingCandidates = pendingCandidates,
+                    isNewAfterBaseline = existingSources.isNotEmpty(),
                 )
             }
 
@@ -465,6 +466,7 @@ class LocalMusicLibraryRepository @Inject constructor(
         existingTrack: TrackEntity?,
         now: Long,
         pendingCandidates: PendingCandidateIndex,
+        isNewAfterBaseline: Boolean = false,
     ): PreparedLocalMutation {
         val normalizedTitle = TextNormalizer.normalize(item.title) ?: "unknown track"
         val normalizedArtist = TextNormalizer.normalize(item.artist)
@@ -499,6 +501,7 @@ class LocalMusicLibraryRepository @Inject constructor(
             favorite = canonicalTrack?.favorite ?: false,
             hidden = canonicalTrack?.hidden ?: false,
             addedToLibrary = canonicalTrack?.addedToLibrary ?: false,
+            isUnheardNew = canonicalTrack?.isUnheardNew ?: isNewAfterBaseline,
             createdAtEpochMs = canonicalTrack?.createdAtEpochMs ?: now,
             updatedAtEpochMs = now,
         )

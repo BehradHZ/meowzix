@@ -57,6 +57,8 @@ data class LibraryUiState(
     val playlists: List<PlaylistSummary> = emptyList(),
     val playlistArtwork: Map<UUID, String?> = emptyMap(),
     val newTelegramTracksByPlaylist: Map<UUID, Set<UUID>> = emptyMap(),
+    val newTrackIds: Set<UUID> = emptySet(),
+    val isTelegramSyncing: Boolean = false,
     val highlightNewTelegramTracks: Boolean = true,
     val selectedPlaylistId: UUID? = null,
     val selectedPlaylistTracks: List<Track> = emptyList(),
@@ -138,7 +140,12 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             playlistRepository.observeUnheardNewTracks()
                 .catch { error -> reportLoadError(error, "Unable to load new songs") }
-                .collect { byPlaylist -> _state.update { it.copy(newTelegramTracksByPlaylist = byPlaylist) } }
+                .collect { byPlaylist -> _state.update {
+                    it.copy(
+                        newTelegramTracksByPlaylist = byPlaylist,
+                        newTrackIds = byPlaylist.values.flatten().toSet(),
+                    )
+                } }
         }
         viewModelScope.launch {
             settingsRepository.libraryDisplaySettings
@@ -180,7 +187,7 @@ class LibraryViewModel @Inject constructor(
                         telegramPlaylistId(accountId, chat.chatId) to chat.profilePhotoRef
                     }
                 }
-                _state.update { it.copy(playlistArtwork = artwork) }
+                _state.update { it.copy(playlistArtwork = artwork, isTelegramSyncing = telegram.isSyncing) }
             }
         }
         viewModelScope.launch {

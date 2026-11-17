@@ -115,6 +115,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var mediaLibrary: MeowzixMediaLibrary
     @Inject lateinit var libraryQueryRepository: LibraryQueryRepository
+    @Inject lateinit var playlistRepository: dev.behradhz.meowzix.domain.library.PlaylistRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val liveSongTransitionRetry = LiveSongTransitionRetry(
@@ -575,6 +576,14 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    /** Media3 confirms playback even when the queue advances automatically. */
+    private fun acknowledgeAudibleTrack(mediaId: String?) {
+        val id = mediaId?.let { runCatching { UUID.fromString(it) }.getOrNull() } ?: return
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching { playlistRepository.markNewTrackSeen(id) }
+        }
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
             if (mediaItem?.mediaId != missingSourceMediaId) {
@@ -628,6 +637,7 @@ class PlaybackService : MediaLibraryService() {
             // Publish the new song before onEvents() runs its queue, audio-analysis,
             // favorite and persistence work. No polling delay on actual transitions.
             publishLiveSongTransition()
+            if (player.isPlaying) acknowledgeAudibleTrack(mediaItem?.mediaId)
         }
 
         override fun onPositionDiscontinuity(
@@ -800,6 +810,7 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) {
+                acknowledgeAudibleTrack(player.currentMediaItem?.mediaId)
                 // Media3 may accept playWhenReady=true while focus is still
                 // suppressed. Only actual playback acknowledges auto-resume.
                 interruptionPolicy.playbackStarted()
@@ -2167,7 +2178,10 @@ class PlaybackService : MediaLibraryService() {
         // This is the equivalent of finishing the outgoing Queue occurrence.
         progressiveQueue.consumeFixedOccurrence(lastTransitionOccurrenceId)
         syncLogicalCurrentFromPlayer()
-        if (incoming.isPlaying) progressiveQueue.consumeCurrentFixed()
+        if (incoming.isPlaying) {
+            progressiveQueue.consumeCurrentFixed()
+            acknowledgeAudibleTrack(incoming.currentMediaItem?.mediaId)
+        }
         lastTransitionOccurrenceId = progressiveQueue.snapshot()?.let { snapshot ->
             snapshot.occurrenceIds.getOrNull(snapshot.currentIndex)
         }

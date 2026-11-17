@@ -790,6 +790,13 @@ class TdLibTelegramRepository @Inject constructor(
                 canonicalTrack.artist ?: candidate.artist
             } else candidate.artist
 
+            val isNewArrival = existingTelegram?.isUnheardNew ?: (
+                created && canonicalTrack == null && NewTelegramTrackPolicy.isNewAfterBaseline(
+                    selectedSource?.initialScanComplete == true,
+                    selectedSource?.newestMessageId,
+                    messageId,
+                )
+            )
             libraryDao.upsertTrack(
                 TrackEntity(
                     id = trackId,
@@ -805,6 +812,7 @@ class TdLibTelegramRepository @Inject constructor(
                     favorite = canonicalTrack?.favorite ?: false,
                     hidden = canonicalTrack?.hidden ?: false,
                     addedToLibrary = canonicalTrack?.addedToLibrary ?: false,
+                    isUnheardNew = canonicalTrack?.isUnheardNew ?: isNewArrival,
                     createdAtEpochMs = canonicalTrack?.createdAtEpochMs ?: now,
                     updatedAtEpochMs = now,
                 ),
@@ -837,11 +845,7 @@ class TdLibTelegramRepository @Inject constructor(
                     telegramTitle = candidate.title,
                     telegramPerformer = candidate.artist,
                     remoteRevisionKey = null,
-                    isUnheardNew = existingTelegram?.isUnheardNew ?: (created && canonicalTrack == null && NewTelegramTrackPolicy.isNewAfterBaseline(
-                        selectedSource?.initialScanComplete == true,
-                        selectedSource?.newestMessageId,
-                        messageId,
-                    )),
+                    isUnheardNew = isNewArrival,
                 ),
             )
             created

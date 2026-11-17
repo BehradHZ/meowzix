@@ -30,4 +30,6 @@ data class TrackEntity(
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
     @ColumnInfo(defaultValue = "0") val addedToLibrary: Boolean = false,
+    /** Cleared only when actual playback starts, not on download or click. */
+    @ColumnInfo(defaultValue = "0") val isUnheardNew: Boolean = false,
 )

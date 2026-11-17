@@ -240,6 +240,9 @@ class LibraryQueryRepository @Inject constructor(
 
     fun favoriteCount(): Flow<Int> = dao.observeFavoriteCount()
 
+    fun observeTrackRevision(): Flow<Long> = libraryDao.observeLatestTrackRevision()
+    suspend fun trackRevision(): Long = libraryDao.latestTrackRevision()
+
     fun artists(): Flow<List<ArtistSummary>> = dao.observeArtistSummaries().map { rows ->
         rows.map(ArtistSummaryRow::toSummary)
     }
