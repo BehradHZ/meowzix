@@ -66,6 +66,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
@@ -310,6 +311,7 @@ internal fun LibraryRouteV4(
     }
 
     val headerHazeState = rememberHazeState()
+    val libraryPullState = rememberPullToRefreshState()
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
@@ -318,8 +320,10 @@ internal fun LibraryRouteV4(
                 viewModel.refresh()
             },
             modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 96.dp),
+            state = libraryPullState,
             indicator = {
                 FadeRefreshIndicator(
+                    state = libraryPullState,
                     refreshing = state.isRefreshing,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp),
                 )
