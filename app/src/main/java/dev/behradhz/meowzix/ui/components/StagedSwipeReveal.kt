@@ -62,8 +62,8 @@ fun BoxScope.StagedSwipeReveal(
 ) {
     if (abs(offsetPx) <= 0.5f) return
     val swipingRight = offsetPx > 0f
-    // Like October's Queue swipe, wait for the second-stage threshold before
-    // sliding the primary layer behind the song (instead of scrubbing it away).
+    // Keep the primary action fully visible until the second-stage threshold;
+    // the stationary action layers then trade visibility within the same gutter.
     val animatedExitProgress by animateFloatAsState(
         targetValue = if (secondaryLabel != null) {
             originalSwipeActionExitTarget(offsetPx, secondaryThresholdPx)
