@@ -24,6 +24,26 @@ class MorphingPlayerBackPriorityTest {
     }
 
     @Test
+    fun collapsingAgainWhileOverlayIsVisibleForcesItToFinish() {
+        val player = MorphingPlayerState()
+        player.expand()
+        player.updateOverlayVisibility(true)
+        player.collapse()
+        val firstRequest = player.settleRequestId
+        assertFalse(player.finishCollapseImmediately)
+
+        player.collapse()
+        assertTrue(player.settleRequestId > firstRequest)
+        assertTrue(player.finishCollapseImmediately)
+
+        player.updateOverlayVisibility(false)
+        assertFalse(player.blocksBackgroundBack)
+        player.expand()
+        assertFalse(player.finishCollapseImmediately)
+        assertTrue(player.blocksBackgroundBack)
+    }
+
+    @Test
     fun partiallyDraggedPlayerBlocksBackgroundNavigationWithoutExpansionCommit() {
         val player = MorphingPlayerState()
         player.updateOverlayVisibility(true)

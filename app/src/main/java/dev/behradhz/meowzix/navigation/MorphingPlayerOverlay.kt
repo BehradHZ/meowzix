@@ -1,6 +1,5 @@
 package dev.behradhz.meowzix.navigation
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,7 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -107,6 +105,7 @@ private val CollapsedPlayerHorizontalInset = 14.dp
 private val CollapsedPlayerDockClearance = 90.dp
 private val PlayerSettleDistance = 72.dp
 private const val MINI_CARD_COMMIT_THRESHOLD = 0.35f
+private const val PLAYER_AXIS_DOMINANCE = 1.25f
 private val MiniCardGap = 8.dp
 private val MiniCardCornerRadius = 28.dp
 
@@ -126,6 +125,29 @@ internal fun shouldIgnorePlayerSwipeFromMoreActions(
         downOnScreen.y >= bounds.top - marginPx &&
         downOnScreen.y <= bounds.bottom + marginPx
 }
+
+
+internal enum class PlayerDragAxis { HORIZONTAL, VERTICAL }
+
+/**
+ * A gesture must establish a dominant axis before it can affect either player
+ * expansion or the mini-player queue. Ambiguous diagonals remain unclaimed.
+ */
+internal fun playerDragAxis(totalDrag: Offset, touchSlop: Float): PlayerDragAxis? {
+    val horizontal = abs(totalDrag.x)
+    val vertical = abs(totalDrag.y)
+    if (maxOf(horizontal, vertical) < touchSlop) return null
+    return when {
+        horizontal > vertical * PLAYER_AXIS_DOMINANCE -> PlayerDragAxis.HORIZONTAL
+        vertical > horizontal * PLAYER_AXIS_DOMINANCE -> PlayerDragAxis.VERTICAL
+        else -> null
+    }
+}
+
+/** A vertical/diagonal expansion gesture cannot be interpreted as Next/Previous. */
+internal fun shouldCommitMiniTrackSwipe(totalDrag: Offset, pagerWidthPx: Float): Boolean =
+    playerDragAxis(totalDrag, 0f) == PlayerDragAxis.HORIZONTAL &&
+        abs(totalDrag.x) / pagerWidthPx.coerceAtLeast(1f) >= MINI_CARD_COMMIT_THRESHOLD
 
 internal enum class MiniCardDirection { PREVIOUS, NEXT }
 
@@ -198,22 +220,33 @@ internal class MorphingPlayerState internal constructor(initiallyExpanded: Boole
     var targetExpanded by mutableStateOf(initiallyExpanded)
         private set
 
-    // A collapsing player still covers the destination until the mini-player settles.
-    // Keep the background navigation blocked throughout that transition.
+    // Keep background navigation blocked while the player actually covers it.
     private var overlayVisible by mutableStateOf(initiallyExpanded)
     val blocksBackgroundBack: Boolean
         get() = targetExpanded || overlayVisible
+
+    // Every request must settle the current fraction, even when targetExpanded
+    // already equals the request. Otherwise a canceled drag can trap Back forever.
+    var settleRequestId by mutableIntStateOf(0)
+        private set
+    var finishCollapseImmediately by mutableStateOf(false)
+        private set
 
     internal fun updateOverlayVisibility(visible: Boolean) {
         overlayVisible = visible
     }
 
     fun expand() {
+        finishCollapseImmediately = false
         targetExpanded = true
+        settleRequestId++
     }
 
     fun collapse() {
+        // A second Back during a stalled collapse snaps the overlay closed.
+        if (!targetExpanded && overlayVisible) finishCollapseImmediately = true
         targetExpanded = false
+        settleRequestId++
     }
 }
 
@@ -241,7 +274,6 @@ internal fun MorphingPlayerOverlay(
     val appearance by viewModel.appearanceSettings.collectAsStateWithLifecycle()
     val reduceMotion = appearance.reduceMotion
     val density = LocalDensity.current
-    val animationScope = rememberCoroutineScope()
     var expansionFraction by remember(track.id) {
         mutableFloatStateOf(if (morphState.targetExpanded) 1f else 0f)
     }
@@ -268,9 +300,13 @@ internal fun MorphingPlayerOverlay(
         }
     }
 
-    LaunchedEffect(morphState.targetExpanded, track.id) {
+    LaunchedEffect(morphState.targetExpanded, morphState.settleRequestId, track.id) {
         if (!morphState.targetExpanded) inlineQueueExpanded = false
-        animateTo(if (morphState.targetExpanded) 1f else 0f)
+        if (morphState.finishCollapseImmediately && !morphState.targetExpanded) {
+            expansionFraction = 0f
+        } else {
+            animateTo(if (morphState.targetExpanded) 1f else 0f)
+        }
     }
 
     LaunchedEffect(viewModel) {
@@ -284,11 +320,8 @@ internal fun MorphingPlayerOverlay(
         }
     }
 
-    // Partially dragged and collapsing player surfaces also block background Back.
+    // The root app owns Back dispatch; this overlay only publishes visual visibility.
     SideEffect { morphState.updateOverlayVisibility(expansionFraction > 0.02f) }
-    BackHandler(enabled = morphState.blocksBackgroundBack) {
-        morphState.collapse()
-    }
 
     BoxWithConstraints(
         modifier = modifier.fillMaxSize().onGloballyPositioned { coordinates ->
@@ -383,12 +416,18 @@ internal fun MorphingPlayerOverlay(
                             lastPosition = change.position
                             totalDrag += delta
 
-                            if (
-                                !axisLocked &&
-                                maxOf(abs(totalDrag.x), abs(totalDrag.y)) >= viewConfiguration.touchSlop
-                            ) {
-                                axisLocked = true
-                                verticalGesture = abs(totalDrag.y) > abs(totalDrag.x)
+                            if (!axisLocked) {
+                                when (playerDragAxis(totalDrag, viewConfiguration.touchSlop)) {
+                                    PlayerDragAxis.VERTICAL -> {
+                                        axisLocked = true
+                                        verticalGesture = true
+                                    }
+                                    PlayerDragAxis.HORIZONTAL -> {
+                                        axisLocked = true
+                                        verticalGesture = false
+                                    }
+                                    null -> Unit
+                                }
                             }
 
                             if (axisLocked && verticalGesture) {
@@ -406,16 +445,8 @@ internal fun MorphingPlayerOverlay(
                             } else {
                                 totalDrag.y <= -settleDistancePx
                             }
-                            val targetFraction = if (shouldExpand) 1f else 0f
-                            val targetChanged = morphState.targetExpanded != shouldExpand
-
+                            // Both branches request a new settle, even if the target is unchanged.
                             if (shouldExpand) morphState.expand() else morphState.collapse()
-
-                            if (!targetChanged) {
-                                animationScope.launch {
-                                    animateTo(targetFraction, durationMillis = 280)
-                                }
-                            }
                         }
                     }
                 }
@@ -857,60 +888,85 @@ private fun InteractiveMiniTrackPager(
             state.canSkipNext,
             queueState.items.size,
         ) {
-            detectHorizontalDragGestures(
-                onDragStart = {
-                    transitionJob?.cancel()
-                    resetTransition(activeIndex)
-                },
-                onHorizontalDrag = { change, dragAmount ->
-                    change.consume()
-                    totalDragX += dragAmount
-                    val requestedDirection = when {
-                        totalDragX < 0f && latestCanSkipNext && displayedIndex + 1 in queueState.items.indices ->
-                            MiniCardDirection.NEXT
-                        totalDragX > 0f && latestCanSkipPrevious && displayedIndex - 1 in queueState.items.indices ->
-                            MiniCardDirection.PREVIOUS
-                        else -> null
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                var axis: PlayerDragAxis? = null
+                var totalMovement = Offset.Zero
+                var cancelled = false
+                var pressed = true
+
+                while (pressed) {
+                    val event = awaitPointerEvent(PointerEventPass.Main)
+                    val change = event.changes.firstOrNull { it.id == down.id }
+                    if (change == null) {
+                        cancelled = true
+                        break
                     }
-                    if (requestedDirection == null) {
-                        direction = null
-                        targetIndex = -1
-                        swipeProgress = 0f
-                        thresholdDirection = 0
-                    } else {
-                        direction = requestedDirection
-                        targetIndex = when (requestedDirection) {
-                            MiniCardDirection.NEXT -> displayedIndex + 1
-                            MiniCardDirection.PREVIOUS -> displayedIndex - 1
+                    totalMovement = change.position - down.position
+                    if (axis == null) {
+                        axis = playerDragAxis(totalMovement, viewConfiguration.touchSlop)
+                        if (axis == PlayerDragAxis.HORIZONTAL) {
+                            transitionJob?.cancel()
+                            resetTransition(activeIndex)
                         }
-                        val nextProgress = (abs(totalDragX) / size.width.toFloat().coerceAtLeast(1f))
-                            .coerceIn(0f, 1f)
-                        val nextThreshold = if (nextProgress >= MINI_CARD_COMMIT_THRESHOLD) {
-                            if (requestedDirection == MiniCardDirection.NEXT) 1 else -1
+                    }
+
+                    if (axis == PlayerDragAxis.HORIZONTAL && change.pressed) {
+                        if (change.isConsumed) {
+                            cancelled = true
+                            break
+                        }
+                        change.consume()
+                        totalDragX = totalMovement.x
+                        val requestedDirection = when {
+                            totalDragX < 0f && latestCanSkipNext && displayedIndex + 1 in queueState.items.indices ->
+                                MiniCardDirection.NEXT
+                            totalDragX > 0f && latestCanSkipPrevious && displayedIndex - 1 in queueState.items.indices ->
+                                MiniCardDirection.PREVIOUS
+                            else -> null
+                        }
+                        if (requestedDirection == null) {
+                            direction = null
+                            targetIndex = -1
+                            swipeProgress = 0f
+                            thresholdDirection = 0
                         } else {
-                            0
+                            direction = requestedDirection
+                            targetIndex = when (requestedDirection) {
+                                MiniCardDirection.NEXT -> displayedIndex + 1
+                                MiniCardDirection.PREVIOUS -> displayedIndex - 1
+                            }
+                            val nextProgress = (abs(totalDragX) / size.width.toFloat().coerceAtLeast(1f))
+                                .coerceIn(0f, 1f)
+                            val nextThreshold = if (nextProgress >= MINI_CARD_COMMIT_THRESHOLD) {
+                                if (requestedDirection == MiniCardDirection.NEXT) 1 else -1
+                            } else {
+                                0
+                            }
+                            if (nextThreshold != 0 && nextThreshold != thresholdDirection) {
+                                haptics.perform(MeowzixHapticCue.Threshold)
+                            }
+                            thresholdDirection = nextThreshold
+                            swipeProgress = nextProgress
                         }
-                        if (nextThreshold != 0 && nextThreshold != thresholdDirection) {
-                            haptics.perform(MeowzixHapticCue.Threshold)
+                    }
+                    pressed = change.pressed
+                }
+
+                if (axis == PlayerDragAxis.HORIZONTAL) {
+                    when {
+                        cancelled -> {
+                            if (direction != null && swipeProgress > 0f) animateBack()
+                            else resetTransition(activeIndex)
                         }
-                        thresholdDirection = nextThreshold
-                        swipeProgress = nextProgress
+                        direction != null &&
+                            shouldCommitMiniTrackSwipe(totalMovement, size.width.toFloat()) ->
+                            commitTransition()
+                        swipeProgress > 0f -> animateBack()
+                        else -> resetTransition(activeIndex)
                     }
-                },
-                onDragCancel = {
-                    if (direction != null && swipeProgress > 0f) animateBack()
-                    else resetTransition(activeIndex)
-                },
-                onDragEnd = {
-                    if (direction != null && swipeProgress >= MINI_CARD_COMMIT_THRESHOLD) {
-                        commitTransition()
-                    } else if (swipeProgress > 0f) {
-                        animateBack()
-                    } else {
-                        resetTransition(activeIndex)
-                    }
-                },
-            )
+                }
+            }
         },
     ) {
         val safeDisplayed = displayedIndex.coerceIn(queueState.items.indices)
