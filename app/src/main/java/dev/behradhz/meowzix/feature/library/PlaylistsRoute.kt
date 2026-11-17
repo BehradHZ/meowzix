@@ -28,6 +28,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +36,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.feature.search.matchesGlobalSearch
 import java.util.UUID
@@ -112,6 +116,7 @@ fun PlaylistsRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val audioPermission = AudioPermission.requiredPermission()
     var pendingLocalRefresh by rememberSaveable { mutableStateOf<String?>(null) }
     var showPermissionHelp by rememberSaveable { mutableStateOf(false) }
@@ -119,13 +124,32 @@ fun PlaylistsRoute(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         val pending = pendingLocalRefresh
-        pendingLocalRefresh = null
-        if (granted) pending?.let { viewModel.refreshPlaylist(UUID.fromString(it)) }
-        else if (pending != null) showPermissionHelp = true
+        if (granted) {
+            pendingLocalRefresh = null
+            pending?.let { viewModel.refreshPlaylist(UUID.fromString(it)) }
+        } else if (pending != null) {
+            showPermissionHelp = true
+        }
+    }
+    // A permanent denial opens Android Settings; resume the requested scan after granting there.
+    DisposableEffect(lifecycleOwner, audioPermission) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME &&
+                pendingLocalRefresh != null &&
+                ContextCompat.checkSelfPermission(context, audioPermission) == PackageManager.PERMISSION_GRANTED
+            ) {
+                val pending = pendingLocalRefresh
+                pendingLocalRefresh = null
+                showPermissionHelp = false
+                pending?.let { viewModel.refreshPlaylist(UUID.fromString(it)) }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     if (showPermissionHelp) {
         AlertDialog(
-            onDismissRequest = { showPermissionHelp = false },
+            onDismissRequest = { showPermissionHelp = false; pendingLocalRefresh = null },
             title = { Text("Audio access required") },
             text = { Text("Allow access to device audio to rescan local music. You can enable it in Android settings if the permission prompt is unavailable.") },
             confirmButton = {
@@ -139,7 +163,7 @@ fun PlaylistsRoute(
                 }) { Text("Open settings") }
             },
             dismissButton = {
-                TextButton(onClick = { showPermissionHelp = false }) { Text("Cancel") }
+                TextButton(onClick = { showPermissionHelp = false; pendingLocalRefresh = null }) { Text("Cancel") }
             },
         )
     }
