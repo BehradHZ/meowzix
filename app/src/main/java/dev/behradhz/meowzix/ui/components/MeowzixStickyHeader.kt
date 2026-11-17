@@ -61,6 +61,7 @@ fun MeowzixStickyHeader(
     tintAlpha: Float = 0.76f,
     leadingActions: (@Composable RowScope.() -> Unit)? = null,
     showProxyAction: Boolean = false,
+    centerContent: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     GlassSurface(
@@ -145,25 +146,29 @@ fun MeowzixStickyHeader(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         CompositionLocalProvider(LocalLayoutDirection provides contentLayoutDirection) {
-                            Text(
-                                title,
-                                modifier = Modifier.fillMaxWidth(),
-                                textAlign = TextAlign.Center,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (subtitle.isNotBlank()) {
+                            if (centerContent != null) {
+                                centerContent()
+                            } else {
                                 Text(
-                                    subtitle,
+                                    title,
                                     modifier = Modifier.fillMaxWidth(),
                                     textAlign = TextAlign.Center,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                                if (subtitle.isNotBlank()) {
+                                    Text(
+                                        subtitle,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textAlign = TextAlign.Center,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                         }
                     }

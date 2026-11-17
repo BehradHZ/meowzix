@@ -21,6 +21,7 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
@@ -587,9 +588,27 @@ class PlaylistExperienceTest {
         capture("favorites-empty-large-text")
     }
 
+    @Test fun collapsedHeaderAppearsOnlyAfterArtworkScrollsBehindIt() {
+        showDetail(telegramPerson = true)
+        compose.onNodeWithTag("playlist-hero-artwork").assertIsDisplayed()
+        compose.onNodeWithTag("playlist-collapsed-header").assertDoesNotExist()
+        compose.onNodeWithText("Telegram · Synced").assertDoesNotExist()
+
+        compose.onNodeWithTag("playlist-detail-list").performScrollToIndex(1)
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        compose.onNodeWithTag("playlist-collapsed-header").assertIsDisplayed()
+        compose.onNodeWithTag("playlist-header-select").assertIsDisplayed()
+
+        compose.onNodeWithTag("playlist-detail-list").performScrollToIndex(0)
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        compose.onNodeWithTag("playlist-collapsed-header").assertDoesNotExist()
+    }
+
     @Test fun darkDetailAndEditorRenderWithAllControls() {
         showDetail()
-        // The playlist title legitimately appears in the sticky header and the card.
+        // The playlist title is shown in the hero until the compact header takes over.
         compose.onAllNodesWithText(playlist.title)[0].assertIsDisplayed()
         capture("playlist-detail-dark")
         compose.onNodeWithContentDescription("Edit playlist").performClick()

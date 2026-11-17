@@ -100,6 +100,8 @@ import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -117,6 +119,8 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
@@ -455,6 +459,14 @@ internal fun PlaylistDetailScreenV3(
     var ascending by rememberSaveable { mutableStateOf(true) }
     var groupBy by rememberSaveable { mutableStateOf(PlaylistGroupBy.NONE) }
     val listState = rememberLazyListState()
+    var artworkTopInRoot by remember(playlist?.id, isFavorites) { mutableFloatStateOf(Float.POSITIVE_INFINITY) }
+    var headerBottomInRoot by remember { mutableFloatStateOf(0f) }
+    val showCollapsedHeader by remember(playlist?.id, isFavorites) {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 ||
+                (headerBottomInRoot > 0f && artworkTopInRoot <= headerBottomInRoot)
+        }
+    }
     var refreshBaseline by remember(playlist?.id, isFavorites) { mutableStateOf<Set<UUID>?>(null) }
     LaunchedEffect(newTrackIds, refreshBaseline, refreshing) {
         val baseline = refreshBaseline ?: return@LaunchedEffect
@@ -654,10 +666,16 @@ internal fun PlaylistDetailScreenV3(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center,
                         ) {
-                            PlaylistArtworkV3(
-                                artworkRef, title, isFavorites, 108.dp,
-                                newTrackIds.isNotEmpty(), reduceMotion,
-                            )
+                            Box(
+                                modifier = Modifier.size(108.dp)
+                                    .onGloballyPositioned { artworkTopInRoot = it.boundsInRoot().top }
+                                    .testTag("playlist-hero-artwork"),
+                            ) {
+                                PlaylistArtworkV3(
+                                    artworkRef, title, isFavorites, 108.dp,
+                                    newTrackIds.isNotEmpty(), reduceMotion,
+                                )
+                            }
                             Spacer(Modifier.size(14.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1138,14 +1156,43 @@ internal fun PlaylistDetailScreenV3(
         }
         }
         MeowzixStickyHeader(
-            title = title,
-            subtitle = if (isFavorites) "Your liked tracks" else if (playlist?.telegramManaged == true) {
-                if (playlist.modified) "Telegram · Modified" else "Telegram · Synced"
-            } else "Your playlist",
+            title = "",
+            subtitle = "",
             hazeState = hazeState,
-            modifier = Modifier.align(Alignment.TopCenter),
+            modifier = Modifier.align(Alignment.TopCenter)
+                .onGloballyPositioned { headerBottomInRoot = it.boundsInRoot().bottom },
             leadingActions = {
                 MeowzixHeaderAction("Back to playlists", Icons.Rounded.ArrowBack, onBack)
+            },
+            centerContent = {
+                AnimatedVisibility(
+                    visible = showCollapsedHeader,
+                    enter = if (reduceMotion) EnterTransition.None else {
+                        fadeIn(tween(180)) + scaleIn(initialScale = 0.96f, animationSpec = tween(180))
+                    },
+                    exit = if (reduceMotion) ExitTransition.None else fadeOut(tween(160)),
+                ) {
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().testTag("playlist-collapsed-header"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            PlaylistArtworkV3(
+                                artworkRef, title, isFavorites, 32.dp,
+                                reduceMotion = reduceMotion,
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             },
         ) {
             TextButton(
@@ -1440,10 +1487,11 @@ private fun PlaylistArtworkV3(
     reduceMotion: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(24.dp)
+    val compact = size <= 40.dp
+    val shape = RoundedCornerShape(if (compact) 9.dp else 24.dp)
     Box(
         modifier = Modifier.size(size)
-            .shadow(14.dp, shape, ambientColor = colors.primary.copy(alpha = 0.12f), spotColor = Color.Black.copy(alpha = 0.16f))
+            .shadow(if (compact) 0.dp else 14.dp, shape, ambientColor = colors.primary.copy(alpha = 0.12f), spotColor = Color.Black.copy(alpha = 0.16f))
             .clip(shape)
             .background(
                 Brush.linearGradient(
