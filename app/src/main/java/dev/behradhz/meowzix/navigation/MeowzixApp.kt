@@ -269,29 +269,21 @@ fun MeowzixApp(
     }
 
     fun navigateTopLevel(route: String) {
-        // Refresh only on an intentional second tap of the already-selected Library tab.
-        if (route == LIBRARY_ROUTE && currentRoute == LIBRARY_ROUTE && !searchActive) {
-            libraryViewModel.refresh()
-            return
-        }
+        // Reselecting Library never refreshes its sources or recreates its Paging state.
+        if (route == LIBRARY_ROUTE && currentRoute == LIBRARY_ROUTE && !searchActive) return
         clearSearchState()
-        if (currentRoute == LIBRARY_ROUTE || route == LIBRARY_ROUTE) {
-            libraryViewModel.resetNavigationState()
-        }
         if (route == HOME_ROUTE) {
             dockCompact = false
             scrollDelta = 0f
             homeScrollToTopRequest++
-            navController.popBackStack(HOME_ROUTE, inclusive = false)
-            return
         }
         navController.navigate(route) {
             popUpTo(HOME_ROUTE) {
                 inclusive = false
-                saveState = false
+                saveState = true
             }
             launchSingleTop = true
-            restoreState = false
+            restoreState = true
         }
     }
 
@@ -418,6 +410,7 @@ fun MeowzixApp(
                     },
                     searchQuery = if (searchActive && searchScope == DockSearchScope.LIBRARY) searchQuery else "",
                     viewModel = libraryViewModel,
+                    tracksViewModel = libraryTracksViewModel,
                     requestedArtist = pendingArtist,
                     onArtistRequestConsumed = { pendingArtist = null },
                     requestedAlbum = pendingAlbum,

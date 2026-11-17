@@ -84,7 +84,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -521,6 +520,11 @@ internal fun PlaylistDetailScreenV3(
         draggedDistance = 0f
     }
 
+    val refreshContentAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (refreshing) 0.88f else 1f,
+        animationSpec = tween(150),
+        label = "playlist-refresh-content-fade",
+    )
     val playlistPullState = rememberPullToRefreshState()
     PlaylistGlassBackdrop { hazeState ->
         Box(Modifier.fillMaxSize()) {
@@ -532,15 +536,16 @@ internal fun PlaylistDetailScreenV3(
             modifier = Modifier.fillMaxSize().testTag("playlist-pull-refresh"),
             state = playlistPullState,
             indicator = {
-                PullToRefreshDefaults.Indicator(
-                    state = playlistPullState,
-                    isRefreshing = refreshing,
+                FadeRefreshIndicator(
+                    refreshing = refreshing,
                     modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 92.dp),
                 )
             },
         ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState).testTag("playlist-detail-list"),
+            modifier = Modifier.fillMaxSize().statusBarsPadding()
+                .graphicsLayer { alpha = refreshContentAlpha }
+                .hazeSource(hazeState).testTag("playlist-detail-list"),
             state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 100.dp, bottom = dockAwareBottomPadding(188.dp)),
             verticalArrangement = Arrangement.spacedBy(10.dp),

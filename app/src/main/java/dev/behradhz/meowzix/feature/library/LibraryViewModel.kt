@@ -1,6 +1,5 @@
 package dev.behradhz.meowzix.feature.library
 
-import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -46,8 +45,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-internal const val LIBRARY_AUTO_REFRESH_INTERVAL_MS = 15 * 60 * 1_000L
 
 data class LibraryUiState(
     /**
@@ -98,7 +95,6 @@ class LibraryViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
-    private var lastAutomaticRefreshCheckMs: Long? = null
     private var favoriteTracksSnapshot: List<Track> = emptyList()
     private var activeTrackSnapshot: Track? = null
     private var playlistTracksJob: Job? = null
@@ -224,29 +220,11 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** Explicit refresh bypasses the periodic throttle (pull gesture or active-tab reselect). */
+    /** Only user-initiated refresh is allowed; tab navigation never triggers a source scan. */
     fun refresh() {
         if (_state.value.isRefreshing) return
-        lastAutomaticRefreshCheckMs = SystemClock.elapsedRealtime()
         syncSelectedTelegramSources()
         viewModelScope.launch { refreshInternal() }
-    }
-
-    /** Check once per interval rather than every time the Library destination is composed. */
-    fun refreshIfDue() {
-        if (_state.value.isRefreshing) return
-        val now = SystemClock.elapsedRealtime()
-        val previous = lastAutomaticRefreshCheckMs
-        if (previous != null && now - previous < LIBRARY_AUTO_REFRESH_INTERVAL_MS) return
-        lastAutomaticRefreshCheckMs = now
-        viewModelScope.launch {
-            if (_state.value.isRefreshing) return@launch
-            syncSelectedTelegramSources()
-            // The repository's own six-hour local scan policy remains authoritative.
-            if (runCatching { repository.shouldRefreshLocalMusic() }.getOrDefault(true)) {
-                refreshInternal()
-            }
-        }
     }
 
     private fun syncSelectedTelegramSources() {

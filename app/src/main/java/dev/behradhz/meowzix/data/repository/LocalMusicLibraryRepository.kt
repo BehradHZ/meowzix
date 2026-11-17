@@ -168,6 +168,7 @@ class LocalMusicLibraryRepository @Inject constructor(
         val scanned = scanner.scan()
         val now = Instant.now().toEpochMilli()
         var updatedCount = 0
+        var changedTrackIds = emptySet<String>()
 
         val plan = database.withTransaction {
             // These snapshots are loaded once per refresh. Crucially, candidate matching for a new
@@ -197,13 +198,12 @@ class LocalMusicLibraryRepository @Inject constructor(
                 )
             }
 
-            val unchangedSourceIds = mutableListOf<String>()
             reconciliation.toUpdate.forEach { match ->
                 val existingSource = existingSourcesById[match.existing.sourceId] ?: return@forEach
                 val existingTrack = existingTracksById[match.existing.trackId]
                 val existingLocalMedia = existingLocalMediaBySourceId[existingSource.id]
                 if (isUnchanged(match.scanned, existingSource, existingTrack, existingLocalMedia)) {
-                    unchangedSourceIds += existingSource.id
+                    // Unchanged rows are already available: writing their timestamps invalidates Paging.
                 } else {
                     mutations += prepareScannedItem(
                         item = match.scanned,
@@ -217,21 +217,20 @@ class LocalMusicLibraryRepository @Inject constructor(
             }
 
             persistMutationsInBatches(mutations)
+            changedTrackIds = mutations.mapTo(hashSetOf()) { it.track.id }
             updateAvailabilityInChunks(
-                unchangedSourceIds,
-                SourceAvailability.AVAILABLE_LOCAL,
-                now,
-            )
-            updateAvailabilityInChunks(
-                reconciliation.missingSourceIds,
+                reconciliation.missingSourceIds.filter {
+                    existingSourcesById[it]?.availability != SourceAvailability.MISSING
+                },
                 SourceAvailability.MISSING,
                 now,
             )
             reconciliation
         }
 
+        // Update the FTS rows for changed metadata only. A no-op scan writes nothing.
+        if (changedTrackIds.isNotEmpty()) searchIndexer.refreshTracks(changedTrackIds)
         lastSuccessfulRefreshAtEpochMs = now
-        searchIndexer.refreshAll()
         return LocalLibraryRefreshResult(
             discovered = plan.discovered,
             created = plan.toCreate.size,

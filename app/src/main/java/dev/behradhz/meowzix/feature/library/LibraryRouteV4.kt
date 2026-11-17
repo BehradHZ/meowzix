@@ -111,7 +111,6 @@ import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
 import dev.behradhz.meowzix.domain.settings.LibrarySortMode
 import java.util.UUID
-import kotlinx.coroutines.delay
 
 private enum class LibrarySectionV4(val label: String) {
     TRACKS("Tracks"), ARTISTS("Artists"), ALBUMS("Albums")
@@ -132,9 +131,20 @@ internal fun LibraryRouteV4(
     val lifecycleOwner = LocalLifecycleOwner.current
     var sectionIndex by rememberSaveable { mutableIntStateOf(0) }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Fade the existing rows slightly during a manual refresh; never clear the page.
+    val refreshContentAlpha by animateFloatAsState(
+        targetValue = if (state.isRefreshing) 0.88f else 1f,
+        animationSpec = tween(150),
+        label = "library-refresh-content-fade",
+    )
     val displaySettings by tracksViewModel.displaySettings.collectAsStateWithLifecycle()
     val trackCount by tracksViewModel.trackCount.collectAsStateWithLifecycle()
-    val artists by tracksViewModel.artists.collectAsStateWithLifecycle()
+    // Artist aggregation is unnecessary when the user is viewing Tracks.
+    val artists by if (sectionIndex == 1 || requestedArtist != null) {
+        tracksViewModel.artists.collectAsStateWithLifecycle()
+    } else {
+        remember { mutableStateOf(emptyList<ArtistSummary>()) }
+    }
     // Avoid album aggregation on the initial Tracks screen; it is loaded on demand.
     val albums by if (sectionIndex == 2 || requestedAlbum != null) {
         tracksViewModel.albums.collectAsStateWithLifecycle()
@@ -182,17 +192,6 @@ internal fun LibraryRouteV4(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    // Only check periodically while the Library is visible; tab navigation never forces a scan.
-    LaunchedEffect(permissionGranted) {
-        if (permissionGranted) {
-            viewModel.refreshIfDue()
-            while (true) {
-                delay(LIBRARY_AUTO_REFRESH_INTERVAL_MS)
-                viewModel.refreshIfDue()
-            }
-        }
-    }
-
     LaunchedEffect(sectionIndex) {
         if (sectionIndex !in LibrarySectionV4.entries.indices) sectionIndex = 0
     }
@@ -255,8 +254,7 @@ internal fun LibraryRouteV4(
                 onRefreshProfile = viewModel::refreshSelectedPersonProfile,
                 onGoToArtist = { track ->
                     tracksViewModel.closeAggregate()
-                    artists.firstOrNull { it.normalizedName == track.normalizedArtist }
-                        ?.let(tracksViewModel::openArtist)
+                    tracksViewModel.openArtistForTrack(track)
                 },
                 onMove = viewModel::movePlaylistTrack,
                 onRemove = viewModel::removePlaylistTrack,
@@ -286,8 +284,7 @@ internal fun LibraryRouteV4(
             },
             viewModel = viewModel,
             onGoToArtist = { track ->
-                artists.firstOrNull { it.normalizedName == track.normalizedArtist }
-                    ?.let(tracksViewModel::openArtist)
+                tracksViewModel.openArtistForTrack(track)
             },
         )
         return
@@ -299,9 +296,17 @@ internal fun LibraryRouteV4(
             isRefreshing = state.isRefreshing,
             onRefresh = viewModel::refresh,
             modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 96.dp),
+            indicator = {
+                FadeRefreshIndicator(
+                    refreshing = state.isRefreshing,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp),
+                )
+            },
         ) {
     Column(
-        modifier = Modifier.fillMaxSize().hazeSource(headerHazeState),
+        modifier = Modifier.fillMaxSize()
+            .graphicsLayer { alpha = refreshContentAlpha }
+            .hazeSource(headerHazeState),
     ) {
         Row(
             modifier = Modifier
@@ -382,8 +387,7 @@ internal fun LibraryRouteV4(
                     },
                     viewModel = viewModel,
                     onGoToArtist = { track ->
-                        artists.firstOrNull { it.normalizedName == track.normalizedArtist }
-                            ?.let(tracksViewModel::openArtist)
+                        tracksViewModel.openArtistForTrack(track)
                     },
                 )
                 LibrarySectionV4.ARTISTS -> ArtistListV4(

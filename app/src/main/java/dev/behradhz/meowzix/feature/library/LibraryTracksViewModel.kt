@@ -134,6 +134,14 @@ class LibraryTracksViewModel @Inject constructor(
         aggregateSelection.value = LibraryAggregateSelection.Artist(summary.name, summary.normalizedName)
     }
 
+    /** Open from a track row without querying the full artist catalog. */
+    fun openArtistForTrack(track: Track) {
+        aggregateSelection.value = LibraryAggregateSelection.Artist(
+            track.artist?.takeIf(String::isNotBlank) ?: "Unknown artist",
+            track.normalizedArtist ?: "unknown artist",
+        )
+    }
+
     fun openAlbum(summary: AlbumSummary) {
         aggregateSelection.value = LibraryAggregateSelection.Album(summary.name, summary.artist, summary.normalizedArtist)
     }
