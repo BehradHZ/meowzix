@@ -108,6 +108,7 @@ internal fun PlaylistContentTransition(
 @Composable
 fun PlaylistsRoute(
     viewModel: LibraryViewModel,
+    isActive: Boolean = true,
     onOpenNowPlaying: () -> Unit,
     onGoToArtist: (String) -> Unit,
     searchQuery: String = "",
@@ -191,7 +192,7 @@ fun PlaylistsRoute(
         showFavorites = false
     }
 
-    BackHandler(enabled = selectedKey != null || showFavorites) {
+    BackHandler(enabled = isActive && (selectedKey != null || showFavorites)) {
         if (!creatingPlaylist) closeDetail()
     }
 
@@ -269,6 +270,7 @@ fun PlaylistsRoute(
             val telegramManaged = playlist?.telegramManaged == true
 
             PlaylistDetailScreenV3(
+                isActive = isActive,
                 playlist = playlist,
                 title = if (favorites) "Favorites" else playlist?.title ?: "Playlist",
                 tracks = tracks,

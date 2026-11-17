@@ -61,6 +61,7 @@ import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
+import dev.behradhz.meowzix.ui.components.SecondaryAmbientBackdrop
 import dev.chrisbanes.haze.hazeSource
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.chrisbanes.haze.HazeState
@@ -76,6 +77,7 @@ fun HomeRoute(
     scrollToTopRequest: Int = 0,
     foregroundSessionId: Long = 1L,
     reduceMotion: Boolean = false,
+    isActive: Boolean = true,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -89,7 +91,7 @@ fun HomeRoute(
     val headerHazeState = rememberHazeState()
     HomeScrollToTopEffect(listState, scrollToTopRequest)
 
-    LifecycleStartEffect(viewModel, foregroundSessionId) {
+    if (isActive) LifecycleStartEffect(viewModel, foregroundSessionId) {
         viewModel.onHomeVisible(foregroundSessionId)
         onStopOrDispose { viewModel.onHomeHidden() }
     }
@@ -98,7 +100,7 @@ fun HomeRoute(
         // Capture the ambient backdrop and the scrolling feed as one real blur source.
         // The header is a sibling, never a descendant of this captured layer.
         Box(Modifier.fillMaxSize().hazeSource(headerHazeState)) {
-            HomeAmbientBackdrop()
+            SecondaryAmbientBackdrop(variation = 0)
     
             LazyColumn(
                 state = listState,

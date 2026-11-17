@@ -24,6 +24,7 @@ fun LibraryRoute(
     onOpenNowPlaying: () -> Unit,
     onOpenTelegram: () -> Unit = {},
     searchQuery: String = "",
+    isActive: Boolean = true,
     requestedArtist: String? = null,
     onArtistRequestConsumed: () -> Unit = {},
     requestedAlbum: dev.behradhz.meowzix.data.repository.AlbumSummary? = null,
@@ -73,6 +74,7 @@ fun LibraryRoute(
     ) {
         Box(Modifier.fillMaxSize()) {
             LibraryRouteV4(
+                isActive = isActive,
                 onOpenNowPlaying = onOpenNowPlaying,
                 viewModel = viewModel,
                 tracksViewModel = tracksViewModel,

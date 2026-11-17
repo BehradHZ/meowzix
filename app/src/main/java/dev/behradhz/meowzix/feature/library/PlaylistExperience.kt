@@ -329,6 +329,7 @@ private fun playlistTrackCount(count: Int): String = if (count == 1) "1 track" e
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun PlaylistDetailScreenV3(
+    isActive: Boolean = true,
     playlist: PlaylistSummary?,
     title: String,
     tracks: List<Track>,
@@ -385,7 +386,7 @@ internal fun PlaylistDetailScreenV3(
     onBulkRemove: (List<Track>) -> Unit = {},
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
-    BackHandler(enabled = editing) { editing = false }
+    BackHandler(enabled = isActive && editing) { editing = false }
     if (editing && canEditMetadata) {
         PlaylistEditScreenV3(
             initialTitle = title,
@@ -434,7 +435,7 @@ internal fun PlaylistDetailScreenV3(
     var selectedIds by remember(playlist?.id, isFavorites) { mutableStateOf(emptySet<UUID>()) }
     var bulkPlaylistMenu by remember { mutableStateOf(false) }
     var showBulkLibraryRemoval by rememberSaveable(playlist?.id, isFavorites) { mutableStateOf(false) }
-    BackHandler(enabled = selectionMode) { selectionMode = false; selectedIds = emptySet() }
+    BackHandler(enabled = isActive && selectionMode) { selectionMode = false; selectedIds = emptySet() }
     LaunchedEffect(tracks) { selectedIds = selectedIds.intersect(tracks.map(Track::id).toSet()) }
     val showProfileSections = telegramPerson && playlist?.telegramManaged == true && !isFavorites
     fun toggleSelection(trackId: UUID) {

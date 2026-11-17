@@ -121,6 +121,7 @@ private enum class LibrarySectionV4(val label: String) {
 internal fun LibraryRouteV4(
     onOpenNowPlaying: () -> Unit,
     viewModel: LibraryViewModel,
+    isActive: Boolean = true,
     requestedArtist: String? = null,
     onArtistRequestConsumed: () -> Unit = {},
     requestedAlbum: AlbumSummary? = null,
@@ -219,7 +220,7 @@ internal fun LibraryRouteV4(
     val availabilityFilter = LibraryAvailabilityFilter.entries[availabilityIndex]
     LaunchedEffect(availabilityFilter) { tracksViewModel.setAvailability(availabilityFilter) }
 
-    BackHandler(enabled = aggregateSelection != null || showDisplaySheet) {
+    BackHandler(enabled = isActive && (aggregateSelection != null || showDisplaySheet)) {
         when {
             showDisplaySheet -> showDisplaySheet = false
             else -> tracksViewModel.closeAggregate()
@@ -230,6 +231,7 @@ internal fun LibraryRouteV4(
     if (aggregateSelection == LibraryAggregateSelection.Favorites) {
         key("favorites") {
             PlaylistDetailScreenV3(
+                isActive = isActive,
                 playlist = null,
                 title = "Favorites",
                 tracks = aggregateTracks,

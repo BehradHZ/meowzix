@@ -72,6 +72,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -129,6 +130,7 @@ private const val DOWNLOADS_ROUTE = "downloads"
 private const val HISTORY_ROUTE = "history"
 private const val TOP_LEVEL_ENTER_DURATION_MS = 120
 private const val TOP_LEVEL_EXIT_DURATION_MS = 90
+private val RETAINED_TAB_ROUTES = setOf(HOME_ROUTE, LIBRARY_ROUTE, PLAYLISTS_ROUTE, QUEUE_ROUTE)
 
 internal data class DockDestination(
     val route: String,
@@ -151,6 +153,7 @@ fun MeowzixApp(
     }
 
     val navController = rememberNavController()
+    var visitedTabRoutes by remember { mutableStateOf(setOf(HOME_ROUTE)) }
     val hazeState = rememberHazeState()
     val morphingPlayerState = rememberMorphingPlayerState()
     val libraryViewModel: LibraryViewModel = hiltViewModel()
@@ -266,6 +269,7 @@ fun MeowzixApp(
     }
 
     fun navigateTopLevel(route: String) {
+        if (route in RETAINED_TAB_ROUTES) visitedTabRoutes = visitedTabRoutes + route
         // Reselecting Library never refreshes its sources or recreates its Paging state.
         if (route == LIBRARY_ROUTE && currentRoute == LIBRARY_ROUTE && !searchActive) return
         clearSearchState()
@@ -325,17 +329,7 @@ fun MeowzixApp(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (currentRoute != HOME_ROUTE) {
-            SecondaryAmbientBackdrop(
-                variation = when (currentRoute) {
-                    LIBRARY_ROUTE -> 0
-                    PLAYLISTS_ROUTE -> 1
-                    QUEUE_ROUTE -> 3
-                    SETTINGS_ROUTE -> 2
-                    else -> 4
-                },
-            )
-        }
+        if (currentRoute != HOME_ROUTE) SecondaryAmbientBackdrop(variation = 0)
         CompositionLocalProvider(
             LocalMeowzixHeaderControls provides MeowzixHeaderControls(
                 onSettings = if (currentRoute == SETTINGS_ROUTE || currentRoute in secondarySettingsRoutes) null
@@ -351,6 +345,69 @@ fun MeowzixApp(
                 reduceMotion = reduceMotion,
             ),
         ) {
+        // Keep visited destinations in composition; inactive tabs are not placed, painted, or hit-tested.
+            if (HOME_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == HOME_ROUTE, hazeState = hazeState) {
+                HomeRoute(
+                    isActive = currentRoute == HOME_ROUTE,
+                    hazeState = hazeState,
+                    scrollToTopRequest = homeScrollToTopRequest,
+                    foregroundSessionId = foregroundSessionId,
+                    reduceMotion = reduceMotion,
+                    currentTrack = libraryState.tracks.firstOrNull { it.id == playbackState.currentTrack?.id },
+                    onPlayCollection = { tracks ->
+                        libraryViewModel.playCollection(
+                            tracks,
+                            dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED,
+                        )
+                    },
+                    onOpenLibrary = { navigateTopLevel(LIBRARY_ROUTE) },
+                    onOpenPlaylist = { id ->
+                        pendingPlaylistId = id
+                        navigateTopLevel(PLAYLISTS_ROUTE)
+                    },
+                )
+            }
+            if (LIBRARY_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == LIBRARY_ROUTE, hazeState = hazeState) {
+                LibraryRoute(
+                    isActive = currentRoute == LIBRARY_ROUTE,
+                    onOpenNowPlaying = {
+                        if (searchActive) clearSearchState()
+                        morphingPlayerState.expand()
+                    },
+                    searchQuery = if (searchActive && searchScope == DockSearchScope.LIBRARY) searchQuery else "",
+                    viewModel = libraryViewModel,
+                    tracksViewModel = libraryTracksViewModel,
+                    requestedArtist = pendingArtist,
+                    onArtistRequestConsumed = { pendingArtist = null },
+                    requestedAlbum = pendingAlbum,
+                    onAlbumRequestConsumed = { pendingAlbum = null },
+                )
+            }
+            if (PLAYLISTS_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == PLAYLISTS_ROUTE, hazeState = hazeState) {
+                PlaylistsRoute(
+                    isActive = currentRoute == PLAYLISTS_ROUTE,
+                    viewModel = libraryViewModel,
+                    searchQuery = if (searchActive && searchScope == DockSearchScope.PLAYLIST) searchQuery else "",
+                    onOpenNowPlaying = { morphingPlayerState.expand() },
+                    onGoToArtist = { artist ->
+                        pendingArtist = artist
+                        navigateTopLevel(LIBRARY_ROUTE)
+                    },
+                    requestedPlaylistId = pendingPlaylistId,
+                    onPlaylistRequestConsumed = { pendingPlaylistId = null },
+                    reduceMotion = reduceMotion,
+                )
+            }
+            if (QUEUE_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == QUEUE_ROUTE, hazeState = hazeState) {
+                QueueRoute(
+                    searchQuery = if (searchActive && searchScope == DockSearchScope.QUEUE) searchQuery else "",
+                    onGoToArtist = { artist ->
+                        pendingArtist = artist
+                        navigateTopLevel(LIBRARY_ROUTE)
+                    },
+                )
+            }
+
         NavHost(
             navController = navController,
             startDestination = HOME_ROUTE,
@@ -379,64 +436,10 @@ fun MeowzixApp(
                 else fadeOut(tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS))
             },
         ) {
-            composable(HOME_ROUTE) {
-                HomeRoute(
-                    hazeState = hazeState,
-                    scrollToTopRequest = homeScrollToTopRequest,
-                    foregroundSessionId = foregroundSessionId,
-                    reduceMotion = reduceMotion,
-                    currentTrack = libraryState.tracks.firstOrNull { it.id == playbackState.currentTrack?.id },
-                    onPlayCollection = { tracks ->
-                        libraryViewModel.playCollection(
-                            tracks,
-                            dev.behradhz.meowzix.domain.playback.PlaybackMode.ORDERED,
-                        )
-                    },
-                    onOpenLibrary = { navigateTopLevel(LIBRARY_ROUTE) },
-                    onOpenPlaylist = { id ->
-                        pendingPlaylistId = id
-                        navigateTopLevel(PLAYLISTS_ROUTE)
-                    },
-                )
-            }
-            composable(LIBRARY_ROUTE) {
-                LibraryRoute(
-                    onOpenNowPlaying = {
-                        if (searchActive) clearSearchState()
-                        morphingPlayerState.expand()
-                    },
-                    searchQuery = if (searchActive && searchScope == DockSearchScope.LIBRARY) searchQuery else "",
-                    viewModel = libraryViewModel,
-                    tracksViewModel = libraryTracksViewModel,
-                    requestedArtist = pendingArtist,
-                    onArtistRequestConsumed = { pendingArtist = null },
-                    requestedAlbum = pendingAlbum,
-                    onAlbumRequestConsumed = { pendingAlbum = null },
-                )
-            }
-            composable(PLAYLISTS_ROUTE) {
-                PlaylistsRoute(
-                    viewModel = libraryViewModel,
-                    searchQuery = if (searchActive && searchScope == DockSearchScope.PLAYLIST) searchQuery else "",
-                    onOpenNowPlaying = { morphingPlayerState.expand() },
-                    onGoToArtist = { artist ->
-                        pendingArtist = artist
-                        navigateTopLevel(LIBRARY_ROUTE)
-                    },
-                    requestedPlaylistId = pendingPlaylistId,
-                    onPlaylistRequestConsumed = { pendingPlaylistId = null },
-                    reduceMotion = reduceMotion,
-                )
-            }
-            composable(QUEUE_ROUTE) {
-                QueueRoute(
-                    searchQuery = if (searchActive && searchScope == DockSearchScope.QUEUE) searchQuery else "",
-                    onGoToArtist = { artist ->
-                        pendingArtist = artist
-                        navigateTopLevel(LIBRARY_ROUTE)
-                    },
-                )
-            }
+            composable(HOME_ROUTE) { }
+            composable(LIBRARY_ROUTE) { }
+            composable(PLAYLISTS_ROUTE) { }
+            composable(QUEUE_ROUTE) { }
             composable(SETTINGS_ROUTE) {
                 SettingsRoute(
                     onBack = { navController.popBackStack() },
@@ -597,6 +600,23 @@ fun MeowzixApp(
             openRequest = openProxyRequest,
         )
     }
+}
+
+/** Retains LazyListState, artwork caches and subpage state without off-screen drawing or touch handling. */
+@Composable
+private fun RetainedTopLevelTab(
+    active: Boolean,
+    hazeState: HazeState,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        Modifier.fillMaxSize().layout { measurable, constraints ->
+            val child = measurable.measure(constraints)
+            layout(child.width, child.height) {
+                if (active) child.place(0, 0)
+            }
+        }.hazeSource(hazeState),
+    ) { content() }
 }
 
 @Composable
