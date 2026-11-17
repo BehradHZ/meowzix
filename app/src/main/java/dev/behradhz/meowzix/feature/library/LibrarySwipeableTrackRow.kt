@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.RectangleShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
@@ -83,7 +84,7 @@ import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
-import dev.behradhz.meowzix.ui.components.roundedSwipeReveal
+import dev.behradhz.meowzix.ui.components.maskBehindSwipeTrack
 import dev.behradhz.meowzix.ui.components.StagedSwipeReveal
 import dev.behradhz.meowzix.ui.components.TRACK_CARD_ALPHA
 import dev.behradhz.meowzix.ui.components.TRACK_ROW_HORIZONTAL_PADDING
@@ -171,9 +172,11 @@ internal fun SwipeableLibraryTrackRow(
             )
         } else if (abs(visualOffsetX) > 0.5f) {
             Surface(
-                modifier = Modifier.fillMaxWidth().height(66.dp)
-                    .roundedSwipeReveal(visualOffsetX),
-                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.matchParentSize()
+                    .maskBehindSwipeTrack(visualOffsetX),
+                // An action is not an independent card: the moving song's
+                // rounded silhouette alone determines what can be seen.
+                shape = RectangleShape,
                 color = if (swipingRight) {
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
