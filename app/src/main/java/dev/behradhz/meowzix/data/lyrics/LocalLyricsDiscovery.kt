@@ -40,7 +40,7 @@ class LocalLyricsDiscovery @Inject constructor(
                     Uri.parse(uri).takeIf { it.scheme == "file" }?.path?.let(::File)
                 }
                 val sidecar = file?.let(::sidecar)
-                if (sidecar != null && displayable(sidecar)) sidecar else {
+                if (sidecar != null && isDisplayableLyrics(sidecar)) sidecar else {
                     val input = when {
                         !source.contentUri.isNullOrBlank() -> {
                             val uri = Uri.parse(source.contentUri)
@@ -58,7 +58,7 @@ class LocalLyricsDiscovery @Inject constructor(
                 // An inaccessible/unsupported source must not affect playback or the UI.
                 null
             }
-            if (text != null && displayable(text)) repository.saveEmbedded(trackId, text, label)
+            if (text != null && isDisplayableLyrics(text)) repository.saveEmbedded(trackId, text, label)
         }
     }
 
@@ -82,12 +82,4 @@ class LocalLyricsDiscovery @Inject constructor(
         return null
     }
 
-    private fun displayable(text: String): Boolean {
-        val parsed = LrcParser.parse(text)
-        return when (parsed.contentType) {
-            LyricsContentType.TIMED -> parsed.timedLines.any { it.text.isNotBlank() }
-            LyricsContentType.PLAIN -> parsed.plainLines.any(String::isNotBlank)
-            else -> false
-        }
-    }
 }

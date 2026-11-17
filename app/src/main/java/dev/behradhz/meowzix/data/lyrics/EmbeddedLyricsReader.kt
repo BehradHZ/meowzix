@@ -181,7 +181,7 @@ internal object EmbeddedLyricsReader {
             val comment = item() ?: return@repeat
             val key = comment.substringBefore('=', "").uppercase()
             val value = comment.substringAfter('=', "")
-            if (key in setOf("LYRICS", "UNSYNCEDLYRICS", "SYNCEDLYRICS", "LRC") && displayable(value)) {
+            if (key in setOf("LYRICS", "UNSYNCEDLYRICS", "SYNCEDLYRICS", "LRC") && isDisplayableLyrics(value)) {
                 if (LrcParser.parse(value).contentType == LyricsContentType.TIMED) timed = value
                 else if (plain == null) plain = value
             }
@@ -250,14 +250,6 @@ internal object EmbeddedLyricsReader {
         }
     }
 
-    private fun displayable(text: String): Boolean {
-        val parsed = LrcParser.parse(text)
-        return when (parsed.contentType) {
-            LyricsContentType.TIMED -> parsed.timedLines.any { it.text.isNotBlank() }
-            LyricsContentType.PLAIN -> parsed.plainLines.any(String::isNotBlank)
-            else -> false
-        }
-    }
     private fun unsigned(value: Byte): Int = value.toInt() and 255
     private fun syncSafe(bytes: ByteArray, index: Int): Int =
         (unsigned(bytes[index]) shl 21) or (unsigned(bytes[index + 1]) shl 14) or
