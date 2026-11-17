@@ -471,6 +471,25 @@ class LibraryViewModel @Inject constructor(
             .onFailure { reportLoadError(it, "Unable to create playlist") }
     }
 
+    fun createPlaylist(
+        title: String,
+        description: String?,
+        artworkRef: String?,
+        onCreated: (UUID) -> Unit,
+        onFailed: (String) -> Unit,
+    ) = viewModelScope.launch {
+        try {
+            val id = playlistRepository.create(title, description, artworkRef)
+            selectPlaylist(id)
+            onCreated(id)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            reportLoadError(error, "Unable to create playlist")
+            onFailed(error.message ?: "Unable to create playlist")
+        }
+    }
+
     fun restoreTelegramPlaylistMetadata(playlistId: UUID) = viewModelScope.launch {
         val selected = telegramRepository.musicSourceState.value
         val accountId = selected.accountId ?: return@launch
