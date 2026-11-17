@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
@@ -163,9 +164,10 @@ private fun Modifier.glassFastScroll(
     val foreground = MaterialTheme.colorScheme.onSurface
     val haptics = rememberMeowzixHaptics()
     val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
     // Leave the Back gesture strip untouched; the grip is inset from that strip.
     val rightInsetPx = maxOf(
-        WindowInsets.systemGestures.getRight(density).toFloat(),
+        WindowInsets.systemGestures.getRight(density, layoutDirection).toFloat(),
         with(density) { 24.dp.toPx() },
     ) + with(density) { 18.dp.toPx() }
     val thumbWidthPx = with(density) { 6.dp.toPx() }
