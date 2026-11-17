@@ -314,6 +314,10 @@ class TdLibTelegramRepository @Inject constructor(
         }
     }
 
+    private fun telegramHistoryConnectionAvailable(): Boolean =
+        _authState.value.connectionStatus == TelegramConnectionStatus.CONNECTED ||
+            _authState.value.connectionStatus == TelegramConnectionStatus.UPDATING
+
     override suspend fun chatIdForPlaylist(playlistId: UUID): Long? {
         val accountId = currentUserId?.toString() ?: _musicSourceState.value.accountId ?: return null
         return chatIdFromSelectedSources(accountId, playlistId, telegramDao.selectedSources(accountId))
@@ -322,6 +326,9 @@ class TdLibTelegramRepository @Inject constructor(
     override suspend fun refreshChatSource(chatId: Long): TelegramSyncResult {
         check(_authState.value.step == TelegramAuthStep.Ready) {
             "Reconnect Telegram before refreshing this playlist."
+        }
+        check(telegramHistoryConnectionAvailable()) {
+            "Connect Telegram to refresh this playlist. Previously imported songs are unchanged."
         }
         val accountId = currentUserId?.toString() ?: error("Telegram account is not ready.")
         check(!_musicSourceState.value.isSyncing) { "Telegram is already syncing. Try again shortly." }
@@ -662,6 +669,10 @@ class TdLibTelegramRepository @Inject constructor(
             fromMessageId = lastMessageId
         }
 
+        // TDLib can surface cached history while offline. Never interpret that as proof of deletion.
+        if (forceFullScan && !telegramHistoryConnectionAvailable()) {
+            error("Telegram disconnected during refresh. Existing songs were kept.")
+        }
         if (shouldReconcileTelegramMissing(selected.initialScanComplete, forceFullScan, reachedHistoryEnd)) {
             val staleIds = telegramDao.telegramMessageSourcesForChat(accountId, selected.chatId)
                 .filter { it.messageId !in seenEligibleIds }
