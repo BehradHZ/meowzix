@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.RectangleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.Icon
@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,7 +40,7 @@ val TRACK_SWIPE_MAX_DISTANCE = 240.dp
 
 /**
  * Two-stage swipe: keep the primary action visible until the secondary
- * threshold, then replace it with the action underneath over 190ms.
+ * threshold, then slide it beneath the song to uncover Remove over 190ms.
  * The pointer controls the song itself directly, independently of this animation.
  */
 internal fun originalSwipeActionExitTarget(offsetPx: Float, secondaryThresholdPx: Float): Float {
@@ -47,8 +48,27 @@ internal fun originalSwipeActionExitTarget(offsetPx: Float, secondaryThresholdPx
     return if (abs(offsetPx) >= secondaryThresholdPx) 1f else 0f
 }
 
+/**
+ * Slide the primary action fully beneath the foreground card, including
+ * its rounded corner cutouts. The extra overlap avoids a visible sliver
+ * when the primary action completes its exit.
+ */
+internal fun stagedSwipeActionSlidePx(
+    offsetPx: Float,
+    exitProgress: Float,
+    cornerOverlapPx: Float,
+): Float {
+    require(cornerOverlapPx >= 0f)
+    val progress = exitProgress.coerceIn(0f, 1f)
+    return when {
+        offsetPx > 0f -> (offsetPx + cornerOverlapPx) * progress
+        offsetPx < 0f -> (offsetPx - cornerOverlapPx) * progress
+        else -> 0f
+    }
+}
+
 /** Layer order: Remove at the bottom, first action above it, moving song card on top.
- * At the secondary threshold the foreground action fades out before Remove fades in.
+ * At the secondary threshold the first action slides entirely underneath the song.
  */
 @Composable
 fun BoxScope.StagedSwipeReveal(
@@ -71,22 +91,24 @@ fun BoxScope.StagedSwipeReveal(
         animationSpec = tween(durationMillis = SWIPE_ACTION_EXIT_DURATION_MS),
         label = "swipe-action-layer-exit",
     )
-    // Two stationary layers share the SAME rounded gutter. Remove is below the
-    // primary action, never beside it; the track itself is painted on top by
-    // the caller. A two-phase fade avoids overlapping labels during handoff.
-    val primaryAlpha = if (secondaryLabel == null) 1f
-        else (1f - animatedExitProgress * 2f).coerceIn(0f, 1f)
-    val secondaryAlpha = (animatedExitProgress * 2f - 1f).coerceIn(0f, 1f)
+    val density = LocalDensity.current
+    // 18dp matches the foreground card corners; the additional 2dp keeps
+    // the exiting action out of anti-aliased corner pixels at full progress.
+    val cornerOverlapPx = with(density) { 20.dp.toPx() }
+    val primarySlidePx = stagedSwipeActionSlidePx(
+        offsetPx, animatedExitProgress, cornerOverlapPx,
+    )
 
-    // Clip once in stationary row coordinates. In particular, do not clip a
-    // translated action card: that creates adjacent Play Next / Remove panels.
-    // roundedSwipeReveal also rounds the newly exposed edge of the gutter.
-    Box(modifier = Modifier.matchParentSize().roundedSwipeReveal(offsetPx)) {
+    // Actions are full rectangular surfaces stacked underneath the foreground
+    // song card. Remove stays beneath the opaque primary layer until the
+    // secondary threshold; then Play Next slides out of the exposed area.
+    // The moving song-card silhouette (not a vertical gutter) masks BOTH
+    // action layers so nothing shines through the translucent track surface.
+    Box(modifier = Modifier.matchParentSize().maskBehindSwipeTrack(offsetPx)) {
         if (secondaryLabel != null) {
             Surface(
-                modifier = Modifier.matchParentSize()
-                    .graphicsLayer { alpha = secondaryAlpha },
-                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.matchParentSize(),
+                shape = RectangleShape,
                 color = if (secondaryIsDestructive) {
                     MaterialTheme.colorScheme.error.copy(alpha = 0.22f)
                 } else {
@@ -94,7 +116,7 @@ fun BoxScope.StagedSwipeReveal(
                 },
                 contentColor = if (secondaryIsDestructive) MaterialTheme.colorScheme.error
                                else MaterialTheme.colorScheme.onPrimaryContainer,
-                tonalElevation = 2.dp,
+                tonalElevation = 0.dp,
             ) {
                 SwipeActionLabel(secondaryLabel, secondaryIcon, swipingRight)
             }
@@ -102,13 +124,15 @@ fun BoxScope.StagedSwipeReveal(
 
         Surface(
             modifier = Modifier.matchParentSize()
-                .graphicsLayer { alpha = primaryAlpha },
-            shape = RoundedCornerShape(18.dp),
-            color = if (swipingRight) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.tertiaryContainer,
+                .graphicsLayer { translationX = primarySlidePx },
+            shape = RectangleShape,
+            // The first layer MUST be opaque or Remove leaks through before
+            // the staged transition even when the main song card is masked.
+            color = (if (swipingRight) MaterialTheme.colorScheme.primaryContainer
+                     else MaterialTheme.colorScheme.tertiaryContainer).copy(alpha = 1f),
             contentColor = if (swipingRight) MaterialTheme.colorScheme.onPrimaryContainer
                            else MaterialTheme.colorScheme.onTertiaryContainer,
-            tonalElevation = 2.dp,
+            tonalElevation = 0.dp,
         ) {
             SwipeActionLabel(primaryLabel, primaryIcon, swipingRight)
         }
