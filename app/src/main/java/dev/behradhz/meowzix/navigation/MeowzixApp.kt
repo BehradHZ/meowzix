@@ -130,6 +130,8 @@ private const val DOWNLOADS_ROUTE = "downloads"
 private const val HISTORY_ROUTE = "history"
 private const val TOP_LEVEL_ENTER_DURATION_MS = 120
 private const val TOP_LEVEL_EXIT_DURATION_MS = 90
+// The Haze tint is the visible scrim; backgroundColor alone does not control its opacity.
+private const val DOCK_GLASS_TINT_OPACITY = 0.86f
 
 internal data class DockDestination(
     val route: String,
@@ -640,7 +642,7 @@ internal fun MorphingDock(
                 .border(1.dp, glassOutline, RoundedCornerShape(36.dp)),
             shape = RoundedCornerShape(36.dp),
             fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-            tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.10f),
+            tint = MaterialTheme.colorScheme.surface.copy(alpha = DOCK_GLASS_TINT_OPACITY),
         ) {
             Row(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -707,7 +709,7 @@ internal fun MorphingDock(
                     .border(1.dp, glassOutline, dockShape),
                 shape = dockShape,
                 fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-                tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.10f),
+                tint = MaterialTheme.colorScheme.surface.copy(alpha = DOCK_GLASS_TINT_OPACITY),
             ) {
                 // Keep the four destinations composed long enough to fade out,
                 // then let the selected destination take over the circular dock.
@@ -769,7 +771,7 @@ internal fun MorphingDock(
                     .clickable { onSelect(SEARCH_ROUTE) },
                 shape = searchShape,
                 fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-                tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.10f),
+                tint = MaterialTheme.colorScheme.surface.copy(alpha = DOCK_GLASS_TINT_OPACITY),
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
