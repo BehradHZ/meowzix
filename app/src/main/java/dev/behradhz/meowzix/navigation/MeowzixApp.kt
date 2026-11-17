@@ -16,7 +16,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,7 +62,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -110,7 +108,8 @@ import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramProxyPanel
 import dev.behradhz.meowzix.domain.telegram.telegramProxyBadge
 import dev.behradhz.meowzix.ui.theme.LocalMeowzixLogoBackground
-import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.FloatingChromeGlassSurface
+import dev.behradhz.meowzix.ui.components.floatingChromeFrame
 import dev.behradhz.meowzix.ui.components.LocalMeowzixHeaderControls
 import dev.behradhz.meowzix.ui.components.MeowzixHeaderControls
 import dev.behradhz.meowzix.ui.components.SecondaryAmbientBackdrop
@@ -130,8 +129,6 @@ private const val DOWNLOADS_ROUTE = "downloads"
 private const val HISTORY_ROUTE = "history"
 private const val TOP_LEVEL_ENTER_DURATION_MS = 120
 private const val TOP_LEVEL_EXIT_DURATION_MS = 90
-// The Haze tint is the visible scrim; backgroundColor alone does not control its opacity.
-private const val DOCK_GLASS_TINT_OPACITY = 0.86f
 
 internal data class DockDestination(
     val route: String,
@@ -618,7 +615,6 @@ internal fun MorphingDock(
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    val glassOutline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f)
     LaunchedEffect(searchActive) {
         if (searchActive) {
             if (!reduceMotion) delay(110)
@@ -628,14 +624,11 @@ internal fun MorphingDock(
     }
 
     if (searchActive) {
-        GlassSurface(
+        FloatingChromeGlassSurface(
             hazeState = hazeState,
             modifier = Modifier.fillMaxWidth().height(72.dp)
-                .shadow(6.dp, RoundedCornerShape(36.dp))
-                .border(1.dp, glassOutline, RoundedCornerShape(36.dp)),
+                .floatingChromeFrame(RoundedCornerShape(36.dp)),
             shape = RoundedCornerShape(36.dp),
-            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-            tint = MaterialTheme.colorScheme.surface.copy(alpha = DOCK_GLASS_TINT_OPACITY),
         ) {
             Row(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -692,17 +685,14 @@ internal fun MorphingDock(
         // Both edges have fixed anchors. Shrinking the left dock must never
         // pull Search toward the center or underneath the compact player.
         Box(modifier = Modifier.fillMaxSize()) {
-            GlassSurface(
+            FloatingChromeGlassSurface(
                 hazeState = hazeState,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .width(leftWidth)
                     .height(leftHeight)
-                    .shadow(6.dp, dockShape)
-                    .border(1.dp, glassOutline, dockShape),
+                    .floatingChromeFrame(dockShape),
                 shape = dockShape,
-                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-                tint = MaterialTheme.colorScheme.surface.copy(alpha = DOCK_GLASS_TINT_OPACITY),
             ) {
                 // Keep the four destinations composed long enough to fade out,
                 // then let the selected destination take over the circular dock.
@@ -754,17 +744,14 @@ internal fun MorphingDock(
                     }
                 }
             }
-            GlassSurface(
+            FloatingChromeGlassSurface(
                 hazeState = hazeState,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .size(searchSize)
-                    .shadow(6.dp, searchShape)
-                    .border(1.dp, glassOutline, searchShape)
+                    .floatingChromeFrame(searchShape)
                     .clickable { onSelect(SEARCH_ROUTE) },
                 shape = searchShape,
-                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-                tint = MaterialTheme.colorScheme.surface.copy(alpha = DOCK_GLASS_TINT_OPACITY),
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
