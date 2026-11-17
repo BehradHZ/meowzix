@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,6 +55,7 @@ data class HomeUiState(
     val artists: List<SuggestedArtist> = emptyList(),
     val isReady: Boolean = false,
     val libraryRevision: Long = 0L,
+    val isRefreshing: Boolean = false,
     val sections: List<HomeRecommendationSection> = emptyList(),
 )
 
@@ -168,6 +170,7 @@ class HomeViewModel @Inject constructor(
                 return@withLock
             }
 
+            if (_state.value.isReady) _state.update { it.copy(isRefreshing = true) }
             try {
                 // Keep the previous snapshot visible until every section is ready.
                 val snapshot = buildHomeFeed()
@@ -179,6 +182,8 @@ class HomeViewModel @Inject constructor(
             } catch (_: Exception) {
                 // A failed attempt is not cached as a completed session.
                 if (cachedState == null) _state.value = HomeUiState(isReady = true)
+            } finally {
+                _state.update { if (it.isRefreshing) it.copy(isRefreshing = false) else it }
             }
         }
     }

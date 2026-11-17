@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.feature.home
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateBounds
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -78,6 +79,11 @@ fun HomeRoute(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val refreshContentAlpha by animateFloatAsState(
+        targetValue = if (state.isRefreshing) 0.88f else 1f,
+        animationSpec = tween(150),
+        label = "home-refresh-content-fade",
+    )
     val listState = rememberLazyListState()
     // Keep the Home header's blur input separate from NavHost/dock and card haze sources.
     val headerHazeState = rememberHazeState()
@@ -99,6 +105,7 @@ fun HomeRoute(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
+                    .graphicsLayer { alpha = refreshContentAlpha }
                     .hazeSource(hazeState),
                 contentPadding = PaddingValues(
                     start = 18.dp,
