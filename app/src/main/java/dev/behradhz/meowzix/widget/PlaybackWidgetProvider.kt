@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.util.SizeF
@@ -24,8 +23,6 @@ import com.google.common.util.concurrent.ListenableFuture
 import dev.behradhz.meowzix.MainActivity
 import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.playback.PlaybackService
-import java.io.File
-import java.io.FileInputStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -201,7 +198,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
 
         private suspend fun render(context: Context, widgetIds: IntArray, state: PlaybackWidgetState) {
             val artwork = withContext(Dispatchers.IO) {
-                state.artworkRef?.let { decodeArtwork(context, it, 192) }
+                state.artworkRef?.let { decodeWidgetArtwork(context, it, 192) }
             }
             val manager = AppWidgetManager.getInstance(context)
             widgetIds.forEach { id ->
@@ -458,27 +455,7 @@ class PlaybackWidgetProvider : AppWidgetProvider() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        private fun decodeArtwork(context: Context, ref: String, maxSizePx: Int): Bitmap? {
-            val uri = runCatching { Uri.parse(ref) }.getOrNull() ?: return null
-            fun open() = when (uri.scheme?.lowercase()) {
-                "file" -> uri.path?.let(::File)?.takeIf(File::isFile)?.let(::FileInputStream)
-                "content", "android.resource" -> context.contentResolver.openInputStream(uri)
-                else -> null
-            }
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            runCatching { open()?.use { BitmapFactory.decodeStream(it, null, bounds) } }
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-            var sample = 1
-            while (bounds.outWidth / sample > maxSizePx || bounds.outHeight / sample > maxSizePx)
-                sample *= 2
-            return runCatching {
-                open()?.use {
-                    BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
-                        inSampleSize = sample
-                    })
-                }
-            }.getOrNull()
-        }
+
     }
 }
 
