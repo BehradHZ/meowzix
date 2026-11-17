@@ -269,13 +269,13 @@ class LibraryQueryRepository @Inject constructor(
     }
 
     fun artistTracks(normalizedArtist: String): Flow<List<Track>> =
-        dao.observeTracksByArtist(normalizedArtist).map { rows -> rows.map(TrackEntity::toDomainTrack) }
+        dao.observeTracksByArtist(normalizedArtist).map { rows -> rows.map(TrackEntity::toDomain) }
 
     fun albumTracks(album: String, normalizedArtist: String): Flow<List<Track>> =
-        dao.observeTracksByAlbum(album, normalizedArtist).map { rows -> rows.map(TrackEntity::toDomainTrack) }
+        dao.observeTracksByAlbum(album, normalizedArtist).map { rows -> rows.map(TrackEntity::toDomain) }
 
     fun favoriteTracks(): Flow<List<Track>> =
-        dao.observeFavoriteTracks().map { rows -> rows.map(TrackEntity::toDomainTrack) }
+        dao.observeFavoriteTracks().map { rows -> rows.map(TrackEntity::toDomain) }
 
     private suspend fun boundedAvailableTracks(orderBy: String, limit: Int): List<Track> =
         dao.searchTracks(

@@ -147,6 +147,7 @@ fun SyntheticWaveformSeekBar(
     val interactionPointerHeightPx = with(density) { 23.dp.toPx() }
     val visualHeight = 58.dp
 
+    val coercedValue = value.coerceIn(valueRange.start, valueRange.endInclusive)
     val progress = normalizedSliderProgress(value, valueRange)
 
     Box(modifier = modifier.height(visualHeight)) {
