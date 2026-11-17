@@ -664,19 +664,3 @@ private fun localSourcePriority(source: TrackSourceEntity): Int = when (source.t
     else -> 3
 }
 
-private fun TrackEntity.toDomain() = Track(
-    id = UUID.fromString(id),
-    title = title,
-    normalizedTitle = normalizedTitle,
-    artist = artist,
-    normalizedArtist = normalizedArtist,
-    album = album,
-    durationMs = durationMs,
-    trackNumber = trackNumber,
-    year = year,
-    artworkRef = artworkRef,
-    favorite = favorite,
-    hidden = hidden,
-    createdAt = Instant.ofEpochMilli(createdAtEpochMs),
-    updatedAt = Instant.ofEpochMilli(updatedAtEpochMs),
-)

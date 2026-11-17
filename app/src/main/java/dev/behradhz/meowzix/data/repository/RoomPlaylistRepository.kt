@@ -53,7 +53,7 @@ class RoomPlaylistRepository @Inject constructor(
         database.telegramDao().markTrackSeen(trackId.toString())
 
     override fun observeTracks(playlistId: UUID): Flow<List<Track>> =
-        dao.observeTracks(playlistId.toString()).map { rows -> rows.map(TrackEntity::toPlaylistTrack) }
+        dao.observeTracks(playlistId.toString()).map { rows -> rows.map(TrackEntity::toDomain) }
 
     override suspend fun create(title: String): UUID {
         val normalized = title.trim().takeIf(String::isNotEmpty) ?: "New playlist"
@@ -167,19 +167,3 @@ class RoomPlaylistRepository @Inject constructor(
     }
 }
 
-private fun TrackEntity.toPlaylistTrack() = Track(
-    id = UUID.fromString(id),
-    title = title,
-    normalizedTitle = normalizedTitle,
-    artist = artist,
-    normalizedArtist = normalizedArtist,
-    album = album,
-    durationMs = durationMs,
-    trackNumber = trackNumber,
-    year = year,
-    artworkRef = artworkRef,
-    favorite = favorite,
-    hidden = hidden,
-    createdAt = Instant.ofEpochMilli(createdAtEpochMs),
-    updatedAt = Instant.ofEpochMilli(updatedAtEpochMs),
-)

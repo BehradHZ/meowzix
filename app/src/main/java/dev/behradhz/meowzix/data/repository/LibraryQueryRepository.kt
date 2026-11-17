@@ -184,7 +184,7 @@ class LibraryQueryRepository @Inject constructor(
 
     /** Single-row lookup for surfaces that already know the canonical track UUID. */
     suspend fun track(trackId: UUID): Track? =
-        libraryDao.trackById(trackId.toString())?.toDomainTrack()
+        libraryDao.trackById(trackId.toString())?.toDomain()
 
     /**
      * Full eligibility set as UUIDs only. Recommendation can consider the complete library without
@@ -394,19 +394,3 @@ private fun SearchTrackRow.toDomain() = Track(
     updatedAt = Instant.ofEpochMilli(updatedAtEpochMs),
 )
 
-private fun TrackEntity.toDomainTrack() = Track(
-    id = UUID.fromString(id),
-    title = title,
-    normalizedTitle = normalizedTitle,
-    artist = artist,
-    normalizedArtist = normalizedArtist,
-    album = album,
-    durationMs = durationMs,
-    trackNumber = trackNumber,
-    year = year,
-    artworkRef = artworkRef,
-    favorite = favorite,
-    hidden = hidden,
-    createdAt = Instant.ofEpochMilli(createdAtEpochMs),
-    updatedAt = Instant.ofEpochMilli(updatedAtEpochMs),
-)
