@@ -538,6 +538,61 @@ internal fun PlaylistDetailScreenV3(
     )
     val playlistPullState = rememberPullToRefreshState()
     PlaylistGlassBackdrop { hazeState ->
+        @Composable
+        fun PlaylistTrackRowContent(
+            track: Track,
+            playbackCollection: List<Track>,
+            moveUp: (() -> Unit)? = null,
+            moveDown: (() -> Unit)? = null,
+        ) {
+                            SwipeableLibraryTrackRow(
+                                track = track,
+                                isCurrent = track.id == currentTrackId,
+                                onClick = {
+                                    if (selectionMode) toggleSelection(track.id) else onPlayTrack(track, playbackCollection)
+                                },
+                                onPlayNext = { onPlayNext(track) },
+                                onAddToQueue = { onAddToQueue(track) },
+                                onPinOffline = { onPinOffline(track) },
+                                onRemoveOfflineCopy = { onRemoveOfflineCopy(track) },
+                                onRemoveTrack = onRemoveTrack?.let { remove ->
+                                    { offline, library -> remove(track, offline, library) }
+                                },
+                                canRemoveFromLibrary = playlist?.telegramManaged != true ||
+                                    track.id in libraryTrackIds,
+                                availability = availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
+                                download = downloads[track.id],
+                                playlists = playlists,
+                                onFavorite = { onFavorite(track) },
+                                onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
+                                onAddToLibrary = if (playlist?.telegramManaged == true && track.id !in libraryTrackIds) {
+                                    { onAddToLibrary(track) }
+                                } else null,
+                                chatLibraryMembership = if (playlist?.telegramManaged == true) {
+                                    track.id in libraryTrackIds
+                                } else null,
+                                onChatLibraryToggle = if (playlist?.telegramManaged == true) {
+                                    if (track.id in libraryTrackIds) {
+                                        onRemoveTrack?.let { remove -> { remove(track, false, true) } }
+                                    } else {
+                                        { onAddToLibrary(track) }
+                                    }
+                                } else null,
+                                onGoToArtist = { onGoToArtist(track) },
+                                onEnsureArtwork = { onEnsureArtwork(track) },
+                                onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
+                                onMoveUp = moveUp,
+                                onMoveDown = moveDown,
+                                containerColor = Color.Transparent,
+                                isNewArrival = track.id in newTrackIds,
+                                reduceMotion = reduceMotion,
+                                onLongClick = {
+                                    selectionMode = true
+                                    selectedIds = selectedIds + track.id
+                                },
+                            )
+        }
+
         Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = refreshing,
@@ -827,51 +882,11 @@ internal fun PlaylistDetailScreenV3(
                             modifier = Modifier.testTag("playlist-select:${track.id}"),
                         )
                         PlaylistGlassPanel(hazeState, Modifier.weight(1f).testTag("playlist-track:${track.id}"), radius = 20.dp) {
-                            SwipeableLibraryTrackRow(
+                            PlaylistTrackRowContent(
                                 track = track,
-                                isCurrent = track.id == currentTrackId,
-                                onClick = {
-                                    if (selectionMode) toggleSelection(track.id) else onPlayTrack(track, customTracks)
-                                },
-                                onPlayNext = { onPlayNext(track) },
-                                onAddToQueue = { onAddToQueue(track) },
-                                onPinOffline = { onPinOffline(track) },
-                                onRemoveOfflineCopy = { onRemoveOfflineCopy(track) },
-                                onRemoveTrack = onRemoveTrack?.let { remove ->
-                                    { offline, library -> remove(track, offline, library) }
-                                },
-                                canRemoveFromLibrary = playlist?.telegramManaged != true ||
-                                    track.id in libraryTrackIds,
-                                availability = availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
-                                download = downloads[track.id],
-                                playlists = playlists,
-                                onFavorite = { onFavorite(track) },
-                                onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
-                                onAddToLibrary = if (playlist?.telegramManaged == true && track.id !in libraryTrackIds) {
-                                    { onAddToLibrary(track) }
-                                } else null,
-                                chatLibraryMembership = if (playlist?.telegramManaged == true) {
-                                    track.id in libraryTrackIds
-                                } else null,
-                                onChatLibraryToggle = if (playlist?.telegramManaged == true) {
-                                    if (track.id in libraryTrackIds) {
-                                        onRemoveTrack?.let { remove -> { remove(track, false, true) } }
-                                    } else {
-                                        { onAddToLibrary(track) }
-                                    }
-                                } else null,
-                                onGoToArtist = { onGoToArtist(track) },
-                                onEnsureArtwork = { onEnsureArtwork(track) },
-                                onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
-                                onMoveUp = if (editable && index > 0) ({ onMove(index, index - 1) }) else null,
-                                onMoveDown = if (editable && index < customTracks.lastIndex) ({ onMove(index, index + 1) }) else null,
-                                containerColor = Color.Transparent,
-                                isNewArrival = track.id in newTrackIds,
-                                reduceMotion = reduceMotion,
-                                onLongClick = {
-                                    selectionMode = true
-                                    selectedIds = selectedIds + track.id
-                                },
+                                playbackCollection = customTracks,
+                                moveUp = if (editable && index > 0) ({ onMove(index, index - 1) }) else null,
+                                moveDown = if (editable && index < customTracks.lastIndex) ({ onMove(index, index + 1) }) else null,
                             )
                         }
                         if (editable && !selectionMode) {
@@ -1015,50 +1030,7 @@ internal fun PlaylistDetailScreenV3(
                             modifier = Modifier.testTag("playlist-select:${track.id}"),
                         )
                         PlaylistGlassPanel(hazeState, Modifier.weight(1f).testTag("playlist-track:${track.id}"), radius = 20.dp) {
-                            SwipeableLibraryTrackRow(
-                                track = track,
-                                isCurrent = track.id == currentTrackId,
-                                onClick = {
-                                    if (selectionMode) toggleSelection(track.id) else onPlayTrack(track, sortedTracks)
-                                },
-                                onPlayNext = { onPlayNext(track) },
-                                onAddToQueue = { onAddToQueue(track) },
-                                onPinOffline = { onPinOffline(track) },
-                                onRemoveOfflineCopy = { onRemoveOfflineCopy(track) },
-                                onRemoveTrack = onRemoveTrack?.let { remove ->
-                                    { offline, library -> remove(track, offline, library) }
-                                },
-                                canRemoveFromLibrary = playlist?.telegramManaged != true ||
-                                    track.id in libraryTrackIds,
-                                availability = availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
-                                download = downloads[track.id],
-                                playlists = playlists,
-                                onFavorite = { onFavorite(track) },
-                                onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
-                                onAddToLibrary = if (playlist?.telegramManaged == true && track.id !in libraryTrackIds) {
-                                    { onAddToLibrary(track) }
-                                } else null,
-                                chatLibraryMembership = if (playlist?.telegramManaged == true) {
-                                    track.id in libraryTrackIds
-                                } else null,
-                                onChatLibraryToggle = if (playlist?.telegramManaged == true) {
-                                    if (track.id in libraryTrackIds) {
-                                        onRemoveTrack?.let { remove -> { remove(track, false, true) } }
-                                    } else {
-                                        { onAddToLibrary(track) }
-                                    }
-                                } else null,
-                                onGoToArtist = { onGoToArtist(track) },
-                                onEnsureArtwork = { onEnsureArtwork(track) },
-                                onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
-                                containerColor = Color.Transparent,
-                                isNewArrival = track.id in newTrackIds,
-                                reduceMotion = reduceMotion,
-                                onLongClick = {
-                                    selectionMode = true
-                                    selectedIds = selectedIds + track.id
-                                },
-                            )
+                            PlaylistTrackRowContent(track = track, playbackCollection = sortedTracks)
                         }
                         }
                     }
