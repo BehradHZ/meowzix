@@ -1,6 +1,18 @@
 package dev.behradhz.meowzix.feature.library
 
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
+import dev.behradhz.meowzix.core.permissions.AudioPermission
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -99,6 +111,38 @@ fun PlaylistsRoute(
     reduceMotion: Boolean = false,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val audioPermission = AudioPermission.requiredPermission()
+    var pendingLocalRefresh by rememberSaveable { mutableStateOf<String?>(null) }
+    var showPermissionHelp by rememberSaveable { mutableStateOf(false) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val pending = pendingLocalRefresh
+        pendingLocalRefresh = null
+        if (granted) pending?.let { viewModel.refreshPlaylist(UUID.fromString(it)) }
+        else if (pending != null) showPermissionHelp = true
+    }
+    if (showPermissionHelp) {
+        AlertDialog(
+            onDismissRequest = { showPermissionHelp = false },
+            title = { Text("Audio access required") },
+            text = { Text("Allow access to device audio to rescan local music. You can enable it in Android settings if the permission prompt is unavailable.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showPermissionHelp = false
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                        },
+                    )
+                }) { Text("Open settings") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPermissionHelp = false }) { Text("Cancel") }
+            },
+        )
+    }
     var selectedKey by rememberSaveable { mutableStateOf<String?>(null) }
     var showFavorites by rememberSaveable { mutableStateOf(false) }
     val selectedId = selectedKey?.let(UUID::fromString)
@@ -224,6 +268,23 @@ fun PlaylistsRoute(
                 },
                 deleting = playlistId != null && state.deletingPlaylistId == playlistId,
                 errorMessage = state.errorMessage,
+                refreshing = state.refreshingPlaylistId == playlistId,
+                refreshError = state.playlistRefreshError,
+                refreshStatus = state.playlistRefreshStatus,
+                onRefresh = playlistId?.let { id ->
+                    {
+                        if (telegramManaged) {
+                            viewModel.refreshPlaylist(id)
+                        } else if (ContextCompat.checkSelfPermission(context, audioPermission) ==
+                            PackageManager.PERMISSION_GRANTED
+                        ) {
+                            viewModel.refreshPlaylist(id)
+                        } else {
+                            pendingLocalRefresh = id.toString()
+                            permissionLauncher.launch(audioPermission)
+                        }
+                    }
+                },
             )
         },
     )

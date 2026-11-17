@@ -83,6 +83,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -370,6 +371,10 @@ internal fun PlaylistDetailScreenV3(
     profileRefreshStatus: String? = null,
     profileRefreshError: String? = null,
     onRefreshProfile: () -> Unit = {},
+    refreshing: Boolean = false,
+    refreshError: String? = null,
+    refreshStatus: String? = null,
+    onRefresh: (() -> Unit)? = null,
     onBulkAddToLibrary: (List<Track>) -> Unit = {},
     onBulkRemoveFromLibrary: (List<Track>) -> Unit = {},
     onBulkAddToPlaylist: (List<Track>, UUID) -> Unit = { _, _ -> },
@@ -516,6 +521,12 @@ internal fun PlaylistDetailScreenV3(
 
     PlaylistGlassBackdrop { hazeState ->
         Box(Modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = { onRefresh?.invoke() },
+            enabled = onRefresh != null && !refreshing && !selectionMode && draggedTrackId == null,
+            modifier = Modifier.fillMaxSize().testTag("playlist-pull-refresh"),
+        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState).testTag("playlist-detail-list"),
             state = listState,
@@ -723,6 +734,22 @@ internal fun PlaylistDetailScreenV3(
             errorMessage?.let { message ->
                 item(key = "playlist-error") {
                     Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            refreshError?.let { message ->
+                item(key = "playlist-refresh-error") {
+                    Text(message, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            .testTag("playlist-refresh-error"))
+                }
+            }
+            refreshStatus?.let { message ->
+                item(key = "playlist-refresh-status") {
+                    Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            .testTag("playlist-refresh-status"))
                 }
             }
             if (editable && !selectionMode && searchQuery.isBlank() && sort == PlaylistTrackSort.CUSTOM && tracks.isNotEmpty()) {
@@ -1007,6 +1034,7 @@ internal fun PlaylistDetailScreenV3(
                     }
                 }
             }
+        }
         }
         MeowzixStickyHeader(
             title = title,

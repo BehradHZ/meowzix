@@ -314,6 +314,34 @@ class TdLibTelegramRepository @Inject constructor(
         }
     }
 
+    override suspend fun chatIdForPlaylist(playlistId: UUID): Long? {
+        val accountId = currentUserId?.toString() ?: _musicSourceState.value.accountId ?: return null
+        return chatIdFromSelectedSources(accountId, playlistId, telegramDao.selectedSources(accountId))
+    }
+
+    override suspend fun refreshChatSource(chatId: Long): TelegramSyncResult {
+        check(_authState.value.step == TelegramAuthStep.Ready) {
+            "Reconnect Telegram before refreshing this playlist."
+        }
+        val accountId = currentUserId?.toString() ?: error("Telegram account is not ready.")
+        check(!_musicSourceState.value.isSyncing) { "Telegram is already syncing. Try again shortly." }
+        val selected = telegramDao.selectedSource(accountId, chatId)
+            ?: error("This Telegram chat is no longer a selected music source.")
+        _musicSourceState.update { it.copy(isSyncing = true, errorMessage = null, retryAction = null) }
+        try {
+            val result = syncSource(accountId, selected, forceFullScan = true).toDomain()
+            _musicSourceState.update { it.copy(lastSyncResult = result, errorMessage = null) }
+            return result
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _musicSourceState.update { it.copy(errorMessage = safeMessage(error)) }
+            throw error
+        } finally {
+            _musicSourceState.update { it.copy(isSyncing = false) }
+        }
+    }
+
     override fun syncSelectedSources() {
         val accountId = currentUserId?.toString() ?: return showMusicSourceError("Telegram account information is still loading.")
         if (_musicSourceState.value.isSyncing) return
@@ -586,7 +614,7 @@ class TdLibTelegramRepository @Inject constructor(
         }
     }
 
-    private suspend fun syncSource(accountId: String, selected: TelegramSelectedSourceEntity): MutableSyncResult {
+    private suspend fun syncSource(accountId: String, selected: TelegramSelectedSourceEntity, forceFullScan: Boolean = false): MutableSyncResult {
         val activeClient = client ?: error("Telegram is not ready yet.")
         val result = MutableSyncResult(chatsSynced = 1)
         // Profile music must not depend on history pagination or history access permissions.
@@ -602,15 +630,19 @@ class TdLibTelegramRepository @Inject constructor(
                 }
             }
         }
-        val checkpoint = selected.newestMessageId.takeIf { selected.initialScanComplete }
+        val checkpoint = telegramSyncCheckpoint(selected.newestMessageId, selected.initialScanComplete, forceFullScan)
         val seenEligibleIds = mutableSetOf<Long>()
         var fromMessageId = 0L
         var newestScanned = selected.newestMessageId ?: 0L
         var reachedCheckpoint = false
+        var reachedHistoryEnd = false
 
         while (!reachedCheckpoint) {
             val page = activeClient.send(TdApi.GetChatHistory(selected.chatId, fromMessageId, 0, 100, false))
-            if (page.messages.isEmpty()) break
+            if (page.messages.isEmpty()) {
+                reachedHistoryEnd = true
+                break
+            }
             var lastMessageId = fromMessageId
             for (message in page.messages) {
                 result.messagesScanned++
@@ -630,7 +662,7 @@ class TdLibTelegramRepository @Inject constructor(
             fromMessageId = lastMessageId
         }
 
-        if (!selected.initialScanComplete) {
+        if (shouldReconcileTelegramMissing(selected.initialScanComplete, forceFullScan, reachedHistoryEnd)) {
             val staleIds = telegramDao.telegramMessageSourcesForChat(accountId, selected.chatId)
                 .filter { it.messageId !in seenEligibleIds }
                 .map { it.trackSourceId }
@@ -1067,6 +1099,28 @@ class TdLibTelegramRepository @Inject constructor(
         const val MAX_START_RETRIES = 3
     }
 }
+
+/** Explicit rescans bypass incremental checkpoints and prune only after reaching history end. */
+internal fun telegramSyncCheckpoint(
+    newestMessageId: Long?,
+    initialScanComplete: Boolean,
+    forceFullScan: Boolean,
+): Long? = newestMessageId.takeIf { initialScanComplete && !forceFullScan }
+
+internal fun shouldReconcileTelegramMissing(
+    initialScanComplete: Boolean,
+    forceFullScan: Boolean,
+    reachedHistoryEnd: Boolean,
+): Boolean = reachedHistoryEnd && (forceFullScan || !initialScanComplete)
+
+internal fun chatIdFromSelectedSources(
+    accountId: String,
+    playlistId: UUID,
+    sources: List<TelegramSelectedSourceEntity>,
+): Long? = sources.firstOrNull { source ->
+    source.accountId == accountId &&
+        telegramPlaylistId(accountId, source.chatId) == playlistId
+}?.chatId
 
 /** Uses persisted kind/ID; never relies on the chat-picker loading before navigation. */
 internal fun personChatIdFromSelectedSources(

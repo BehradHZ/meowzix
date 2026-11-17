@@ -73,6 +73,9 @@ data class LibraryUiState(
     val personProfileRefreshError: String? = null,
     val deletingPlaylistId: UUID? = null,
     val isRefreshing: Boolean = false,
+    val refreshingPlaylistId: UUID? = null,
+    val playlistRefreshError: String? = null,
+    val playlistRefreshStatus: String? = null,
     val lastRefresh: LocalLibraryRefreshResult? = null,
     val errorMessage: String? = null,
     val playback: PlaybackState = PlaybackState(),
@@ -272,6 +275,41 @@ class LibraryViewModel @Inject constructor(
                     )
                 }
             }
+    }
+
+    /** Only a user gesture invokes this targeted, full playlist refresh. */
+    fun refreshPlaylist(playlistId: UUID) {
+        val current = _state.value
+        if (current.refreshingPlaylistId != null || current.isRefreshing) return
+        val playlist = current.playlists.firstOrNull { it.id == playlistId } ?: return
+        _state.update {
+            it.copy(refreshingPlaylistId = playlistId, playlistRefreshError = null, playlistRefreshStatus = null)
+        }
+        viewModelScope.launch {
+            try {
+                val status = if (playlist.telegramManaged) {
+                    val chatId = telegramRepository.chatIdForPlaylist(playlistId)
+                        ?: error("This Telegram playlist is no longer connected to a selected chat.")
+                    val result = telegramRepository.refreshChatSource(chatId)
+                    "Chat scanned · ${result.tracksImported} new, ${result.tracksUpdated} updated, ${result.sourcesMarkedMissing} missing"
+                } else {
+                    val result = repository.refreshLocalMusic()
+                    _state.update { it.copy(lastRefresh = result) }
+                    "Device scanned · ${result.created} new, ${result.updated} updated, ${result.markedMissing} missing"
+                }
+                _state.update { it.copy(playlistRefreshStatus = status) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _state.update {
+                    it.copy(playlistRefreshError = error.message ?: "Unable to refresh this playlist.")
+                }
+            } finally {
+                _state.update {
+                    if (it.refreshingPlaylistId == playlistId) it.copy(refreshingPlaylistId = null) else it
+                }
+            }
+        }
     }
 
     /** Room Flow updates the song's highlight and its playlist badge without blocking the UI. */
@@ -512,6 +550,8 @@ class LibraryViewModel @Inject constructor(
                 selectedPlaylistChatTrackIds = emptySet(),
                 selectedPlaylistIsPerson = false,
                 selectedPlaylistPersonChatId = null,
+                playlistRefreshError = null,
+                playlistRefreshStatus = null,
                 isRefreshingPersonProfile = false,
                 personProfileRefreshStatus = null,
                 personProfileRefreshError = null,

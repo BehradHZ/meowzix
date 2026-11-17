@@ -171,6 +171,11 @@ interface TelegramRepository {
     fun refreshSelectableChats()
     fun setMusicSourceMode(chatId: Long, mode: TelegramMusicSourceMode)
     fun syncSelectedSources()
+    /** Resolve a selected source playlist without requiring the chat picker to be open. */
+    suspend fun chatIdForPlaylist(playlistId: UUID): Long? = null
+    /** Full history rescan of one selected chat, initiated explicitly by the user. */
+    suspend fun refreshChatSource(chatId: Long): TelegramSyncResult =
+        error("Manual Telegram source refresh is unavailable.")
     /** URL/deep link for the source message, or null for tracks without Telegram sources. */
     suspend fun messageLinkForTrack(trackId: UUID): String? = null
     /** Fast local source lookup; profile-photo resolution uses existing chat snapshots only. */
