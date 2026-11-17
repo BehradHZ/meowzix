@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.data.localmedia.LocalMediaScanner
 import dev.behradhz.meowzix.data.localmedia.ScannedLocalTrack
+import dev.behradhz.meowzix.domain.library.LOCAL_PLAYLIST_ID
 import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -132,6 +133,29 @@ class LocalMusicLibraryRepositoryTest {
         assertEquals(0, secondResult.created)
         assertEquals(0, secondResult.updated)
         assertEquals(1_000, repository.observeTracks().first().size)
+    }
+
+    @Test
+    fun subsequentLocalImportsRemainNewUntilPlaybackIsAcknowledged() = runTest {
+        scanner.tracks = listOf(track(1))
+        repository.refreshLocalMusic()
+        val old = repository.observeTracks().first().single()
+        assertFalse(database.libraryDao().trackById(old.id.toString())!!.isUnheardNew)
+
+        scanner.tracks = listOf(track(1), track(2))
+        repository.refreshLocalMusic()
+        val incoming = repository.observeTracks().first().first { it.title == "Track 2" }
+        assertTrue(database.libraryDao().trackById(incoming.id.toString())!!.isUnheardNew)
+
+        val playlists = RoomPlaylistRepository(database, database.playlistDao())
+        assertTrue(incoming.id in playlists.observeUnheardNewTracks().first()[LOCAL_PLAYLIST_ID].orEmpty())
+        // Scanning and downloading are not playback acknowledgements.
+        repository.refreshLocalMusic()
+        assertTrue(database.libraryDao().trackById(incoming.id.toString())!!.isUnheardNew)
+
+        playlists.markNewTrackSeen(incoming.id)
+        assertFalse(database.libraryDao().trackById(incoming.id.toString())!!.isUnheardNew)
+        assertFalse(incoming.id in playlists.observeUnheardNewTracks().first()[LOCAL_PLAYLIST_ID].orEmpty())
     }
 
     @Test

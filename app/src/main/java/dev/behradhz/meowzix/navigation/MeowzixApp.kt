@@ -499,7 +499,8 @@ fun MeowzixApp(
                         }
                     },
                     onEnsureArtwork = libraryViewModel::ensureArtwork,
-                    onTrackInteracted = { track -> libraryViewModel.markNewTrackSeen(track.id) },
+                    // Browsing, downloading or opening a menu never acknowledges playback.
+                    onTrackInteracted = { _ -> },
                     onPlayNextArtist = { artist -> libraryTracksViewModel.queueArtist(artist, next = true) },
                     onQueueArtist = { artist -> libraryTracksViewModel.queueArtist(artist, next = false) },
                     onPlayNextAlbum = { album -> libraryTracksViewModel.queueAlbum(album, next = true) },
