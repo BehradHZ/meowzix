@@ -1107,7 +1107,9 @@ private fun NowPlayingScreen(
                     }
                 }.single().measure(Constraints.fixed(width, heights.heroHeight))
 
-                val queue = if (queueMorph > 0.005f && !lyricsExpanded) {
+                // Retain Queue throughout its reverse morph, including when Lyrics
+                // is being restored. This also previews Queue during an upward lyric-gutter drag.
+                val queue = if (queueMorph > 0.005f) {
                     subcompose("queue") {
                         Column(
                             Modifier.fillMaxWidth().graphicsLayer {
