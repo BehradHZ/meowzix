@@ -26,7 +26,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
@@ -195,7 +195,7 @@ internal fun TrackActionsMenu(
                         Text("No playlists yet", modifier = Modifier.padding(12.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        LazyColumn(
+                        GlassLazyColumn(
                             // DropdownMenu queries intrinsic width and height. LazyColumn uses
                             // SubcomposeLayout, so both dimensions must be explicit here.
                             // Menu width is 280.dp, with 10.dp padding on each side.
