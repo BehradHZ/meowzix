@@ -58,6 +58,12 @@ private const val ArtworkCommitThreshold = 0.35f
 
 internal enum class ArtworkVerticalSwipeAction { NONE, OPEN_QUEUE, CLOSE_PLAYER }
 
+internal class ArtworkVerticalDragCallbacks(
+    val onDelta: (Float) -> Unit,
+    val onEnd: (ArtworkVerticalSwipeAction) -> Unit,
+    val onCancel: () -> Unit,
+)
+
 /** Keep vertical queue gestures separate from the horizontal track-changing pager. */
 internal fun artworkVerticalSwipeAction(
     drag: Offset,
@@ -97,6 +103,7 @@ internal fun NowPlayingArtworkPager(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onSwipeUp: () -> Unit = {},
+    verticalDragCallbacks: ArtworkVerticalDragCallbacks? = null,
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit = {},
     onTransitionSettled: (java.util.UUID) -> Unit = {},
     cornerRadius: Dp = 28.dp,
@@ -107,6 +114,7 @@ internal fun NowPlayingArtworkPager(
     val viewModel: NowPlayingViewModel = hiltViewModel()
     val haptics = rememberMeowzixHaptics()
     val latestSwipeUp by rememberUpdatedState(onSwipeUp)
+    val latestVerticalDragCallbacks by rememberUpdatedState(verticalDragCallbacks)
     val latestBack by rememberUpdatedState(onBack)
     val density = LocalDensity.current
     val openThresholdPx = with(density) { 72.dp.toPx() }
@@ -147,17 +155,27 @@ internal fun NowPlayingArtworkPager(
                     onVerticalDrag = { change, amount ->
                         verticalDrag += amount
                         change.consume()
+                        latestVerticalDragCallbacks?.onDelta?.invoke(amount)
                     },
                     onDragEnd = {
-                        when (artworkVerticalSwipeAction(
+                        val action = artworkVerticalSwipeAction(
                             Offset(0f, verticalDrag), openThresholdPx, closeThresholdPx,
-                        )) {
-                            ArtworkVerticalSwipeAction.OPEN_QUEUE -> latestSwipeUp()
-                            ArtworkVerticalSwipeAction.CLOSE_PLAYER -> latestBack()
-                            ArtworkVerticalSwipeAction.NONE -> Unit
+                        )
+                        val callbacks = latestVerticalDragCallbacks
+                        if (callbacks != null) {
+                            callbacks.onEnd(action)
+                        } else {
+                            when (action) {
+                                ArtworkVerticalSwipeAction.OPEN_QUEUE -> latestSwipeUp()
+                                ArtworkVerticalSwipeAction.CLOSE_PLAYER -> latestBack()
+                                ArtworkVerticalSwipeAction.NONE -> Unit
+                            }
                         }
                     },
-                    onDragCancel = { verticalDrag = 0f },
+                    onDragCancel = {
+                        verticalDrag = 0f
+                        latestVerticalDragCallbacks?.onCancel?.invoke()
+                    },
                 )
             },
             contentAlignment = Alignment.Center,
@@ -444,12 +462,16 @@ internal fun NowPlayingArtworkPager(
 
                         ArtworkGestureAxis.VERTICAL -> {
                             change.consume()
+                            latestVerticalDragCallbacks?.onDelta?.invoke(dragAmount.y)
                         }
 
                         ArtworkGestureAxis.UNDECIDED -> Unit
                     }
                 },
                 onDragCancel = {
+                    if (gestureAxis == ArtworkGestureAxis.VERTICAL) {
+                        latestVerticalDragCallbacks?.onCancel?.invoke()
+                    }
                     if (direction != null && progress > 0f) animateBackToCurrent()
                     thresholdDirection = 0
                     totalDrag = Offset.Zero
@@ -466,12 +488,18 @@ internal fun NowPlayingArtworkPager(
                         }
 
                         ArtworkGestureAxis.VERTICAL -> {
-                            when (artworkVerticalSwipeAction(
+                            val action = artworkVerticalSwipeAction(
                                 totalDrag, openThresholdPx, closeThresholdPx,
-                            )) {
-                                ArtworkVerticalSwipeAction.OPEN_QUEUE -> latestSwipeUp()
-                                ArtworkVerticalSwipeAction.CLOSE_PLAYER -> latestBack()
-                                ArtworkVerticalSwipeAction.NONE -> Unit
+                            )
+                            val callbacks = latestVerticalDragCallbacks
+                            if (callbacks != null) {
+                                callbacks.onEnd(action)
+                            } else {
+                                when (action) {
+                                    ArtworkVerticalSwipeAction.OPEN_QUEUE -> latestSwipeUp()
+                                    ArtworkVerticalSwipeAction.CLOSE_PLAYER -> latestBack()
+                                    ArtworkVerticalSwipeAction.NONE -> Unit
+                                }
                             }
                         }
 

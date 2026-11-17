@@ -148,6 +148,13 @@ internal fun shouldCollapseInlineQueue(
     dragRangePx: Float,
 ): Boolean = fraction < 0.72f || downwardVelocityPxPerSecond > dragRangePx * 2.4f
 
+internal fun queueDragFractionAfterDelta(
+    fraction: Float, dragY: Float, dragRangePx: Float,
+): Float = (fraction - dragY / dragRangePx.coerceAtLeast(1f)).coerceIn(0f, 1f)
+
+internal fun shouldExpandInlineQueue(fraction: Float, alreadyExpanded: Boolean): Boolean =
+    fraction >= (if (alreadyExpanded) 0.55f else 0.38f)
+
 /**
  * Artwork is bounded by usable landscape height and the width left after reserving
  * 300dp for seek, transport controls and the queue/lyrics panel.
@@ -761,6 +768,32 @@ private fun NowPlayingScreen(
         // and reorder independently of the player's expand/collapse gesture.
         val density = LocalDensity.current
         val dragRangePx = with(density) { 260.dp.toPx() }
+        val applyQueueDrag: (Float) -> Unit = { dragY ->
+            if (!queueDragActive) {
+                queueDragFraction = if (queueExpanded) 1f else 0f
+                queueDragActive = true
+            }
+            queueDragFraction = queueDragFractionAfterDelta(queueDragFraction, dragY, dragRangePx)
+        }
+        val settleQueueDrag: () -> Unit = {
+            if (queueDragActive) {
+                val expand = shouldExpandInlineQueue(queueDragFraction, queueExpanded)
+                queueDragActive = false
+                onQueueExpandedChange(expand)
+            }
+        }
+        val artworkVerticalDragCallbacks = ArtworkVerticalDragCallbacks(
+            onDelta = applyQueueDrag,
+            onEnd = { action ->
+                if (action == ArtworkVerticalSwipeAction.CLOSE_PLAYER && !queueExpanded) {
+                    queueDragActive = false
+                    onBack()
+                } else {
+                    settleQueueDrag()
+                }
+            },
+            onCancel = { queueDragActive = false },
+        )
         val queueDragGesture = Modifier.pointerInput(queueExpanded, lyricsExpanded, playerActionsMenuOpen) {
             if (!lyricsExpanded && !playerActionsMenuOpen) detectVerticalDragGestures(
                 onDragStart = {
@@ -769,15 +802,9 @@ private fun NowPlayingScreen(
                 },
                 onVerticalDrag = { change, dragY ->
                     change.consume()
-                    queueDragFraction = (queueDragFraction - dragY / dragRangePx)
-                        .coerceIn(0f, 1f)
+                    applyQueueDrag(dragY)
                 },
-                onDragEnd = {
-                    val expand = queueDragFraction >=
-                        (if (queueExpanded) 0.55f else 0.38f)
-                    queueDragActive = false
-                    onQueueExpandedChange(expand)
-                },
+                onDragEnd = { settleQueueDrag() },
                 onDragCancel = { queueDragActive = false },
             )
         }
@@ -998,6 +1025,7 @@ private fun NowPlayingScreen(
                             lyricsLayoutVisible = reservedLyricsLayout,
                             onBack = onBack,
                             onSwipeUp = { onQueueExpandedChange(true) },
+                            verticalDragCallbacks = artworkVerticalDragCallbacks,
                             onPrevious = onPrevious,
                             onNext = onNext,
                             onToggleFavorite = onToggleFavorite,
