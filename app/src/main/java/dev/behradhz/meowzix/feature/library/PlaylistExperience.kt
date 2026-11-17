@@ -625,6 +625,7 @@ internal fun PlaylistDetailScreenV3(
             state = playlistPullState,
             indicator = {
                 FadeRefreshIndicator(
+                    state = playlistPullState,
                     refreshing = refreshing,
                     modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 92.dp),
                 )
