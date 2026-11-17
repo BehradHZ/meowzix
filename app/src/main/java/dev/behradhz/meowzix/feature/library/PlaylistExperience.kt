@@ -490,8 +490,9 @@ internal fun PlaylistDetailScreenV3(
     LaunchedEffect(searchQuery) {
         if (searchQuery.isNotBlank()) {
             selectedIds = emptySet()
-            // Move matches above the keyboard, without changing the saved playlist order.
-            listState.scrollToItem(3)
+            // The optional selection panel adds one row above the sort controls.
+            // Don't skip the first result when selection is off.
+            listState.scrollToItem(if (selectionMode) 3 else 2)
         }
     }
     val selectedTracks = sortedTracks.filter { it.id in selectedIds }
