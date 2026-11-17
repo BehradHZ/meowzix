@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -107,6 +108,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -440,6 +442,8 @@ internal fun PlaylistDetailScreenV3(
     BackHandler(enabled = isActive && selectionMode) { selectionMode = false; selectedIds = emptySet() }
     LaunchedEffect(tracks) { selectedIds = selectedIds.intersect(tracks.map(Track::id).toSet()) }
     val showProfileSections = telegramPerson && playlist?.telegramManaged == true && !isFavorites
+    var profileSectionExpanded by rememberSaveable(playlist?.id, isFavorites) { mutableStateOf(true) }
+    var chatSectionExpanded by rememberSaveable(playlist?.id, isFavorites) { mutableStateOf(true) }
     fun toggleSelection(trackId: UUID) {
         selectedIds = if (trackId in selectedIds) selectedIds - trackId else selectedIds + trackId
     }
@@ -1019,11 +1023,31 @@ internal fun PlaylistDetailScreenV3(
                 }
             } else {
                 grouped.forEach { (groupTitle, groupTracks) ->
+                    val expandable = showProfileSections &&
+                        (groupTitle == "Profile music" || groupTitle == "Shared in chat")
+                    val expanded = when (groupTitle) {
+                        "Profile music" -> profileSectionExpanded
+                        "Shared in chat" -> chatSectionExpanded
+                        else -> true
+                    }
                     if (groupTitle != null) {
                         item(key = "group:$groupTitle") {
                             Column(Modifier.fillMaxWidth()) {
+                                val arrowRotation by animateFloatAsState(
+                                    targetValue = if (expanded) 0f else 180f,
+                                    animationSpec = tween(180),
+                                    label = "telegram-section-arrow",
+                                )
+                                val toggle = if (expandable) Modifier.clickable(role = Role.Button) {
+                                    when (groupTitle) {
+                                        "Profile music" -> profileSectionExpanded = !profileSectionExpanded
+                                        "Shared in chat" -> chatSectionExpanded = !chatSectionExpanded
+                                    }
+                                } else Modifier
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp, bottom = 2.dp),
+                                    modifier = Modifier.fillMaxWidth().then(toggle)
+                                        .testTag("playlist-section:$groupTitle")
+                                        .padding(start = 4.dp, top = 12.dp, bottom = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Text(
@@ -1033,6 +1057,14 @@ internal fun PlaylistDetailScreenV3(
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary,
                                     )
+                                    if (expandable) {
+                                        Icon(
+                                            Icons.Rounded.KeyboardArrowDown,
+                                            contentDescription = if (expanded) "Collapse $groupTitle" else "Expand $groupTitle",
+                                            modifier = Modifier.size(28.dp).rotate(arrowRotation),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                     if (showProfileSections && groupTitle == "Profile music") {
                                         IconButton(
                                             onClick = onRefreshProfile,
@@ -1071,7 +1103,7 @@ internal fun PlaylistDetailScreenV3(
                             }
                         }
                     }
-                    if (showProfileSections && groupTracks.isEmpty() && searchQuery.isBlank()) {
+                    if (expanded && showProfileSections && groupTracks.isEmpty() && searchQuery.isBlank()) {
                         item(key = "empty:$groupTitle") {
                             Text(
                                 if (groupTitle == "Profile music") "No music visible on this profile" else "No music shared in this chat",
@@ -1081,7 +1113,7 @@ internal fun PlaylistDetailScreenV3(
                             )
                         }
                     }
-                    items(groupTracks, key = { "${groupTitle ?: "sorted"}:${it.id}" }) { track ->
+                    if (expanded) items(groupTracks, key = { "${groupTitle ?: "sorted"}:${it.id}" }) { track ->
                         Row(modifier = Modifier.animateItem(), verticalAlignment = Alignment.CenterVertically) {
                         if (selectionMode) Checkbox(
                             checked = track.id in selectedIds,

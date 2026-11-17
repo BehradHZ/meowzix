@@ -66,6 +66,8 @@ class PlaylistExperienceTest {
         var bulkLibraryIds: List<UUID> = emptyList()
         val addedToLibrary = mutableListOf<UUID>()
         val removedFromLibrary = mutableListOf<UUID>()
+        val playedNextIds = mutableListOf<UUID>()
+        val queuedIds = mutableListOf<UUID>()
         var profileRefreshCount = 0
     }
 
@@ -114,8 +116,8 @@ class PlaylistExperienceTest {
                         onSaveMetadata = { title, description, artwork -> calls.saved = Triple(title, description, artwork) },
                         onPlay = { queue, mode -> calls.plays.add(queue.map(Track::id) to mode) },
                         onPlayTrack = { song, queue -> calls.plays.add(queue.map(Track::id) to PlaybackMode.ORDERED) },
-                        onPlayNext = { calls.next++ },
-                        onAddToQueue = { calls.queue++ },
+                        onPlayNext = { calls.next++; calls.playedNextIds += it.id },
+                        onAddToQueue = { calls.queue++; calls.queuedIds += it.id },
                         onPinOffline = { calls.downloads++ },
                         onFavorite = { calls.favorites++ },
                         libraryTrackIds = membership.value,
@@ -257,8 +259,7 @@ class PlaylistExperienceTest {
             telegramPerson = true,
             librarySongIds = members,
         )
-        scrollToText("Select songs for bulk actions")
-        compose.onNodeWithText("Select", substring = false).performClick()
+        compose.onNodeWithTag("playlist-header-select").performClick()
         compose.onNodeWithText("Select all").performClick()
         compose.onNodeWithTag("playlist-detail-list")
             .performScrollToNode(hasTestTag("bulk-remove-library"))
@@ -280,8 +281,7 @@ class PlaylistExperienceTest {
         scrollToText("Shared in chat")
         compose.onNodeWithText("Shared in chat").assertIsDisplayed()
 
-        scrollToText("Select songs for bulk actions")
-        compose.onNodeWithText("Select", substring = false).performClick()
+        compose.onNodeWithTag("playlist-header-select").performClick()
         compose.onNodeWithTag("playlist-detail-list")
             .performScrollToNode(hasTestTag("playlist-select:${tracks.first().id}"))
         compose.onNodeWithTag("playlist-select:${tracks.first().id}").performClick()
@@ -295,6 +295,50 @@ class PlaylistExperienceTest {
         compose.onNodeWithTag("bulk-add-queue").assertIsDisplayed()
         compose.onNodeWithTag("bulk-like").assertIsDisplayed()
         compose.onNodeWithTag("bulk-add-playlist").assertIsDisplayed()
+    }
+
+    @Test fun telegramProfileAndChatSectionsCollapseIndependently() {
+        val profileSong = tracks[0]
+        val chatSong = tracks[1]
+        showDetail(
+            editable = false,
+            telegramPerson = true,
+            songs = listOf(profileSong, chatSong),
+            profileSongIds = setOf(profileSong.id),
+            chatSongIds = setOf(chatSong.id),
+        )
+
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("playlist-section:Profile music"))
+        compose.onNodeWithContentDescription("Collapse Profile music").assertExists()
+        compose.onNodeWithTag("playlist-section:Profile music").performClick()
+        compose.onNodeWithContentDescription("Expand Profile music").assertExists()
+        compose.onNodeWithTag("playlist-track:${profileSong.id}").assertDoesNotExist()
+
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("playlist-section:Shared in chat"))
+        compose.onNodeWithContentDescription("Collapse Shared in chat").assertExists()
+        compose.onNodeWithTag("playlist-section:Shared in chat").performClick()
+        compose.onNodeWithContentDescription("Expand Shared in chat").assertExists()
+        compose.onNodeWithTag("playlist-track:${chatSong.id}").assertDoesNotExist()
+
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("playlist-section:Profile music"))
+        compose.onNodeWithTag("playlist-section:Profile music").performClick()
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("playlist-track:${profileSong.id}"))
+        compose.onNodeWithTag("playlist-track:${profileSong.id}").assertExists()
+    }
+
+    @Test fun playlistActionsQueueAllTracksInCorrectOrder() {
+        val calls = showDetail()
+        scrollToText("Play")
+        compose.onNodeWithTag("playlist-action:Play next").performClick()
+        compose.onNodeWithTag("playlist-action:Add to queue").performClick()
+        compose.runOnIdle {
+            assertEquals(tracks.map(Track::id).reversed(), calls.playedNextIds)
+            assertEquals(tracks.map(Track::id), calls.queuedIds)
+        }
     }
 
     @Test fun personPlaylistHasAnIndependentProfileRefreshAction() {
@@ -311,9 +355,10 @@ class PlaylistExperienceTest {
 
     @Test fun playbackModesRemainSeparateAndRespectDisplayedOrder() {
         val calls = showDetail()
-        listOf("Play", "Shuffle", "Smart").forEach { label ->
-            scrollToText(label)
-            compose.onNodeWithText(label).performClick()
+        scrollToText("Play")
+        compose.onNodeWithTag("playlist-play").performClick()
+        listOf("Shuffle", "Smart Shuffle").forEach { label ->
+            compose.onNodeWithTag("playlist-action:$label").performClick()
         }
         compose.runOnIdle {
             assertEquals(listOf(PlaybackMode.ORDERED, PlaybackMode.PURE_SHUFFLE, PlaybackMode.SMART_SHUFFLE), calls.plays.map { it.second })
@@ -532,9 +577,10 @@ class PlaylistExperienceTest {
     @Test fun emptyFavoritesDisableAllPlaybackModesInLargeText() {
         showDetail(songs = emptyList(), editable = false, favorites = true, dark = false, fontScale = 1.5f)
         compose.onNodeWithContentDescription("Delete playlist").assertDoesNotExist()
-        listOf("Play", "Shuffle", "Smart").forEach { text ->
-            scrollToText(text)
-            compose.onNodeWithText(text).assertIsNotEnabled()
+        scrollToText("Play")
+        compose.onNodeWithTag("playlist-play").assertIsNotEnabled()
+        listOf("Shuffle", "Smart Shuffle", "Play next", "Add to queue").forEach { label ->
+            compose.onNodeWithTag("playlist-action:$label").assertIsNotEnabled()
         }
         scrollToText("Favorite a track and it will appear here.")
         compose.onNodeWithText("Favorite a track and it will appear here.").assertIsDisplayed()
