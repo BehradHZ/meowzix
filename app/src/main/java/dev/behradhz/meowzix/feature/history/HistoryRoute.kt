@@ -16,6 +16,9 @@ import androidx.compose.foundation.lazy.items
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
 import dev.chrisbanes.haze.rememberHazeState
 import dev.chrisbanes.haze.hazeSource
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -36,7 +39,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
+fun HistoryRoute(onBack: () -> Unit = {}, viewModel: HistoryViewModel = hiltViewModel()) {
     val rows by viewModel.rows.collectAsStateWithLifecycle()
     val privacy by viewModel.privacy.collectAsStateWithLifecycle()
     val operationMessage by viewModel.operationMessage.collectAsStateWithLifecycle()
@@ -112,6 +115,9 @@ fun HistoryRoute(viewModel: HistoryViewModel = hiltViewModel()) {
         subtitle = "Your listening activity.",
         hazeState = headerHazeState,
         modifier = Modifier.align(Alignment.TopCenter),
+        leadingActions = {
+            MeowzixHeaderAction("Back", Icons.AutoMirrored.Rounded.ArrowBack, onBack)
+        },
     )
     }
 }

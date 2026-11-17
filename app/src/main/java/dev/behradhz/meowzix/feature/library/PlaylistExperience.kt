@@ -55,6 +55,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.QueuePlayNext
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Tune
@@ -130,6 +131,7 @@ import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.ui.components.TrackArtwork
+import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
 import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import dev.chrisbanes.haze.hazeSource
@@ -450,10 +452,9 @@ internal fun PlaylistDetailScreenV3(
     LaunchedEffect(newTrackIds, refreshBaseline, refreshing) {
         val baseline = refreshBaseline ?: return@LaunchedEffect
         if ((newTrackIds - baseline).isNotEmpty()) {
-            // The first three LazyColumn items are the hero, selection and sort
-            // controls. Index 3 brings the new song rows into view instead of
-            // stopping on the cover artwork.
-            listState.animateScrollToItem(3.coerceAtMost(listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+            // Selection controls exist only in selection mode.
+            val firstTrackIndex = if (selectionMode) 3 else 2
+            listState.animateScrollToItem(firstTrackIndex.coerceAtMost(listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
             refreshBaseline = null
         } else if (!refreshing) {
             delay(800)
@@ -630,95 +631,143 @@ internal fun PlaylistDetailScreenV3(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "playlist-hero") {
-                PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth(), radius = 32.dp, accented = true) {
+                PlaylistGlassPanel(
+                    hazeState, Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    radius = 28.dp, accented = true,
+                ) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp),
                     ) {
-                        PlaylistArtworkV3(artworkRef, title, isFavorites, 174.dp, newTrackIds.isNotEmpty(), reduceMotion)
-                        Text(
-                            title,
-                            modifier = Modifier.padding(top = 22.dp),
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center,
-                        )
-                        playlist?.description?.takeIf(String::isNotBlank)?.let { description ->
-                            Text(
-                                description,
-                                modifier = Modifier.padding(top = 10.dp),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                        val durationMinutes = tracks.sumOf { it.durationMs.coerceAtLeast(0L) } / 60_000L
-                        Text(
-                            "${playlistTrackCount(tracks.size)} · $durationMinutes min",
-                            modifier = Modifier.padding(top = 12.dp),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        playlist?.updatedAt?.takeUnless { it == java.time.Instant.EPOCH }?.let { updated ->
-                            Text(
-                                "Updated ${DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault()).format(updated)}",
-                                modifier = Modifier.padding(top = 4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Button(
-                            onClick = { onPlay(sortedTracks, PlaybackMode.ORDERED) },
-                            enabled = sortedTracks.isNotEmpty(),
-                            modifier = Modifier.fillMaxWidth().padding(top = 22.dp).heightIn(min = 52.dp),
-                            shape = RoundedCornerShape(18.dp),
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
                         ) {
-                            Icon(Icons.Rounded.PlayArrow, null)
-                            Spacer(Modifier.size(8.dp))
-                            Text("Play", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            PlaylistArtworkV3(
+                                artworkRef, title, isFavorites, 108.dp,
+                                newTrackIds.isNotEmpty(), reduceMotion,
+                            )
+                            Spacer(Modifier.size(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        title,
+                                        modifier = Modifier.weight(1f),
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (canEditMetadata) {
+                                        IconButton(
+                                            onClick = { editing = true },
+                                            enabled = !deleting,
+                                            modifier = Modifier.size(34.dp).testTag("playlist-edit-pencil"),
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Edit, contentDescription = "Edit playlist",
+                                                modifier = Modifier.size(17.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                                playlist?.description?.takeIf(String::isNotBlank)?.let { description ->
+                                    Text(
+                                        description,
+                                        modifier = Modifier.padding(top = 4.dp),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                val durationMinutes = tracks.sumOf { it.durationMs.coerceAtLeast(0L) } / 60_000L
+                                Text(
+                                    "${playlistTrackCount(tracks.size)} · $durationMinutes min",
+                                    modifier = Modifier.padding(top = 7.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    playlist?.updatedAt?.takeUnless { it == java.time.Instant.EPOCH }?.let { updated ->
+                                        Text(
+                                            "Updated " + DateTimeFormatter.ofPattern("MMM d, yyyy")
+                                                .withZone(ZoneId.systemDefault()).format(updated),
+                                            modifier = Modifier.weight(1f, fill = false),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    if (editable) {
+                                        IconButton(
+                                            onClick = { showDeleteConfirmation = true },
+                                            enabled = !deleting,
+                                            modifier = Modifier.size(32.dp).testTag("playlist-delete"),
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.DeleteOutline,
+                                                contentDescription = "Delete playlist",
+                                                modifier = Modifier.size(17.dp),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Row(
-                            Modifier.fillMaxWidth().padding(top = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            PlaylistGlassAction(
-                                hazeState, "Shuffle", Icons.Rounded.Shuffle,
-                                { onPlay(sortedTracks, PlaybackMode.PURE_SHUFFLE) },
-                                modifier = Modifier.weight(1f), enabled = sortedTracks.isNotEmpty(),
-                            )
-                            PlaylistGlassAction(
-                                hazeState, "Smart", Icons.Rounded.AutoAwesome,
-                                { onPlay(sortedTracks, PlaybackMode.SMART_SHUFFLE) },
-                                modifier = Modifier.weight(1f), enabled = sortedTracks.isNotEmpty(),
-                            )
+                            val hasTracks = sortedTracks.isNotEmpty()
+                            Button(
+                                onClick = { onPlay(sortedTracks, PlaybackMode.ORDERED) },
+                                enabled = hasTracks,
+                                modifier = Modifier.weight(1f).height(44.dp).testTag("playlist-play"),
+                                shape = RoundedCornerShape(22.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                            ) {
+                                Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.size(4.dp))
+                                Text("Play", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            }
+                            PlaylistCircleAction(
+                                hazeState, "Shuffle", Icons.Rounded.Shuffle, hasTracks,
+                            ) { onPlay(sortedTracks, PlaybackMode.PURE_SHUFFLE) }
+                            PlaylistCircleAction(
+                                hazeState, "Smart Shuffle", Icons.Rounded.AutoAwesome, hasTracks,
+                            ) { onPlay(sortedTracks, PlaybackMode.SMART_SHUFFLE) }
+                            PlaylistCircleAction(
+                                hazeState, "Play next", Icons.Rounded.QueuePlayNext, hasTracks,
+                            ) { sortedTracks.distinctBy(Track::id).asReversed().forEach(onPlayNext) }
+                            PlaylistCircleAction(
+                                hazeState, "Add to queue", Icons.Rounded.QueueMusic, hasTracks,
+                            ) { sortedTracks.distinctBy(Track::id).forEach(onAddToQueue) }
                         }
                     }
                 }
             }
 
-            item(key = "playlist-selection") {
+            if (selectionMode) item(key = "playlist-selection") {
                 PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth(), radius = 19.dp) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                if (selectionMode) "${selectedIds.size} selected" else "Select songs for bulk actions",
+                                "${selectedIds.size} selected",
                                 modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
-                            if (selectionMode) TextButton(
+                            TextButton(
                                 enabled = visibleTracks.isNotEmpty(),
                                 onClick = { selectedIds = visibleTracks.map(Track::id).toSet() },
                             ) { Text("Select all") }
-                            TextButton(onClick = {
-                                selectionMode = !selectionMode
-                                selectedIds = emptySet()
-                            }) {
-                                Icon(if (selectionMode) Icons.Rounded.ArrowBack else Icons.Rounded.Checklist,
-                                    contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.size(5.dp))
-                                Text(if (selectionMode) "Done" else "Select")
-                            }
                         }
                         if (selectionMode) {
                             Row(
@@ -1055,18 +1104,50 @@ internal fun PlaylistDetailScreenV3(
             } else "Your playlist",
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
+            leadingActions = {
+                MeowzixHeaderAction("Back to playlists", Icons.Rounded.ArrowBack, onBack)
+            },
         ) {
-            MeowzixHeaderAction("Back to playlists", Icons.Rounded.ArrowBack, onBack)
-            if (editable) {
-                MeowzixHeaderAction(
-                    "Delete playlist", Icons.Rounded.DeleteOutline,
-                    { showDeleteConfirmation = true }, enabled = !deleting,
-                )
-            }
-            if (canEditMetadata) {
-                MeowzixHeaderAction("Edit playlist", Icons.Rounded.Edit, { editing = true }, enabled = !deleting)
+            TextButton(
+                onClick = {
+                    selectionMode = !selectionMode
+                    selectedIds = emptySet()
+                },
+                modifier = Modifier.testTag("playlist-header-select"),
+            ) {
+                Text(if (selectionMode) "Done" else "Select")
             }
         }
+        }
+    }
+}
+
+/** Compact round glass controls used by every playlist, including Favorites and chat collections. */
+@Composable
+private fun PlaylistCircleAction(
+    hazeState: HazeState,
+    label: String,
+    icon: ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    GlassSurface(
+        hazeState = hazeState,
+        modifier = Modifier.size(42.dp).clip(CircleShape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .testTag("playlist-action:" + label),
+        shape = CircleShape,
+        fallbackColor = colors.surfaceVariant.copy(alpha = 0.94f),
+        tint = colors.surface.copy(alpha = 0.60f),
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(
+                icon,
+                contentDescription = label,
+                modifier = Modifier.size(21.dp),
+                tint = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = 0.35f),
+            )
         }
     }
 }
@@ -1289,18 +1370,16 @@ internal fun PlaylistEditScreenV3(
         }
         MeowzixStickyHeader(
             title = if (creating) "New playlist" else "Edit playlist",
-            subtitle = when {
-                creating -> "Name and customize your collection."
-                telegramManaged -> "Customize synced metadata."
-                else -> "Edit your collection."
-            },
+            subtitle = "",
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
+            leadingActions = {
+                MeowzixHeaderAction(
+                    if (creating) "Cancel" else "Back to playlist",
+                    Icons.Rounded.ArrowBack, onBack, enabled = !isSaving,
+                )
+            },
         ) {
-            MeowzixHeaderAction(
-                if (creating) "Cancel" else "Back to playlist",
-                Icons.Rounded.ArrowBack, onBack, enabled = !isSaving,
-            )
             MeowzixHeaderAction(
                 if (creating) "Create playlist" else "Save playlist", Icons.Rounded.Save,
                 { onSave(title.trim(), description.trim().takeIf(String::isNotEmpty), artworkRef) },

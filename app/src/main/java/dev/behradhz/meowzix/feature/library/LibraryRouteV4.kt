@@ -638,8 +638,10 @@ private fun LibraryDetailV4(
             subtitle = "${tracks.size} tracks",
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
+            leadingActions = {
+                MeowzixHeaderAction("Back to library", Icons.Rounded.ArrowBack, onBack)
+            },
         ) {
-            MeowzixHeaderAction("Back to library", Icons.Rounded.ArrowBack, onBack)
             if (tracks.isNotEmpty()) {
                 MeowzixHeaderAction("Play", Icons.Rounded.PlayArrow, {
                     viewModel.playCollection(tracks, PlaybackMode.ORDERED)
