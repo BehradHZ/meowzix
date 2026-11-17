@@ -69,7 +69,7 @@ class RoomPlaylistRepository @Inject constructor(
     override fun observeTracks(playlistId: UUID): Flow<List<Track>> =
         dao.observeTracks(playlistId.toString()).map { rows -> rows.map(TrackEntity::toDomain) }
 
-    override suspend fun create(title: String): UUID {
+    override suspend fun create(title: String, description: String?, artworkRef: String?): UUID {
         val normalized = title.trim().takeIf(String::isNotEmpty) ?: "New playlist"
         val now = Instant.now().toEpochMilli()
         val id = UUID.randomUUID()
@@ -77,8 +77,8 @@ class RoomPlaylistRepository @Inject constructor(
             PlaylistEntity(
                 id = id.toString(),
                 title = normalized,
-                description = null,
-                artworkRef = null,
+                description = description?.trim()?.takeIf(String::isNotEmpty),
+                artworkRef = artworkRef?.trim()?.takeIf(String::isNotEmpty),
                 createdAtEpochMs = now,
                 updatedAtEpochMs = now,
             ),
