@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.domain.library.QueueTrackStatus
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.QueueItemOrigin
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import java.util.UUID
 import javax.inject.Inject
@@ -70,6 +71,8 @@ class QueueViewModel @Inject constructor(
 
     fun play(index: Int) = queueRepository.playAt(index)
     fun move(fromIndex: Int, toIndex: Int) = queueRepository.move(fromIndex, toIndex)
+    fun move(fromIndex: Int, toIndex: Int, destinationOrigin: QueueItemOrigin) =
+        queueRepository.move(fromIndex, toIndex, destinationOrigin)
     fun remove(index: Int) = queueRepository.removeAt(index)
     fun removeOccurrence(occurrenceId: UUID) = queueRepository.removeOccurrence(occurrenceId)
     fun clear() = queueRepository.clear()

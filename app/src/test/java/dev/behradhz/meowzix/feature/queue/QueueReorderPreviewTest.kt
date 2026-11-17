@@ -1,12 +1,51 @@
 package dev.behradhz.meowzix.feature.queue
 
 import dev.behradhz.meowzix.domain.playback.QueueItem
+import dev.behradhz.meowzix.domain.playback.QueueItemOrigin
 import java.util.UUID
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class QueueReorderPreviewTest {
+    @Test fun `drop above Next heading promotes first Next song without moving its slot`() {
+        val playing = row()
+        val manual = row()
+        val generated = row()
+        val original = indexedQueueItems(listOf(
+            playing.copy(origin = QueueItemOrigin.GENERATED),
+            manual.copy(origin = QueueItemOrigin.MANUAL),
+            generated.copy(origin = QueueItemOrigin.GENERATED),
+        )) { true }
+        assertEquals(QueueItemOrigin.MANUAL,
+            queueDropOrigin(QueueItemOrigin.GENERATED, 149f, 150f))
+        assertEquals(QueuePreviewMove(2, 2, QueueItemOrigin.MANUAL),
+            resolvePreviewQueueMove(original, original, generated.occurrenceId,
+                queueDropOrigin(QueueItemOrigin.GENERATED, 149f, 150f)))
+        assertNull(resolvePreviewQueueMove(original, original, generated.occurrenceId,
+            queueDropOrigin(QueueItemOrigin.GENERATED, 150f, 150f)))
+    }
+
+    @Test fun `moving a generated occurrence inside Queue requests a manual lane`() {
+        val playing = row()
+        val queued = row()
+        val next = row()
+        val original = indexedQueueItems(listOf(
+            playing.copy(origin = QueueItemOrigin.GENERATED),
+            queued.copy(origin = QueueItemOrigin.MANUAL),
+            next.copy(origin = QueueItemOrigin.GENERATED),
+        )) { true }
+        val preview = reorderPreviewItems(original, next.occurrenceId, queued.occurrenceId)
+        assertEquals(QueuePreviewMove(2, 1, QueueItemOrigin.MANUAL),
+            resolvePreviewQueueMove(original, preview, next.occurrenceId))
+    }
+
+    @Test fun `drop without visible section heading uses preview row lane`() {
+        assertEquals(QueueItemOrigin.MANUAL,
+            queueDropOrigin(QueueItemOrigin.MANUAL, 220f, null))
+    }
+
+
     private fun row(song: UUID = UUID.randomUUID(), occurrence: UUID = UUID.randomUUID()) =
         QueueItem(song, "Song", null, null, occurrenceId = occurrence)
 

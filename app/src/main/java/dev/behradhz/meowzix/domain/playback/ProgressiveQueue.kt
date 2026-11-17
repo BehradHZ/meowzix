@@ -597,14 +597,19 @@ class ProgressiveQueue @Inject constructor() {
     }
 
     @Synchronized
-    fun move(fromIndex: Int, toIndex: Int): Boolean {
+    fun move(
+        fromIndex: Int,
+        toIndex: Int,
+        requestedOrigin: QueueItemOrigin? = null,
+    ): Boolean {
         if (fromIndex <= currentIndex || toIndex <= currentIndex ||
-            fromIndex !in tracks.indices || toIndex !in tracks.indices ||
-            fromIndex == toIndex
+            fromIndex !in tracks.indices || toIndex !in tracks.indices
         ) return false
-        // Reordering *inside* Next must not convert it to Queue. Changing sections is an
-        // explicit transfer of this one occurrence; track identity is not ownership.
-        val destinationOrigin = origins[toIndex]
+        // The drop lane is explicit: the first Next song may be promoted to the
+        // end of Queue without a positional move. Existing callers retain the
+        // destination row's lane when they omit requestedOrigin.
+        val destinationOrigin = requestedOrigin ?: origins[toIndex]
+        if (fromIndex == toIndex && origins[fromIndex] == destinationOrigin) return false
         val moved = tracks.removeAt(fromIndex)
         origins.removeAt(fromIndex)
         val occurrence = occurrenceIds.removeAt(fromIndex)

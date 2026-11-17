@@ -32,6 +32,7 @@ import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueRemovalPlan
 import dev.behradhz.meowzix.domain.playback.planQueueRemoval
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.playback.QueueItemOrigin
 import dev.behradhz.meowzix.domain.playback.buildLibraryPlaybackQueue
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
@@ -797,12 +798,25 @@ class AndroidPlaybackController @Inject constructor(
         queueActionFeedbackBus.emit(QueueActionKind.REMOVED, removedTitle)
     }
 
-    override fun move(fromIndex: Int, toIndex: Int) {
+    override fun move(fromIndex: Int, toIndex: Int) =
+        moveInternal(fromIndex, toIndex, null)
+
+    override fun move(fromIndex: Int, toIndex: Int, destinationOrigin: QueueItemOrigin) =
+        moveInternal(fromIndex, toIndex, destinationOrigin)
+
+    private fun moveInternal(
+        fromIndex: Int,
+        toIndex: Int,
+        destinationOrigin: QueueItemOrigin?,
+    ) {
         withController { connected ->
             if (progressiveQueue.snapshot() != null) {
                 syncLogicalCurrentFromPlayer(connected)
-                if (progressiveQueue.move(fromIndex, toIndex)) syncProgressiveWindowInPlace(connected)
-            } else if (fromIndex in 0 until connected.mediaItemCount && toIndex in 0 until connected.mediaItemCount) {
+                if (progressiveQueue.move(fromIndex, toIndex, destinationOrigin)) {
+                    syncProgressiveWindowInPlace(connected)
+                }
+            } else if (fromIndex in 0 until connected.mediaItemCount &&
+                toIndex in 0 until connected.mediaItemCount && fromIndex != toIndex) {
                 connected.moveMediaItem(fromIndex, toIndex)
             }
         }

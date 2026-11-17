@@ -10,6 +10,58 @@ import org.junit.Test
 
 class ProgressiveQueueTest {
     @Test
+    fun `promoting first Next song into Queue changes its lane at same index`() {
+        val songs = tracks(14)
+        val queue = ProgressiveQueue()
+        queue.start(songs, 0, PlaybackMode.ORDERED, RepeatMode.OFF)
+        assertTrue(queue.append(songs[12]))
+        assertTrue(queue.append(songs[13]))
+        val before = requireNotNull(queue.snapshot())
+        val firstGenerated = (before.currentIndex + 1 until before.tracks.size)
+            .first { before.origins[it] == QueueItemOrigin.GENERATED }
+        val promotedOccurrence = before.occurrenceIds[firstGenerated]
+        val promotedTrack = before.tracks[firstGenerated].id
+
+        assertTrue(queue.move(firstGenerated, firstGenerated, QueueItemOrigin.MANUAL))
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(before.tracks.map { it.id }, after.tracks.map { it.id })
+        assertEquals(promotedOccurrence, after.occurrenceIds[firstGenerated])
+        assertEquals(QueueItemOrigin.MANUAL, after.origins[firstGenerated])
+        assertEquals(promotedTrack, after.tracks[firstGenerated].id)
+        assertFalse(queue.move(firstGenerated, firstGenerated, QueueItemOrigin.MANUAL))
+
+        // A manually promoted occurrence must also survive a listening-context reset.
+        queue.start(songs, 0, PlaybackMode.ORDERED, RepeatMode.OFF)
+        val retained = requireNotNull(queue.snapshot())
+        val newIndex = retained.occurrenceIds.indexOf(promotedOccurrence)
+        assertTrue(newIndex > retained.currentIndex)
+        assertEquals(QueueItemOrigin.MANUAL, retained.origins[newIndex])
+    }
+
+    @Test
+    fun `cross section drag changes origin without disturbing the playing song`() {
+        val songs = tracks(10)
+        val queue = ProgressiveQueue()
+        queue.start(songs, 0, PlaybackMode.ORDERED, RepeatMode.OFF)
+        queue.append(songs[8])
+        queue.append(songs[9])
+        val before = requireNotNull(queue.snapshot())
+        val playingOccurrence = before.occurrenceIds[0]
+        val generated = (1 until before.tracks.size)
+            .first { before.origins[it] == QueueItemOrigin.GENERATED }
+        val movedId = before.occurrenceIds[generated + 1]
+
+        assertTrue(queue.move(generated + 1, 1, QueueItemOrigin.MANUAL))
+        val changed = requireNotNull(queue.snapshot())
+        assertEquals(playingOccurrence, changed.occurrenceIds[0])
+        assertEquals(movedId, changed.occurrenceIds[1])
+        assertEquals(QueueItemOrigin.MANUAL, changed.origins[1])
+        assertEquals(List(3) { QueueItemOrigin.MANUAL }, changed.origins.subList(1, 4))
+        assertEquals(QueueItemOrigin.GENERATED, changed.origins[4])
+    }
+
+
+    @Test
     fun `initial window contains current plus ten future tracks`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(1_000)

@@ -54,7 +54,49 @@ internal fun reorderPreviewItems(
     return rows.toMutableList().apply { add(to, removeAt(from)) }
 }
 
-/** Convert a finished visual preview to exactly one original-index move. */
+/**
+ * The section heading is the boundary between manually queued and generated
+ * songs. A drop above it targets Queue even if the dragged song still occupies
+ * the first generated visual slot.
+ */
+internal fun queueDropOrigin(
+    slotOrigin: dev.behradhz.meowzix.domain.playback.QueueItemOrigin,
+    dragCenterY: Float,
+    nextSectionTopY: Float?,
+): dev.behradhz.meowzix.domain.playback.QueueItemOrigin {
+    if (!dragCenterY.isFinite() || nextSectionTopY == null) return slotOrigin
+    return if (dragCenterY < nextSectionTopY) {
+        dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL
+    } else {
+        dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
+    }
+}
+
+internal data class QueuePreviewMove(
+    val fromIndex: Int,
+    val toIndex: Int,
+    val origin: dev.behradhz.meowzix.domain.playback.QueueItemOrigin,
+)
+
+/** A same-slot lane change is a real queue mutation, not a no-op. */
+internal fun resolvePreviewQueueMove(
+    original: List<IndexedValue<QueueItem>>,
+    preview: List<IndexedValue<QueueItem>>,
+    occurrenceId: java.util.UUID,
+    destinationOrigin: dev.behradhz.meowzix.domain.playback.QueueItemOrigin? = null,
+): QueuePreviewMove? {
+    if (original.size != preview.size ||
+        original.map { it.value.occurrenceId }.toSet() !=
+            preview.map { it.value.occurrenceId }.toSet()) return null
+    val source = original.firstOrNull { it.value.occurrenceId == occurrenceId } ?: return null
+    val slot = preview.indexOfFirst { it.value.occurrenceId == occurrenceId }
+    val destination = original.getOrNull(slot) ?: return null
+    val origin = destinationOrigin ?: destination.value.origin
+    if (source.index == destination.index && source.value.origin == origin) return null
+    return QueuePreviewMove(source.index, destination.index, origin)
+}
+
+/** Convert a finished visual preview to one original-index move. */
 internal fun resolvePreviewMove(
     original: List<IndexedValue<QueueItem>>,
     preview: List<IndexedValue<QueueItem>>,

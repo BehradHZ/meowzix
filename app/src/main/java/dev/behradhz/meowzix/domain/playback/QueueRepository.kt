@@ -61,6 +61,9 @@ interface QueueRepository {
     /** Remove the exact displayed occurrence, even if playback shifts queue indexes first. */
     fun removeOccurrence(occurrenceId: UUID)
     fun move(fromIndex: Int, toIndex: Int)
+    /** Drag-and-drop may change Queue/Next ownership without changing the index. */
+    fun move(fromIndex: Int, toIndex: Int, destinationOrigin: QueueItemOrigin) =
+        move(fromIndex, toIndex)
     fun clear()
     fun setPlaybackMode(mode: PlaybackMode)
     fun setRepeatMode(mode: RepeatMode)

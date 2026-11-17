@@ -235,7 +235,7 @@ internal fun QueueScreen(
     aux: QueueAuxState,
     searchQuery: String,
     onPlay: (Int) -> Unit,
-    onMove: (Int, Int) -> Unit,
+    onMove: (Int, Int, QueueItemOrigin) -> Unit,
     onRemove: (UUID) -> Unit,
     onMoveGroup: (UUID, Int) -> Unit,
     onRemoveGroup: (UUID) -> Unit,
@@ -340,11 +340,28 @@ internal fun QueueScreen(
     fun finishDrag(commit: Boolean) {
         val occurrence = filteredItems.firstOrNull { it.index == draggedQueueIndex }
             ?.value?.occurrenceId
-        val move = occurrence?.let { resolvePreviewMove(filteredItems, displayItems, it) }
+        // The Next heading is a drop boundary, not an item. Crossing it must
+        // promote the first generated song even if its logical index is unchanged.
+        val firstNextSlot = filteredItems.indexOfFirst {
+            it.index > state.currentIndex && it.value.origin == QueueItemOrigin.GENERATED
+        }
+        val nextSectionTop = if (firstNextSlot >= 0) {
+            listState.layoutInfo.visibleItemsInfo.firstOrNull {
+                it.key == "section-${firstNextSlot}-${QueueItemOrigin.GENERATED}"
+            }?.offset?.toFloat()
+        } else null
+        val visualSlot = displayItems.indexOfFirst { it.value.occurrenceId == occurrence }
+        val slotOrigin = filteredItems.getOrNull(visualSlot)?.value?.origin
+        val destinationOrigin = slotOrigin?.let {
+            queueDropOrigin(it, dragCenterY, nextSectionTop)
+        }
+        val move = occurrence?.let {
+            resolvePreviewQueueMove(filteredItems, displayItems, it, destinationOrigin)
+        }
         if (!searchActive && commit && move != null &&
-            move.first > state.currentIndex && move.second > state.currentIndex) {
+            move.fromIndex > state.currentIndex && move.toIndex > state.currentIndex) {
             awaitingTrackCommit = true
-            onMove(move.first, move.second)
+            onMove(move.fromIndex, move.toIndex, move.origin)
         } else {
             displayItems = filteredItems
         }
