@@ -44,6 +44,7 @@ import dev.behradhz.meowzix.feature.search.matchesGlobalSearch
 import java.util.UUID
 
 private const val FAVORITES_KEY = "favorites"
+private const val CREATE_PLAYLIST_KEY = "create-playlist"
 
 /**
  * Keep both surfaces composed while opening/closing, then dispose the outgoing screen.
@@ -169,7 +170,10 @@ fun PlaylistsRoute(
     }
     var selectedKey by rememberSaveable { mutableStateOf<String?>(null) }
     var showFavorites by rememberSaveable { mutableStateOf(false) }
-    val selectedId = selectedKey?.let(UUID::fromString)
+    var newPlaylistTitle by rememberSaveable { mutableStateOf("New playlist") }
+    var creatingPlaylist by rememberSaveable { mutableStateOf(false) }
+    var playlistCreationError by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedId = selectedKey?.takeUnless { it == CREATE_PLAYLIST_KEY }?.let(UUID::fromString)
 
     LaunchedEffect(requestedPlaylistId) {
         if (requestedPlaylistId != null) {
@@ -187,7 +191,9 @@ fun PlaylistsRoute(
         showFavorites = false
     }
 
-    BackHandler(enabled = selectedId != null || showFavorites) { closeDetail() }
+    BackHandler(enabled = selectedKey != null || showFavorites) {
+        if (!creatingPlaylist) closeDetail()
+    }
 
     PlaylistContentTransition(
         selectedKey = if (showFavorites) FAVORITES_KEY else selectedKey,
@@ -212,11 +218,50 @@ fun PlaylistsRoute(
                     showFavorites = false
                     selectedKey = id.toString()
                 },
-                onCreate = { viewModel.createPlaylist { id -> selectedKey = id.toString() } },
+                onCreate = {
+                    newPlaylistTitle = "Playlist ${state.playlists.count { !it.localManaged } + 1}"
+                    playlistCreationError = null
+                    creatingPlaylist = false
+                    showFavorites = false
+                    selectedKey = CREATE_PLAYLIST_KEY
+                },
                 onSaveQueue = { viewModel.saveQueueToPlaylist { id -> selectedKey = id.toString() } },
             )
         },
         detailContent = { contentKey ->
+            if (contentKey == CREATE_PLAYLIST_KEY) {
+                PlaylistEditScreenV3(
+                    initialTitle = newPlaylistTitle,
+                    initialDescription = null,
+                    initialArtworkRef = null,
+                    telegramManaged = false,
+                    isModified = false,
+                    onRestore = {},
+                    creating = true,
+                    isSaving = creatingPlaylist,
+                    saveError = playlistCreationError,
+                    onBack = { if (!creatingPlaylist) closeDetail() },
+                    onSave = { title, description, artwork ->
+                        if (!creatingPlaylist) {
+                            creatingPlaylist = true
+                            playlistCreationError = null
+                            viewModel.createPlaylist(
+                                title = title,
+                                description = description,
+                                artworkRef = artwork,
+                                onCreated = { id ->
+                                    creatingPlaylist = false
+                                    selectedKey = id.toString()
+                                },
+                                onFailed = { message ->
+                                    creatingPlaylist = false
+                                    playlistCreationError = message
+                                },
+                            )
+                        }
+                    },
+                )
+            } else {
             val favorites = contentKey == FAVORITES_KEY
             val playlistId = if (favorites) null else UUID.fromString(contentKey)
             val playlist = state.playlists.firstOrNull { it.id == playlistId }
@@ -310,6 +355,7 @@ fun PlaylistsRoute(
                     }
                 },
             )
+            }
         },
     )
 }
