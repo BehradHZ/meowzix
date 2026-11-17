@@ -151,6 +151,8 @@ fun QueueRoute(
         ),
         LocalTrackChatLinkActions provides TrackChatLinkActions(
             lookup = libraryTools::telegramMessageLink,
+            originLookup = libraryTools::telegramChatOrigin,
+            refreshOrigin = libraryTools::refreshTelegramChatOrigin,
             open = { link ->
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link))
                     .addCategory(Intent.CATEGORY_BROWSABLE)
