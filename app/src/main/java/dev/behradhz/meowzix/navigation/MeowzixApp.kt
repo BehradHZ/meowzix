@@ -131,6 +131,18 @@ private const val HISTORY_ROUTE = "history"
 private const val TOP_LEVEL_ENTER_DURATION_MS = 120
 private const val TOP_LEVEL_EXIT_DURATION_MS = 90
 private val RETAINED_TAB_ROUTES = setOf(HOME_ROUTE, LIBRARY_ROUTE, PLAYLISTS_ROUTE, QUEUE_ROUTE)
+private val SETTINGS_CHILD_ROUTES = setOf(DOWNLOADS_ROUTE, HISTORY_ROUTE, TELEGRAM_AUTH_ROUTE)
+
+internal enum class DockTabTapAction { CLOSE_SETTINGS, SWITCH_FROM_SETTINGS, RESELECT, SWITCH }
+
+/** Resolve a dock tap before mutating the back stack; Settings never belongs to a tab's saved state. */
+internal fun dockTabTapAction(currentRoute: String, activeTab: String, tappedTab: String): DockTabTapAction =
+    when {
+        currentRoute == SETTINGS_ROUTE || currentRoute in SETTINGS_CHILD_ROUTES ->
+            if (tappedTab == activeTab) DockTabTapAction.CLOSE_SETTINGS else DockTabTapAction.SWITCH_FROM_SETTINGS
+        currentRoute == tappedTab -> DockTabTapAction.RESELECT
+        else -> DockTabTapAction.SWITCH
+    }
 
 internal data class DockDestination(
     val route: String,
@@ -154,6 +166,7 @@ fun MeowzixApp(
 
     val navController = rememberNavController()
     var visitedTabRoutes by remember { mutableStateOf(setOf(HOME_ROUTE)) }
+    var lastContentTab by rememberSaveable { mutableStateOf(HOME_ROUTE) }
     val hazeState = rememberHazeState()
     val morphingPlayerState = rememberMorphingPlayerState()
     val libraryViewModel: LibraryViewModel = hiltViewModel()
@@ -191,8 +204,15 @@ fun MeowzixApp(
         )
     }
 
-    val secondarySettingsRoutes = remember { setOf(DOWNLOADS_ROUTE, HISTORY_ROUTE, TELEGRAM_AUTH_ROUTE) }
-    val selectedDockRoute = if (currentRoute in secondarySettingsRoutes || currentRoute == SETTINGS_ROUTE) HOME_ROUTE else currentRoute
+    LaunchedEffect(currentRoute) {
+        if (currentRoute in RETAINED_TAB_ROUTES) {
+            lastContentTab = currentRoute
+            visitedTabRoutes = visitedTabRoutes + currentRoute
+        }
+    }
+    // The same global Settings destination can be opened from any tab.
+    val selectedDockRoute =
+        if (currentRoute == SETTINGS_ROUTE || currentRoute in SETTINGS_CHILD_ROUTES) lastContentTab else currentRoute
     val searchActive = searchContextRoute != null
     val searchScope = when (searchContextRoute) {
         LIBRARY_ROUTE -> DockSearchScope.LIBRARY
@@ -269,15 +289,28 @@ fun MeowzixApp(
     }
 
     fun navigateTopLevel(route: String) {
+        val action = dockTabTapAction(currentRoute, lastContentTab, route)
         if (route in RETAINED_TAB_ROUTES) visitedTabRoutes = visitedTabRoutes + route
-        // Reselecting Library never refreshes its sources or recreates its Paging state.
-        if (route == LIBRARY_ROUTE && currentRoute == LIBRARY_ROUTE && !searchActive) return
+
+        if (action == DockTabTapAction.CLOSE_SETTINGS) {
+            clearSearchState()
+            // One Back action dismisses Settings and all of its nested screens.
+            navController.popBackStack(SETTINGS_ROUTE, inclusive = true)
+            return
+        }
+        if (action == DockTabTapAction.SWITCH_FROM_SETTINGS) {
+            // Remove Settings before saveState/restoreState can associate it with the origin tab.
+            navController.popBackStack(SETTINGS_ROUTE, inclusive = true)
+        }
+
+        if (action == DockTabTapAction.RESELECT && route == LIBRARY_ROUTE && !searchActive) return
         clearSearchState()
         if (route == HOME_ROUTE) {
             dockCompact = false
             scrollDelta = 0f
             homeScrollToTopRequest++
         }
+        lastContentTab = route
         navController.navigate(route) {
             popUpTo(HOME_ROUTE) {
                 inclusive = false
@@ -293,7 +326,7 @@ fun MeowzixApp(
     fun toggleSettings() {
         when {
             currentRoute == SETTINGS_ROUTE -> navController.popBackStack()
-            currentRoute in secondarySettingsRoutes -> navController.popBackStack(SETTINGS_ROUTE, false)
+            currentRoute in SETTINGS_CHILD_ROUTES -> navController.popBackStack(SETTINGS_ROUTE, false)
             else -> {
                 clearSearchState()
                 navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true }
@@ -322,7 +355,7 @@ fun MeowzixApp(
         when {
             morphingPlayerState.targetExpanded -> morphingPlayerState.collapse()
             searchActive -> clearSearchState()
-            currentRoute in secondarySettingsRoutes -> navController.popBackStack()
+            currentRoute in SETTINGS_CHILD_ROUTES -> navController.popBackStack()
             currentRoute == SETTINGS_ROUTE -> navController.popBackStack()
             currentRoute != HOME_ROUTE -> goHome()
         }
@@ -332,7 +365,7 @@ fun MeowzixApp(
         if (currentRoute != HOME_ROUTE) SecondaryAmbientBackdrop(variation = 0)
         CompositionLocalProvider(
             LocalMeowzixHeaderControls provides MeowzixHeaderControls(
-                onSettings = if (currentRoute == SETTINGS_ROUTE || currentRoute in secondarySettingsRoutes) null
+                onSettings = if (currentRoute == SETTINGS_ROUTE || currentRoute in SETTINGS_CHILD_ROUTES) null
                     else { { toggleSettings() } },
                 onProxy = { openProxyRequest++ },
                 proxyBadge = telegramProxyBadge(
