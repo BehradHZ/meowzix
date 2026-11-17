@@ -73,6 +73,8 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -169,6 +171,7 @@ fun MeowzixApp(
     var lastContentTab by rememberSaveable { mutableStateOf(HOME_ROUTE) }
     val hazeState = rememberHazeState()
     val morphingPlayerState = rememberMorphingPlayerState()
+    val floatingTouchBounds = remember { FloatingControlsTouchBounds() }
     val libraryViewModel: LibraryViewModel = hiltViewModel()
     val libraryTracksViewModel: LibraryTracksViewModel = hiltViewModel()
     val searchViewModel: SearchViewModel = hiltViewModel()
@@ -379,6 +382,7 @@ fun MeowzixApp(
                 compact = dockCompact && !searchActive,
                 reduceMotion = reduceMotion,
             ),
+            LocalFloatingControlsTouchBounds provides floatingTouchBounds,
         ) {
         // The scroll connection must be an ancestor of retained tabs as well as NavHost.
         // Keeping it on NavHost alone misses all top-level tab scroll gestures.
@@ -565,6 +569,11 @@ fun MeowzixApp(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                 )
             }
+            Box(
+                Modifier.fillMaxWidth().onGloballyPositioned { coordinates ->
+                    floatingTouchBounds.dockTopY = coordinates.boundsInWindow().top
+                },
+            ) {
             MorphingDock(
                 hazeState = hazeState,
                 destinations = destinations,
@@ -602,6 +611,7 @@ fun MeowzixApp(
                     }
                 },
             )
+            }
         }
 
         // The collapsed player must not cover the active keyboard or global search results.
@@ -615,6 +625,7 @@ fun MeowzixApp(
                 viewModel = playerViewModel,
                 morphState = morphingPlayerState,
                 dockCompact = dockCompact && !searchActive,
+                onMiniPlayerTopInWindow = { floatingTouchBounds.miniPlayerTopY = it },
                 onOpenQueue = { navigateTopLevel(QUEUE_ROUTE) },
                 onGoToArtist = { artist ->
                     pendingArtist = artist

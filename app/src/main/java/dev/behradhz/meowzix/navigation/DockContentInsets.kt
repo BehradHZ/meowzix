@@ -4,6 +4,9 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.Dp
@@ -15,6 +18,16 @@ internal data class DockLayout(
 )
 
 internal val LocalDockLayout = compositionLocalOf { DockLayout() }
+
+/** Measured floating surfaces, in window coordinates shared by Queue rows. */
+@Stable
+internal class FloatingControlsTouchBounds {
+    var dockTopY by mutableFloatStateOf(Float.POSITIVE_INFINITY)
+    var miniPlayerTopY by mutableFloatStateOf(Float.POSITIVE_INFINITY)
+}
+
+internal val LocalFloatingControlsTouchBounds =
+    compositionLocalOf<FloatingControlsTouchBounds?> { null }
 
 /** Allow content to use the lower edge when the dock is small, without obscuring controls. */
 @Composable

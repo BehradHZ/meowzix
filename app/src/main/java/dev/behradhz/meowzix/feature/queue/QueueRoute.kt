@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
+import dev.behradhz.meowzix.navigation.LocalFloatingControlsTouchBounds
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -73,6 +74,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -229,6 +232,14 @@ fun PlayerInlineQueue(
         inlineMode = true,
     )
 }
+
+/** Block a whole Queue row if even its bottom edge enters the protected region. */
+internal fun queueRowBlockedByFloatingControls(
+    rowBottomInWindow: Float,
+    controlsTopInWindow: Float,
+    guardPx: Float,
+): Boolean = !rowBottomInWindow.isFinite() ||
+    rowBottomInWindow > controlsTopInWindow - guardPx
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -492,7 +503,7 @@ internal fun QueueScreen(
                 .hazeSource(feedbackHazeState),
             state = listState,
             contentPadding = if (inlineMode) PaddingValues(horizontal = 2.dp, vertical = 8.dp)
-                             else PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = dockAwareBottomPadding(182.dp)),
+                             else PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = dockAwareBottomPadding(206.dp)),
             // Adjacent grouped rows share one continuous glass container.
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
@@ -542,6 +553,14 @@ internal fun QueueScreen(
                     item(key = entry.value.occurrenceId.toString()) {
                     val item = entry.value
                     val queueIndex = entry.index
+                    val floatingControls = LocalFloatingControlsTouchBounds.current
+                    var rowBottomInWindow by remember(item.occurrenceId) { mutableFloatStateOf(Float.NaN) }
+                    val touchBlocked = !inlineMode && floatingControls != null &&
+                        queueRowBlockedByFloatingControls(
+                            rowBottomInWindow,
+                            minOf(floatingControls.dockTopY, floatingControls.miniPlayerTopY),
+                            with(density) { 16.dp.toPx() },
+                        )
                     val isDragging = draggedQueueIndex == queueIndex
                     val groupId = item.groupId
                     val group = groupId?.let(state.groups::get)
@@ -573,6 +592,9 @@ internal fun QueueScreen(
                                 } else 0f
                                 scaleX = if (isDragging || isGroupDragging) 1.015f else 1f
                                 scaleY = if (isDragging || isGroupDragging) 1.015f else 1f
+                            }
+                            .onGloballyPositioned { coordinates ->
+                                rowBottomInWindow = coordinates.boundsInWindow().bottom
                             },
                     ) {
                         Column(Modifier.animateContentSize()) {
@@ -602,7 +624,8 @@ internal fun QueueScreen(
                                 count = groupCounts[group.id] ?: 0,
                                 compact = isGroupDragging,
                                 offsetY = 0f,
-                                reorderEnabled = !searchActive && draggedQueueIndex == null,
+                                reorderEnabled = !touchBlocked && !searchActive && draggedQueueIndex == null,
+                                interactionEnabled = !touchBlocked,
                                 onStart = {
                                     displayItems = filteredItems
                                     awaitingGroupCommit = false
@@ -641,9 +664,10 @@ internal fun QueueScreen(
                             isCurrent = queueIndex == state.currentIndex,
                             isDragging = isDragging,
                             dragOffsetY = 0f,
-                            reorderEnabled = !searchActive && draggedGroupId == null &&
+                            reorderEnabled = !touchBlocked && !searchActive && draggedGroupId == null &&
                                 queueIndex != state.currentIndex,
-                            onPlay = { if (state.items.getOrNull(queueIndex) == item) onPlay(queueIndex) },
+                            interactionEnabled = !touchBlocked,
+                            onPlay = { if (!touchBlocked && state.items.getOrNull(queueIndex) == item) onPlay(queueIndex) },
                             onDragStart = {
                                 if (!searchActive && draggedGroupId == null) {
                                     displayItems = filteredItems
@@ -738,9 +762,11 @@ private fun GroupQueueHeader(
     onRemove: () -> Unit,
     onMoveToFront: () -> Unit,
     onMoveToEnd: () -> Unit,
+    interactionEnabled: Boolean = true,
     showOverflowActions: Boolean = true,
 ) {
     var menuExpanded by remember(group.id) { mutableStateOf(false) }
+    LaunchedEffect(interactionEnabled) { if (!interactionEnabled) menuExpanded = false }
     var swipeX by remember(group.id) { mutableFloatStateOf(0f) }
     var horizontalDrag by remember(group.id) { mutableStateOf(false) }
     val density = LocalDensity.current
@@ -770,8 +796,8 @@ private fun GroupQueueHeader(
                     shape = RoundedCornerShape(18.dp)
                     clip = true
                 }
-                .pointerInput(group.id, actionThreshold, removeThreshold) {
-                    detectHorizontalDragGestures(
+                .pointerInput(group.id, actionThreshold, removeThreshold, interactionEnabled) {
+                    if (interactionEnabled) detectHorizontalDragGestures(
                         onDragStart = { horizontalDrag = true },
                         onHorizontalDrag = { change, delta ->
                             change.consume()
@@ -838,7 +864,7 @@ private fun GroupQueueHeader(
                         tint = MaterialTheme.colorScheme.onSurface)
                 }
                 if (showOverflowActions) Box {
-                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
+                    IconButton(onClick = { menuExpanded = true }, enabled = interactionEnabled, modifier = Modifier.size(38.dp)) {
                         Icon(Icons.Rounded.MoreVert, contentDescription = "Group actions")
                     }
                     DropdownMenu(
@@ -920,6 +946,7 @@ private fun SwipeableQueueItem(
     onFavorite: () -> Unit,
     onAddToPlaylist: (UUID) -> Unit,
     onGoToArtist: (String) -> Unit,
+    interactionEnabled: Boolean = true,
     showOverflowActions: Boolean = true,
 ) {
     val recommendationActions = LocalLibraryRecommendationActions.current
@@ -927,6 +954,7 @@ private fun SwipeableQueueItem(
     val forwardAction = LocalTrackForwardAction.current
     val chatActions = LocalTrackChatLinkActions.current
     var menuExpanded by remember { mutableStateOf(false) }
+    LaunchedEffect(interactionEnabled) { if (!interactionEnabled) menuExpanded = false }
     var chatLink by remember(item.id) { mutableStateOf<String?>(null) }
     var chatOrigin by remember(item.id) {
         mutableStateOf<dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin?>(null)
@@ -995,8 +1023,8 @@ private fun SwipeableQueueItem(
                     shape = RoundedCornerShape(18.dp)
                     clip = true
                 }
-                .pointerInput(item.occurrenceId, isDragging, actionThreshold, removeThreshold) {
-                    if (!isDragging) {
+                .pointerInput(item.occurrenceId, isDragging, actionThreshold, removeThreshold, interactionEnabled) {
+                    if (!isDragging && interactionEnabled) {
                         detectHorizontalDragGestures(
                             onDragStart = {
                                 horizontalDragActive = true
@@ -1039,7 +1067,7 @@ private fun SwipeableQueueItem(
                         )
                     }
                 }
-                .clickable(onClick = onPlay),
+                .clickable(enabled = interactionEnabled, onClick = onPlay),
             shape = RoundedCornerShape(18.dp),
             color = (if (isCurrent) MaterialTheme.colorScheme.primaryContainer
                      else MaterialTheme.colorScheme.surfaceVariant).copy(alpha = TRACK_CARD_ALPHA),
@@ -1058,7 +1086,7 @@ private fun SwipeableQueueItem(
                     size = 52.dp,
                     isOffline = availability == LibraryTrackAvailability.OFFLINE,
                     download = download,
-                    onDownload = onPinOffline,
+                    onDownload = { if (interactionEnabled) onPinOffline() },
                 )
                 Spacer(Modifier.size(10.dp))
                 Column(Modifier.weight(1f)) {
@@ -1104,7 +1132,7 @@ private fun SwipeableQueueItem(
                     )
                 }
                 if (showOverflowActions) Box {
-                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(38.dp)) {
+                    IconButton(onClick = { menuExpanded = true }, enabled = interactionEnabled, modifier = Modifier.size(38.dp)) {
                         Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
                     }
                     if (menuExpanded) {

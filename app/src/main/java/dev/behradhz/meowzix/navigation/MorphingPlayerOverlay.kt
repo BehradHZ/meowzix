@@ -41,6 +41,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
@@ -66,6 +67,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
@@ -226,11 +228,15 @@ internal fun MorphingPlayerOverlay(
     viewModel: NowPlayingViewModel,
     morphState: MorphingPlayerState,
     dockCompact: Boolean = false,
+    onMiniPlayerTopInWindow: (Float) -> Unit = {},
     onOpenQueue: () -> Unit,
     onGoToArtist: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val track = state.currentTrack ?: return
+    DisposableEffect(Unit) {
+        onDispose { onMiniPlayerTopInWindow(Float.POSITIVE_INFINITY) }
+    }
     val queueState by viewModel.queueState.collectAsStateWithLifecycle()
     val appearance by viewModel.appearanceSettings.collectAsStateWithLifecycle()
     val reduceMotion = appearance.reduceMotion
@@ -340,6 +346,7 @@ internal fun MorphingPlayerOverlay(
                 .onGloballyPositioned { coordinates ->
                     val topLeft = coordinates.positionOnScreen()
                     if (topLeft != Offset.Unspecified) playerSurfaceTopLeft = topLeft
+                    onMiniPlayerTopInWindow(coordinates.boundsInWindow().top)
                 }
                  .pointerInput(track.id, travelPx, lyricsExpanded, inlineQueueExpanded, moreActionsMenuOpen) {
                     // Keep both the lyrics scroller and the open actions menu independent
