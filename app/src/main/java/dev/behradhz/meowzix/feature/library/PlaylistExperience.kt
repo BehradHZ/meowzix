@@ -84,6 +84,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -519,6 +521,7 @@ internal fun PlaylistDetailScreenV3(
         draggedDistance = 0f
     }
 
+    val playlistPullState = rememberPullToRefreshState()
     PlaylistGlassBackdrop { hazeState ->
         Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
@@ -526,6 +529,14 @@ internal fun PlaylistDetailScreenV3(
             onRefresh = { onRefresh?.invoke() },
             enabled = onRefresh != null && !refreshing && !selectionMode && draggedTrackId == null,
             modifier = Modifier.fillMaxSize().testTag("playlist-pull-refresh"),
+            state = playlistPullState,
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = playlistPullState,
+                    isRefreshing = refreshing,
+                    modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 92.dp),
+                )
+            },
         ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState).testTag("playlist-detail-list"),
