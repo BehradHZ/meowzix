@@ -94,6 +94,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.invisibleToUser
@@ -199,16 +200,17 @@ fun NowPlayingRoute(
     // Create the Queue owner once, not during the first drag frame: acquiring
     // Hilt/database flows mid-gesture would produce an avoidable animation hitch.
     val inlineQueueViewModel: QueueViewModel = hiltViewModel()
-    var lyricsExpanded by remember { mutableStateOf(false) }
-    var inlineQueueExpanded by remember { mutableStateOf(false) }
+    val panels = remember { NowPlayingPanelState() }
+    val lyricsExpanded = panels.lyricsExpanded
+    val inlineQueueExpanded = panels.queueExpanded
 
     RecommendationActionDialogs(recommendationActions)
     BackHandler(enabled = lyricsExpanded || inlineQueueExpanded) {
-        if (inlineQueueExpanded) inlineQueueExpanded = false else lyricsExpanded = false
+        panels.collapseForeground()
     }
     LaunchedEffect(lyricsExpanded) { onLyricsExpandedChange(lyricsExpanded) }
     LaunchedEffect(inlineQueueExpanded) { onInlineQueueExpandedChange(inlineQueueExpanded) }
-    LaunchedEffect(state.currentTrack?.id) { lyricsExpanded = false }
+    LaunchedEffect(state.currentTrack?.id) { panels.onTrackChanged() }
     // The first-launch flow requests RECORD_AUDIO; opening the player must not
     // trigger another unsolicited permission dialog after a denial.
     val context = LocalContext.current
@@ -229,11 +231,7 @@ fun NowPlayingRoute(
     }
 
     val closeOrCollapse = {
-        when {
-            inlineQueueExpanded -> inlineQueueExpanded = false
-            lyricsExpanded -> lyricsExpanded = false
-            else -> onBack()
-        }
+        if (!panels.collapseForeground()) onBack()
     }
 
     var deletedSourceNotice by remember { mutableStateOf<String?>(null) }
@@ -294,10 +292,7 @@ fun NowPlayingRoute(
                 lyricsState = lyricsState,
                 lyricsExpanded = lyricsExpanded,
                 queueExpanded = inlineQueueExpanded,
-                onQueueExpandedChange = { expanded ->
-                    inlineQueueExpanded = expanded
-                    if (expanded) lyricsExpanded = false
-                },
+                onQueueExpandedChange = panels::setQueueExpanded,
                 sleepTimer = sleepTimer,
                 sleepTimerPreferences = sleepTimerPreferences,
                 onSetSleepTimerEnabled = viewModel::setSleepTimerEnabled,
@@ -311,14 +306,8 @@ fun NowPlayingRoute(
                 onBack = closeOrCollapse,
                 onMoreActionsMenuExpandedChange = onMoreActionsMenuExpandedChange,
                 onMoreActionsButtonBoundsChanged = onMoreActionsButtonBoundsChanged,
-                onToggleLyrics = {
-                    lyricsExpanded = !lyricsExpanded
-                    if (lyricsExpanded) inlineQueueExpanded = false
-                },
-                onExpandLyrics = {
-                    lyricsExpanded = true
-                    inlineQueueExpanded = false
-                },
+                onToggleLyrics = panels::toggleLyrics,
+                onExpandLyrics = panels::expandLyrics,
                 onTogglePlayPause = viewModel::togglePlayPause,
                 onSeek = viewModel::seekTo,
                 onPrevious = viewModel::previous,
@@ -327,10 +316,7 @@ fun NowPlayingRoute(
                 onTogglePlaybackMode = viewModel::togglePlaybackMode,
                 onCycleRepeatMode = viewModel::cycleRepeatMode,
                 onOpenForward = viewModel::openForwardPicker,
-                onOpenQueue = {
-                    inlineQueueExpanded = !inlineQueueExpanded
-                    if (inlineQueueExpanded) lyricsExpanded = false
-                },
+                onOpenQueue = panels::toggleQueue,
                 onGoToArtist = onGoToArtist,
                 onWhyThisSong = {
                     state.currentTrack?.id?.let { trackId -> recommendationActions.why(trackId) }
@@ -768,6 +754,8 @@ private fun NowPlayingScreen(
         // and reorder independently of the player's expand/collapse gesture.
         val density = LocalDensity.current
         val dragRangePx = with(density) { 260.dp.toPx() }
+        val lyricsSwipeThresholdPx = with(density) { 72.dp.toPx() }
+        var lyricsOuterDragY by remember { mutableFloatStateOf(0f) }
         val applyQueueDrag: (Float) -> Unit = { dragY ->
             if (!queueDragActive) {
                 queueDragFraction = if (queueExpanded) 1f else 0f
@@ -785,27 +773,55 @@ private fun NowPlayingScreen(
         val artworkVerticalDragCallbacks = ArtworkVerticalDragCallbacks(
             onDelta = applyQueueDrag,
             onEnd = { action ->
-                if (action == ArtworkVerticalSwipeAction.CLOSE_PLAYER && !queueExpanded) {
-                    queueDragActive = false
-                    onBack()
-                } else {
-                    settleQueueDrag()
+                when {
+                    action == ArtworkVerticalSwipeAction.CLOSE_PLAYER && !queueExpanded -> {
+                        queueDragActive = false
+                        onBack()
+                    }
+                    action == ArtworkVerticalSwipeAction.OPEN_QUEUE && !queueExpanded -> {
+                        queueDragActive = false
+                        onQueueExpandedChange(true)
+                    }
+                    else -> settleQueueDrag()
                 }
             },
             onCancel = { queueDragActive = false },
         )
         val queueDragGesture = Modifier.pointerInput(queueExpanded, lyricsExpanded, playerActionsMenuOpen) {
-            if (!lyricsExpanded && !playerActionsMenuOpen) detectVerticalDragGestures(
+            if (!playerActionsMenuOpen) detectVerticalDragGestures(
                 onDragStart = {
                     queueDragFraction = if (queueExpanded) 1f else 0f
-                    queueDragActive = true
+                    queueDragActive = false
+                    lyricsOuterDragY = 0f
                 },
                 onVerticalDrag = { change, dragY ->
                     change.consume()
-                    applyQueueDrag(dragY)
+                    lyricsOuterDragY += dragY
+                    // When Lyrics is open, a downward pull outside its text closes
+                    // Lyrics; an upward pull opens the Queue. Lyric text scrolling
+                    // itself never uses this recognizer.
+                    if (!lyricsExpanded || queueExpanded || lyricsOuterDragY < 0f || queueDragActive) {
+                        applyQueueDrag(dragY)
+                    }
                 },
-                onDragEnd = { settleQueueDrag() },
-                onDragCancel = { queueDragActive = false },
+                onDragEnd = {
+                    when {
+                        lyricsExpanded && !queueExpanded && lyricsOuterDragY >= lyricsSwipeThresholdPx -> {
+                            queueDragActive = false
+                            onToggleLyrics()
+                        }
+                        lyricsExpanded && !queueExpanded && lyricsOuterDragY <= -lyricsSwipeThresholdPx -> {
+                            queueDragActive = false
+                            onQueueExpandedChange(true)
+                        }
+                        else -> settleQueueDrag()
+                    }
+                    lyricsOuterDragY = 0f
+                },
+                onDragCancel = {
+                    queueDragActive = false
+                    lyricsOuterDragY = 0f
+                },
             )
         }
 
@@ -861,7 +877,7 @@ private fun NowPlayingScreen(
         // their clicks and drags still win hit-testing. Once Queue is visible,
         // its LazyColumn owns vertical scrolling instead of this background.
         Box(Modifier.fillMaxSize().then(
-            if (!queueExpanded && !lyricsExpanded && !playerActionsMenuOpen) queueDragGesture else Modifier,
+            if (!queueExpanded && !playerActionsMenuOpen) queueDragGesture else Modifier,
         )) {
             AnimatedPlayerBackdrop(hazeState, settledBackdropRef, backdropTransition)
         }
@@ -1014,7 +1030,10 @@ private fun NowPlayingScreen(
                 val fullHeroHeight = fullHeroHeightPx.toDp()
                 val heroHeight = heights.heroHeight.toDp()
                 val hero = subcompose("hero") {
-                    Box(Modifier.fillMaxWidth().height(heroHeight).then(queueDragGesture)) {
+                    Box(
+                        Modifier.fillMaxWidth().height(heroHeight)
+                            .then(if (lyricsExpanded) Modifier else queueDragGesture),
+                    ) {
                         // The artwork, title and artist each have ONE composable instance throughout
                         // expansion and collapse. Their bounds interpolate into the same 76.dp header.
                         MorphingPlayerHero(
@@ -1068,6 +1087,21 @@ private fun NowPlayingScreen(
                                         alpha = ((lyricsMorph - 0.18f) / 0.62f).coerceIn(0f, 1f)
                                     }
                                     .semantics { if (lyricsMorph < 0.8f) invisibleToUser() },
+                            )
+                        }
+                        if (lyricsExpanded && !queueExpanded) {
+                            // Narrow transparent gutters handle panel navigation.
+                            // The center Lyrics LazyColumn keeps vertical drag ownership.
+                            val gutterTop = lyricsMorphHeroHeight(fullHeroHeight, lyricsMorph) + 8.dp
+                            Box(
+                                Modifier.align(Alignment.CenterStart)
+                                    .padding(top = gutterTop).width(28.dp).fillMaxHeight()
+                                    .then(queueDragGesture).testTag("lyrics-swipe-left"),
+                            )
+                            Box(
+                                Modifier.align(Alignment.CenterEnd)
+                                    .padding(top = gutterTop).width(28.dp).fillMaxHeight()
+                                    .then(queueDragGesture).testTag("lyrics-swipe-right"),
                             )
                         }
                     }

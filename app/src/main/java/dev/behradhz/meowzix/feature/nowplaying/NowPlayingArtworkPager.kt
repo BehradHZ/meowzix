@@ -56,6 +56,10 @@ private enum class ArtworkCropRole { CURRENT, TARGET }
 private enum class ArtworkGestureAxis { UNDECIDED, HORIZONTAL, VERTICAL }
 private const val ArtworkCommitThreshold = 0.35f
 
+/** Keep small covers square-like instead of making a 64dp thumbnail nearly circular. */
+internal fun artworkCornerRadiusForSize(size: Dp, maximum: Dp): Dp =
+    minOf(maximum, size * 0.16f).coerceAtLeast(0.dp)
+
 internal enum class ArtworkVerticalSwipeAction { NONE, OPEN_QUEUE, CLOSE_PLAYER }
 
 internal class ArtworkVerticalDragCallbacks(
@@ -182,8 +186,7 @@ internal fun NowPlayingArtworkPager(
         ) {
             val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
             NowPlayingArtwork(
-
-                cornerRadius = cornerRadius,
+                cornerRadius = artworkCornerRadiusForSize(artworkSize, cornerRadius),
                 artworkRef = fallbackArtworkRef,
                 description = fallbackArtworkDescription,
                 modifier = Modifier
@@ -211,7 +214,6 @@ internal fun NowPlayingArtworkPager(
 
     val axisThresholdPx = with(density) { 10.dp.toPx() }
     val separatorGapPx = with(density) { 12.dp.toPx() }
-    val artworkCornerRadiusPx = with(density) { cornerRadius.toPx() }
     val scope = rememberCoroutineScope()
 
     var displayedIndex by remember { mutableIntStateOf(activeIndex) }
@@ -514,7 +516,9 @@ internal fun NowPlayingArtworkPager(
         contentAlignment = Alignment.Center,
     ) {
         val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
-        val artworkShape = RoundedCornerShape(cornerRadius)
+        val effectiveCornerRadius = artworkCornerRadiusForSize(artworkSize, cornerRadius)
+        val artworkCornerRadiusPx = with(density) { effectiveCornerRadius.toPx() }
+        val artworkShape = RoundedCornerShape(effectiveCornerRadius)
         val safeDisplayedIndex = displayedIndex.coerceIn(queueState.items.indices)
         val currentItem = queueState.items[safeDisplayedIndex]
         val currentArtworkRef = currentItem.artworkRef ?: if (currentItem.id == state.currentTrack?.id) {
@@ -560,7 +564,7 @@ internal fun NowPlayingArtworkPager(
             if (!hasTarget) {
                 NowPlayingArtwork(
 
-                    cornerRadius = cornerRadius,
+                    cornerRadius = effectiveCornerRadius,
                     artworkRef = currentArtworkRef,
                     description = "${currentItem.title} cover art",
                     modifier = Modifier.fillMaxSize(),
@@ -589,7 +593,7 @@ internal fun NowPlayingArtworkPager(
                 ) {
                     NowPlayingArtwork(
 
-                        cornerRadius = cornerRadius,
+                        cornerRadius = effectiveCornerRadius,
                         artworkRef = currentArtworkRef,
                         description = "${currentItem.title} cover art",
                         modifier = Modifier.fillMaxSize(),
@@ -610,7 +614,7 @@ internal fun NowPlayingArtworkPager(
                 ) {
                     NowPlayingArtwork(
 
-                        cornerRadius = cornerRadius,
+                        cornerRadius = effectiveCornerRadius,
                         artworkRef = targetArtworkRef,
                         description = "${targetItem.title} cover art",
                         modifier = Modifier.fillMaxSize(),
