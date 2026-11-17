@@ -378,6 +378,9 @@ fun MeowzixApp(
                 reduceMotion = reduceMotion,
             ),
         ) {
+        // The scroll connection must be an ancestor of retained tabs as well as NavHost.
+        // Keeping it on NavHost alone misses all top-level tab scroll gestures.
+        Box(Modifier.fillMaxSize().nestedScroll(dockScrollConnection)) {
         // Keep visited destinations in composition; inactive tabs are not placed, painted, or hit-tested.
             if (HOME_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == HOME_ROUTE, hazeState = hazeState) {
                 HomeRoute(
@@ -446,7 +449,6 @@ fun MeowzixApp(
             startDestination = HOME_ROUTE,
             modifier = Modifier
                 .fillMaxSize()
-                .nestedScroll(dockScrollConnection)
                 .hazeSource(hazeState),
             enterTransition = {
                 if (!reduceMotion && targetState.destination.route == SETTINGS_ROUTE)
@@ -489,6 +491,7 @@ fun MeowzixApp(
             }
             composable(DOWNLOADS_ROUTE) { DownloadsRoute(onBack = { navController.popBackStack() }) }
             composable(HISTORY_ROUTE) { HistoryRoute(onBack = { navController.popBackStack() }) }
+        }
         }
         }
 
