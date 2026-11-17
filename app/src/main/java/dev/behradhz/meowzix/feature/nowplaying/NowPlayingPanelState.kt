@@ -15,6 +15,7 @@ internal class NowPlayingPanelState {
         private set
     private var restoreLyricsOnQueueClose = false
 
+    @JvmName("setQueueExpandedPanel")
     fun setQueueExpanded(expanded: Boolean) {
         if (expanded) {
             if (!queueExpanded) restoreLyricsOnQueueClose = lyricsExpanded
