@@ -47,7 +47,7 @@ class PlayerInlineQueueTest {
                             aux = QueueAuxState(),
                             searchQuery = "",
                             onPlay = { played.add(it) },
-                            onMove = { _, _ -> },
+                            onMove = { _, _, _ -> },
                             onRemove = {},
                             onMoveGroup = { _, _ -> },
                             onRemoveGroup = {},
