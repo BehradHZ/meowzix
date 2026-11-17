@@ -54,4 +54,30 @@ class ArtworkVerticalSwipeTest {
         assertFalse(shouldExpandInlineQueue(0.54f, alreadyExpanded = true))
         assertTrue(shouldExpandInlineQueue(0.55f, alreadyExpanded = true))
     }
+    @Test fun lyricsBottomOverscrollOpensQueueOnlyAfterTheBoundaryThreshold() {
+        val tracker = LyricsEdgeSwipeTracker(72f)
+        assertEquals(LyricsEdgeSwipeAction.NONE, tracker.onUnconsumedDrag(-45f))
+        assertEquals(LyricsEdgeSwipeAction.NONE, tracker.onUnconsumedDrag(-26f))
+        assertEquals(LyricsEdgeSwipeAction.OPEN_QUEUE, tracker.onUnconsumedDrag(-1f))
+        assertEquals(LyricsEdgeSwipeAction.NONE, tracker.onUnconsumedDrag(-100f))
+    }
+
+    @Test fun lyricsTopOverscrollCollapsesLyricsWithoutOpeningQueue() {
+        val tracker = LyricsEdgeSwipeTracker(72f)
+        assertEquals(LyricsEdgeSwipeAction.NONE, tracker.onUnconsumedDrag(40f))
+        assertEquals(LyricsEdgeSwipeAction.COLLAPSE_LYRICS, tracker.onUnconsumedDrag(32f))
+        tracker.reset()
+        assertEquals(LyricsEdgeSwipeAction.NONE, tracker.onUnconsumedDrag(20f))
+    }
+
+    @Test fun lyricsBoundaryDragResetsOnDirectionChangeAndNormalScrolling() {
+        val tracker = LyricsEdgeSwipeTracker(72f)
+        assertEquals(LyricsEdgeSwipeAction.NONE, tracker.onUnconsumedDrag(-60f))
+        assertEquals(LyricsEdgeSwipeAction.NONE, tracker.onUnconsumedDrag(20f))
+        assertEquals(LyricsEdgeSwipeAction.NONE, tracker.onUnconsumedDrag(40f))
+        tracker.reset()
+        assertEquals(LyricsEdgeSwipeAction.NONE, tracker.onUnconsumedDrag(-71f))
+        assertEquals(LyricsEdgeSwipeAction.OPEN_QUEUE, tracker.onUnconsumedDrag(-1f))
+    }
+
 }

@@ -156,6 +156,34 @@ internal fun queueDragFractionAfterDelta(
 internal fun shouldExpandInlineQueue(fraction: Float, alreadyExpanded: Boolean): Boolean =
     fraction >= (if (alreadyExpanded) 0.55f else 0.38f)
 
+/** A boundary swipe is recognized only after Lyrics has consumed all available scroll. */
+internal enum class LyricsEdgeSwipeAction { NONE, OPEN_QUEUE, COLLAPSE_LYRICS }
+
+internal class LyricsEdgeSwipeTracker(private val thresholdPx: Float) {
+    private var unconsumedDragY = 0f
+    private var triggered = false
+
+    fun onUnconsumedDrag(deltaY: Float): LyricsEdgeSwipeAction {
+        if (triggered || deltaY == 0f) return LyricsEdgeSwipeAction.NONE
+        if (unconsumedDragY != 0f && (unconsumedDragY > 0f) != (deltaY > 0f)) {
+            unconsumedDragY = 0f
+        }
+        unconsumedDragY += deltaY
+        val action = when {
+            unconsumedDragY <= -thresholdPx -> LyricsEdgeSwipeAction.OPEN_QUEUE
+            unconsumedDragY >= thresholdPx -> LyricsEdgeSwipeAction.COLLAPSE_LYRICS
+            else -> LyricsEdgeSwipeAction.NONE
+        }
+        if (action != LyricsEdgeSwipeAction.NONE) triggered = true
+        return action
+    }
+
+    fun reset() {
+        unconsumedDragY = 0f
+        triggered = false
+    }
+}
+
 /**
  * Artwork is bounded by usable landscape height and the width left after reserving
  * 300dp for seek, transport controls and the queue/lyrics panel.
@@ -871,6 +899,46 @@ private fun NowPlayingScreen(
             }
         }
 
+        // The Lyrics LazyColumn scrolls normally. Only movement left unconsumed
+        // at its top or bottom is used to navigate between player panels.
+        val lyricsEdgeTracker = remember(lyricsSwipeThresholdPx) {
+            LyricsEdgeSwipeTracker(lyricsSwipeThresholdPx)
+        }
+        val lyricsEdgeNestedScroll = remember(
+            lyricsExpanded, queueExpanded, playerActionsMenuOpen, lyricsEdgeTracker,
+        ) {
+            object : NestedScrollConnection {
+                override fun onPostScroll(
+                    consumed: Offset,
+                    available: Offset,
+                    source: NestedScrollSource,
+                ): Offset {
+                    if (source != NestedScrollSource.UserInput ||
+                        !lyricsExpanded || queueExpanded || playerActionsMenuOpen
+                    ) {
+                        lyricsEdgeTracker.reset()
+                        return Offset.Zero
+                    }
+                    if (available.y == 0f) {
+                        if (consumed.y != 0f) lyricsEdgeTracker.reset()
+                        return Offset.Zero
+                    }
+                    when (lyricsEdgeTracker.onUnconsumedDrag(available.y)) {
+                        LyricsEdgeSwipeAction.OPEN_QUEUE -> onQueueExpandedChange(true)
+                        LyricsEdgeSwipeAction.COLLAPSE_LYRICS -> onToggleLyrics()
+                        LyricsEdgeSwipeAction.NONE -> Unit
+                    }
+                    // Do not consume lyric text scrolling or its overscroll effect.
+                    return Offset.Zero
+                }
+
+                override suspend fun onPreFling(available: Velocity): Velocity {
+                    lyricsEdgeTracker.reset()
+                    return Velocity.Zero
+                }
+            }
+        }
+
     Box(Modifier.fillMaxSize()) {
         // The backdrop catches upward gestures on otherwise empty screen space
         // (including the narrow outer gutters). It sits behind all controls, so
@@ -1083,6 +1151,7 @@ private fun NowPlayingScreen(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(top = lyricsMorphHeroHeight(fullHeroHeight, lyricsMorph) + 8.dp)
+                                    .nestedScroll(lyricsEdgeNestedScroll)
                                     .graphicsLayer {
                                         alpha = ((lyricsMorph - 0.18f) / 0.62f).coerceIn(0f, 1f)
                                     }
