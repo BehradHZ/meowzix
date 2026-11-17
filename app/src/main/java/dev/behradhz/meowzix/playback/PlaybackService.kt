@@ -2904,8 +2904,3 @@ class PlaybackService : MediaLibraryService() {
     }
 }
 
-private fun RepeatMode.toPlayerRepeatMode(progressive: Boolean): Int = when {
-    this == RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-    this == RepeatMode.ALL && !progressive -> Player.REPEAT_MODE_ALL
-    else -> Player.REPEAT_MODE_OFF
-}

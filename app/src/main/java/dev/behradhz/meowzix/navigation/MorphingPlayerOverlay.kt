@@ -83,6 +83,7 @@ import dev.behradhz.meowzix.domain.playback.QueueActionFeedback
 import dev.behradhz.meowzix.domain.playback.QueueActionKind
 import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueState
+import dev.behradhz.meowzix.domain.playback.resolveCurrentQueueIndex
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingRoute
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.ui.components.FloatingChromeGlassSurface
@@ -559,7 +560,7 @@ private fun CompactMiniPlayerContent(
     } else 0f
     val activeIndex = remember(
         track.id, state.queueIndex, queueState.currentIndex, queueState.items,
-    ) { resolveMiniActiveIndex(state, queueState) }
+    ) { resolveCurrentQueueIndex(state, queueState) }
 
     Box(modifier = modifier) {
         Row(
@@ -626,7 +627,7 @@ private fun MiniPlayerContent(
         state.queueIndex,
         queueState.currentIndex,
         queueState.items,
-    ) { resolveMiniActiveIndex(state, queueState) }
+    ) { resolveCurrentQueueIndex(state, queueState) }
 
     // Both the controls and the progress indicator share the same 72.dp coordinate space.
     // This anchors progress to the card's bottom edge, regardless of text direction.
@@ -1001,20 +1002,3 @@ private fun MiniPlayerTrackSummary(
 private fun QueueItem.toMiniCard() = MiniTrackCard(id, title, artist, artworkRef)
 
 private fun NowPlayingTrack.toMiniCard() = MiniTrackCard(id, title, artist, artworkRef)
-
-private fun resolveMiniActiveIndex(state: PlaybackState, queueState: QueueState): Int {
-    val currentTrackId = state.currentTrack?.id ?: return -1
-    if (
-        state.queueIndex in queueState.items.indices &&
-        queueState.items[state.queueIndex].id == currentTrackId
-    ) {
-        return state.queueIndex
-    }
-    if (
-        queueState.currentIndex in queueState.items.indices &&
-        queueState.items[queueState.currentIndex].id == currentTrackId
-    ) {
-        return queueState.currentIndex
-    }
-    return queueState.items.indexOfFirst { it.id == currentTrackId }
-}

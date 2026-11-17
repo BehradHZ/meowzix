@@ -42,6 +42,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueState
+import dev.behradhz.meowzix.domain.playback.resolveCurrentQueueIndex
 import dev.behradhz.meowzix.ui.components.NowPlayingArtwork
 import dev.behradhz.meowzix.ui.components.PreloadNowPlayingArtwork
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
@@ -117,7 +118,7 @@ internal fun NowPlayingArtworkPager(
         queueState.currentIndex,
         queueState.items,
     ) {
-        resolveActiveQueueIndex(state, queueState)
+        resolveCurrentQueueIndex(state, queueState)
     }
 
     val isPaused = state.status == PlaybackStatus.PAUSED
@@ -726,27 +727,4 @@ private fun animatedSeparatorHalfGap(gapPx: Float, progress: Float): Float {
     val clampedProgress = progress.coerceIn(0f, 1f)
     val visibility = (4f * clampedProgress * (1f - clampedProgress)).coerceIn(0f, 1f)
     return gapPx.coerceAtLeast(0f) * visibility / 2f
-}
-
-private fun resolveActiveQueueIndex(
-    state: PlaybackState,
-    queueState: QueueState,
-): Int {
-    val currentTrackId = state.currentTrack?.id ?: return -1
-
-    if (
-        state.queueIndex in queueState.items.indices &&
-        queueState.items[state.queueIndex].id == currentTrackId
-    ) {
-        return state.queueIndex
-    }
-
-    if (
-        queueState.currentIndex in queueState.items.indices &&
-        queueState.items[queueState.currentIndex].id == currentTrackId
-    ) {
-        return queueState.currentIndex
-    }
-
-    return queueState.items.indexOfFirst { it.id == currentTrackId }
 }
