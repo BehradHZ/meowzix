@@ -1078,7 +1078,7 @@ internal fun PlaylistDetailScreenV3(
                                 ) {
                                     Text(
                                         groupTitle,
-                                        modifier = Modifier.weight(1f),
+                                        modifier = if (expandable) Modifier else Modifier.weight(1f),
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary,
@@ -1090,6 +1090,7 @@ internal fun PlaylistDetailScreenV3(
                                             modifier = Modifier.size(28.dp).rotate(arrowRotation),
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
+                                        Spacer(Modifier.weight(1f))
                                     }
                                     if (showProfileSections && groupTitle == "Profile music") {
                                         IconButton(
