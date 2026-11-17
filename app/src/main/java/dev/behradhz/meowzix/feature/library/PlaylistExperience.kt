@@ -444,6 +444,17 @@ internal fun PlaylistDetailScreenV3(
     var ascending by rememberSaveable { mutableStateOf(true) }
     var groupBy by rememberSaveable { mutableStateOf(PlaylistGroupBy.NONE) }
     val listState = rememberLazyListState()
+    var refreshBaseline by remember(playlist?.id, isFavorites) { mutableStateOf<Set<UUID>?>(null) }
+    LaunchedEffect(newTrackIds, refreshBaseline, refreshing) {
+        val baseline = refreshBaseline ?: return@LaunchedEffect
+        if ((newTrackIds - baseline).isNotEmpty()) {
+            listState.animateScrollToItem(0)
+            refreshBaseline = null
+        } else if (!refreshing) {
+            delay(800)
+            if (!refreshing) refreshBaseline = null
+        }
+    }
     val scope = rememberCoroutineScope()
     var customTracks by remember { mutableStateOf(tracks) }
     var draggedTrackId by remember { mutableStateOf<UUID?>(null) }
@@ -531,7 +542,10 @@ internal fun PlaylistDetailScreenV3(
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = {
-                if (!refreshing && !selectionMode && draggedTrackId == null) onRefresh?.invoke()
+                if (!refreshing && !selectionMode && draggedTrackId == null) {
+                    refreshBaseline = newTrackIds
+                    onRefresh?.invoke()
+                }
             },
             modifier = Modifier.fillMaxSize().testTag("playlist-pull-refresh"),
             state = playlistPullState,
@@ -802,13 +816,14 @@ internal fun PlaylistDetailScreenV3(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .animateItem()
                             .zIndex(if (isDragging) 1f else 0f)
                             .graphicsLayer { translationY = if (isDragging) draggedDistance else 0f },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (selectionMode) Checkbox(
                             checked = track.id in selectedIds,
-                            onCheckedChange = { onTrackInteracted(track); toggleSelection(track.id) },
+                            onCheckedChange = { toggleSelection(track.id) },
                             modifier = Modifier.testTag("playlist-select:${track.id}"),
                         )
                         PlaylistGlassPanel(hazeState, Modifier.weight(1f).testTag("playlist-track:${track.id}"), radius = 20.dp) {
@@ -852,7 +867,6 @@ internal fun PlaylistDetailScreenV3(
                                 onMoveDown = if (editable && index < customTracks.lastIndex) ({ onMove(index, index + 1) }) else null,
                                 containerColor = Color.Transparent,
                                 isNewArrival = track.id in newTrackIds,
-                                onTrackInteracted = { onTrackInteracted(track) },
                                 reduceMotion = reduceMotion,
                                 onLongClick = {
                                     selectionMode = true
@@ -994,10 +1008,10 @@ internal fun PlaylistDetailScreenV3(
                         }
                     }
                     items(groupTracks, key = { "${groupTitle ?: "sorted"}:${it.id}" }) { track ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(modifier = Modifier.animateItem(), verticalAlignment = Alignment.CenterVertically) {
                         if (selectionMode) Checkbox(
                             checked = track.id in selectedIds,
-                            onCheckedChange = { onTrackInteracted(track); toggleSelection(track.id) },
+                            onCheckedChange = { toggleSelection(track.id) },
                             modifier = Modifier.testTag("playlist-select:${track.id}"),
                         )
                         PlaylistGlassPanel(hazeState, Modifier.weight(1f).testTag("playlist-track:${track.id}"), radius = 20.dp) {
@@ -1039,7 +1053,6 @@ internal fun PlaylistDetailScreenV3(
                                 onRemoveFromPlaylist = if (editable) ({ onRemove(track) }) else null,
                                 containerColor = Color.Transparent,
                                 isNewArrival = track.id in newTrackIds,
-                                onTrackInteracted = { onTrackInteracted(track) },
                                 reduceMotion = reduceMotion,
                                 onLongClick = {
                                     selectionMode = true

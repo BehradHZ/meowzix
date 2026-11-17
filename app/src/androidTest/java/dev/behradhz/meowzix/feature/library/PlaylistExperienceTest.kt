@@ -162,7 +162,7 @@ class PlaylistExperienceTest {
         compose.onNode(hasContentDescription("Track actions") and hasAnyAncestor(hasTestTag(tag)), useUnmergedTree = true).performClick()
     }
 
-    @Test fun newBadgeFadesOnFirstTapAndOverflowButtonsStayAligned() {
+    @Test fun newBadgeSurvivesTapUntilPlaybackAndOverflowButtonsStayAligned() {
         val newTrack = tracks[0]
         val seenTrack = tracks[1]
         val touched = mutableListOf<UUID>()
@@ -194,8 +194,29 @@ class PlaylistExperienceTest {
         compose.onNodeWithText(newTrack.title).performClick()
         compose.mainClock.advanceTimeBy(650)
         compose.waitForIdle()
-        compose.runOnIdle { assertEquals(listOf(newTrack.id), touched) }
-        compose.onNodeWithContentDescription("New song").assertDoesNotExist()
+        compose.runOnIdle { assertTrue(touched.isEmpty()) }
+        compose.onNodeWithContentDescription("New song").assertExists()
+    }
+
+    @Test fun downloadingNewSongDoesNotMarkItAsPlayed() {
+        val song = tracks.first()
+        val touched = mutableListOf<UUID>()
+        val calls = showDetail(
+            songs = listOf(song),
+            newSongIds = setOf(song.id),
+            onNewInteraction = { touched += it.id },
+        )
+        val tag = "playlist-track:${song.id}"
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
+        compose.onNode(
+            hasContentDescription("Download") and hasAnyAncestor(hasTestTag(tag)),
+            useUnmergedTree = true,
+        ).performClick()
+        compose.runOnIdle {
+            assertEquals(1, calls.downloads)
+            assertTrue(touched.isEmpty())
+        }
+        compose.onNodeWithContentDescription("New song").assertExists()
     }
 
     @Test fun chatPlaylistDeepSwipeTogglesLibraryMembershipWithoutRemovingChatTrack() {

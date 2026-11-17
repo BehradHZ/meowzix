@@ -111,6 +111,7 @@ import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
 import dev.behradhz.meowzix.domain.settings.LibrarySortMode
 import java.util.UUID
+import kotlinx.coroutines.delay
 
 private enum class LibrarySectionV4(val label: String) {
     TRACKS("Tracks"), ARTISTS("Artists"), ALBUMS("Albums")
@@ -154,6 +155,22 @@ internal fun LibraryRouteV4(
     val aggregateSelection by tracksViewModel.selectedAggregate.collectAsStateWithLifecycle()
     val aggregateTracks by tracksViewModel.aggregateTracks.collectAsStateWithLifecycle()
     val pagingItems = tracksViewModel.tracks.collectAsLazyPagingItems()
+    var refreshBaseline by remember { mutableStateOf<Set<UUID>?>(null) }
+    var scrollToNewRequest by remember { mutableIntStateOf(0) }
+    LaunchedEffect(state.newTrackIds, refreshBaseline) {
+        val baseline = refreshBaseline ?: return@LaunchedEffect
+        if ((state.newTrackIds - baseline).isNotEmpty()) {
+            scrollToNewRequest++
+            refreshBaseline = null
+        }
+    }
+    // Wait for delayed Telegram updates after the local refresh.
+    LaunchedEffect(refreshBaseline, state.isRefreshing, state.isTelegramSyncing) {
+        if (refreshBaseline != null && !state.isRefreshing && !state.isTelegramSyncing) {
+            delay(800)
+            if (!state.isRefreshing && !state.isTelegramSyncing) refreshBaseline = null
+        }
+    }
     LaunchedEffect(requestedArtist, artists) {
         val normalized = TextNormalizer.normalize(requestedArtist) ?: return@LaunchedEffect
         val matched = artists.firstOrNull { it.normalizedName == normalized } ?: return@LaunchedEffect
@@ -294,7 +311,10 @@ internal fun LibraryRouteV4(
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
-            onRefresh = viewModel::refresh,
+            onRefresh = {
+                refreshBaseline = state.newTrackIds
+                viewModel.refresh()
+            },
             modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 96.dp),
             indicator = {
                 FadeRefreshIndicator(
@@ -380,6 +400,8 @@ internal fun LibraryRouteV4(
                 LibrarySectionV4.TRACKS -> PagedTrackListV4(
                     items = pagingItems,
                     groupMode = displaySettings.groupMode,
+                    newTrackIds = state.newTrackIds,
+                    scrollToNewRequest = scrollToNewRequest,
                     state = state,
                     onPlay = { row ->
                         tracksViewModel.playTrack(row.track.id)
@@ -426,12 +448,17 @@ internal fun LibraryRouteV4(
 private fun PagedTrackListV4(
     items: androidx.paging.compose.LazyPagingItems<LibraryTrack>,
     groupMode: LibraryGroupMode,
+    newTrackIds: Set<UUID>,
+    scrollToNewRequest: Int,
     state: LibraryUiState,
     onPlay: (LibraryTrack) -> Unit,
     viewModel: LibraryViewModel,
     onGoToArtist: (Track) -> Unit,
 ) {
     val listState = rememberLazyListState()
+    LaunchedEffect(scrollToNewRequest) {
+        if (scrollToNewRequest > 0 && items.itemCount > 0) listState.animateScrollToItem(0)
+    }
     // Compose can prefetch off-screen rows: bitmap decode/repair waits for actual viewport entry.
     val visibleTrackKeys by remember(listState) {
         derivedStateOf { listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
@@ -468,7 +495,7 @@ private fun PagedTrackListV4(
                 val previousGroup = if (index > 0) {
                     items.peek(index - 1)?.track?.let { groupLabelV4(it, groupMode) }
                 } else null
-                Column {
+                Column(Modifier.animateItem()) {
                     if (group != null && group != previousGroup) {
                         Text(
                             group,
@@ -494,7 +521,7 @@ private fun PagedTrackListV4(
                         onAddToPlaylist = { playlistId -> viewModel.addToPlaylist(row.track, playlistId) },
                         onGoToArtist = { onGoToArtist(row.track) },
                         onEnsureArtwork = { viewModel.ensureArtwork(row.track) },
-                        onTrackInteracted = { viewModel.markNewTrackSeen(row.track.id) },
+                        isNewArrival = row.track.id in newTrackIds,
                         artworkVisible = row.track.id.toString() in visibleTrackKeys,
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
                     )
@@ -580,6 +607,7 @@ private fun LibraryDetailV4(
             verticalArrangement = Arrangement.spacedBy(TRACK_ROW_SPACING),
         ) {
             items(tracks, key = { it.id.toString() }, contentType = { "track" }) { track ->
+                Box(Modifier.animateItem()) {
                 SwipeableLibraryTrackRow(
                     track = track,
                     isCurrent = state.playback.currentTrack?.id == track.id,
@@ -596,10 +624,11 @@ private fun LibraryDetailV4(
                     onAddToPlaylist = { id -> viewModel.addToPlaylist(track, id) },
                     onGoToArtist = { onGoToArtist(track) },
                     onEnsureArtwork = { viewModel.ensureArtwork(track) },
-                    onTrackInteracted = { viewModel.markNewTrackSeen(track.id) },
+                    isNewArrival = track.id in state.newTrackIds,
                     artworkVisible = track.id.toString() in visibleTrackKeys,
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
                 )
+                }
             }
         }
         MeowzixStickyHeader(

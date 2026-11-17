@@ -248,7 +248,6 @@ internal fun SwipeableLibraryTrackRow(
                                 chatLibraryMembership = chatLibraryMembership,
                                 libraryToggleAvailable = hasChatLibraryAction,
                             )
-                            if (action != ChatLibrarySwipeAction.NONE) onTrackInteracted()
                             when (action) {
                                 ChatLibrarySwipeAction.ADD_TO_LIBRARY,
                                 ChatLibrarySwipeAction.REMOVE_FROM_LIBRARY -> onChatLibraryToggle?.invoke()
@@ -386,9 +385,8 @@ private fun LibraryTrackRowContent(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = { onTrackInteracted(); onClick() },
+                onClick = onClick,
                 onLongClick = {
-                    onTrackInteracted()
                     if (onLongClick != null) onLongClick() else menuExpanded = true
                 },
             )
@@ -417,7 +415,7 @@ private fun LibraryTrackRowContent(
                 size = 52.dp,
                 isOffline = availability == LibraryTrackAvailability.OFFLINE,
                 download = download,
-                onDownload = { onTrackInteracted(); onPinOffline() },
+                onDownload = onPinOffline,
             )
             Spacer(Modifier.size(10.dp))
             Column(Modifier.weight(1f)) {
@@ -458,7 +456,7 @@ private fun LibraryTrackRowContent(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
             )
             Box {
-                IconButton(onClick = { onTrackInteracted(); menuExpanded = true }) {
+                IconButton(onClick = { menuExpanded = true }) {
                     Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
                 }
                 if (menuExpanded) {
