@@ -468,12 +468,17 @@ internal fun PlaylistDetailScreenV3(
         if (draggedTrackId == null) customTracks = tracks
     }
 
-    val sortedTracks = remember(tracks, sort, ascending, customTracks) {
-        when (sort) {
+    val sortedTracks = remember(tracks, sort, ascending, customTracks, newTrackIds, playlist) {
+        val ordered = when (sort) {
             PlaylistTrackSort.CUSTOM -> customTracks
             PlaylistTrackSort.NAME -> tracks.sortedBy { it.title.lowercase() }.let { if (ascending) it else it.reversed() }
             PlaylistTrackSort.MODIFIED -> tracks.sortedBy(Track::updatedAt).let { if (ascending) it else it.reversed() }
         }
+        // Virtual Local and Telegram playlists have no user-defined custom ordering to
+        // override. Keep unread arrivals at the top, without changing persisted membership.
+        if ((playlist?.localManaged == true || playlist?.telegramManaged == true) && newTrackIds.isNotEmpty()) {
+            ordered.filter { it.id in newTrackIds } + ordered.filterNot { it.id in newTrackIds }
+        } else ordered
     }
     val visibleTracks = remember(sortedTracks, searchQuery) { filterPlaylistTracks(sortedTracks, searchQuery) }
     LaunchedEffect(searchQuery) {
