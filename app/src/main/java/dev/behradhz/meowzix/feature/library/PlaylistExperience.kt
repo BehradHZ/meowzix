@@ -1167,7 +1167,7 @@ private fun PlaylistOrganizationControlsV3(
 }
 
 @Composable
-private fun PlaylistEditScreenV3(
+internal fun PlaylistEditScreenV3(
     initialTitle: String,
     initialDescription: String?,
     initialArtworkRef: String?,
@@ -1176,6 +1176,9 @@ private fun PlaylistEditScreenV3(
     telegramManaged: Boolean,
     isModified: Boolean,
     onRestore: () -> Unit,
+    creating: Boolean = false,
+    isSaving: Boolean = false,
+    saveError: String? = null,
 ) {
     val context = LocalContext.current
     var confirmRestore by remember { mutableStateOf(false) }
@@ -1265,30 +1268,42 @@ private fun PlaylistEditScreenV3(
                     }
                 }
             }
+            if (saveError != null) {
+                item(key = "edit-save-error") {
+                    Text(saveError, color = MaterialTheme.colorScheme.error)
+                }
+            }
             item(key = "edit-save") {
                 Button(
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     shape = RoundedCornerShape(18.dp),
-                    enabled = title.isNotBlank(),
+                    enabled = title.isNotBlank() && !isSaving,
                     onClick = { onSave(title.trim(), description.trim().takeIf(String::isNotEmpty), artworkRef) },
                 ) {
                     Icon(Icons.Rounded.Save, null)
                     Spacer(Modifier.size(8.dp))
-                    Text("Save changes")
+                    Text(if (isSaving) "Creating…" else if (creating) "Create playlist" else "Save changes")
                 }
             }
         }
         MeowzixStickyHeader(
-            title = "Edit playlist",
-            subtitle = if (telegramManaged) "Customize synced metadata." else "Edit your collection.",
+            title = if (creating) "New playlist" else "Edit playlist",
+            subtitle = when {
+                creating -> "Name and customize your collection."
+                telegramManaged -> "Customize synced metadata."
+                else -> "Edit your collection."
+            },
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            MeowzixHeaderAction("Back to playlist", Icons.Rounded.ArrowBack, onBack)
             MeowzixHeaderAction(
-                "Save playlist", Icons.Rounded.Save,
+                if (creating) "Cancel" else "Back to playlist",
+                Icons.Rounded.ArrowBack, onBack, enabled = !isSaving,
+            )
+            MeowzixHeaderAction(
+                if (creating) "Create playlist" else "Save playlist", Icons.Rounded.Save,
                 { onSave(title.trim(), description.trim().takeIf(String::isNotEmpty), artworkRef) },
-                enabled = title.isNotBlank(),
+                enabled = title.isNotBlank() && !isSaving,
             )
         }
         }
