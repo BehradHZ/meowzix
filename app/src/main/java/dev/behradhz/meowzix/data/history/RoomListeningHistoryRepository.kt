@@ -88,6 +88,10 @@ class RoomListeningHistoryRepository @Inject constructor(
 
     override suspend fun startPlayback(trackId: UUID, initiatedBy: PlaybackInitiator, mode: PlaybackMode): UUID = mutex.withLock {
         val playbackId = UUID.randomUUID()
+        // A manual play is an explicit interaction even when listening history is disabled.
+        if (initiatedBy == PlaybackInitiator.USER) {
+            database.telegramDao().markTrackSeen(trackId.toString())
+        }
         if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) {
             unrecordedPlayback[playbackId] = trackId
             return@withLock playbackId

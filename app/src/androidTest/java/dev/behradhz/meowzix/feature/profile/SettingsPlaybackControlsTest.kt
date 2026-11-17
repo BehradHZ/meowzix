@@ -45,16 +45,16 @@ class SettingsPlaybackControlsTest {
             var selected by remember { mutableStateOf(RepeatMode.OFF) }
             MeowzixTheme { SettingsRepeatCycleRow(selected) { selected = it; result = it } }
         }
-        compose.onNodeWithTag("settings-repeat-icon-OFF").assertIsDisplayed()
+        compose.onNodeWithTag("settings-repeat-icon-OFF", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("Tap to cycle: Off · One · All").assertDoesNotExist()
         compose.onNodeWithTag("settings-repeat-cycle").performClick()
-        compose.onNodeWithTag("settings-repeat-icon-ONE").assertIsDisplayed()
+        compose.onNodeWithTag("settings-repeat-icon-ONE", useUnmergedTree = true).assertIsDisplayed()
         compose.runOnIdle { assertEquals(RepeatMode.ONE, result) }
         compose.onNodeWithTag("settings-repeat-cycle").performClick()
-        compose.onNodeWithTag("settings-repeat-icon-ALL").assertIsDisplayed()
+        compose.onNodeWithTag("settings-repeat-icon-ALL", useUnmergedTree = true).assertIsDisplayed()
         compose.runOnIdle { assertEquals(RepeatMode.ALL, result) }
         compose.onNodeWithTag("settings-repeat-cycle").performClick()
-        compose.onNodeWithTag("settings-repeat-icon-OFF").assertIsDisplayed()
+        compose.onNodeWithTag("settings-repeat-icon-OFF", useUnmergedTree = true).assertIsDisplayed()
         compose.runOnIdle { assertEquals(RepeatMode.OFF, result) }
     }
 

@@ -14,6 +14,7 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -285,7 +286,8 @@ class PlaylistExperienceTest {
         compose.onNodeWithTag("playlist-header-select").performClick()
         compose.onNodeWithTag("playlist-detail-list")
             .performScrollToNode(hasTestTag("playlist-select:${tracks.first().id}"))
-        compose.onNodeWithTag("playlist-select:${tracks.first().id}").performClick()
+        // A profile track can also appear in the chat section; both rows select one Track ID.
+        compose.onAllNodesWithTag("playlist-select:${tracks.first().id}").onFirst().performClick()
         compose.onNodeWithTag("playlist-detail-list")
             .performScrollToNode(hasTestTag("bulk-add-library"))
         compose.onNodeWithTag("bulk-add-library").assertIsDisplayed().performClick()
@@ -589,7 +591,9 @@ class PlaylistExperienceTest {
     }
 
     @Test fun collapsedHeaderAppearsOnlyAfterHeroSummaryScrollsBehindIt() {
-        showDetail(telegramPerson = true)
+        // A short playlist fits the viewport and cannot scroll the hero behind the header.
+        val songs = (1..24).map { track("Song $it", "Artist $it") }
+        showDetail(telegramPerson = true, songs = songs)
         compose.onNodeWithTag("playlist-hero-artwork").assertIsDisplayed()
         compose.onNodeWithTag("playlist-hero-summary").assertIsDisplayed()
         compose.onNodeWithTag("playlist-collapsed-header").assertDoesNotExist()

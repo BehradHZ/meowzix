@@ -284,12 +284,12 @@
             android:taskAffinity=""
             android:theme="@android:style/Theme.NoDisplay" />
 
+        <!-- Reuse the app task so closing the forward sheet reveals the existing player. -->
         <activity
             android:name=".feature.telegram.TelegramForwardActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTop"
-            android:taskAffinity="dev.behradhz.meowzix.forward"
             android:theme="@style/Theme.Meowzix.ForwardOverlay" />
 
         <service
