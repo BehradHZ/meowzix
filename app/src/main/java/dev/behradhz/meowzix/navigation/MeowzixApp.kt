@@ -178,6 +178,8 @@ fun MeowzixApp(
     var openProxyRequest by remember { mutableIntStateOf(0) }
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
+    val playerBlocksBackgroundBack =
+        playbackState.currentTrack != null && morphingPlayerState.blocksBackgroundBack
     val appearance by playerViewModel.appearanceSettings.collectAsStateWithLifecycle()
     val reduceMotion = appearance.reduceMotion
     val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
@@ -350,10 +352,10 @@ fun MeowzixApp(
     }
 
     BackHandler(
-        enabled = currentRoute != HOME_ROUTE || searchActive || morphingPlayerState.targetExpanded,
+        enabled = currentRoute != HOME_ROUTE || searchActive || playerBlocksBackgroundBack,
     ) {
         when {
-            morphingPlayerState.targetExpanded -> morphingPlayerState.collapse()
+            playerBlocksBackgroundBack -> morphingPlayerState.collapse()
             searchActive -> clearSearchState()
             currentRoute in SETTINGS_CHILD_ROUTES -> navController.popBackStack()
             currentRoute == SETTINGS_ROUTE -> navController.popBackStack()
@@ -405,7 +407,7 @@ fun MeowzixApp(
             }
             if (LIBRARY_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == LIBRARY_ROUTE, hazeState = hazeState) {
                 LibraryRoute(
-                    isActive = currentRoute == LIBRARY_ROUTE,
+                    isActive = currentRoute == LIBRARY_ROUTE && !playerBlocksBackgroundBack,
                     onOpenNowPlaying = {
                         if (searchActive) clearSearchState()
                         morphingPlayerState.expand()
@@ -421,7 +423,7 @@ fun MeowzixApp(
             }
             if (PLAYLISTS_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == PLAYLISTS_ROUTE, hazeState = hazeState) {
                 PlaylistsRoute(
-                    isActive = currentRoute == PLAYLISTS_ROUTE,
+                    isActive = currentRoute == PLAYLISTS_ROUTE && !playerBlocksBackgroundBack,
                     viewModel = libraryViewModel,
                     searchQuery = if (searchActive && searchScope == DockSearchScope.PLAYLIST) searchQuery else "",
                     onOpenNowPlaying = { morphingPlayerState.expand() },

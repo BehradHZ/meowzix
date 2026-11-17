@@ -42,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -195,6 +196,16 @@ internal class MorphingPlayerState internal constructor(initiallyExpanded: Boole
     var targetExpanded by mutableStateOf(initiallyExpanded)
         private set
 
+    // A collapsing player still covers the destination until the mini-player settles.
+    // Keep the background navigation blocked throughout that transition.
+    private var overlayVisible by mutableStateOf(initiallyExpanded)
+    val blocksBackgroundBack: Boolean
+        get() = targetExpanded || overlayVisible
+
+    internal fun updateOverlayVisibility(visible: Boolean) {
+        overlayVisible = visible
+    }
+
     fun expand() {
         targetExpanded = true
     }
@@ -267,7 +278,9 @@ internal fun MorphingPlayerOverlay(
         }
     }
 
-    BackHandler(enabled = morphState.targetExpanded || expansionFraction > 0.02f) {
+    // Partially dragged and collapsing player surfaces also block background Back.
+    SideEffect { morphState.updateOverlayVisibility(expansionFraction > 0.02f) }
+    BackHandler(enabled = morphState.blocksBackgroundBack) {
         morphState.collapse()
     }
 
