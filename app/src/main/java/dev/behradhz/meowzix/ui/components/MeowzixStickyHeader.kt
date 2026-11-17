@@ -60,6 +60,7 @@ fun MeowzixStickyHeader(
     modifier: Modifier = Modifier,
     tintAlpha: Float = 0.76f,
     leadingActions: (@Composable RowScope.() -> Unit)? = null,
+    showProxyAction: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     GlassSurface(
@@ -170,7 +171,17 @@ fun MeowzixStickyHeader(
                         modifier = Modifier.align(Alignment.CenterEnd),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        content = actions,
+                        content = {
+                            actions()
+                            // Settings subpages opt in; ordinary detail pages keep their clean header.
+                            if (showProxyAction) {
+                                LocalMeowzixHeaderControls.current?.let { controls ->
+                                    controls.onProxy?.let { onProxy ->
+                                        MeowzixProxyHeaderAction(controls.proxyBadge, onProxy)
+                                    }
+                                }
+                            }
+                        },
                     )
                 }
             }

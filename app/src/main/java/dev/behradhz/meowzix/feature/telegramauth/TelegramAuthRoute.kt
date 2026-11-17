@@ -286,6 +286,7 @@ private fun TelegramAuthScreen(
 
             }
             MeowzixStickyHeader(
+                showProxyAction = true,
                 title = if (state.step is TelegramAuthStep.Ready) "Telegram chats" else "Telegram",
                 subtitle = if (state.step is TelegramAuthStep.Ready)
                     "${musicSourceState.selectedChatIds.size} selected sources"

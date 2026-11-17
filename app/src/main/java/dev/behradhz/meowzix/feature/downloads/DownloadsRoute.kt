@@ -149,6 +149,7 @@ fun DownloadsRoute(
         }
     }
     MeowzixStickyHeader(
+        showProxyAction = true,
         title = "Downloads & offline",
         subtitle = "Network rules, saved music and progress",
         hazeState = headerHazeState,

@@ -714,6 +714,7 @@ fun UnifiedSettingsScreen(
         }
         }
         MeowzixStickyHeader(
+            showProxyAction = true,
             title = selectedCategory?.title ?: "Settings",
             subtitle = "",
             hazeState = hazeState,

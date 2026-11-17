@@ -111,6 +111,7 @@ fun HistoryRoute(onBack: () -> Unit = {}, viewModel: HistoryViewModel = hiltView
             }
     }
     MeowzixStickyHeader(
+        showProxyAction = true,
         title = "History",
         subtitle = "Your listening activity.",
         hazeState = headerHazeState,
