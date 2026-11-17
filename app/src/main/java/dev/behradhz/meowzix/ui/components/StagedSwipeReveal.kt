@@ -38,8 +38,8 @@ val TRACK_SWIPE_REMOVE_THRESHOLD = 176.dp
 val TRACK_SWIPE_MAX_DISTANCE = 240.dp
 
 /**
- * October's two-layer swipe: expose the primary action without moving it until
- * the secondary threshold is reached; then tuck it under the foreground over 190ms.
+ * Two-stage swipe: keep the primary action visible until the secondary
+ * threshold, then replace it with the action underneath over 190ms.
  * The pointer controls the song itself directly, independently of this animation.
  */
 internal fun originalSwipeActionExitTarget(offsetPx: Float, secondaryThresholdPx: Float): Float {
@@ -48,7 +48,7 @@ internal fun originalSwipeActionExitTarget(offsetPx: Float, secondaryThresholdPx
 }
 
 /** Layer order: Remove at the bottom, first action above it, moving song card on top.
- * At the destructive threshold the action is fully tucked behind the song and Remove is exposed.
+ * At the secondary threshold the foreground action fades out before Remove fades in.
  */
 @Composable
 fun BoxScope.StagedSwipeReveal(
@@ -71,16 +71,21 @@ fun BoxScope.StagedSwipeReveal(
         animationSpec = tween(durationMillis = SWIPE_ACTION_EXIT_DURATION_MS),
         label = "swipe-action-layer-exit",
     )
-    val slide = offsetPx * animatedExitProgress
+    // Two stationary layers share the SAME rounded gutter. Remove is below the
+    // primary action, never beside it; the track itself is painted on top by
+    // the caller. A two-phase fade avoids overlapping labels during handoff.
+    val primaryAlpha = if (secondaryLabel == null) 1f
+        else (1f - animatedExitProgress * 2f).coerceIn(0f, 1f)
+    val secondaryAlpha = (animatedExitProgress * 2f - 1f).coerceIn(0f, 1f)
 
-    // This clip MUST live in the stationary row's coordinates, not in the
-    // translated action layer. The foreground has alpha=0.30: an action
-    // rendered even one pixel under it would bleed through the glass.
-    // Paint nothing except the gutter actually uncovered by the song card.
+    // Clip once in stationary row coordinates. In particular, do not clip a
+    // translated action card: that creates adjacent Play Next / Remove panels.
+    // roundedSwipeReveal also rounds the newly exposed edge of the gutter.
     Box(modifier = Modifier.matchParentSize().roundedSwipeReveal(offsetPx)) {
-        if (secondaryLabel != null && abs(slide) > 0.5f) {
+        if (secondaryLabel != null) {
             Surface(
-                modifier = Modifier.matchParentSize().roundedSwipeReveal(slide),
+                modifier = Modifier.matchParentSize()
+                    .graphicsLayer { alpha = secondaryAlpha },
                 shape = RoundedCornerShape(18.dp),
                 color = if (secondaryIsDestructive) {
                     MaterialTheme.colorScheme.error.copy(alpha = 0.22f)
@@ -95,14 +100,9 @@ fun BoxScope.StagedSwipeReveal(
             }
         }
 
-        // The primary and Remove layers occupy disjoint parts of the exposed
-        // gutter. Clipping the parent as well as the individual layers prevents
-        // the primary card or its translucent Surface from showing through the
-        // foreground while the original fast animation is in flight.
         Surface(
             modifier = Modifier.matchParentSize()
-                .graphicsLayer { translationX = slide }
-                .roundedSwipeReveal(offsetPx - slide),
+                .graphicsLayer { alpha = primaryAlpha },
             shape = RoundedCornerShape(18.dp),
             color = if (swipingRight) MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.tertiaryContainer,
