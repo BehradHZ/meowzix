@@ -337,6 +337,17 @@ private fun PlaylistMorphCardV3(
 
 private fun playlistTrackCount(count: Int): String = if (count == 1) "1 track" else "$count tracks"
 
+/** Delay the sticky title until the hero's cover/title/info row is completely hidden.
+ * The action buttons may remain visible beneath the sticky bar.
+ */
+internal fun shouldRevealPlaylistCollapsedHeader(
+    firstVisibleItemIndex: Int,
+    heroSummaryBottomInRoot: Float,
+    stickyHeaderBottomInRoot: Float,
+): Boolean =
+    firstVisibleItemIndex > 0 ||
+        (stickyHeaderBottomInRoot > 0f && heroSummaryBottomInRoot <= stickyHeaderBottomInRoot)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun PlaylistDetailScreenV3(
@@ -459,12 +470,15 @@ internal fun PlaylistDetailScreenV3(
     var ascending by rememberSaveable { mutableStateOf(true) }
     var groupBy by rememberSaveable { mutableStateOf(PlaylistGroupBy.NONE) }
     val listState = rememberLazyListState()
-    var artworkTopInRoot by remember(playlist?.id, isFavorites) { mutableFloatStateOf(Float.POSITIVE_INFINITY) }
+    var heroSummaryBottomInRoot by remember(playlist?.id, isFavorites) { mutableFloatStateOf(Float.POSITIVE_INFINITY) }
     var headerBottomInRoot by remember { mutableFloatStateOf(0f) }
     val showCollapsedHeader by remember(playlist?.id, isFavorites) {
         derivedStateOf {
-            listState.firstVisibleItemIndex > 0 ||
-                (headerBottomInRoot > 0f && artworkTopInRoot <= headerBottomInRoot)
+            shouldRevealPlaylistCollapsedHeader(
+                firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                heroSummaryBottomInRoot = heroSummaryBottomInRoot,
+                stickyHeaderBottomInRoot = headerBottomInRoot,
+            )
         }
     }
     var refreshBaseline by remember(playlist?.id, isFavorites) { mutableStateOf<Set<UUID>?>(null) }
@@ -662,14 +676,14 @@ internal fun PlaylistDetailScreenV3(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp),
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth()
+                                .onGloballyPositioned { heroSummaryBottomInRoot = it.boundsInRoot().bottom }
+                                .testTag("playlist-hero-summary"),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center,
                         ) {
                             Box(
-                                modifier = Modifier.size(108.dp)
-                                    .onGloballyPositioned { artworkTopInRoot = it.boundsInRoot().top }
-                                    .testTag("playlist-hero-artwork"),
+                                modifier = Modifier.size(108.dp).testTag("playlist-hero-artwork"),
                             ) {
                                 PlaylistArtworkV3(
                                     artworkRef, title, isFavorites, 108.dp,

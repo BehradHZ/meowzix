@@ -588,9 +588,10 @@ class PlaylistExperienceTest {
         capture("favorites-empty-large-text")
     }
 
-    @Test fun collapsedHeaderAppearsOnlyAfterArtworkScrollsBehindIt() {
+    @Test fun collapsedHeaderAppearsOnlyAfterHeroSummaryScrollsBehindIt() {
         showDetail(telegramPerson = true)
         compose.onNodeWithTag("playlist-hero-artwork").assertIsDisplayed()
+        compose.onNodeWithTag("playlist-hero-summary").assertIsDisplayed()
         compose.onNodeWithTag("playlist-collapsed-header").assertDoesNotExist()
         compose.onNodeWithText("Telegram · Synced").assertDoesNotExist()
 
