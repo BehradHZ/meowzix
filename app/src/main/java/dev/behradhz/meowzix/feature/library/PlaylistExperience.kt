@@ -526,8 +526,9 @@ internal fun PlaylistDetailScreenV3(
         Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = refreshing,
-            onRefresh = { onRefresh?.invoke() },
-            enabled = onRefresh != null && !refreshing && !selectionMode && draggedTrackId == null,
+            onRefresh = {
+                if (!refreshing && !selectionMode && draggedTrackId == null) onRefresh?.invoke()
+            },
             modifier = Modifier.fillMaxSize().testTag("playlist-pull-refresh"),
             state = playlistPullState,
             indicator = {
