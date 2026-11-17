@@ -10,3 +10,60 @@ internal fun indexedQueueItems(
     items: List<QueueItem>,
     matches: (QueueItem) -> Boolean,
 ): List<IndexedValue<QueueItem>> = items.withIndex().filter { matches(it.value) }
+
+/** Visible-row center in LazyColumn viewport coordinates. */
+internal data class QueueDragTarget(
+    val occurrenceId: java.util.UUID,
+    val slot: Int,
+    val centerY: Float,
+)
+
+/** Resolve crossed row midpoints, excluding the currently playing slot. */
+internal fun crossedReorderTarget(
+    visible: List<QueueDragTarget>,
+    currentSlot: Int,
+    draggedCenterY: Float,
+    firstMovableSlot: Int,
+): java.util.UUID? {
+    val marginPx = 6f
+    val candidates = visible.filter { it.slot >= firstMovableSlot }
+    val below = candidates.filter {
+        it.slot > currentSlot && draggedCenterY >= it.centerY + marginPx
+    }.maxByOrNull { it.slot }
+    val above = candidates.filter {
+        it.slot < currentSlot && draggedCenterY <= it.centerY - marginPx
+    }.minByOrNull { it.slot }
+    return when {
+        below == null -> above?.occurrenceId
+        above == null -> below.occurrenceId
+        else -> if (kotlin.math.abs(draggedCenterY - below.centerY) <=
+            kotlin.math.abs(draggedCenterY - above.centerY)) below.occurrenceId
+            else above.occurrenceId
+    }
+}
+
+/** Rearrange only a local visual snapshot, preserving duplicate-song occurrences. */
+internal fun reorderPreviewItems(
+    rows: List<IndexedValue<QueueItem>>,
+    movedOccurrence: java.util.UUID,
+    targetOccurrence: java.util.UUID,
+): List<IndexedValue<QueueItem>> {
+    val from = rows.indexOfFirst { it.value.occurrenceId == movedOccurrence }
+    val to = rows.indexOfFirst { it.value.occurrenceId == targetOccurrence }
+    if (from < 0 || to < 0 || from == to) return rows
+    return rows.toMutableList().apply { add(to, removeAt(from)) }
+}
+
+/** Convert a finished visual preview to exactly one original-index move. */
+internal fun resolvePreviewMove(
+    original: List<IndexedValue<QueueItem>>,
+    preview: List<IndexedValue<QueueItem>>,
+    occurrenceId: java.util.UUID,
+): Pair<Int, Int>? {
+    if (original.size != preview.size || original.map { it.value.occurrenceId }.toSet() !=
+        preview.map { it.value.occurrenceId }.toSet()) return null
+    val source = original.firstOrNull { it.value.occurrenceId == occurrenceId } ?: return null
+    val slot = preview.indexOfFirst { it.value.occurrenceId == occurrenceId }
+    val destination = original.getOrNull(slot) ?: return null
+    return if (source.index == destination.index) null else source.index to destination.index
+}

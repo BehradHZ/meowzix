@@ -9,8 +9,6 @@ import dev.behradhz.meowzix.feature.library.TrackChatLinkActions
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
@@ -20,7 +18,7 @@ import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
@@ -279,14 +277,13 @@ internal fun QueueScreen(
 
     var displayItems by remember { mutableStateOf(filteredItems) }
     var draggedQueueIndex by remember { mutableStateOf<Int?>(null) }
-    var draggedDistance by remember { mutableStateOf(0f) }
     var draggedGroupId by remember { mutableStateOf<UUID?>(null) }
-    var draggedGroupDistance by remember { mutableFloatStateOf(0f) }
     var draggedGroupTarget by remember { mutableStateOf<Int?>(null) }
     var awaitingGroupCommit by remember { mutableStateOf(false) }
     var awaitingTrackCommit by remember { mutableStateOf(false) }
     var dragCenterY by remember { mutableFloatStateOf(Float.NaN) }
     val density = LocalDensity.current
+    val reorderHaptics = rememberMeowzixHaptics()
     val groupCounts = remember(state.items, state.currentIndex) {
         state.items.drop((state.currentIndex + 1).coerceAtLeast(0))
             .mapNotNull { it.groupId }.groupingBy { it }.eachCount()
@@ -341,45 +338,38 @@ internal fun QueueScreen(
     }
 
     fun finishDrag(commit: Boolean) {
-        val fromIndex = draggedQueueIndex
-        if (!searchActive && commit && fromIndex != null) {
-            val destinationSlot = displayItems.indexOfFirst { it.index == fromIndex }
-            val toIndex = filteredItems.getOrNull(destinationSlot)?.index ?: -1
-            if (toIndex >= 0 && fromIndex != toIndex) {
-                awaitingTrackCommit = true
-                onMove(fromIndex, toIndex)
-            } else displayItems = filteredItems
-        } else displayItems = filteredItems
+        val occurrence = filteredItems.firstOrNull { it.index == draggedQueueIndex }
+            ?.value?.occurrenceId
+        val move = occurrence?.let { resolvePreviewMove(filteredItems, displayItems, it) }
+        if (!searchActive && commit && move != null &&
+            move.first > state.currentIndex && move.second > state.currentIndex) {
+            awaitingTrackCommit = true
+            onMove(move.first, move.second)
+        } else {
+            displayItems = filteredItems
+        }
         draggedQueueIndex = null
-        draggedDistance = 0f
         dragCenterY = Float.NaN
     }
 
     fun reorderAt(center: Float) {
         val draggedIndex = draggedQueueIndex ?: return
         val from = displayItems.indexOfFirst { it.index == draggedIndex }
-        if (from < 0) return
-        val positions = listState.layoutInfo.visibleItemsInfo
-        val currentKey = displayItems[from].value.occurrenceId.toString()
-        val source = positions.firstOrNull { it.key == currentKey } ?: return
-        val target = positions.asSequence()
-            .filter { it.key != currentKey && visibleItems.any { row ->
-                row.value.occurrenceId.toString() == it.key
-            } }
-            .minByOrNull { abs((it.offset + it.size / 2f) - center) } ?: return
-        val targetPosition = displayItems.indexOfFirst {
-            it.value.occurrenceId.toString() == target.key
+        if (from < 0 || !center.isFinite()) return
+
+        // Use viewport hit-testing, independent of LazyColumn's animated item placement.
+        val targets = listState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
+            val slot = displayItems.indexOfFirst { it.value.occurrenceId.toString() == info.key }
+            val entry = displayItems.getOrNull(slot) ?: return@mapNotNull null
+            if (entry.index <= state.currentIndex) return@mapNotNull null
+            QueueDragTarget(entry.value.occurrenceId, slot, info.offset + info.size / 2f)
         }
-        if (targetPosition !in displayItems.indices || targetPosition == from) return
-        val targetCenter = target.offset + target.size / 2f
-        if ((targetPosition > from && center >= targetCenter) ||
-            (targetPosition < from && center <= targetCenter)) {
-            val ordered = displayItems.toMutableList()
-            val moved = ordered.removeAt(from)
-            ordered.add(targetPosition, moved)
-            displayItems = ordered
-            draggedDistance += source.offset - target.offset
-        }
+        val targetId = crossedReorderTarget(targets, from, center,
+            firstMovableSlot = if (filteredItems.firstOrNull()?.index == state.currentIndex) 1 else 0)
+            ?: return
+        displayItems = reorderPreviewItems(displayItems,
+            displayItems[from].value.occurrenceId, targetId)
+        reorderHaptics.perform(MeowzixHapticCue.Threshold)
     }
 
     // Reorder only the visual snapshot. QueueRepository is called once when the handle is released.
@@ -389,7 +379,7 @@ internal fun QueueScreen(
         if (from < 0) return
         val infos = listState.layoutInfo.visibleItemsInfo
         val sourceKey = visibleItems[from].value.occurrenceId.toString()
-        val source = infos.firstOrNull { it.key == sourceKey } ?: return
+        if (infos.none { it.key == sourceKey }) return
         val target = infos.asSequence()
             .filter { it.key != sourceKey && visibleItems.any { row ->
                 row.value.occurrenceId.toString() == it.key
@@ -416,7 +406,6 @@ internal fun QueueScreen(
         if (destination == currentStart) return
         remaining.addAll(destination.coerceIn(0, remaining.size), movingBlock)
         displayItems = remaining
-        draggedGroupDistance += source.offset - target.offset
     }
 
     fun finishGroupDrag(id: UUID, commit: Boolean) {
@@ -426,7 +415,6 @@ internal fun QueueScreen(
         val changed = displayItems.indexOfFirst { it.value.groupId == id } !=
             filteredItems.indexOfFirst { it.value.groupId == id }
         draggedGroupId = null
-        draggedGroupDistance = 0f
         dragCenterY = Float.NaN
         draggedGroupTarget = null
         if (commit && changed) {
@@ -468,12 +456,10 @@ internal fun QueueScreen(
                 else -> 0f
             }
             if (velocity != 0f) {
-                val moved = listState.scrollBy(velocity * dt)
+                listState.scrollBy(velocity * dt)
                 if (draggedQueueIndex != null) {
-                    draggedDistance += moved
                     reorderAt(y)
                 } else {
-                    draggedGroupDistance += moved
                     reorderGroupAt(y)
                 }
             }
@@ -503,17 +489,22 @@ internal fun QueueScreen(
                     }
                 }
             } else {
-                visibleItems.forEach { entry ->
-                    val previousItem = state.items.getOrNull(entry.index - 1)
+                visibleItems.forEachIndexed { displayPosition, entry ->
+                    // Section headers are anchored to visual slots during a track drag.
+                    val previewing = draggedQueueIndex != null && draggedGroupId == null
+                    val origin = if (previewing) filteredItems.getOrNull(displayPosition)
+                        ?.value?.origin ?: entry.value.origin else entry.value.origin
+                    val previousOrigin = if (previewing) filteredItems.getOrNull(displayPosition - 1)
+                        ?.value?.origin else state.items.getOrNull(entry.index - 1)?.origin
                     val currentHeader = !searchActive && entry.index == state.currentIndex
                     val manualHeader = !searchActive && entry.index > state.currentIndex &&
-                        entry.value.origin == QueueItemOrigin.MANUAL &&
-                        (previousItem?.origin != QueueItemOrigin.MANUAL || entry.index == state.currentIndex + 1)
+                        origin == QueueItemOrigin.MANUAL &&
+                        (previousOrigin != QueueItemOrigin.MANUAL || displayPosition == 1)
                     val generatedHeader = !searchActive && entry.index > state.currentIndex &&
-                        entry.value.origin == QueueItemOrigin.GENERATED &&
-                        (previousItem?.origin != QueueItemOrigin.GENERATED || entry.index == state.currentIndex + 1)
+                        origin == QueueItemOrigin.GENERATED &&
+                        (previousOrigin != QueueItemOrigin.GENERATED || displayPosition == 1)
                     if (currentHeader || manualHeader || generatedHeader) {
-                        item(key = "section-${entry.value.occurrenceId}") {
+                        item(key = "section-${displayPosition}-${origin}") {
                             Text(
                                 text = when {
                                     currentHeader -> "Now Playing"
@@ -543,17 +534,26 @@ internal fun QueueScreen(
                     Box(
                         modifier = Modifier
                             .zIndex(if (isDragging || isGroupDragging) 20f else 0f)
-                            .animateItem(
-                                fadeInSpec = tween(durationMillis = 180),
-                                placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                fadeOutSpec = tween(durationMillis = 230),
+                            .then(
+                                // Never animate the grabbed row back to its previous layout slot.
+                                if (isDragging || isGroupDragging) Modifier
+                                else Modifier.animateItem(
+                                    fadeInSpec = tween(durationMillis = 180),
+                                    placementSpec = tween(durationMillis = 170),
+                                    fadeOutSpec = tween(durationMillis = 180),
+                                )
                             )
                             .graphicsLayer {
-                                translationY = when {
-                                    isDragging -> draggedDistance
-                                    isGroupDragging -> draggedGroupDistance
-                                    else -> 0f
-                                }
+                                val layoutCenter = listState.layoutInfo.visibleItemsInfo
+                                    .firstOrNull { it.key == item.occurrenceId.toString() }
+                                    ?.let { it.offset + it.size / 2f }
+                                translationY = if ((isDragging || isGroupDragging) &&
+                                    dragCenterY.isFinite() && layoutCenter != null) {
+                                    // Keep the card under the finger while its slot or scroll changes.
+                                    dragCenterY - layoutCenter
+                                } else 0f
+                                scaleX = if (isDragging || isGroupDragging) 1.015f else 1f
+                                scaleY = if (isDragging || isGroupDragging) 1.015f else 1f
                             },
                     ) {
                         Column(Modifier.animateContentSize()) {
@@ -586,19 +586,23 @@ internal fun QueueScreen(
                                 reorderEnabled = !searchActive && draggedQueueIndex == null,
                                 onStart = {
                                     displayItems = filteredItems
+                                    awaitingGroupCommit = false
                                     draggedGroupId = group.id
-                                    draggedGroupDistance = 0f
                                     draggedGroupTarget = queueIndex
-                                    dragCenterY = Float.NaN
+                                    val info = listState.layoutInfo.visibleItemsInfo.firstOrNull {
+                                        it.key == item.occurrenceId.toString()
+                                    }
+                                    dragCenterY = info?.let { it.offset + it.size / 2f } ?: Float.NaN
                                 },
                                 onDrag = { delta ->
-                                    draggedGroupDistance += delta
-                                    val info = listState.layoutInfo.visibleItemsInfo
-                                        .firstOrNull { it.key == item.occurrenceId.toString() }
-                                    if (info != null) {
-                                        val center = info.offset + info.size / 2f + draggedGroupDistance
-                                        dragCenterY = center
-                                        reorderGroupAt(center)
+                                    if (!dragCenterY.isFinite()) {
+                                        val info = listState.layoutInfo.visibleItemsInfo
+                                            .firstOrNull { it.key == item.occurrenceId.toString() }
+                                        dragCenterY = info?.let { it.offset + it.size / 2f } ?: Float.NaN
+                                    }
+                                    if (dragCenterY.isFinite()) {
+                                        dragCenterY += delta
+                                        reorderGroupAt(dragCenterY)
                                     }
                                 },
                                 onStop = { commit -> finishGroupDrag(group.id, commit) },
@@ -624,8 +628,12 @@ internal fun QueueScreen(
                             onDragStart = {
                                 if (!searchActive && draggedGroupId == null) {
                                     displayItems = filteredItems
+                                    awaitingTrackCommit = false
                                     draggedQueueIndex = queueIndex
-                                    draggedDistance = 0f
+                                    val info = listState.layoutInfo.visibleItemsInfo.firstOrNull {
+                                        it.key == item.occurrenceId.toString()
+                                    }
+                                    dragCenterY = info?.let { it.offset + it.size / 2f } ?: Float.NaN
                                 }
                             },
                             onDrag = { deltaY ->
@@ -633,11 +641,13 @@ internal fun QueueScreen(
                                 val dragged = draggedQueueIndex ?: return@SwipeableQueueItem
                                 val draggedKey = displayItems.firstOrNull { it.index == dragged }
                                     ?.value?.occurrenceId?.toString() ?: return@SwipeableQueueItem
-                                val info = listState.layoutInfo.visibleItemsInfo.firstOrNull {
-                                    it.key == draggedKey
-                                } ?: return@SwipeableQueueItem
-                                draggedDistance += deltaY
-                                dragCenterY = info.offset + info.size / 2f + draggedDistance
+                                if (!dragCenterY.isFinite()) {
+                                    val info = listState.layoutInfo.visibleItemsInfo.firstOrNull {
+                                        it.key == draggedKey
+                                    } ?: return@SwipeableQueueItem
+                                    dragCenterY = info.offset + info.size / 2f
+                                }
+                                dragCenterY += deltaY
                                 reorderAt(dragCenterY)
                             },
                             onDragEnd = { finishDrag(commit = true) },
@@ -792,8 +802,8 @@ private fun GroupQueueHeader(
                 }
                 // Match single-track cards: drag handle before the overflow button.
                 Box(
-                    modifier = Modifier.size(42.dp).pointerInput(group.id, reorderEnabled) {
-                        if (reorderEnabled) detectDragGesturesAfterLongPress(
+                    modifier = Modifier.size(48.dp).pointerInput(group.id, reorderEnabled) {
+                        if (reorderEnabled) detectDragGestures(
                             onDragStart = {
                                 haptics.perform(MeowzixHapticCue.Threshold)
                                 onStart()
@@ -1051,11 +1061,11 @@ private fun SwipeableQueueItem(
                 }
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(48.dp)
                         .pointerInput(item.occurrenceId, reorderEnabled) {
                             if (reorderEnabled) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = { onDragStart() },
+                                detectDragGestures(
+                                    onDragStart = { haptics.perform(MeowzixHapticCue.Threshold); onDragStart() },
                                     onDragCancel = onDragCancel,
                                     onDragEnd = onDragEnd,
                                     onDrag = { change, dragAmount ->
@@ -1070,7 +1080,8 @@ private fun SwipeableQueueItem(
                     Icon(
                         Icons.Rounded.DragHandle,
                         contentDescription = if (reorderEnabled) "Drag to reorder" else "Reordering disabled while filtering",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (reorderEnabled) 1f else 0.28f),
+                        tint = (if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                            .copy(alpha = if (reorderEnabled) 1f else 0.28f),
                     )
                 }
                 if (showOverflowActions) Box {
