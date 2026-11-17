@@ -12,6 +12,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -54,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -101,7 +103,7 @@ private val CollapsedPlayerHorizontalInset = 14.dp
 private val CollapsedPlayerDockClearance = 90.dp
 private val PlayerSettleDistance = 72.dp
 private const val MINI_CARD_COMMIT_THRESHOLD = 0.35f
-private const val MINI_PLAYER_GLASS_OPACITY = 0.30f
+private const val MINI_PLAYER_GLASS_OPACITY = 0.85f
 private val MiniCardGap = 8.dp
 private val MiniCardCornerRadius = 28.dp
 
@@ -320,6 +322,12 @@ internal fun MorphingPlayerOverlay(
                 .fillMaxWidth()
                 .padding(start = horizontalInset, end = horizontalInset, bottom = bottomInset)
                 .height(playerHeight)
+                .shadow(8.dp, RoundedCornerShape(cornerRadius))
+                .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f),
+                    RoundedCornerShape(cornerRadius),
+                )
                 .onGloballyPositioned { coordinates ->
                     val topLeft = coordinates.positionOnScreen()
                     if (topLeft != Offset.Unspecified) playerSurfaceTopLeft = topLeft
@@ -401,7 +409,7 @@ internal fun MorphingPlayerOverlay(
                 ),
             shape = RoundedCornerShape(cornerRadius),
             fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = MINI_PLAYER_GLASS_OPACITY),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f),
+            tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.10f),
         ) {
             val miniAlpha = (1f - expansionFraction / 0.24f).coerceIn(0f, 1f)
             val fullAlpha = ((expansionFraction - 0.10f) / 0.34f).coerceIn(0f, 1f)
@@ -971,6 +979,7 @@ private fun MiniPlayerTrackSummary(
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -980,12 +989,13 @@ private fun MiniPlayerTrackSummary(
                     text = track.title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     reduceMotion = reduceMotion,
                 )
                 Text(
                     text = track.artist ?: "Unknown artist",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

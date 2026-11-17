@@ -16,6 +16,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -621,6 +623,7 @@ internal fun MorphingDock(
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val glassOutline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f)
     LaunchedEffect(searchActive) {
         if (searchActive) {
             if (!reduceMotion) delay(110)
@@ -632,10 +635,12 @@ internal fun MorphingDock(
     if (searchActive) {
         GlassSurface(
             hazeState = hazeState,
-            modifier = Modifier.fillMaxWidth().height(72.dp),
+            modifier = Modifier.fillMaxWidth().height(72.dp)
+                .shadow(6.dp, RoundedCornerShape(36.dp))
+                .border(1.dp, glassOutline, RoundedCornerShape(36.dp)),
             shape = RoundedCornerShape(36.dp),
             fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
+            tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.10f),
         ) {
             Row(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -656,7 +661,7 @@ internal fun MorphingDock(
                     decorationBox = { inner ->
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (searchQuery.isEmpty()) {
-                                Text(searchPlaceholder, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
+                                Text(searchPlaceholder, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f))
                             }
                             inner()
                         }
@@ -687,6 +692,8 @@ internal fun MorphingDock(
         val leftWidth = lerp(maxWidth - 72.dp, compactSize, morph)
         val leftHeight = lerp(72.dp, compactSize, morph)
         val searchSize = lerp(62.dp, compactSize, morph)
+        val dockShape = RoundedCornerShape(lerp(36.dp, 26.dp, morph))
+        val searchShape = RoundedCornerShape(searchSize / 2)
         // Both edges have fixed anchors. Shrinking the left dock must never
         // pull Search toward the center or underneath the compact player.
         Box(modifier = Modifier.fillMaxSize()) {
@@ -695,10 +702,12 @@ internal fun MorphingDock(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .width(leftWidth)
-                    .height(leftHeight),
-                shape = RoundedCornerShape(lerp(36.dp, 26.dp, morph)),
-                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f),
+                    .height(leftHeight)
+                    .shadow(6.dp, dockShape)
+                    .border(1.dp, glassOutline, dockShape),
+                shape = dockShape,
+                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+                tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.10f),
             ) {
                 // Keep the four destinations composed long enough to fade out,
                 // then let the selected destination take over the circular dock.
@@ -755,10 +764,12 @@ internal fun MorphingDock(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .size(searchSize)
+                    .shadow(6.dp, searchShape)
+                    .border(1.dp, glassOutline, searchShape)
                     .clickable { onSelect(SEARCH_ROUTE) },
-                shape = RoundedCornerShape(searchSize / 2),
-                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.80f),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+                shape = searchShape,
+                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+                tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.10f),
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
@@ -789,7 +800,7 @@ private fun DockItem(
         contentColor = if (selected) {
             MaterialTheme.colorScheme.primary
         } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f)
         },
         shape = RoundedCornerShape(28.dp),
     ) {
