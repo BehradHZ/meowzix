@@ -40,6 +40,21 @@ class RoomPlaylistRepositoryTest {
     fun tearDown() = database.close()
 
     @Test
+    fun creatingPlaylistPersistsEditedMetadataAtomically() = runTest {
+        val playlistId = repository.create(
+            "  Late night  ",
+            "  Music for the drive.  ",
+            "  content://test/cover  ",
+        )
+
+        val saved = database.playlistDao().allPlaylists().single()
+        assertEquals(playlistId.toString(), saved.id)
+        assertEquals("Late night", saved.title)
+        assertEquals("Music for the drive.", saved.description)
+        assertEquals("content://test/cover", saved.artworkRef)
+    }
+
+    @Test
     fun playlistOrderPersistsAndCanBeReordered() = runTest {
         val trackIds = listOf(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID())
         trackIds.forEachIndexed { index, id ->
