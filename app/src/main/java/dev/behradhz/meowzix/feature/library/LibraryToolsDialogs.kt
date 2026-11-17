@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -122,7 +122,7 @@ private fun DuplicateManagementDialog(state: LibraryToolsUiState, viewModel: Lib
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (state.busy && track == null) CircularProgressIndicator()
-                LazyColumn(
+                GlassLazyColumn(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {

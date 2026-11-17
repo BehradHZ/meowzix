@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -70,7 +70,7 @@ fun DownloadsRoute(
     val rest = rows.filterNot { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
     val headerHazeState = rememberHazeState()
     Box(Modifier.fillMaxSize()) {
-    LazyColumn(
+    GlassLazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(headerHazeState),
         contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = dockAwareBottomPadding(182.dp)),
         verticalArrangement = Arrangement.spacedBy(12.dp),

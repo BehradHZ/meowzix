@@ -34,7 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -486,7 +486,7 @@ internal fun QueueScreen(
     }
 
     Box(modifier.fillMaxSize()) {
-        LazyColumn(
+        GlassLazyColumn(
             modifier = Modifier.fillMaxSize()
                 .then(if (inlineMode) Modifier else Modifier.statusBarsPadding())
                 .hazeSource(feedbackHazeState),

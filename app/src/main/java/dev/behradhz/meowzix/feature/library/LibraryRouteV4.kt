@@ -41,7 +41,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
 import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -485,7 +485,7 @@ private fun PagedTrackListV4(
         ) {
             CircularProgressIndicator()
         }
-        else -> LazyColumn(
+        else -> GlassLazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = dockAwareBottomPadding(188.dp)),
@@ -551,7 +551,7 @@ private fun ArtistListV4(
     onNext: (ArtistSummary) -> Unit,
     onQueue: (ArtistSummary) -> Unit,
 ) {
-    LazyColumn(
+    GlassLazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = dockAwareBottomPadding(188.dp)),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -574,7 +574,7 @@ private fun AlbumListV4(
     onNext: (AlbumSummary) -> Unit,
     onQueue: (AlbumSummary) -> Unit,
 ) {
-    LazyColumn(
+    GlassLazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = dockAwareBottomPadding(188.dp)),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -606,7 +606,7 @@ private fun LibraryDetailV4(
         derivedStateOf { listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
     }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(
+        GlassLazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = dockAwareBottomPadding(188.dp)),

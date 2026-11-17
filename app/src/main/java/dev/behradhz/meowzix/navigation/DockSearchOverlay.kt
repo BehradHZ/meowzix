@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -119,7 +119,7 @@ internal fun DockSearchOverlay(
                 if (queueMatches.isEmpty()) {
                     EmptySearchResult("No queued tracks match “${query.trim()}”")
                 } else {
-                    LazyColumn(
+                    GlassLazyColumn(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
@@ -145,7 +145,7 @@ internal fun DockSearchOverlay(
                 ) {
                     EmptySearchResult("No matches for “${query.trim()}”")
                 } else {
-                    LazyColumn(
+                    GlassLazyColumn(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {

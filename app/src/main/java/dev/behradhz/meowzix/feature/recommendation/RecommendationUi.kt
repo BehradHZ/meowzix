@@ -2,7 +2,7 @@ package dev.behradhz.meowzix.feature.recommendation
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -102,7 +102,7 @@ fun RecommendationActionContent(
                 when {
                     state.insightsLoading -> CircularProgressIndicator(Modifier.padding(20.dp))
                     state.error != null -> Text(state.error)
-                    state.insightsText != null -> LazyColumn(
+                    state.insightsText != null -> GlassLazyColumn(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),
                         contentPadding = PaddingValues(bottom = 32.dp),
                     ) {
@@ -174,7 +174,7 @@ fun RecommendationActionContent(
                 state.loading -> CircularProgressIndicator(Modifier.padding(20.dp))
                 state.error != null -> Text(state.error)
                 state.tracks.isEmpty() -> Text("More music or listening history will help us find a matching mix.")
-                else -> LazyColumn(
+                else -> GlassLazyColumn(
                     Modifier.fillMaxWidth().heightIn(max = 450.dp),
                     contentPadding = PaddingValues(bottom = 32.dp),
                 ) {

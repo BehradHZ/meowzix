@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
@@ -235,7 +235,7 @@ fun ExpandedLyricsPanel(
                 reduceMotion = reduceMotion,
                 modifier = Modifier.weight(1f),
             )
-            LyricsContentType.PLAIN -> LazyColumn(
+            LyricsContentType.PLAIN -> GlassLazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth().lyricsEdgeFade(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -376,7 +376,7 @@ private fun TimedLyricsList(
     }
 
     BoxWithConstraints(modifier.fillMaxWidth()) {
-        LazyColumn(
+        GlassLazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize()
                 .lyricsEdgeFade(browsingReveal, revealTop = listState.firstVisibleItemIndex == 0)

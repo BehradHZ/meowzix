@@ -75,7 +75,7 @@ import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
 import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -235,7 +235,7 @@ fun UnifiedSettingsScreen(
             modifier = Modifier.fillMaxSize(),
             label = "settings-category-transition",
         ) { page ->
-        LazyColumn(
+        GlassLazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
             contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = dockAwareBottomPadding(196.dp)),
             verticalArrangement = Arrangement.spacedBy(25.dp),

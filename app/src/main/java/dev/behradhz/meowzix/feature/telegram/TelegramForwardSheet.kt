@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -786,7 +786,7 @@ internal fun ForwardPanelLayout(
                 .padding(start = 18.dp, end = 18.dp, top = 14.dp)
                 .testTag("telegram-forward-header"),
         ) { header() }
-        LazyColumn(
+        GlassLazyColumn(
             modifier = Modifier.fillMaxWidth()
                 .weight(1f)
                 .testTag("telegram-forward-list"),

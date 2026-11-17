@@ -42,9 +42,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import dev.behradhz.meowzix.ui.components.GlassLazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -198,7 +198,7 @@ internal fun PlaylistsSectionV3(
 
     PlaylistGlassBackdrop(variation = 1) { hazeState ->
         Box(Modifier.fillMaxSize()) {
-            LazyVerticalGrid(
+            GlassLazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 156.dp),
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
                     .hazeSource(hazeState).testTag("playlist-grid"),
@@ -643,7 +643,7 @@ internal fun PlaylistDetailScreenV3(
                 )
             },
         ) {
-        LazyColumn(
+        GlassLazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding()
                 .graphicsLayer { alpha = refreshContentAlpha }
                 .hazeSource(hazeState).testTag("playlist-detail-list"),
@@ -1376,7 +1376,7 @@ internal fun PlaylistEditScreenV3(
 
     PlaylistGlassBackdrop { hazeState ->
         Box(Modifier.fillMaxSize()) {
-        LazyColumn(
+        GlassLazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding().hazeSource(hazeState).testTag("playlist-edit-list"),
             contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = dockAwareBottomPadding(188.dp)),
             verticalArrangement = Arrangement.spacedBy(18.dp),

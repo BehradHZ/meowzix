@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -102,7 +102,7 @@ fun HomeRoute(
         Box(Modifier.fillMaxSize().hazeSource(headerHazeState)) {
             SecondaryAmbientBackdrop(variation = 0)
     
-            LazyColumn(
+            GlassLazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
