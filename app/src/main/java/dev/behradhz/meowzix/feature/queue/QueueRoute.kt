@@ -9,10 +9,14 @@ import dev.behradhz.meowzix.feature.library.TrackChatLinkActions
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
@@ -49,6 +53,9 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -59,6 +66,9 @@ import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -70,6 +80,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
@@ -103,6 +114,7 @@ import dev.behradhz.meowzix.feature.library.LibraryRecommendationActions
 import dev.behradhz.meowzix.feature.library.LibraryTrackToolsActions
 import dev.behradhz.meowzix.feature.library.LibraryToolsDialogs
 import dev.behradhz.meowzix.feature.library.LibraryToolsViewModel
+import dev.behradhz.meowzix.feature.library.LibrarySelectionMoreMenu
 import dev.behradhz.meowzix.feature.library.LocalLibraryRecommendationActions
 import dev.behradhz.meowzix.feature.library.LocalLibraryTrackToolsActions
 import dev.behradhz.meowzix.feature.library.LocalTrackForwardAction
@@ -116,6 +128,8 @@ import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
+import dev.behradhz.meowzix.navigation.ContextualSelectionController
 import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueItemOrigin
 import dev.behradhz.meowzix.domain.playback.QueueGroup
@@ -147,6 +161,9 @@ import kotlinx.coroutines.Job
 
 @Composable
 fun QueueRoute(
+    isActive: Boolean = true,
+    selectionController: ContextualSelectionController? = null,
+    selectionMoreActions: List<LibrarySelectionAction> = emptyList(),
     scrollToTopRequest: Int = 0,
     searchQuery: String = "",
     onGoToArtist: (String) -> Unit = {},
@@ -195,6 +212,22 @@ fun QueueRoute(
         },
     ) {
         QueueScreen(
+            isActive = isActive,
+            selectionController = selectionController,
+            selectionMoreActions = selectionMoreActions,
+            onBulkAction = viewModel::performSelectionAction,
+            onBulkAddToPlaylist = viewModel::addSelectedToPlaylist,
+            onBulkForward = { items ->
+                viewModel.resolveSelectionTracks(items.map(QueueItem::id)) { tracks ->
+                    val first = tracks.firstOrNull() ?: return@resolveSelectionTracks
+                    forwardSelection = TrackForwardSelection(
+                        first.id,
+                        if (tracks.size == 1) first.title else "${tracks.size} selected tracks",
+                        if (tracks.size == 1) first.artist else null,
+                    )
+                    forwardViewModel.openForwardPickerForTracks(tracks)
+                }
+            },
             scrollToTopRequest = scrollToTopRequest,
             state = state,
             aux = aux,
@@ -298,6 +331,12 @@ internal fun QueueScreen(
     onGoToArtist: (String) -> Unit,
     modifier: Modifier = Modifier,
     inlineMode: Boolean = false,
+    isActive: Boolean = true,
+    selectionController: ContextualSelectionController? = null,
+    selectionMoreActions: List<LibrarySelectionAction> = emptyList(),
+    onBulkAction: (LibrarySelectionAction, List<QueueItem>) -> Unit = { _, _ -> },
+    onBulkAddToPlaylist: (List<QueueItem>, UUID) -> Unit = { _, _ -> },
+    onBulkForward: (List<QueueItem>) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     LaunchedEffect(scrollToTopRequest) {
@@ -325,6 +364,47 @@ internal fun QueueScreen(
         }.filter { it.index >= state.currentIndex.coerceAtLeast(0) }
     }
     val searchActive = searchTokens.isNotEmpty()
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedOccurrences by remember { mutableStateOf(emptySet<UUID>()) }
+    var showSelectionPlaylists by remember { mutableStateOf(false) }
+    val selectedItems = state.items.filter { it.occurrenceId in selectedOccurrences }
+    fun cancelSelection() {
+        selectionMode = false
+        selectedOccurrences = emptySet()
+        showSelectionPlaylists = false
+    }
+    fun toggleSelection(occurrence: UUID) {
+        selectedOccurrences = if (occurrence in selectedOccurrences) selectedOccurrences - occurrence
+            else selectedOccurrences + occurrence
+        if (selectedOccurrences.isEmpty()) selectionMode = false
+    }
+    fun handleSelectionAction(action: LibrarySelectionAction) {
+        if (selectedItems.isEmpty()) return
+        when (action) {
+            LibrarySelectionAction.ADD_TO_PLAYLIST -> showSelectionPlaylists = true
+            LibrarySelectionAction.SHARE -> {
+                onBulkForward(selectedItems)
+                cancelSelection()
+            }
+            else -> {
+                onBulkAction(action, selectedItems)
+                cancelSelection()
+            }
+        }
+    }
+    SideEffect {
+        selectionController?.active = isActive && selectionMode
+        selectionController?.onAction = ::handleSelectionAction
+    }
+    DisposableEffect(selectionController) {
+        onDispose { selectionController?.active = false }
+    }
+    androidx.activity.compose.BackHandler(enabled = isActive && selectionMode) { cancelSelection() }
+    LaunchedEffect(state.items) {
+        val available = state.items.map(QueueItem::occurrenceId).toSet()
+        selectedOccurrences = selectedOccurrences.intersect(available)
+        if (selectionMode && selectedOccurrences.isEmpty()) selectionMode = false
+    }
 
     var displayItems by remember { mutableStateOf(filteredItems) }
     var draggedQueueIndex by remember { mutableStateOf<Int?>(null) }
@@ -889,7 +969,7 @@ internal fun QueueScreen(
                                 count = groupCounts[group.id] ?: 0,
                                 compact = isGroupDragging,
                                 offsetY = 0f,
-                                reorderEnabled = (!touchBlocked || isGroupDragging) &&
+                                reorderEnabled = !selectionMode && (!touchBlocked || isGroupDragging) &&
                                     !searchActive && draggedQueueIndex == null,
                                 interactionEnabled = !touchBlocked || isGroupDragging,
                                 onStart = {
@@ -922,7 +1002,7 @@ internal fun QueueScreen(
                                 },
                                 onRemove = { onRemoveGroup(group.id) },
                                 onMoveToFront = { onMoveGroup(group.id, state.currentIndex + 1) },
-                                showOverflowActions = !inlineMode,
+                                showOverflowActions = !inlineMode && !selectionMode,
                                 onMoveToEnd = {
                                     val firstGenerated = state.items.indices.firstOrNull { index ->
                                         index > state.currentIndex && state.items[index].origin == QueueItemOrigin.GENERATED
@@ -936,11 +1016,20 @@ internal fun QueueScreen(
                             isCurrent = queueIndex == state.currentIndex,
                             isDragging = isDragging,
                             dragOffsetY = 0f,
-                            reorderEnabled = !searchActive && draggedGroupId == null &&
+                            reorderEnabled = !selectionMode && !searchActive && draggedGroupId == null &&
                                 queueIndex != state.currentIndex,
                             protectDragHandleFromDock = !inlineMode,
                             interactionEnabled = !touchBlocked || isDragging,
                             onPlay = { if (!touchBlocked && state.items.getOrNull(queueIndex) == item) onPlay(queueIndex) },
+                            selectionMode = selectionMode,
+                            selected = item.occurrenceId in selectedOccurrences,
+                            onSelect = { toggleSelection(item.occurrenceId) },
+                            onLongSelect = {
+                                if (!touchBlocked && !inlineMode) {
+                                    selectionMode = true
+                                    selectedOccurrences = selectedOccurrences + item.occurrenceId
+                                }
+                            },
                             onDragStart = { fingerYInWindow ->
                                 if (!searchActive && draggedGroupId == null) {
                                     dragCapturedByRoot = false
@@ -1000,7 +1089,7 @@ internal fun QueueScreen(
                             onFavorite = { onFavorite(item.id) },
                             onAddToPlaylist = { playlistId -> onAddToPlaylist(item.id, playlistId) },
                             onGoToArtist = { artist -> onGoToArtist(artist) },
-                            showOverflowActions = !inlineMode,
+                            showOverflowActions = !inlineMode && !selectionMode,
                         )
                         }
                         }
@@ -1100,26 +1189,68 @@ internal fun QueueScreen(
             }
         }
 
-        if (!inlineMode) MeowzixStickyHeader(
-            title = "Queue",
-            subtitle = when {
-                state.items.isEmpty() -> "Nothing queued"
-                searchActive -> "${filteredItems.size} of ${state.items.size} tracks"
-                else -> "${state.items.size} tracks"
-            },
-            hazeState = feedbackHazeState,
+        if (!inlineMode) Crossfade(
+            targetState = selectionMode,
+            animationSpec = tween(240),
             modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            if (state.items.size > 1) {
-                MeowzixHeaderAction(
-                    if (state.playbackMode == PlaybackMode.PURE_SHUFFLE) "Disable shuffle" else "Shuffle queue",
-                    Icons.Rounded.Shuffle, onToggleShuffle,
-                )
-            }
-            if (state.items.isNotEmpty()) {
-                MeowzixHeaderAction("Clear queue", Icons.Rounded.DeleteSweep, onClear)
+            label = "queue-selection-header",
+        ) { selecting ->
+            MeowzixStickyHeader(
+                title = if (selecting) "Selected ${selectedOccurrences.size}" else "Queue",
+                subtitle = if (selecting) "" else when {
+                    state.items.isEmpty() -> "Nothing queued"
+                    searchActive -> "${filteredItems.size} of ${state.items.size} tracks"
+                    else -> "${state.items.size} tracks"
+                },
+                hazeState = feedbackHazeState,
+                leadingActions = if (selecting) {
+                    { MeowzixHeaderAction("Cancel selection", Icons.Rounded.Close, ::cancelSelection) }
+                } else null,
+            ) {
+                if (selecting) {
+                    MeowzixHeaderAction("Select all", Icons.Rounded.SelectAll, {
+                        val ids = filteredItems.map { it.value.occurrenceId }.toSet()
+                        selectedOccurrences = if (ids.isNotEmpty() && ids.all(selectedOccurrences::contains))
+                            selectedOccurrences - ids else selectedOccurrences + ids
+                        if (selectedOccurrences.isEmpty()) selectionMode = false
+                    })
+                    LibrarySelectionMoreMenu(selectionMoreActions, ::handleSelectionAction)
+                } else {
+                    if (filteredItems.isNotEmpty()) {
+                        MeowzixHeaderAction("Select tracks", Icons.Rounded.Checklist, { selectionMode = true })
+                    }
+                    if (state.items.size > 1) {
+                        MeowzixHeaderAction(
+                            if (state.playbackMode == PlaybackMode.PURE_SHUFFLE) "Disable shuffle" else "Shuffle queue",
+                            Icons.Rounded.Shuffle, onToggleShuffle,
+                        )
+                    }
+                    if (state.items.isNotEmpty()) {
+                        MeowzixHeaderAction("Clear queue", Icons.Rounded.DeleteSweep, onClear)
+                    }
+                }
             }
         }
+        if (showSelectionPlaylists) AlertDialog(
+            onDismissRequest = { showSelectionPlaylists = false },
+            title = { Text("Add ${selectedItems.size} queued tracks to playlist") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    val destinations = aux.playlists.filter { !it.telegramManaged && !it.localManaged }
+                    if (destinations.isEmpty()) Text("Create a playlist first.")
+                    destinations.forEach { playlist ->
+                        Text(playlist.title, modifier = Modifier.fillMaxWidth()
+                            .clickable {
+                                onBulkAddToPlaylist(selectedItems, playlist.id)
+                                cancelSelection()
+                            }.padding(vertical = 12.dp))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSelectionPlaylists = false }) { Text("Cancel") }
+            },
+        )
 
 
     }
@@ -1307,6 +1438,10 @@ private fun SwipeableQueueItem(
     reorderEnabled: Boolean,
     protectDragHandleFromDock: Boolean,
     onPlay: () -> Unit,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onSelect: () -> Unit = {},
+    onLongSelect: () -> Unit = {},
     onDragStart: (Float) -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
@@ -1369,6 +1504,9 @@ private fun SwipeableQueueItem(
     var swipeOffsetX by remember(item.occurrenceId) { mutableFloatStateOf(0f) }
     var swipeStage by remember(item.occurrenceId) { mutableIntStateOf(0) }
     var horizontalDragActive by remember(item.occurrenceId) { mutableStateOf(false) }
+    LaunchedEffect(selectionMode) {
+        if (selectionMode) { swipeOffsetX = 0f; swipeStage = 0; horizontalDragActive = false }
+    }
     var handleTopInWindow by remember(item.occurrenceId) { mutableFloatStateOf(Float.NaN) }
     var handleBottomInWindow by remember(item.occurrenceId) { mutableFloatStateOf(Float.NaN) }
     val floatingTouchBounds = LocalFloatingControlsTouchBounds.current
@@ -1415,8 +1553,8 @@ private fun SwipeableQueueItem(
                     shape = RoundedCornerShape(18.dp)
                     clip = true
                 }
-                .pointerInput(item.occurrenceId, actionThreshold, removeThreshold, interactionEnabled) {
-                    if (!draggingNow && interactionEnabled) {
+                .pointerInput(item.occurrenceId, actionThreshold, removeThreshold, interactionEnabled, selectionMode) {
+                    if (!selectionMode && !draggingNow && interactionEnabled) {
                         detectHorizontalDragGestures(
                             onDragStart = {
                                 horizontalDragActive = true
@@ -1459,7 +1597,11 @@ private fun SwipeableQueueItem(
                         )
                     }
                 }
-                .clickable(enabled = interactionEnabled, onClick = onPlay),
+                .combinedClickable(
+                    enabled = interactionEnabled,
+                    onClick = { if (selectionMode) onSelect() else onPlay() },
+                    onLongClick = if (showOverflowActions && !selectionMode) onLongSelect else null,
+                ),
             shape = RoundedCornerShape(18.dp),
             color = (if (isCurrent) MaterialTheme.colorScheme.primaryContainer
                      else MaterialTheme.colorScheme.surfaceVariant).copy(alpha = TRACK_CARD_ALPHA),
@@ -1498,7 +1640,13 @@ private fun SwipeableQueueItem(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Box(
+                if (selectionMode) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = { onSelect() },
+                        modifier = Modifier.testTag("queue-select-${item.occurrenceId}"),
+                    )
+                } else Box(
                     modifier = Modifier
                         .size(48.dp)
                         .onGloballyPositioned {

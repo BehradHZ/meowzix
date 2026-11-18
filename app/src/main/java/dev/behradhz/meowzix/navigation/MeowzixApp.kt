@@ -186,6 +186,7 @@ fun MeowzixApp(
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val librarySelectionActive by libraryTracksViewModel.selectionActive.collectAsStateWithLifecycle()
     val libraryDisplaySettings by libraryTracksViewModel.displaySettings.collectAsStateWithLifecycle()
+    val queueSelectionController = remember { ContextualSelectionController() }
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
     val playerBlocksBackgroundBack =
         playbackState.currentTrack != null && morphingPlayerState.blocksBackgroundBack
@@ -226,6 +227,8 @@ fun MeowzixApp(
         if (currentRoute == SETTINGS_ROUTE || currentRoute in SETTINGS_CHILD_ROUTES) lastContentTab else currentRoute
     val searchActive = searchContextRoute != null
     val librarySelectionVisible = currentRoute == LIBRARY_ROUTE && librarySelectionActive
+    val contextualSelectionVisible = librarySelectionVisible ||
+        (currentRoute == QUEUE_ROUTE && queueSelectionController.active)
     val searchScope = when (searchContextRoute) {
         LIBRARY_ROUTE -> DockSearchScope.LIBRARY
         PLAYLISTS_ROUTE -> DockSearchScope.PLAYLIST
@@ -244,10 +247,10 @@ fun MeowzixApp(
     var playlistReselectRequest by remember { mutableIntStateOf(0) }
     var scrollDelta by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 28.dp.toPx() }
-    val dockScrollConnection = remember(currentRoute, searchActive, librarySelectionVisible, threshold) {
+    val dockScrollConnection = remember(currentRoute, searchActive, contextualSelectionVisible, threshold) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput || searchActive || librarySelectionVisible ||
+                if (source != NestedScrollSource.UserInput || searchActive || contextualSelectionVisible ||
                     (currentRoute == QUEUE_ROUTE && queueReorderGestureState.active)
                 ) return Offset.Zero
                 val delta = available.y
@@ -273,7 +276,7 @@ fun MeowzixApp(
             ): Offset {
                 // At the true bottom of a scrollable page, the remaining upward
                 // drag is unconsumed. Expand the dock so the reserved footer is filled.
-                if (librarySelectionVisible || (currentRoute == QUEUE_ROUTE && queueReorderGestureState.active)) return Offset.Zero
+                if (contextualSelectionVisible || (currentRoute == QUEUE_ROUTE && queueReorderGestureState.active)) return Offset.Zero
                 if (shouldExpandDockAtEnd(
                         isUserInput = source == NestedScrollSource.UserInput,
                         searchActive = searchActive,
@@ -289,7 +292,7 @@ fun MeowzixApp(
             }
         }
     }
-    LaunchedEffect(currentRoute, searchActive, librarySelectionVisible) {
+    LaunchedEffect(currentRoute, searchActive, contextualSelectionVisible) {
         dockCompact = false
         reachedScrollEnd = false
         scrollDelta = 0f
@@ -405,7 +408,7 @@ fun MeowzixApp(
                 ),
             ),
             LocalDockLayout provides DockLayout(
-                compact = dockCompact && !searchActive && !librarySelectionVisible,
+                compact = dockCompact && !searchActive && !contextualSelectionVisible,
                 reduceMotion = reduceMotion,
             ),
             LocalFloatingControlsTouchBounds provides floatingTouchBounds,
@@ -471,6 +474,9 @@ fun MeowzixApp(
             }
             if (QUEUE_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == QUEUE_ROUTE, hazeState = hazeState) {
                 QueueRoute(
+                    isActive = currentRoute == QUEUE_ROUTE && !playerBlocksBackgroundBack,
+                    selectionController = queueSelectionController,
+                    selectionMoreActions = libraryDisplaySettings.selection.normalized().more,
                     scrollToTopRequest = queueScrollToTopRequest,
                     searchQuery = if (searchActive && searchScope == DockSearchScope.QUEUE) searchQuery else "",
                     onGoToArtist = { artist ->
@@ -608,11 +614,16 @@ fun MeowzixApp(
                 hazeState = hazeState,
                 destinations = destinations,
                 selectedRoute = if (searchActive) SEARCH_ROUTE else selectedDockRoute,
-                selectionActions = if (currentRoute == LIBRARY_ROUTE && librarySelectionActive)
+                selectionActions = if (contextualSelectionVisible)
                     libraryDisplaySettings.selection.normalized().dock else emptyList(),
-                onSelectionAction = libraryTracksViewModel::requestSelectionAction,
+                onSelectionAction = { action ->
+                    when (currentRoute) {
+                        LIBRARY_ROUTE -> libraryTracksViewModel.requestSelectionAction(action)
+                        QUEUE_ROUTE -> queueSelectionController.onAction(action)
+                    }
+                },
                 searchActive = searchActive,
-                dockCompact = dockCompact && !librarySelectionVisible,
+                dockCompact = dockCompact && !contextualSelectionVisible,
                 searchPlaceholder = searchScope.placeholder,
                 searchQuery = searchQuery,
                 onSearchQueryChange = { searchQuery = it },
@@ -661,7 +672,7 @@ fun MeowzixApp(
                 state = playbackState,
                 viewModel = playerViewModel,
                 morphState = morphingPlayerState,
-                dockCompact = dockCompact && !searchActive && !librarySelectionVisible,
+                dockCompact = dockCompact && !searchActive && !contextualSelectionVisible,
                 onMiniPlayerTopInWindow = { floatingTouchBounds.miniPlayerTopY = it },
                 onOpenQueue = { navigateTopLevel(QUEUE_ROUTE) },
                 onGoToArtist = { artist ->

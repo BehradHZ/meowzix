@@ -6,6 +6,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.core.model.Track
+import dev.behradhz.meowzix.domain.playback.QueueItem
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.domain.library.RemoveTrackFromLocations
 import dev.behradhz.meowzix.domain.library.QueueTrackStatus
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
@@ -108,4 +111,58 @@ class QueueViewModel @Inject constructor(
     fun addToPlaylist(trackId: UUID, playlistId: UUID) = viewModelScope.launch {
         playlists.addTrack(playlistId, trackId)
     }
+
+    /** Remove queue occurrences, not distinct tracks: repeated songs remain individually selectable. */
+    fun performSelectionAction(action: LibrarySelectionAction, items: List<QueueItem>) {
+        if (items.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val trackIds = items.map(QueueItem::id)
+                when (action) {
+                    LibrarySelectionAction.DELETE ->
+                        items.map(QueueItem::occurrenceId).forEach(queueRepository::removeOccurrence)
+                    LibrarySelectionAction.PLAY_NEXT ->
+                        trackIds.asReversed().forEach(queueRepository::playNext)
+                    LibrarySelectionAction.ADD_TO_QUEUE ->
+                        trackIds.forEach(queueRepository::addToQueue)
+                    LibrarySelectionAction.DOWNLOAD ->
+                        trackIds.distinct().forEach(downloads::pinOffline)
+                    LibrarySelectionAction.LIKE, LibrarySelectionAction.UNLIKE -> {
+                        val favorite = action == LibrarySelectionAction.LIKE
+                        trackIds.distinct().forEach { libraryRepository.setFavorite(it, favorite) }
+                    }
+                    LibrarySelectionAction.PLAY_SELECTED ->
+                        queueRepository.replaceAndPlay(trackIds, PlaybackMode.ORDERED)
+                    LibrarySelectionAction.SHUFFLE ->
+                        queueRepository.replaceAndPlay(trackIds, PlaybackMode.PURE_SHUFFLE)
+                    LibrarySelectionAction.SHARE, LibrarySelectionAction.ADD_TO_PLAYLIST -> Unit
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _removalErrors.emit(error.message ?: "Unable to apply selected action")
+            }
+        }
+    }
+
+    fun addSelectedToPlaylist(items: List<QueueItem>, playlistId: UUID) = viewModelScope.launch {
+        try {
+            items.map(QueueItem::id).distinct().forEach { playlists.addTrack(playlistId, it) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _removalErrors.emit(error.message ?: "Unable to add selected tracks")
+        }
+    }
+
+    fun resolveSelectionTracks(ids: List<UUID>, onResolved: (List<Track>) -> Unit) =
+        viewModelScope.launch {
+            try {
+                onResolved(ids.mapNotNull { libraryRepository.trackById(it) })
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _removalErrors.emit(error.message ?: "Unable to forward selected tracks")
+            }
+        }
 }
