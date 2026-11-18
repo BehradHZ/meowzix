@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.data.repository.ArtworkRepairCoordinator
+import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
@@ -49,6 +50,8 @@ data class TelegramForwardUiState(
     val isOpen: Boolean = false,
     /** Snapshot of the selected track; auto-advance must not silently change the send target. */
     val track: NowPlayingTrack? = null,
+    /** Canonical IDs in their chosen order, including bulk Forward from Library. */
+    val trackIds: List<UUID> = emptyList(),
     val query: String = "",
     val chats: List<TelegramChatSummary> = emptyList(),
     val folders: List<TelegramForwardFolder> = emptyList(),
@@ -143,6 +146,7 @@ class NowPlayingViewModel @Inject constructor(
     private var forwardSearchJob: Job? = null
     private var forwardFoldersJob: Job? = null
     private var forwardTrackId: UUID? = null
+    private var forwardTrackIds: List<UUID> = emptyList()
     private var forwardPickerRequest = 0L
 
     init {
@@ -304,15 +308,36 @@ class NowPlayingViewModel @Inject constructor(
         }
     }
 
-    private fun showForwardPicker(selectedTrack: NowPlayingTrack) {
+    /** A single picker session forwards every distinct selected track, without text sharing. */
+    fun openForwardPickerForTracks(tracks: List<Track>) {
+        val selected = tracks.distinctBy(Track::id)
+        val first = selected.firstOrNull() ?: return
+        forwardPickerRequest++
+        showForwardPicker(
+            selectedTrack = NowPlayingTrack(
+                first.id,
+                if (selected.size == 1) first.title else "${selected.size} selected tracks",
+                if (selected.size == 1) first.artist else null,
+                first.artworkRef,
+            ),
+            trackIds = selected.map(Track::id),
+        )
+    }
+
+    private fun showForwardPicker(
+        selectedTrack: NowPlayingTrack,
+        trackIds: List<UUID> = listOf(selectedTrack.id),
+    ) {
         forwardSearchJob?.cancel()
         forwardFoldersJob?.cancel()
         val cachedFolders = telegramForwardRepository.cachedForwardFolders()
         forwardTrackId = selectedTrack.id
+        forwardTrackIds = trackIds.distinct()
         _forwardState.update {
             it.copy(
                 isOpen = true,
                 track = selectedTrack,
+                trackIds = forwardTrackIds,
                 query = "",
                 chats = emptyList(),
                 folders = cachedFolders.orEmpty(),
@@ -375,10 +400,12 @@ class NowPlayingViewModel @Inject constructor(
         forwardSearchJob?.cancel()
         forwardFoldersJob?.cancel()
         forwardTrackId = null
+        forwardTrackIds = emptyList()
         _forwardState.update {
             it.copy(
                 isOpen = false,
                 track = null,
+                trackIds = emptyList(),
                 query = "",
                 chats = emptyList(),
                 folders = emptyList(),
@@ -423,47 +450,72 @@ class NowPlayingViewModel @Inject constructor(
         rememberDefaults: Boolean,
     ) {
         val trackId = forwardTrackId ?: return
+        val ids = forwardTrackIds.toList().ifEmpty { listOf(trackId) }
         if (_forwardState.value.isSending) return
+        val request = forwardPickerRequest
         val picker = _forwardState.value
         val targetTitle = picker.chats.firstOrNull { it.chatId == targetChatId }?.title
             ?: telegramForwardRepository.cachedForwardChat(targetChatId)?.title
         _forwardState.update { it.copy(errorMessage = null, isSending = true) }
         viewModelScope.launch {
-            runCatching {
+            try {
                 if (rememberDefaults) {
                     settingsRepository.setTelegramForwardDefaults(
                         includeSourceAttribution = options.includeSourceAttribution,
                         keepCaption = options.keepCaption,
                     )
                 }
-                telegramForwardRepository.enqueueTrack(
-                    trackId = trackId,
-                    targetChatId = targetChatId,
-                    targetTitle = targetTitle,
-                    options = options,
-                )
-            }.onSuccess { result ->
-                val message = when (result) {
-                    is TelegramSendEnqueueResult.Queued -> null
-                    is TelegramSendEnqueueResult.AlreadyQueued ->
-                        "Already queued for ${result.job.targetTitle ?: "this Telegram chat"}."
-                    is TelegramSendEnqueueResult.AlreadyInChat ->
-                        "Already sent to ${result.targetTitle ?: "this Telegram chat"}."
+                var queued = 0
+                var alreadyPresent = 0
+                var failed = 0
+                var lastError: String? = null
+                for (id in ids) {
+                    // Do not enqueue additional tracks after the user closes this picker.
+                    if (request != forwardPickerRequest) break
+                    try {
+                        when (telegramForwardRepository.enqueueTrack(
+                            trackId = id,
+                            targetChatId = targetChatId,
+                            targetTitle = targetTitle,
+                            options = options,
+                        )) {
+                            is TelegramSendEnqueueResult.Queued -> queued++
+                            is TelegramSendEnqueueResult.AlreadyQueued,
+                            is TelegramSendEnqueueResult.AlreadyInChat -> alreadyPresent++
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        failed++
+                        lastError = error.message
+                    }
+                }
+                val message = when {
+                    failed > 0 -> "$queued queued; $failed failed. ${lastError ?: "Try again."}"
+                    alreadyPresent > 0 && queued == 0 ->
+                        "All selected tracks are already queued or present in this chat."
+                    alreadyPresent > 0 -> "$queued queued; $alreadyPresent already queued or present."
+                    else -> null
                 }
                 _forwardState.update {
-                    if (it.isOpen && it.track?.id == trackId) it.copy(
-                        errorMessage = message,
-                        isSending = false,
-                        successfulForwardCount = it.successfulForwardCount +
-                            if (result is TelegramSendEnqueueResult.Queued) 1 else 0,
-                    ) else it
+                    if (request == forwardPickerRequest && it.isOpen && it.track?.id == trackId &&
+                        it.trackIds == ids
+                    ) {
+                        it.copy(
+                            errorMessage = message,
+                            isSending = false,
+                            successfulForwardCount = it.successfulForwardCount + queued,
+                        )
+                    } else it
                 }
-            }.onFailure { error ->
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
                 _forwardState.update {
-                    it.copy(
+                    if (request == forwardPickerRequest && it.isOpen) it.copy(
                         isSending = false,
                         errorMessage = error.message ?: "Unable to queue this Telegram send.",
-                    )
+                    ) else it
                 }
             }
         }

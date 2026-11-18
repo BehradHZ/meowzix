@@ -204,6 +204,7 @@ fun TelegramForwardSheet(
     overlayMaxHeight: Dp = Dp.Unspecified,
     reduceMotion: Boolean = false,
     requestDismiss: Boolean = false,
+    trackIds: List<UUID> = listOf(trackId),
 ) {
     ForwardPickerBody(
         trackId = trackId,
@@ -232,6 +233,7 @@ fun TelegramForwardSheet(
         overlayMaxHeight = overlayMaxHeight,
         reduceMotion = reduceMotion,
         requestDismiss = requestDismiss,
+        trackIds = trackIds,
     )
 }
 
@@ -259,6 +261,7 @@ private fun ForwardPickerBody(
     overlayMaxHeight: Dp,
     reduceMotion: Boolean,
     requestDismiss: Boolean,
+    trackIds: List<UUID>,
 ) {
     var includeSourceAttribution by rememberSaveable(trackId.toString()) {
         mutableStateOf(defaults.includeSourceAttribution)
@@ -370,13 +373,14 @@ private fun ForwardPickerBody(
     val sendJobs by repository.sendJobs.collectAsState(initial = emptyList())
     var sentVisibilityClockMs by remember(trackId) { mutableStateOf(System.currentTimeMillis()) }
 
-    LaunchedEffect(sendJobs, trackId) {
+    val forwardIds = remember(trackIds) { trackIds.toSet() }
+    LaunchedEffect(sendJobs, forwardIds) {
         while (true) {
             val now = System.currentTimeMillis()
             sentVisibilityClockMs = now
             val nextExpiry = sendJobs
                 .asSequence()
-                .filter { it.trackId == trackId && it.state == TelegramSendState.SENT }
+                .filter { it.trackId in forwardIds && it.state == TelegramSendState.SENT }
                 .map { it.updatedAtEpochMs + SentStatusVisibilityMillis }
                 .filter { it > now }
                 .minOrNull()
@@ -385,8 +389,10 @@ private fun ForwardPickerBody(
         }
     }
 
-    val trackJobs = remember(sendJobs, trackId, sentVisibilityClockMs) {
-        sendJobs.filter { isForwardStatusVisible(it, trackId, sentVisibilityClockMs) }.take(4)
+    val trackJobs = remember(sendJobs, forwardIds, sentVisibilityClockMs) {
+        sendJobs.filter { it.trackId in forwardIds &&
+            isForwardStatusVisible(it, it.trackId, sentVisibilityClockMs)
+        }.take(4)
     }
     val scope = rememberCoroutineScope()
     val hazeState = rememberHazeState()

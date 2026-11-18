@@ -63,18 +63,17 @@ fun LibraryRoute(
             LibrarySelectionAction.DELETE -> showSelectionDelete = true
             LibrarySelectionAction.ADD_TO_PLAYLIST -> showSelectionPlaylists = true
             LibrarySelectionAction.SHARE -> {
-                // Share a portable list even for Telegram-only tracks without local file access.
-                val text = selectedTracks.values.joinToString("\n") { track ->
-                    "${track.title} — ${track.artist ?: "Unknown artist"}"
+                val tracks = selectedTracks.values.toList()
+                val first = tracks.firstOrNull()
+                if (first != null) {
+                    // Use the same native Telegram forward panel as individual track actions.
+                    forwardSelection = TrackForwardSelection(
+                        id = first.id,
+                        title = if (tracks.size == 1) first.title else "${tracks.size} selected tracks",
+                        artist = if (tracks.size == 1) first.artist else null,
+                    )
+                    forwardViewModel.openForwardPickerForTracks(tracks)
                 }
-                runCatching {
-                    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_SUBJECT, "Meowzix selection")
-                        putExtra(Intent.EXTRA_TEXT, text)
-                    }, "Share selected songs"))
-                }.onSuccess { tracksViewModel.cancelSelection() }
-                    .onFailure { Toast.makeText(context, "Unable to share selection", Toast.LENGTH_LONG).show() }
             }
             else -> tracksViewModel.performSelectionAction(action)
         }
