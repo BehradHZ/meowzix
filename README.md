@@ -24,9 +24,9 @@
 
 <table align="center">
   <tr>
-    <td align="center" valign="top"><img src="assets/screenshots/01-home.webp" alt="Home with recommended tracks and recently played music" width="205"><br><sub><b>Home</b></sub></td>
-    <td align="center" valign="top"><img src="assets/screenshots/02-now-playing.webp" alt="Now Playing with artwork-led player controls" width="205"><br><sub><b>Now Playing</b></sub></td>
-    <td align="center" valign="top"><img src="assets/screenshots/08-telegram-playlist.webp" alt="Telegram playlist with playback and queue actions" width="205"><br><sub><b>Telegram Playlist</b></sub></td>
+    <td align="center" valign="top"><img src="assets/screenshots/01-home.png" alt="Home with recommended tracks and recently played music" width="205"><br><sub><b>Home</b></sub></td>
+    <td align="center" valign="top"><img src="assets/screenshots/02-now-playing.png" alt="Now Playing with artwork-led player controls" width="205"><br><sub><b>Now Playing</b></sub></td>
+    <td align="center" valign="top"><img src="assets/screenshots/08-telegram-playlist.png" alt="Telegram playlist with playback and queue actions" width="205"><br><sub><b>Telegram Playlist</b></sub></td>
   </tr>
 </table>
 <p align="center"><sub>Actual Meowzix Android screenshots</sub></p>
@@ -44,7 +44,7 @@ Meowzix unifies music indexed from your Android device with audio from **Telegra
 - **Telegram sharing:** Send or forward tracks using an in-app chat picker, including chat folders and search.
 - **Source-independent playback:** Local audio continues working when Telegram or the network isn't available.
 
-<p align="center"><img src="assets/screenshots/05-telegram-sources.webp" alt="Telegram source selector with source names redacted for privacy" width="285"><br><sub><b>Telegram source management</b> · Private chat names redacted</sub></p>
+<p align="center"><img src="assets/screenshots/05-telegram-sources.png" alt="Telegram chat source selector with selected music sources" width="285"><br><sub><b>Telegram source management</b></sub></p>
 
 ### Playback and queue
 
@@ -55,7 +55,7 @@ Built on **Media3 / ExoPlayer**, Meowzix supports uninterrupted background liste
 - **Sleep Timer:** Stop at a selected time or at the end of the track, with optional fade.
 - **Seamless transitions:** Gapless and configurable crossfade, plus loudness handling where supported.
 
-<p align="center"><img src="assets/screenshots/03-queue.webp" alt="Up Next queue with playback controls and draggable tracks" width="285"><br><sub><b>Editable playback queue</b></sub></p>
+<p align="center"><img src="assets/screenshots/03-queue.png" alt="Up Next queue with playback controls and draggable tracks" width="285"><br><sub><b>Editable playback queue</b></sub></p>
 
 ### Smart Shuffle and personalized listening
 
@@ -74,8 +74,8 @@ Personalized mixes and exploration help surface less-played music instead of onl
 
 <table align="center">
   <tr>
-    <td align="center" valign="top"><img src="assets/screenshots/06-synced-lyrics.webp" alt="Player showing synchronized lyrics and visual waveform seekbar" width="285"><br><sub><b>Synced lyrics + waveform</b></sub></td>
-    <td align="center" valign="top"><img src="assets/screenshots/04-expanded-lyrics.webp" alt="Expanded synchronized lyrics view" width="285"><br><sub><b>Expanded lyrics</b></sub></td>
+    <td align="center" valign="top"><img src="assets/screenshots/06-synced-lyrics.png" alt="Player showing synchronized lyrics and visual waveform seekbar" width="285"><br><sub><b>Synced lyrics + waveform</b></sub></td>
+    <td align="center" valign="top"><img src="assets/screenshots/04-expanded-lyrics.png" alt="Expanded synchronized lyrics view" width="285"><br><sub><b>Expanded lyrics</b></sub></td>
   </tr>
 </table>
 
@@ -95,7 +95,7 @@ Browse songs, artists, albums, favorites, playlists, and recent listening histor
 
 There are also tools for **duplicate management**, locally stored library data, and **backup/restore**. Your playlists, queue, and preferences are managed within Meowzix.
 
-<p align="center"><img src="assets/screenshots/07-library-search.webp" alt="Music library with filters and the contextual search field" width="285"><br><sub><b>Library filters + contextual search</b></sub></p>
+<p align="center"><img src="assets/screenshots/07-library-search.png" alt="Music library with filters and the contextual search field" width="285"><br><sub><b>Library filters + contextual search</b></sub></p>
 
 ### Music beyond the app
 
