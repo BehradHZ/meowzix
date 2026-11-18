@@ -93,6 +93,29 @@ class QueueReorderPreviewTest {
         assertNull(resolvePreviewMove(original, original, second.occurrenceId))
     }
 
+    @Test fun `reorder preview exposes a single heading per lane even with mixed occurrences`() {
+        val playing = row().copy(origin = QueueItemOrigin.GENERATED)
+        val manual1 = row().copy(origin = QueueItemOrigin.MANUAL)
+        val generated1 = row().copy(origin = QueueItemOrigin.GENERATED)
+        val manual2 = row().copy(origin = QueueItemOrigin.MANUAL)
+        val generated2 = row().copy(origin = QueueItemOrigin.GENERATED)
+        val original = indexedQueueItems(
+            listOf(playing, manual1, generated1, manual2, generated2)
+        ) { true }
+        assertEquals(QueueSectionStartSlots(manual = 1, generated = 2),
+            queueSectionStartSlots(original, currentIndex = 0))
+
+        val preview = reorderPreviewItems(
+            original, generated2.occurrenceId, manual1.occurrenceId
+        )
+        // Reorder may interleave logical origins: headings remain attached to
+        // the original visual lanes, not recreated for each moved occurrence.
+        assertEquals(QueueSectionStartSlots(manual = 1, generated = 2),
+            queueSectionStartSlots(preview, currentIndex = 0) { slot, row ->
+                original.getOrNull(slot)?.value?.origin ?: row.value.origin
+            })
+    }
+
     @Test fun `changed queue invalidates an in-flight drag`() {
         val original = indexedQueueItems(listOf(row(), row(), row())) { true }
         assertNull(resolvePreviewMove(original.dropLast(1), original,
