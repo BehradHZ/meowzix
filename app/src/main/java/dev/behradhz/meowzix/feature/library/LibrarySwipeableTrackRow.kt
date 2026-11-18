@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
@@ -181,7 +180,7 @@ internal fun SwipeableLibraryTrackRow(
                     .maskBehindSwipeTrack(visualOffsetX),
                 // An action is not an independent card: the moving song's
                 // rounded silhouette alone determines what can be seen.
-                shape = RectangleShape,
+                shape = RoundedCornerShape(18.dp),
                 color = if (swipingRight) {
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
