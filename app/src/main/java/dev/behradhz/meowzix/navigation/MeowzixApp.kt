@@ -942,9 +942,11 @@ private fun DockItem(
     showLabel: Boolean = true,
     enabled: Boolean = true,
 ) {
+    val shape = RoundedCornerShape(28.dp)
     Surface(
         modifier = modifier
             .height(58.dp)
+            .clip(shape)
             .clickable(enabled = enabled, onClick = onClick),
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent,
         contentColor = if (selected) {
@@ -952,7 +954,7 @@ private fun DockItem(
         } else {
             MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f)
         },
-        shape = RoundedCornerShape(28.dp),
+        shape = shape,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
