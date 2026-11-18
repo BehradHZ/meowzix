@@ -165,7 +165,7 @@ fun LibraryRoute(
                     destinations.forEach { playlist ->
                         Text(
                             playlist.title,
-                            modifier = Modifier.fillMaxSize().clickable {
+                            modifier = Modifier.fillMaxWidth().clickable {
                                 showSelectionPlaylists = false
                                 tracksViewModel.performSelectionAction(
                                     LibrarySelectionAction.ADD_TO_PLAYLIST, playlist.id,
