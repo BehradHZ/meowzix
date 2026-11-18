@@ -290,6 +290,12 @@ fun PlayerInlineQueue(
     )
 }
 
+/** A drag can end between composition and placement; never convert its cleared NaN coordinate. */
+internal fun queueDragPreviewTopOffset(centerY: Float, halfHeight: Float): Int {
+    val top = centerY - halfHeight
+    return if (top.isFinite()) top.roundToInt() else 0
+}
+
 /** Block a whole Queue row if even its bottom edge enters the protected region. */
 internal fun queueRowBlockedByFloatingControls(
     rowBottomInWindow: Float,
@@ -1119,7 +1125,7 @@ internal fun QueueScreen(
                             listTopInWindow - rootTopInWindow + dragCenterY
                         val halfHeight = if (useFingerPosition && dragPreviewHeightPx > 0)
                             dragPreviewHeightPx / 2f else with(density) { 38.dp.toPx() }
-                        IntOffset(0, (centerY - halfHeight).roundToInt())
+                        IntOffset(0, queueDragPreviewTopOffset(centerY, halfHeight))
                     }
                     .onSizeChanged { dragPreviewHeightPx = it.height }
                     .zIndex(30f)
