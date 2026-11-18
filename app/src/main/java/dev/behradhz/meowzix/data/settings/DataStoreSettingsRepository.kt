@@ -19,6 +19,8 @@ import dev.behradhz.meowzix.domain.settings.DEFAULT_TEMPORARY_CACHE_BUDGET_BYTES
 import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
 import dev.behradhz.meowzix.domain.settings.LibrarySortMode
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionSettings
 import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
@@ -80,6 +82,14 @@ class DataStoreSettingsRepository @Inject constructor(
             sortMode = values[LIBRARY_SORT_MODE].enumOrDefault(LibrarySortMode.RECENTLY_ADDED),
             groupMode = values[LIBRARY_GROUP_MODE].enumOrDefault(LibraryGroupMode.NONE),
             highlightNewTelegramTracks = values[HIGHLIGHT_NEW_TELEGRAM_TRACKS] ?: true,
+            selection = LibrarySelectionSettings(
+                dock = values[LIBRARY_SELECTION_DOCK]?.split(",")?.mapNotNull { name ->
+                    LibrarySelectionAction.entries.firstOrNull { it.name == name }
+                } ?: LibrarySelectionSettings().dock,
+                more = values[LIBRARY_SELECTION_MORE]?.split(",")?.mapNotNull { name ->
+                    LibrarySelectionAction.entries.firstOrNull { it.name == name }
+                } ?: LibrarySelectionSettings().more,
+            ).normalized(),
         )
     }
 
@@ -208,6 +218,13 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setLibrarySortMode(mode: LibrarySortMode) = setEnum(LIBRARY_SORT_MODE, mode)
     override suspend fun setLibraryGroupMode(mode: LibraryGroupMode) = setEnum(LIBRARY_GROUP_MODE, mode)
     override suspend fun setHighlightNewTelegramTracks(enabled: Boolean) = set(HIGHLIGHT_NEW_TELEGRAM_TRACKS, enabled)
+    override suspend fun setLibrarySelectionSettings(value: LibrarySelectionSettings) {
+        val safe = value.normalized()
+        context.settingsDataStore.edit { prefs ->
+            prefs[LIBRARY_SELECTION_DOCK] = safe.dock.joinToString(",") { it.name }
+            prefs[LIBRARY_SELECTION_MORE] = safe.more.joinToString(",") { it.name }
+        }
+    }
     override suspend fun setWidgetTheme(mode: WidgetThemeMode) = setEnum(WIDGET_THEME, mode)
     override suspend fun setThemePreference(theme: ThemePreference) = setEnum(THEME, theme)
     override suspend fun setColorThemePreference(colorTheme: ColorThemePreference) = setEnum(COLOR_THEME, colorTheme)
@@ -248,6 +265,8 @@ class DataStoreSettingsRepository @Inject constructor(
         val LIBRARY_SORT_MODE = stringPreferencesKey("library_sort_mode")
         val LIBRARY_GROUP_MODE = stringPreferencesKey("library_group_mode")
         val HIGHLIGHT_NEW_TELEGRAM_TRACKS = booleanPreferencesKey("highlight_new_telegram_tracks")
+        val LIBRARY_SELECTION_DOCK = stringPreferencesKey("library_selection_dock")
+        val LIBRARY_SELECTION_MORE = stringPreferencesKey("library_selection_more")
         val THEME = stringPreferencesKey("theme_preference")
         val WIDGET_THEME = stringPreferencesKey("widget_theme_mode")
         val COLOR_THEME = stringPreferencesKey("color_theme_preference")

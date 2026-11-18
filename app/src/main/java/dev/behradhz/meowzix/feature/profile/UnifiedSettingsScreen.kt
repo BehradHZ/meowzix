@@ -56,6 +56,7 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PrivacyTip
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
@@ -115,6 +116,7 @@ import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
 import dev.behradhz.meowzix.BuildConfig
 import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.ui.components.SleepTimerMenuContent
 import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
@@ -358,6 +360,39 @@ fun UnifiedSettingsScreen(
                                 spectrumFlow = viewModel.seekBarPreviewSpectrum,
                                 reduceMotion = state.appearance.reduceMotion,
                                 onPreviewCaptureChange = viewModel::setSettingsPreviewCaptureEnabled,
+                            )
+                        }
+                    }
+                }
+            }
+            if (page == SettingsCategory.LIBRARY) {
+                item(key = "library-selection") {
+                    SettingsGlassSection(
+                        hazeState, "Selection dock", "Four pinned actions, left to right",
+                        Icons.Rounded.LibraryMusic, showHeading = false,
+                    ) {
+                        val selection = state.libraryDisplay.selection.normalized()
+                        selection.dock.forEachIndexed { slot, current ->
+                            SettingsChoiceRow(
+                                "Dock position ${slot + 1}", null, Icons.Rounded.LibraryMusic,
+                                current.name,
+                                LibrarySelectionAction.entries.map { it.name },
+                            ) { chosen ->
+                                viewModel.setLibrarySelectionDockSlot(slot, LibrarySelectionAction.valueOf(chosen))
+                            }
+                            SettingsRowDivider()
+                        }
+                        Text(
+                            "More menu actions",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        )
+                        LibrarySelectionAction.entries.filterNot { it in selection.dock }.forEach { action ->
+                            SettingsToggleRow(
+                                action.label, "Show in the selection header's More menu",
+                                Icons.Rounded.LibraryMusic,
+                                action in selection.more,
+                                { enabled -> viewModel.setLibrarySelectionMore(action, enabled) },
                             )
                         }
                     }

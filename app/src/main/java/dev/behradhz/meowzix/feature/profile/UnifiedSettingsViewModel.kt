@@ -22,6 +22,7 @@ import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackRepository
 import dev.behradhz.meowzix.domain.settings.AppearanceSettings
 import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.domain.settings.ColorThemePreference
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
@@ -236,6 +237,14 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setArtistShuffleAlpha(value: Float) = launch { settings.setArtistShuffleAlpha(value) }
     fun setSmart(value: Boolean) = launch { settings.setSmartRecommendationsEnabled(value) }
     fun setHighlightNewTelegramTracks(value: Boolean) = launch { settings.setHighlightNewTelegramTracks(value) }
+    fun setLibrarySelectionDockSlot(slot: Int, action: LibrarySelectionAction) = launch {
+        val current = settings.libraryDisplaySettings.first().selection
+        settings.setLibrarySelectionSettings(current.setDockSlot(slot, action))
+    }
+    fun setLibrarySelectionMore(action: LibrarySelectionAction, enabled: Boolean) = launch {
+        val current = settings.libraryDisplaySettings.first().selection
+        settings.setLibrarySelectionSettings(current.setMoreEnabled(action, enabled))
+    }
     fun setExploration(value: Int) = launch { settings.setExplorationPercent(value) }
     fun setAudioAnalysis(value: Boolean) = launch { settings.setAudioAnalysisEnabled(value) }
     fun setDiagnostics(value: Boolean) = launch { settings.setDiagnosticsVisible(value) }

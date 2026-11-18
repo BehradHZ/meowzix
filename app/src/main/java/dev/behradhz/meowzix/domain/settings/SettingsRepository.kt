@@ -28,10 +28,63 @@ data class TelegramForwardSettings(
 enum class LibrarySortMode { RECENTLY_ADDED, OLDEST_ADDED, TITLE_ASC, TITLE_DESC, ARTIST_ASC }
 enum class LibraryGroupMode { NONE, ARTIST, ALBUM, YEAR }
 
+/** Actions for the four fixed Selection Dock positions and optional More menu. */
+enum class LibrarySelectionAction(val label: String) {
+    DELETE("Delete"),
+    PLAY_NEXT("Play next"),
+    ADD_TO_PLAYLIST("Add to playlist"),
+    SHARE("Share"),
+    ADD_TO_QUEUE("Add to queue"),
+    DOWNLOAD("Download"),
+    LIKE("Like"),
+    UNLIKE("Unlike"),
+    PLAY_SELECTED("Play selected"),
+    SHUFFLE("Shuffle selected"),
+}
+
+val DEFAULT_SELECTION_DOCK = listOf(
+    LibrarySelectionAction.DELETE,
+    LibrarySelectionAction.PLAY_NEXT,
+    LibrarySelectionAction.ADD_TO_PLAYLIST,
+    LibrarySelectionAction.SHARE,
+)
+
+data class LibrarySelectionSettings(
+    val dock: List<LibrarySelectionAction> = DEFAULT_SELECTION_DOCK,
+    val more: List<LibrarySelectionAction> = LibrarySelectionAction.entries.filterNot { it in DEFAULT_SELECTION_DOCK },
+) {
+    /** Defensive normalization for old/corrupt preferences: the dock must always have four unique actions. */
+    fun normalized(): LibrarySelectionSettings {
+        val pinned = dock.distinct().take(4).toMutableList()
+        LibrarySelectionAction.entries.forEach { if (pinned.size < 4 && it !in pinned) pinned.add(it) }
+        return copy(dock = pinned, more = more.distinct().filterNot { it in pinned })
+    }
+
+    fun setDockSlot(slot: Int, action: LibrarySelectionAction): LibrarySelectionSettings {
+        val current = normalized()
+        require(slot in 0..3)
+        val next = current.dock.toMutableList()
+        val existing = next.indexOf(action)
+        val displaced = next[slot]
+        next[slot] = action
+        if (existing >= 0 && existing != slot) next[existing] = displaced
+        val nextMore = if (existing >= 0) current.more else
+            (current.more.filterNot { it == action } + displaced).distinct()
+        return LibrarySelectionSettings(next, nextMore).normalized()
+    }
+
+    fun setMoreEnabled(action: LibrarySelectionAction, enabled: Boolean): LibrarySelectionSettings {
+        val current = normalized()
+        if (action in current.dock) return current
+        return current.copy(more = if (enabled) (current.more + action).distinct() else current.more - action)
+    }
+}
+
 data class LibraryDisplaySettings(
     val sortMode: LibrarySortMode = LibrarySortMode.RECENTLY_ADDED,
     val groupMode: LibraryGroupMode = LibraryGroupMode.NONE,
     val highlightNewTelegramTracks: Boolean = true,
+    val selection: LibrarySelectionSettings = LibrarySelectionSettings(),
 )
 
 enum class ThemePreference { SYSTEM, LIGHT, DARK }
@@ -116,6 +169,7 @@ interface SettingsRepository {
     suspend fun setLibrarySortMode(mode: LibrarySortMode)
     suspend fun setLibraryGroupMode(mode: LibraryGroupMode)
     suspend fun setHighlightNewTelegramTracks(enabled: Boolean) {}
+    suspend fun setLibrarySelectionSettings(value: LibrarySelectionSettings) {}
     suspend fun setWidgetTheme(mode: WidgetThemeMode)
     suspend fun setThemePreference(theme: ThemePreference)
     suspend fun setColorThemePreference(colorTheme: ColorThemePreference)

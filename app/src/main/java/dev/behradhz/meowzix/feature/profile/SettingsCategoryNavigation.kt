@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Shield
@@ -38,6 +39,7 @@ import dev.chrisbanes.haze.HazeState
 /** Telegram and Downloads are direct destinations; other categories stay inline. */
 internal enum class SettingsCategory(val title: String, val icon: ImageVector, val subtitle: String? = null) {
     APPEARANCE("Appearance", Icons.Rounded.Palette),
+    LIBRARY("Library selection", Icons.Rounded.LibraryMusic, "Selection dock and More actions"),
     PLAYBACK("Playback", Icons.Rounded.PlayCircle),
     SOUND("Sound", Icons.Rounded.GraphicEq),
     DISCOVERY("Discovery", Icons.Rounded.AutoAwesome),
