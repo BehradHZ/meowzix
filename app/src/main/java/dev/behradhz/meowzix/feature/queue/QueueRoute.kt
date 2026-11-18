@@ -307,6 +307,7 @@ internal fun QueueScreen(
 
     var displayItems by remember { mutableStateOf(filteredItems) }
     var draggedQueueIndex by remember { mutableStateOf<Int?>(null) }
+    var draggedOccurrenceId by remember { mutableStateOf<UUID?>(null) }
     var draggedGroupId by remember { mutableStateOf<UUID?>(null) }
     var draggedGroupTarget by remember { mutableStateOf<Int?>(null) }
     var awaitingGroupCommit by remember { mutableStateOf(false) }
@@ -377,8 +378,7 @@ internal fun QueueScreen(
     }
 
     fun finishDrag(commit: Boolean) {
-        val occurrence = filteredItems.firstOrNull { it.index == draggedQueueIndex }
-            ?.value?.occurrenceId
+        val occurrence = draggedOccurrenceId
         // The Next heading is a drop boundary, not an item. Crossing it must
         // promote the first generated song even if its logical index is unchanged.
         val firstNextSlot = filteredItems.indexOfFirst {
@@ -405,13 +405,14 @@ internal fun QueueScreen(
             displayItems = filteredItems
         }
         draggedQueueIndex = null
+        draggedOccurrenceId = null
         dragCenterY = Float.NaN
         if (!inlineMode) reorderGestureState?.active = false
     }
 
     fun reorderAt(center: Float) {
-        val draggedIndex = draggedQueueIndex ?: return
-        val from = displayItems.indexOfFirst { it.index == draggedIndex }
+        val draggedOccurrence = draggedOccurrenceId ?: return
+        val from = displayItems.indexOfFirst { it.value.occurrenceId == draggedOccurrence }
         if (from < 0 || !center.isFinite()) return
 
         // Use viewport hit-testing, independent of LazyColumn's animated item placement.
@@ -695,7 +696,7 @@ internal fun QueueScreen(
                             minOf(floatingControls.dockTopY, floatingControls.miniPlayerTopY),
                             with(density) { 16.dp.toPx() },
                         )
-                    val isDragging = draggedQueueIndex == queueIndex
+                    val isDragging = draggedOccurrenceId == item.occurrenceId
                     val groupId = item.groupId
                     val group = groupId?.let(state.groups::get)
                     val isGroupHeader = !searchActive && group != null &&
@@ -809,6 +810,7 @@ internal fun QueueScreen(
                                     displayItems = filteredItems
                                     awaitingTrackCommit = false
                                     draggedQueueIndex = queueIndex
+                                    draggedOccurrenceId = item.occurrenceId
                                     val info = listState.layoutInfo.visibleItemsInfo.firstOrNull {
                                         it.key == item.occurrenceId.toString()
                                     }
@@ -817,9 +819,8 @@ internal fun QueueScreen(
                             },
                             onDrag = { deltaY ->
                                 if (dragCapturedByRoot || searchActive) return@SwipeableQueueItem
-                                val dragged = draggedQueueIndex ?: return@SwipeableQueueItem
-                                val draggedKey = displayItems.firstOrNull { it.index == dragged }
-                                    ?.value?.occurrenceId?.toString() ?: return@SwipeableQueueItem
+                                val draggedKey = draggedOccurrenceId?.toString()
+                                    ?: return@SwipeableQueueItem
                                 if (!dragCenterY.isFinite()) {
                                     val info = listState.layoutInfo.visibleItemsInfo.firstOrNull {
                                         it.key == draggedKey
@@ -864,8 +865,8 @@ internal fun QueueScreen(
         }
 
         // A stable overlay survives list virtualization and independent scrolling.
-        val draggedTrack = draggedQueueIndex?.let { index ->
-            filteredItems.firstOrNull { it.index == index }?.value
+        val draggedTrack = draggedOccurrenceId?.let { occurrence ->
+            displayItems.firstOrNull { it.value.occurrenceId == occurrence }?.value
         }
         val draggedGroup = draggedGroupId?.let(state.groups::get)
         if (dragCenterY.isFinite() && (draggedTrack != null || draggedGroup != null)) {
