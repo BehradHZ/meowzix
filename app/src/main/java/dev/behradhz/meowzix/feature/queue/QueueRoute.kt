@@ -144,6 +144,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun QueueRoute(
+    scrollToTopRequest: Int = 0,
     searchQuery: String = "",
     onGoToArtist: (String) -> Unit = {},
     viewModel: QueueViewModel = hiltViewModel(),
@@ -191,6 +192,7 @@ fun QueueRoute(
         },
     ) {
         QueueScreen(
+            scrollToTopRequest = scrollToTopRequest,
             state = state,
             aux = aux,
             searchQuery = searchQuery,
@@ -262,6 +264,7 @@ internal fun queueRowBlockedByFloatingControls(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun QueueScreen(
+    scrollToTopRequest: Int = 0,
     state: QueueState,
     aux: QueueAuxState,
     searchQuery: String,
@@ -283,6 +286,9 @@ internal fun QueueScreen(
     inlineMode: Boolean = false,
 ) {
     val listState = rememberLazyListState()
+    LaunchedEffect(scrollToTopRequest) {
+        if (scrollToTopRequest > 0) listState.animateScrollToItem(0)
+    }
     val feedbackHazeState = rememberHazeState()
     val searchTokens = remember(searchQuery) {
         TextNormalizer.normalize(searchQuery)

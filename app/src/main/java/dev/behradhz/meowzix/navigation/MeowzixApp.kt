@@ -239,6 +239,9 @@ fun MeowzixApp(
     // Incremented even when Home is already selected: reselecting the tab
     // should scroll its retained LazyColumn back to the header.
     var homeScrollToTopRequest by remember { mutableIntStateOf(0) }
+    var libraryScrollToTopRequest by remember { mutableIntStateOf(0) }
+    var queueScrollToTopRequest by remember { mutableIntStateOf(0) }
+    var playlistReselectRequest by remember { mutableIntStateOf(0) }
     var scrollDelta by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 28.dp.toPx() }
     val dockScrollConnection = remember(currentRoute, searchActive, librarySelectionVisible, threshold) {
@@ -320,7 +323,18 @@ fun MeowzixApp(
             navController.popBackStack(SETTINGS_ROUTE, inclusive = true)
         }
 
-        if (action == DockTabTapAction.RESELECT && route == LIBRARY_ROUTE && !searchActive) return
+        if (action == DockTabTapAction.RESELECT) {
+            clearSearchState()
+            dockCompact = false
+            scrollDelta = 0f
+            when (route) {
+                HOME_ROUTE -> homeScrollToTopRequest++
+                LIBRARY_ROUTE -> libraryScrollToTopRequest++
+                PLAYLISTS_ROUTE -> playlistReselectRequest++
+                QUEUE_ROUTE -> if (!queueReorderGestureState.active) queueScrollToTopRequest++
+            }
+            return // Don't create a new navigation entry on reselect.
+        }
         clearSearchState()
         if (route == HOME_ROUTE) {
             dockCompact = false
@@ -433,6 +447,7 @@ fun MeowzixApp(
                     viewModel = libraryViewModel,
                     tracksViewModel = libraryTracksViewModel,
                     requestedArtist = pendingArtist,
+                    scrollToTopRequest = libraryScrollToTopRequest,
                     onArtistRequestConsumed = { pendingArtist = null },
                     requestedAlbum = pendingAlbum,
                     onAlbumRequestConsumed = { pendingAlbum = null },
@@ -449,12 +464,14 @@ fun MeowzixApp(
                         navigateTopLevel(LIBRARY_ROUTE)
                     },
                     requestedPlaylistId = pendingPlaylistId,
+                    reselectRequest = playlistReselectRequest,
                     onPlaylistRequestConsumed = { pendingPlaylistId = null },
                     reduceMotion = reduceMotion,
                 )
             }
             if (QUEUE_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == QUEUE_ROUTE, hazeState = hazeState) {
                 QueueRoute(
+                    scrollToTopRequest = queueScrollToTopRequest,
                     searchQuery = if (searchActive && searchScope == DockSearchScope.QUEUE) searchQuery else "",
                     onGoToArtist = { artist ->
                         pendingArtist = artist

@@ -127,6 +127,7 @@ internal fun LibraryRouteV4(
     viewModel: LibraryViewModel,
     isActive: Boolean = true,
     requestedArtist: String? = null,
+    scrollToTopRequest: Int = 0,
     onArtistRequestConsumed: () -> Unit = {},
     requestedAlbum: AlbumSummary? = null,
     onAlbumRequestConsumed: () -> Unit = {},
@@ -234,8 +235,8 @@ internal fun LibraryRouteV4(
     BackHandler(enabled = isActive && (aggregateSelection != null || showDisplaySheet || selecting)) {
         when {
             showDisplaySheet -> showDisplaySheet = false
-            aggregateSelection != null -> tracksViewModel.closeAggregate()
             selecting -> tracksViewModel.cancelSelection()
+            aggregateSelection != null -> tracksViewModel.closeAggregate()
         }
     }
 
@@ -254,7 +255,10 @@ internal fun LibraryRouteV4(
                 availability = state.availability,
                 downloads = state.downloads,
                 playlists = state.playlists,
-                onBack = tracksViewModel::closeAggregate,
+                onBack = {
+                    if (selecting) tracksViewModel.cancelSelection()
+                    else tracksViewModel.closeAggregate()
+                },
                 onSaveMetadata = { _, _, _ -> },
                 onPlay = { collection, mode -> viewModel.playPlaylistCollection(collection, mode) },
                 onPlayTrack = { track, collection ->
@@ -308,7 +312,11 @@ internal fun LibraryRouteV4(
             title = title,
             tracks = aggregateTracks,
             state = state,
-            onBack = tracksViewModel::closeAggregate,
+            onBack = {
+                if (selecting) tracksViewModel.cancelSelection()
+                else tracksViewModel.closeAggregate()
+            },
+            scrollToTopRequest = scrollToTopRequest,
             onPlay = { track ->
                 viewModel.playTrack(track, aggregateTracks)
                 onOpenNowPlaying()
@@ -427,6 +435,7 @@ internal fun LibraryRouteV4(
                     groupMode = displaySettings.groupMode,
                     newTrackIds = state.newTrackIds,
                     scrollToNewRequest = scrollToNewRequest,
+                    scrollToTopRequest = scrollToTopRequest,
                     state = state,
                     selecting = selecting,
                     selectedIds = selectedTracks.keys,
@@ -445,12 +454,14 @@ internal fun LibraryRouteV4(
                     { tracksViewModel.queueArtist(it, true) },
                     { tracksViewModel.queueArtist(it, false) },
                     selectedTracks.values.toList(), selecting, tracksViewModel::toggleArtistSelection,
+                    scrollToTopRequest = scrollToTopRequest,
                 )
                 LibrarySectionV4.ALBUMS -> AlbumListV4(
                     albums, tracksViewModel::openAlbum,
                     { tracksViewModel.queueAlbum(it, true) },
                     { tracksViewModel.queueAlbum(it, false) },
                     selectedTracks.values.toList(), selecting, tracksViewModel::toggleAlbumSelection,
+                    scrollToTopRequest = scrollToTopRequest,
                 )
             }
         }
@@ -494,6 +505,7 @@ private fun PagedTrackListV4(
     groupMode: LibraryGroupMode,
     newTrackIds: Set<UUID>,
     scrollToNewRequest: Int,
+    scrollToTopRequest: Int = 0,
     state: LibraryUiState,
     selecting: Boolean,
     selectedIds: Set<UUID>,
@@ -503,6 +515,9 @@ private fun PagedTrackListV4(
     onGoToArtist: (Track) -> Unit,
 ) {
     val listState = rememberLazyListState()
+    LaunchedEffect(scrollToTopRequest) {
+        if (scrollToTopRequest > 0) listState.animateScrollToItem(0)
+    }
     LaunchedEffect(scrollToNewRequest) {
         if (scrollToNewRequest > 0 && items.itemCount > 0) listState.animateScrollToItem(0)
     }
@@ -598,8 +613,14 @@ private fun ArtistListV4(
     selectedTracks: List<Track>,
     selecting: Boolean,
     onSelect: (ArtistSummary) -> Unit,
+    scrollToTopRequest: Int = 0,
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(scrollToTopRequest) {
+        if (scrollToTopRequest > 0) listState.animateScrollToItem(0)
+    }
     GlassLazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = dockAwareBottomPadding(188.dp)),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -629,8 +650,14 @@ private fun AlbumListV4(
     selectedTracks: List<Track>,
     selecting: Boolean,
     onSelect: (AlbumSummary) -> Unit,
+    scrollToTopRequest: Int = 0,
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(scrollToTopRequest) {
+        if (scrollToTopRequest > 0) listState.animateScrollToItem(0)
+    }
     GlassLazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = dockAwareBottomPadding(188.dp)),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -659,6 +686,7 @@ private fun LibraryDetailV4(
     tracks: List<Track>,
     state: LibraryUiState,
     onBack: () -> Unit,
+    scrollToTopRequest: Int = 0,
     onPlay: (Track) -> Unit,
     viewModel: LibraryViewModel,
     onGoToArtist: (Track) -> Unit,
@@ -673,6 +701,9 @@ private fun LibraryDetailV4(
 ) {
     val hazeState = rememberHazeState()
     val listState = rememberLazyListState()
+    LaunchedEffect(scrollToTopRequest) {
+        if (scrollToTopRequest > 0) listState.animateScrollToItem(0)
+    }
     val visibleTrackKeys by remember(listState) {
         derivedStateOf { listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
     }

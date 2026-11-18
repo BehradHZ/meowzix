@@ -113,6 +113,7 @@ fun PlaylistsRoute(
     onGoToArtist: (String) -> Unit,
     searchQuery: String = "",
     requestedPlaylistId: UUID? = null,
+    reselectRequest: Int = 0,
     onPlaylistRequestConsumed: () -> Unit = {},
     reduceMotion: Boolean = false,
 ) {
@@ -195,6 +196,16 @@ fun PlaylistsRoute(
         showFavorites = false
     }
 
+    var gridScrollToTopRequest by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    LaunchedEffect(reselectRequest) {
+        if (reselectRequest <= 0) return@LaunchedEffect
+        if (selectedKey != null || showFavorites) {
+            if (!creatingPlaylist) closeDetail()
+        } else {
+            gridScrollToTopRequest++
+        }
+    }
+
     BackHandler(enabled = isActive && (selectedKey != null || showFavorites)) {
         if (!creatingPlaylist) closeDetail()
     }
@@ -205,6 +216,7 @@ fun PlaylistsRoute(
         onGridSettled = viewModel::resetNavigationState,
         gridContent = {
             PlaylistsSectionV3(
+                scrollToTopRequest = gridScrollToTopRequest,
                 playlists = if (searchQuery.isBlank()) state.playlists else state.playlists.filter {
                     matchesGlobalSearch(searchQuery, it.title, it.description)
                 },
