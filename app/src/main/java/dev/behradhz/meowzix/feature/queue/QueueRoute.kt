@@ -420,7 +420,7 @@ internal fun QueueScreen(
         } else dragCenterY
         // With the last Next card temporarily promoted, its heading vanishes.
         // Keep its selected lane until a visible boundary can be hit-tested again.
-        if (nextSectionTop == null) return dragHoveredOrigin ?: slotOrigin
+        if (nextSectionTop == null) return dragHoveredOrigin ?: source.value.origin
         return queueDropOrigin(
             slotOrigin, centerInList, nextSectionTop, cardHeight, source.value.origin,
         )
@@ -428,7 +428,8 @@ internal fun QueueScreen(
 
     fun finishDrag(commit: Boolean) {
         val occurrence = draggedOccurrenceId
-        val destinationOrigin = queueDropTargetOrigin() ?: dragHoveredOrigin
+        // Use the last hit-tested lane: the heading may move during preview recomposition.
+        val destinationOrigin = dragHoveredOrigin ?: queueDropTargetOrigin()
         val firstNextSlot = filteredItems.indexOfFirst {
             it.index > state.currentIndex && it.value.origin == QueueItemOrigin.GENERATED
         }
@@ -458,6 +459,8 @@ internal fun QueueScreen(
         val from = displayItems.indexOfFirst { it.value.occurrenceId == draggedOccurrence }
         if (from < 0 || !center.isFinite()) return
 
+        // Hit-test before the visual reorder can move the section heading.
+        val lane = queueDropTargetOrigin()
         // Reordering still uses row midpoints; only the Queue/Next lane switch
         // uses the dragged card's top edge and the heading.
         val targets = listState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
@@ -468,12 +471,10 @@ internal fun QueueScreen(
         }
         val targetId = crossedReorderTarget(targets, from, center,
             firstMovableSlot = if (filteredItems.firstOrNull()?.index == state.currentIndex) 1 else 0)
-        if (targetId != null) {
-            displayItems = reorderPreviewItems(displayItems,
-                displayItems[from].value.occurrenceId, targetId)
+        val reordered = if (targetId != null) {
             reorderHaptics.perform(MeowzixHapticCue.Threshold)
-        }
-        val lane = queueDropTargetOrigin()
+            reorderPreviewItems(displayItems, draggedOccurrence, targetId)
+        } else displayItems
         if (lane != null && lane != dragHoveredOrigin) {
             val sourceOrigin = filteredItems.firstOrNull {
                 it.value.occurrenceId == draggedOccurrence
@@ -483,6 +484,9 @@ internal fun QueueScreen(
             }
             dragHoveredOrigin = lane
         }
+        displayItems = keepQueuePreviewSections(
+            reordered, state.currentIndex, draggedOccurrence, dragHoveredOrigin,
+        )
     }
 
     // Reorder only the visual snapshot. QueueRepository is called once when the handle is released.
