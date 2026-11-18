@@ -80,7 +80,7 @@ internal fun SelectionDockActions(
                     Text(
                         text = when (action) {
                             LibrarySelectionAction.ADD_TO_PLAYLIST -> "Add to\nplaylist"
-                            else -> action.label,
+                            else -> action.label
                         },
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 10.sp,
