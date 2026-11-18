@@ -38,6 +38,34 @@ class ProgressiveQueueTest {
         assertEquals(QueueItemOrigin.MANUAL, retained.origins[newIndex])
     }
 
+    @Test fun `promoting a Next occurrence preserves all previously queued occurrences`() {
+        val songs = tracks(12)
+        val queue = ProgressiveQueue()
+        queue.start(songs, 0, PlaybackMode.ORDERED, RepeatMode.OFF)
+        assertTrue(queue.append(songs[10]))
+        assertTrue(queue.append(songs[11]))
+        val before = requireNotNull(queue.snapshot())
+        val manual = (before.currentIndex + 1 until before.tracks.size)
+            .filter { before.origins[it] == QueueItemOrigin.MANUAL }
+            .map { before.occurrenceIds[it] }
+        assertEquals(2, manual.size)
+        val nextIndex = (before.currentIndex + 1 until before.tracks.size)
+            .first { before.origins[it] == QueueItemOrigin.GENERATED }
+        val movedId = before.occurrenceIds[nextIndex]
+        val lastManualIndex = before.occurrenceIds.indexOf(manual.last())
+        assertTrue(queue.move(nextIndex, lastManualIndex, QueueItemOrigin.MANUAL))
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(3, after.origins.drop(after.currentIndex + 1)
+            .takeWhile { it == QueueItemOrigin.MANUAL }.size)
+        assertEquals(manual, after.occurrenceIds.filter { it in manual })
+        for (occurrence in manual + movedId) {
+            val index = after.occurrenceIds.indexOf(occurrence)
+            assertTrue(index > after.currentIndex)
+            assertTrue(queue.isFixedOccurrence(index))
+            assertEquals(QueueItemOrigin.MANUAL, after.origins[index])
+        }
+    }
+
     @Test
     fun `cross section drag changes origin without disturbing the playing song`() {
         val songs = tracks(10)

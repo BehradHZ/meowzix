@@ -88,6 +88,33 @@ class QueueReorderPreviewTest {
         )
     }
 
+    @Test fun `promoting Next does not push the last manual song into the Next section`() {
+        val playing = row().copy(origin = QueueItemOrigin.GENERATED)
+        val firstManual = row().copy(origin = QueueItemOrigin.MANUAL)
+        val lastManual = row().copy(origin = QueueItemOrigin.MANUAL)
+        val promoted = row().copy(origin = QueueItemOrigin.GENERATED)
+        val next = row().copy(origin = QueueItemOrigin.GENERATED)
+        val original = indexedQueueItems(listOf(
+            playing, firstManual, lastManual, promoted, next,
+        )) { true }
+        val preview = reorderPreviewItems(
+            original, promoted.occurrenceId, lastManual.occurrenceId,
+        )
+        val headers = queueSectionStartSlots(preview, 0) { _, indexed ->
+            queuePreviewOrigin(indexed.value, promoted.occurrenceId, QueueItemOrigin.MANUAL)
+        }
+        assertEquals(QueueSectionStartSlots(manual = 1, generated = 4), headers)
+        assertEquals(QueueItemOrigin.MANUAL,
+            queuePreviewOrigin(lastManual, promoted.occurrenceId, QueueItemOrigin.MANUAL))
+
+        // Crossing the section header before any row midpoint also moves Next
+        // past the promoted song while leaving the two original manual entries.
+        val atBoundary = queueSectionStartSlots(original, 0) { _, indexed ->
+            queuePreviewOrigin(indexed.value, promoted.occurrenceId, QueueItemOrigin.MANUAL)
+        }
+        assertEquals(QueueSectionStartSlots(manual = 1, generated = 4), atBoundary)
+    }
+
     private fun row(song: UUID = UUID.randomUUID(), occurrence: UUID = UUID.randomUUID()) =
         QueueItem(song, "Song", null, null, occurrenceId = occurrence)
 

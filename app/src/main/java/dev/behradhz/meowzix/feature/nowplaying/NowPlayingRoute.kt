@@ -142,6 +142,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 
+/** Either vertical direction in the empty player gutters can dismiss inline Queue. */
+internal fun queueGutterDragFraction(dragY: Float, dragRangePx: Float): Float =
+    (1f - abs(dragY) / dragRangePx.coerceAtLeast(1f)).coerceIn(0.05f, 1f)
+
+internal fun shouldCollapseQueueFromGutter(dragY: Float, thresholdPx: Float): Boolean =
+    abs(dragY) >= thresholdPx
+
 /** A deliberate downward pull or quick downward flick collapses the open inline queue. */
 internal fun shouldCollapseInlineQueue(
     fraction: Float,
@@ -830,11 +837,10 @@ private fun NowPlayingScreen(
                     change.consume()
                     queueGutterDragY += dragY
                     queueDragActive = true
-                    queueDragFraction = (1f - abs(queueGutterDragY) / dragRangePx)
-                        .coerceIn(0.05f, 1f)
+                    queueDragFraction = queueGutterDragFraction(queueGutterDragY, dragRangePx)
                 },
                 onDragEnd = {
-                    val shouldClose = abs(queueGutterDragY) >= lyricsSwipeThresholdPx
+                    val shouldClose = shouldCollapseQueueFromGutter(queueGutterDragY, lyricsSwipeThresholdPx)
                     queueDragActive = false
                     onQueueExpandedChange(!shouldClose)
                     queueGutterDragY = 0f

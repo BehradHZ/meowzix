@@ -25,4 +25,12 @@ class InlineQueuePullSettleTest {
     @Test fun upwardReleaseDoesNotAccidentallyDismissQueue() {
         assertFalse(shouldCollapseInlineQueue(0.9f, -700f, dragRangePx))
     }
+    @Test fun `player side gutter swipes in either direction collapse the queue`() {
+        assertEquals(queueGutterDragFraction(95f, 260f),
+            queueGutterDragFraction(-95f, 260f), 0.0001f)
+        assertEquals(true, shouldCollapseQueueFromGutter(80f, 72f))
+        assertEquals(true, shouldCollapseQueueFromGutter(-80f, 72f))
+        assertEquals(false, shouldCollapseQueueFromGutter(24f, 72f))
+    }
+
 }
