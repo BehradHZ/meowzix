@@ -108,23 +108,33 @@ class QueueDragDockRegressionTest {
             advanceEventTime(32L)
         }
         compose.waitUntil(5_000L) { reorderSession.active }
-        val previewBounds = compose.onNodeWithTag("queue-drag-preview")
-            .getUnclippedBoundsInRoot()
-        val previewCenterYDp = (previewBounds.top.value + previewBounds.bottom.value) / 2f
-        assertEquals(
-            "The floating song card must be centered on the held pointer",
-            touchYDp, previewCenterYDp, 5f,
-        )
-        compose.runOnUiThread { controls.dockTopY = 0f }
-        dragHandle.performTouchInput {
-            moveBy(0, Offset(0f, 65f))
-            // A separate pointer scrolls the Queue while the first remains held.
-            down(1, center + Offset(70f, 130f))
-            moveBy(1, Offset(0f, -240f))
-            advanceEventTime(100L)
-            up(1)
-            moveBy(0, Offset(0f, 25f))
-            up(0)
+        // Queue auto-scroll intentionally requests frames for the full duration of a
+        // held drag. A semantics read cannot wait for automatic Compose idleness while
+        // that gesture is active; advance the test clock explicitly instead.
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeByFrame()
+            val previewBounds = compose.onNodeWithTag("queue-drag-preview")
+                .getUnclippedBoundsInRoot()
+            val previewCenterYDp = (previewBounds.top.value + previewBounds.bottom.value) / 2f
+            assertEquals(
+                "The floating song card must be centered on the held pointer",
+                touchYDp, previewCenterYDp, 5f,
+            )
+            compose.runOnUiThread { controls.dockTopY = 0f }
+            dragHandle.performTouchInput {
+                moveBy(0, Offset(0f, 65f))
+                // A separate pointer scrolls the Queue while the first remains held.
+                down(1, center + Offset(70f, 130f))
+                moveBy(1, Offset(0f, -240f))
+                advanceEventTime(100L)
+                up(1)
+                moveBy(0, Offset(0f, 25f))
+                up(0)
+            }
+        } finally {
+            compose.mainClock.autoAdvance = true
         }
 
         compose.waitForIdle()
