@@ -1243,7 +1243,7 @@ internal fun PlaylistDetailScreenV3(
                                 Row(
                                     modifier = Modifier.fillMaxWidth().testTag("playlist-collapsed-header"),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Alignment.CenterHorizontally,
+                                    horizontalArrangement = Arrangement.Center,
                                 ) {
                                     PlaylistArtworkV3(artworkRef, title, isFavorites, 32.dp, reduceMotion = reduceMotion)
                                     Spacer(Modifier.size(8.dp))
