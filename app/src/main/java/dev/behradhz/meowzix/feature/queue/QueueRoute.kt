@@ -318,6 +318,7 @@ internal fun QueueScreen(
     // intentionally continues to use dragCenterY in LazyColumn coordinates.
     var dragFingerYInRoot by remember { mutableFloatStateOf(Float.NaN) }
     var dragPreviewHeightPx by remember { mutableIntStateOf(0) }
+    var dragHoveredOrigin by remember { mutableStateOf<QueueItemOrigin?>(null) }
     var dragCapturedByRoot by remember { mutableStateOf(false) }
     var manualScrollActive by remember { mutableStateOf(false) }
     var rootTopInWindow by remember { mutableFloatStateOf(0f) }
@@ -382,25 +383,46 @@ internal fun QueueScreen(
         }
     }
 
-    fun finishDrag(commit: Boolean) {
-        val occurrence = draggedOccurrenceId
-        // The Next heading is a drop boundary, not an item. Crossing it must
-        // promote the first generated song even if its logical index is unchanged.
+    /** The same viewport-space boundary drives hover feedback and final commit. */
+    fun queueDropTargetOrigin(): QueueItemOrigin? {
+        val occurrence = draggedOccurrenceId ?: return null
+        val source = filteredItems.firstOrNull { it.value.occurrenceId == occurrence } ?: return null
+        val visualSlot = displayItems.indexOfFirst { it.value.occurrenceId == occurrence }
+        val slotOrigin = filteredItems.getOrNull(visualSlot)?.value?.origin ?: return null
         val firstNextSlot = filteredItems.indexOfFirst {
             it.index > state.currentIndex && it.value.origin == QueueItemOrigin.GENERATED
         }
+        val layout = listState.layoutInfo
         val nextSectionTop = if (firstNextSlot >= 0) {
-            listState.layoutInfo.visibleItemsInfo.firstOrNull {
+            layout.visibleItemsInfo.firstOrNull {
                 it.key == "section-${firstNextSlot}-${QueueItemOrigin.GENERATED}"
             }?.offset?.toFloat()
         } else null
-        val visualSlot = displayItems.indexOfFirst { it.value.occurrenceId == occurrence }
-        val slotOrigin = filteredItems.getOrNull(visualSlot)?.value?.origin
-        val destinationOrigin = slotOrigin?.let {
-            queueDropOrigin(it, dragCenterY, nextSectionTop)
+        val cardHeight = dragPreviewHeightPx.takeIf { it > 0 }?.toFloat()
+            ?: layout.visibleItemsInfo.firstOrNull {
+                it.key == occurrence.toString()
+            }?.size?.toFloat()
+            ?: with(density) { 76.dp.toPx() }
+        // The floating card follows the finger, which can grab the handle
+        // off-center. Hit-test the VISIBLE card, not its hidden list row.
+        val centerInList = if (!inlineMode && dragFingerYInRoot.isFinite()) {
+            dragFingerYInRoot + rootTopInWindow - listTopInWindow
+        } else dragCenterY
+        return queueDropOrigin(
+            slotOrigin, centerInList, nextSectionTop, cardHeight, source.value.origin,
+        )
+    }
+
+    fun finishDrag(commit: Boolean) {
+        val occurrence = draggedOccurrenceId
+        val destinationOrigin = queueDropTargetOrigin() ?: dragHoveredOrigin
+        val firstNextSlot = filteredItems.indexOfFirst {
+            it.index > state.currentIndex && it.value.origin == QueueItemOrigin.GENERATED
         }
         val move = occurrence?.let {
-            resolvePreviewQueueMove(filteredItems, displayItems, it, destinationOrigin)
+            resolveQueueBoundaryMove(
+                filteredItems, displayItems, it, destinationOrigin, firstNextSlot,
+            )
         }
         if (!searchActive && commit && move != null &&
             move.fromIndex > state.currentIndex && move.toIndex > state.currentIndex) {
@@ -411,6 +433,7 @@ internal fun QueueScreen(
         }
         draggedQueueIndex = null
         draggedOccurrenceId = null
+        dragHoveredOrigin = null
         dragCenterY = Float.NaN
         dragFingerYInRoot = Float.NaN
         dragPreviewHeightPx = 0
@@ -422,7 +445,8 @@ internal fun QueueScreen(
         val from = displayItems.indexOfFirst { it.value.occurrenceId == draggedOccurrence }
         if (from < 0 || !center.isFinite()) return
 
-        // Use viewport hit-testing, independent of LazyColumn's animated item placement.
+        // Reordering still uses row midpoints; only the Queue/Next lane switch
+        // uses the dragged card's top edge and the heading.
         val targets = listState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
             val slot = displayItems.indexOfFirst { it.value.occurrenceId.toString() == info.key }
             val entry = displayItems.getOrNull(slot) ?: return@mapNotNull null
@@ -431,10 +455,21 @@ internal fun QueueScreen(
         }
         val targetId = crossedReorderTarget(targets, from, center,
             firstMovableSlot = if (filteredItems.firstOrNull()?.index == state.currentIndex) 1 else 0)
-            ?: return
-        displayItems = reorderPreviewItems(displayItems,
-            displayItems[from].value.occurrenceId, targetId)
-        reorderHaptics.perform(MeowzixHapticCue.Threshold)
+        if (targetId != null) {
+            displayItems = reorderPreviewItems(displayItems,
+                displayItems[from].value.occurrenceId, targetId)
+            reorderHaptics.perform(MeowzixHapticCue.Threshold)
+        }
+        val lane = queueDropTargetOrigin()
+        if (lane != null && lane != dragHoveredOrigin) {
+            val sourceOrigin = filteredItems.firstOrNull {
+                it.value.occurrenceId == draggedOccurrence
+            }?.value?.origin
+            if (sourceOrigin == QueueItemOrigin.GENERATED && lane == QueueItemOrigin.MANUAL) {
+                reorderHaptics.perform(MeowzixHapticCue.Threshold)
+            }
+            dragHoveredOrigin = lane
+        }
     }
 
     // Reorder only the visual snapshot. QueueRepository is called once when the handle is released.
@@ -819,6 +854,7 @@ internal fun QueueScreen(
                                 if (!searchActive && draggedGroupId == null) {
                                     dragCapturedByRoot = false
                                     dragPreviewHeightPx = 0
+                                    dragHoveredOrigin = null
                                     // Use the exact handle touch position for the
                                     // first preview frame; root pointer events update it.
                                     if (!inlineMode) {
@@ -889,6 +925,8 @@ internal fun QueueScreen(
             displayItems.firstOrNull { it.value.occurrenceId == occurrence }?.value
         }
         val draggedGroup = draggedGroupId?.let(state.groups::get)
+        val promoteToQueue = draggedTrack?.origin == QueueItemOrigin.GENERATED &&
+            (queueDropTargetOrigin() ?: dragHoveredOrigin) == QueueItemOrigin.MANUAL
         if (dragCenterY.isFinite() && (draggedTrack != null || draggedGroup != null)) {
             val useFingerPosition = !inlineMode && draggedTrack != null &&
                 dragFingerYInRoot.isFinite()
@@ -952,14 +990,20 @@ internal fun QueueScreen(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    draggedTrack.artist ?: "Unknown artist",
+                                    if (promoteToQueue) "Move to Queue"
+                                    else draggedTrack.artist ?: "Unknown artist",
                                     style = MaterialTheme.typography.bodySmall,
+                                    color = if (promoteToQueue) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
-                        Icon(Icons.Rounded.DragHandle, contentDescription = null)
+                        Icon(
+                            if (promoteToQueue) Icons.Rounded.QueueMusic else Icons.Rounded.DragHandle,
+                            contentDescription = if (promoteToQueue) "Release to move to Queue" else null,
+                        )
                     }
                 }
             }

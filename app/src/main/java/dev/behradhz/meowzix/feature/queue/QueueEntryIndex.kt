@@ -86,13 +86,45 @@ internal fun queueDropOrigin(
     slotOrigin: dev.behradhz.meowzix.domain.playback.QueueItemOrigin,
     dragCenterY: Float,
     nextSectionTopY: Float?,
+    draggedCardHeightPx: Float = 0f,
+    sourceOrigin: dev.behradhz.meowzix.domain.playback.QueueItemOrigin = slotOrigin,
 ): dev.behradhz.meowzix.domain.playback.QueueItemOrigin {
-    if (!dragCenterY.isFinite() || nextSectionTopY == null) return slotOrigin
-    return if (dragCenterY < nextSectionTopY) {
+    if (!dragCenterY.isFinite() || nextSectionTopY?.isFinite() != true) return slotOrigin
+    // A lifted Next card enters Queue as soon as its TOP edge crosses the
+    // heading. Its center must not have to reach the last manually queued song.
+    // Preserve the existing center-based threshold for Queue -> Next moves.
+    val boundaryY = if (sourceOrigin == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED)
+        dragCenterY - draggedCardHeightPx.coerceAtLeast(0f) / 2f else dragCenterY
+    return if (boundaryY < nextSectionTopY) {
         dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL
     } else {
         dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
     }
+}
+
+/**
+ * Promoting a Next occurrence snaps its *destination* to the first generated
+ * slot (the end of Queue) even before a row's midpoint is crossed. Higher
+ * manual preview positions are still honored, as are all other drag directions.
+ */
+internal fun resolveQueueBoundaryMove(
+    original: List<IndexedValue<QueueItem>>,
+    preview: List<IndexedValue<QueueItem>>,
+    occurrenceId: java.util.UUID,
+    destinationOrigin: dev.behradhz.meowzix.domain.playback.QueueItemOrigin?,
+    firstNextSlot: Int,
+): QueuePreviewMove? {
+    val resolved = resolvePreviewQueueMove(original, preview, occurrenceId, destinationOrigin)
+        ?: return null
+    val source = original.firstOrNull { it.value.occurrenceId == occurrenceId } ?: return resolved
+    if (source.value.origin != dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED ||
+        resolved.origin != dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL ||
+        firstNextSlot !in original.indices
+    ) return resolved
+    val previewSlot = preview.indexOfFirst { it.value.occurrenceId == occurrenceId }
+    return if (previewSlot >= firstNextSlot) {
+        resolved.copy(toIndex = original[firstNextSlot].index)
+    } else resolved
 }
 
 internal data class QueuePreviewMove(

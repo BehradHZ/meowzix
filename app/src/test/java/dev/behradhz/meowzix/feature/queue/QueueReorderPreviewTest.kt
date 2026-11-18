@@ -46,6 +46,48 @@ class QueueReorderPreviewTest {
     }
 
 
+
+    @Test fun `Next card becomes Queue as soon as its top edge crosses the heading`() {
+        // The center is still below the heading (190 > 160). The old behavior
+        // incorrectly required the center itself to move above that heading.
+        assertEquals(QueueItemOrigin.MANUAL,
+            queueDropOrigin(QueueItemOrigin.GENERATED, 190f, 160f, 72f,
+                QueueItemOrigin.GENERATED))
+        assertEquals(QueueItemOrigin.GENERATED,
+            queueDropOrigin(QueueItemOrigin.GENERATED, 198f, 160f, 72f,
+                QueueItemOrigin.GENERATED))
+        // The opposite drag direction keeps its existing center-based boundary.
+        assertEquals(QueueItemOrigin.GENERATED,
+            queueDropOrigin(QueueItemOrigin.MANUAL, 190f, 160f, 72f,
+                QueueItemOrigin.MANUAL))
+    }
+
+    @Test fun `crossing Next heading inserts at Queue tail without crossing a manual row`() {
+        val playing = row().copy(origin = QueueItemOrigin.GENERATED)
+        val queued1 = row().copy(origin = QueueItemOrigin.MANUAL)
+        val queued2 = row().copy(origin = QueueItemOrigin.MANUAL)
+        val next1 = row().copy(origin = QueueItemOrigin.GENERATED)
+        val next2 = row().copy(origin = QueueItemOrigin.GENERATED)
+        val original = indexedQueueItems(listOf(playing, queued1, queued2, next1, next2)) { true }
+        assertEquals(
+            QueuePreviewMove(4, 3, QueueItemOrigin.MANUAL),
+            resolveQueueBoundaryMove(original, original, next2.occurrenceId,
+                QueueItemOrigin.MANUAL, firstNextSlot = 3),
+        )
+        // Going further above Queue's last song still honors the intended slot.
+        val moved = reorderPreviewItems(original, next2.occurrenceId, queued2.occurrenceId)
+        assertEquals(
+            QueuePreviewMove(4, 2, QueueItemOrigin.MANUAL),
+            resolveQueueBoundaryMove(original, moved, next2.occurrenceId,
+                QueueItemOrigin.MANUAL, firstNextSlot = 3),
+        )
+        assertEquals(
+            null,
+            resolveQueueBoundaryMove(original, original, next2.occurrenceId,
+                QueueItemOrigin.GENERATED, firstNextSlot = 3),
+        )
+    }
+
     private fun row(song: UUID = UUID.randomUUID(), occurrence: UUID = UUID.randomUUID()) =
         QueueItem(song, "Song", null, null, occurrenceId = occurrence)
 
