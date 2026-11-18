@@ -6,6 +6,19 @@ import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
+import dev.behradhz.meowzix.domain.library.LOCAL_PLAYLIST_ID
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +50,41 @@ fun LibraryRoute(
 ) {
     val context = LocalContext.current
     var forwardSelection by remember { mutableStateOf<TrackForwardSelection?>(null) }
+    var showSelectionDelete by remember { mutableStateOf(false) }
+    var showSelectionPlaylists by remember { mutableStateOf(false) }
+    val selectionAction by tracksViewModel.selectionAction.collectAsStateWithLifecycle()
+    val selectedTracks by tracksViewModel.selectedTracks.collectAsStateWithLifecycle()
+    val selectionError by tracksViewModel.selectionError.collectAsStateWithLifecycle()
+    val libraryState by viewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(selectionAction) {
+        val action = selectionAction ?: return@LaunchedEffect
+        when (action) {
+            LibrarySelectionAction.DELETE -> showSelectionDelete = true
+            LibrarySelectionAction.ADD_TO_PLAYLIST -> showSelectionPlaylists = true
+            LibrarySelectionAction.SHARE -> {
+                // Share a portable list even for Telegram-only tracks without local file access.
+                val text = selectedTracks.values.joinToString("\n") { track ->
+                    "${track.title} — ${track.artist ?: "Unknown artist"}"
+                }
+                runCatching {
+                    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "Meowzix selection")
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    }, "Share selected songs"))
+                }.onSuccess { tracksViewModel.cancelSelection() }
+                    .onFailure { Toast.makeText(context, "Unable to share selection", Toast.LENGTH_LONG).show() }
+            }
+            else -> tracksViewModel.performSelectionAction(action)
+        }
+        tracksViewModel.consumeSelectionAction()
+    }
+    LaunchedEffect(selectionError) {
+        selectionError?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            tracksViewModel.consumeSelectionError()
+        }
+    }
     LaunchedEffect(searchQuery) {
         tracksViewModel.setSearchQuery(searchQuery)
     }
@@ -90,6 +138,46 @@ fun LibraryRoute(
             selection = forwardSelection,
             viewModel = forwardViewModel,
             onDismiss = { forwardSelection = null },
+        )
+        if (showSelectionDelete) AlertDialog(
+            onDismissRequest = { showSelectionDelete = false },
+            title = { Text("Remove ${selectedTracks.size} songs from Library?") },
+            text = { Text("The songs disappear from your Library. Original device files and Telegram messages are not deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSelectionDelete = false
+                    tracksViewModel.performSelectionAction(LibrarySelectionAction.DELETE)
+                }) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSelectionDelete = false }) { Text("Cancel") }
+            },
+        )
+        if (showSelectionPlaylists) AlertDialog(
+            onDismissRequest = { showSelectionPlaylists = false },
+            title = { Text("Add ${selectedTracks.size} songs to playlist") },
+            text = {
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    val destinations = libraryState.playlists.filter {
+                        it.id != LOCAL_PLAYLIST_ID && !it.telegramManaged
+                    }
+                    if (destinations.isEmpty()) Text("Create a playlist first to add these songs.")
+                    destinations.forEach { playlist ->
+                        Text(
+                            playlist.title,
+                            modifier = Modifier.fillMaxSize().clickable {
+                                showSelectionPlaylists = false
+                                tracksViewModel.performSelectionAction(
+                                    LibrarySelectionAction.ADD_TO_PLAYLIST, playlist.id,
+                                )
+                            }.padding(vertical = 12.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSelectionPlaylists = false }) { Text("Cancel") }
+            },
         )
     }
 }
