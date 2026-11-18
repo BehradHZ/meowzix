@@ -178,8 +178,10 @@ internal fun TelegramMusicSourcePicker(
                             fontWeight = if (chat.selected) FontWeight.SemiBold else FontWeight.Medium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurface)
-                        Text(chat.kind.displayName(), style = MaterialTheme.typography.bodySmall,
-                            color = TelegramGlassChrome.muted)
+                        Text(
+                            if (chat.isArchived) "${chat.kind.displayName()} · Archived" else chat.kind.displayName(),
+                            style = MaterialTheme.typography.bodySmall, color = TelegramGlassChrome.muted,
+                        )
                     }
                     Box(
                         modifier = Modifier.widthIn(min = 104.dp)

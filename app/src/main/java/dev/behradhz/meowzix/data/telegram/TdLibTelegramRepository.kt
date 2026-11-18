@@ -213,10 +213,35 @@ class TdLibTelegramRepository @Inject constructor(
                 val selectedIds = telegramDao.selectedSources(accountId).mapTo(mutableSetOf()) { it.chatId }
                 val previouslySelected = sourceHistory.previouslySelected(accountId) +
                     telegramDao.knownChatIds(accountId) + selectedIds
-                // GetChats returns recent chats in order. Keep that order within each group.
-                val chatIds = activeClient.send(TdApi.GetChats(null, 100)).chatIds.toMutableSet()
-                chatIds += selectedIds
-                chatIds += previouslySelected
+                // TDLib's null chat list is Main only; archived chats need a separate list.
+                // GetChats is a local snapshot. Request one Archive page first so a fresh
+                // TDLib session can discover chats not already indexed on this device.
+                val mainChatIds = activeClient.send(TdApi.GetChats(null, 100)).chatIds.toList()
+                val archiveList = TdApi.ChatListArchive()
+                var archiveChatIds = activeClient.send(TdApi.GetChats(archiveList, 100)).chatIds.toList()
+                if (archiveChatIds.size < 100) {
+                    val archivePageLoaded = try {
+                        withTimeout(3_000L) {
+                            activeClient.send(TdApi.LoadChats(archiveList, 100))
+                        }
+                        true
+                    } catch (cancelled: CancellationException) {
+                        if (cancelled is TimeoutCancellationException) false else throw cancelled
+                    } catch (_: Exception) {
+                        // TDLib uses 404 for end of list. Also keep locally known chats
+                        // available when the network or Archive page load fails.
+                        false
+                    }
+                    // List positions arrive through TDLib updates, sometimes after LoadChats.
+                    repeat(if (archivePageLoaded) 3 else 1) { attempt ->
+                        if (archivePageLoaded && attempt > 0) delay(150L)
+                        val updated = activeClient.send(TdApi.GetChats(archiveList, 100)).chatIds.toList()
+                        if (updated.size >= archiveChatIds.size) archiveChatIds = updated
+                    }
+                }
+                val chatIds = mergeSelectableTelegramChatIds(
+                    mainChatIds, archiveChatIds, selectedIds, previouslySelected,
+                ).toMutableSet()
                 runCatching { activeClient.send(TdApi.CreatePrivateChat(userId, false)) }
                     .getOrNull()?.let { chatIds += it.id }
                 val loadedChats = chatIds.mapNotNull { chatId ->
@@ -1115,6 +1140,19 @@ class TdLibTelegramRepository @Inject constructor(
     }
 }
 
+/** Main first, then Archive, then persisted sources; preserve TDLib order and unique IDs. */
+internal fun mergeSelectableTelegramChatIds(
+    main: List<Long>,
+    archived: List<Long>,
+    selected: Set<Long>,
+    previouslySelected: Set<Long>,
+): List<Long> = LinkedHashSet<Long>().apply {
+    addAll(main)
+    addAll(archived)
+    addAll(selected)
+    addAll(previouslySelected)
+}.toList()
+
 /** Explicit rescans bypass incremental checkpoints and prune only after reaching history end. */
 internal fun telegramSyncCheckpoint(
     newestMessageId: Long?,
@@ -1191,6 +1229,7 @@ private fun TdApi.Chat.toSummary(
         kind = kind,
         selected = selected,
         profilePhotoRef = profilePhotoRef,
+        isArchived = chatLists.any { it is TdApi.ChatListArchive },
     )
 }
 

@@ -63,6 +63,7 @@ data class TelegramChatSummary(
     val kind: TelegramChatKind,
     val selected: Boolean,
     val profilePhotoRef: String? = null,
+    val isArchived: Boolean = false,
 )
 
 /** Telegram's own chat folders (not Meowzix music playlists). A chat may appear in several folders. */
