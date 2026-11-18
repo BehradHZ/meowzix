@@ -21,6 +21,8 @@ import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -53,6 +55,11 @@ internal fun SwipeableCollectionRow(
     onClick: () -> Unit,
     onPlayNext: (() -> Unit)? = null,
     onAddToQueue: (() -> Unit)? = null,
+    /** Clicking the card always opens details; this control selects the entire collection. */
+    onSelect: (() -> Unit)? = null,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    partiallySelected: Boolean = false,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var offsetX by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
@@ -67,7 +74,7 @@ internal fun SwipeableCollectionRow(
     )
     val swipeRight = visualOffset > 0f
     Box(modifier = Modifier.fillMaxWidth()) {
-        if (onPlayNext != null && onAddToQueue != null && kotlin.math.abs(visualOffset) > 0.5f) {
+        if (!selectionMode && onPlayNext != null && onAddToQueue != null && kotlin.math.abs(visualOffset) > 0.5f) {
             Surface(
                 modifier = Modifier.matchParentSize().drawWithContent {
                     val edge = visualOffset.coerceIn(-size.width, size.width)
@@ -102,8 +109,8 @@ internal fun SwipeableCollectionRow(
         Surface(
             modifier = Modifier.fillMaxWidth()
                 .graphicsLayer { translationX = visualOffset }
-                .pointerInput(title, onPlayNext, onAddToQueue) {
-                    if (onPlayNext != null && onAddToQueue != null) {
+                .pointerInput(title, onPlayNext, onAddToQueue, selectionMode) {
+                    if (!selectionMode && onPlayNext != null && onAddToQueue != null) {
                         detectHorizontalDragGestures(
                             onDragStart = { dragging = true },
                             onHorizontalDrag = { change, delta ->
@@ -154,7 +161,17 @@ internal fun SwipeableCollectionRow(
                     Text(subtitle, style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.70f))
                 }
-                if (onPlayNext != null && onAddToQueue != null) {
+                if (onSelect != null) {
+                    TriStateCheckbox(
+                        state = when {
+                            selected -> ToggleableState.On
+                            partiallySelected -> ToggleableState.Indeterminate
+                            else -> ToggleableState.Off
+                        },
+                        onClick = onSelect,
+                        modifier = Modifier.size(48.dp),
+                    )
+                } else if (onPlayNext != null && onAddToQueue != null) {
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(Icons.Rounded.MoreVert, contentDescription = "Queue actions")
