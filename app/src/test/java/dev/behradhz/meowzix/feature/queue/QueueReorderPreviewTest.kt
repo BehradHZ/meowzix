@@ -115,6 +115,65 @@ class QueueReorderPreviewTest {
         assertEquals(QueueSectionStartSlots(manual = 1, generated = 4), atBoundary)
     }
 
+    @Test fun `dragging a queued song does not visually move other queued songs into Next`() {
+        val playing = row().copy(origin = QueueItemOrigin.GENERATED)
+        val queued1 = row().copy(origin = QueueItemOrigin.MANUAL)
+        val queued2 = row().copy(origin = QueueItemOrigin.MANUAL)
+        val queued3 = row().copy(origin = QueueItemOrigin.MANUAL)
+        val next1 = row().copy(origin = QueueItemOrigin.GENERATED)
+        val next2 = row().copy(origin = QueueItemOrigin.GENERATED)
+        val original = indexedQueueItems(listOf(
+            playing, queued1, queued2, queued3, next1, next2,
+        )) { true }
+        val crossed = reorderPreviewItems(
+            original, queued2.occurrenceId, next2.occurrenceId,
+        )
+        val preview = keepQueuePreviewSections(
+            crossed, 0, queued2.occurrenceId, QueueItemOrigin.MANUAL,
+        )
+        assertEquals(
+            listOf(playing, queued1, queued3, queued2, next1, next2)
+                .map { it.occurrenceId },
+            preview.map { it.value.occurrenceId },
+        )
+        assertEquals(QueueSectionStartSlots(manual = 1, generated = 4),
+            queueSectionStartSlots(preview, 0))
+        assertEquals(listOf(queued1, queued2, queued3).map { it.occurrenceId }.toSet(),
+            preview.drop(1).take(3).map { it.value.occurrenceId }.toSet())
+    }
+
+    @Test fun `Next drag into Queue promotes only the dragged occurrence`() {
+        val playing = row().copy(origin = QueueItemOrigin.GENERATED)
+        val queued1 = row().copy(origin = QueueItemOrigin.MANUAL)
+        val queued2 = row().copy(origin = QueueItemOrigin.MANUAL)
+        val next1 = row().copy(origin = QueueItemOrigin.GENERATED)
+        val next2 = row().copy(origin = QueueItemOrigin.GENERATED)
+        val original = indexedQueueItems(listOf(
+            playing, queued1, queued2, next1, next2,
+        )) { true }
+        val crossed = reorderPreviewItems(original, next2.occurrenceId, next1.occurrenceId)
+        val preview = keepQueuePreviewSections(
+            crossed, 0, next2.occurrenceId, QueueItemOrigin.MANUAL,
+        )
+        assertEquals(listOf(playing, queued1, queued2, next2, next1)
+            .map { it.occurrenceId }, preview.map { it.value.occurrenceId })
+        assertEquals(QueueSectionStartSlots(manual = 1, generated = 4),
+            queueSectionStartSlots(preview, 0) { _, indexed ->
+                queuePreviewOrigin(indexed.value, next2.occurrenceId, QueueItemOrigin.MANUAL)
+            })
+        assertEquals(
+            QueuePreviewMove(4, 3, QueueItemOrigin.MANUAL),
+            resolveQueueBoundaryMove(original, preview, next2.occurrenceId,
+                QueueItemOrigin.MANUAL, firstNextSlot = 3),
+        )
+        // Crossing only the heading, without another midpoint, is still a move.
+        assertEquals(
+            QueuePreviewMove(3, 3, QueueItemOrigin.MANUAL),
+            resolveQueueBoundaryMove(original, original, next1.occurrenceId,
+                QueueItemOrigin.MANUAL, firstNextSlot = 3),
+        )
+    }
+
     private fun row(song: UUID = UUID.randomUUID(), occurrence: UUID = UUID.randomUUID()) =
         QueueItem(song, "Song", null, null, occurrenceId = occurrence)
 
