@@ -204,6 +204,11 @@ fun PlaylistsRoute(
     }
 
     var gridScrollToTopRequest by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    // Host this effect above the detail transition: the grid can be disposed and
+    // remounted, but a previous reselect must not scroll it on the first tap.
+    LaunchedEffect(gridScrollToTopRequest) {
+        if (gridScrollToTopRequest > 0) playlistGridState.animateScrollToItem(0)
+    }
     LaunchedEffect(reselectRequest) {
         if (reselectRequest <= 0) return@LaunchedEffect
         when (playlistDockReselectAction(selectedKey != null || showFavorites)) {
@@ -222,7 +227,6 @@ fun PlaylistsRoute(
         onGridSettled = viewModel::resetNavigationState,
         gridContent = {
             PlaylistsSectionV3(
-                scrollToTopRequest = gridScrollToTopRequest,
                 gridState = playlistGridState,
                 playlists = if (searchQuery.isBlank()) state.playlists else state.playlists.filter {
                     matchesGlobalSearch(searchQuery, it.title, it.description)

@@ -166,7 +166,6 @@ private enum class PlaylistGroupBy(val label: String) {
 
 @Composable
 internal fun PlaylistsSectionV3(
-    scrollToTopRequest: Int = 0,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState =
         androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
     playlists: List<PlaylistSummary>,
@@ -199,9 +198,6 @@ internal fun PlaylistsSectionV3(
         )
     }
 
-    LaunchedEffect(scrollToTopRequest) {
-        if (scrollToTopRequest > 0) gridState.animateScrollToItem(0)
-    }
     PlaylistGlassBackdrop(variation = 1) { hazeState ->
         Box(Modifier.fillMaxSize()) {
             GlassLazyVerticalGrid(
