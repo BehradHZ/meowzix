@@ -50,3 +50,21 @@ internal fun TdApi.File.readableEndAt(offset: Long): Long {
     if (offset < rangeStart || offset >= rangeEnd) return offset
     return minOf(rangeEnd, physicalLength)
 }
+
+/**
+ * A partial request is satisfied only by the contiguous bytes starting at its
+ * requested offset. Total downloaded bytes (including sparse ranges) are not
+ * evidence that Media3 can decode the beginning of a track.
+ */
+internal fun satisfiesDownloadRequest(
+    offset: Long,
+    limit: Long,
+    fileSize: Long,
+    readableEnd: Long,
+    completed: Boolean,
+): Boolean {
+    if (completed) return true
+    if (limit <= 0L) return false
+    val remaining = if (fileSize > 0L) (fileSize - offset).coerceAtLeast(0L) else limit
+    return readableEnd >= offset + minOf(limit, remaining)
+}

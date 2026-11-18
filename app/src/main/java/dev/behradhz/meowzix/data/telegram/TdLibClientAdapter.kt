@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.IOException
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.atomic.AtomicLong
@@ -76,17 +79,75 @@ class TdLibClientAdapter {
     suspend fun <R : TdApi.Object> send(function: TdApi.Function<R>): R {
         val target = activeInstance?.takeIf { it !== this } ?: this
         if (function is TdApi.DownloadFile) {
-            val key = "td:${function.fileId}:${function.offset}:${function.limit}:${function.synchronous}"
-            val result = ProcessTransferBudget.scheduler.run(
+            // A synchronous TDLib download can run for minutes. Holding one of our
+            // three transfer slots until it finishes starves streaming and seek
+            // requests, even when enough audio bytes are already cached.
+            // Start it asynchronously under the scheduler, then wait for its
+            // requested range outside the slot.
+            val request = TdApi.DownloadFile(
+                function.fileId, function.priority, function.offset, function.limit, false,
+            )
+            val key = "td:${function.fileId}:${function.offset}:${function.limit}:${function.priority}"
+            val result = ProcessTransferBudget.scheduler.runAndAwait(
                 physicalKey = key,
                 priority = transferPriority(function.priority),
-            ) {
-                target.sendDirect(function)
-            }
+                begin = {
+                    target.sendDirect(request).also(target.fileStates::publish)
+                },
+                await = { started ->
+                    if (function.synchronous) target.awaitDownloadCompletion(function, started)
+                    else started
+                },
+            )
             @Suppress("UNCHECKED_CAST")
             return result as R
         }
         return target.sendDirect(function)
+    }
+
+    /**
+     * Emulate synchronous DownloadFile without monopolizing the process-wide
+     * request scheduler. Progress is driven by TDLib UpdateFile; a bounded
+     * watchdog detects stopped/stalled requests instead of hanging forever.
+     */
+    private suspend fun awaitDownloadCompletion(
+        request: TdApi.DownloadFile,
+        initial: TdApi.File,
+    ): TdApi.File {
+        fun ready(file: TdApi.File): Boolean = satisfiesDownloadRequest(
+            offset = request.offset,
+            limit = request.limit,
+            fileSize = file.size.toLong(),
+            readableEnd = if (request.limit > 0L) file.readableEndAt(request.offset) else 0L,
+            completed = file.local.isDownloadingCompleted,
+        )
+
+        var current = initial
+        var lastProgress = initial.local.downloadedSize.toLong()
+        var stalledIntervals = 0
+        while (true) {
+            if (ready(current)) return current
+            val previousProgress = lastProgress
+            val next = withTimeoutOrNull(DOWNLOAD_UPDATE_WAIT_MS) {
+                fileStates.observe(request.fileId).first { file ->
+                    ready(file) ||
+                        file.local.downloadedSize.toLong() > previousProgress ||
+                        (!file.local.isDownloadingActive && file !== current)
+                }
+            }
+            current = next ?: refreshFileState(request.fileId)
+            if (ready(current)) return current
+            if (!current.local.isDownloadingActive) {
+                throw IOException("Telegram download stopped before the requested bytes were available")
+            }
+            val progress = current.local.downloadedSize.toLong()
+            if (progress > lastProgress) {
+                lastProgress = progress
+                stalledIntervals = 0
+            } else if (++stalledIntervals >= MAX_STALLED_DOWNLOAD_INTERVALS) {
+                throw IOException("Telegram download stalled while waiting for audio bytes")
+            }
+        }
     }
 
     private suspend fun <R : TdApi.Object> sendDirect(function: TdApi.Function<R>): R =
@@ -134,6 +195,8 @@ class TdLibClientAdapter {
     }
 
     companion object {
+        private const val DOWNLOAD_UPDATE_WAIT_MS = 15_000L
+        private const val MAX_STALLED_DOWNLOAD_INTERVALS = 4
         private val globalUpdateChannel = MutableSharedFlow<TdApi.Object>(replay = 1, extraBufferCapacity = 64)
         private val globalFailureChannel = MutableSharedFlow<Throwable>(replay = 1, extraBufferCapacity = 8)
         private val globalChatFolders = MutableStateFlow<List<TdApi.ChatFolderInfo>>(emptyList())

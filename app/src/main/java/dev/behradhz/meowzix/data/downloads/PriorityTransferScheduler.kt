@@ -85,6 +85,21 @@ open class TransferScheduler(
         }
     }
 
+    /**
+     * Only the TDLib request acknowledgement consumes a scheduler slot.
+     * Waiting for bytes outside this slot prevents ongoing downloads from starving
+     * the current track's non-blocking download/seek requests.
+     */
+    suspend fun <T : Any> runAndAwait(
+        physicalKey: String,
+        priority: TransferPriority,
+        begin: suspend () -> T,
+        await: suspend (T) -> T,
+    ): T {
+        val started = run(physicalKey, priority, begin)
+        return await(started)
+    }
+
     suspend fun snapshot(): TransferSchedulerSnapshot = mutex.withLock {
         TransferSchedulerSnapshot(
             active = activeCount,

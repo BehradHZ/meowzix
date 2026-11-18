@@ -26,6 +26,7 @@ import androidx.media3.common.Metadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
@@ -1397,6 +1398,14 @@ class PlaybackService : MediaLibraryService() {
             .setDataSourceFactory(MeowzixDataSourceFactory(this))
         return ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
+            // Start with a small playable-duration buffer, not a percentage of
+            // the Telegram download. The growing DataSource supplies more data
+            // as playback advances.
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(20_000, 50_000, 1_000, 2_000)
+                    .build()
+            )
             .setSeekForwardIncrementMs(FORWARD_INCREMENT_MS)
             .setAudioAttributes(playbackAudioAttributes, handleAudioFocus)
             .setHandleAudioBecomingNoisy(handleAudioFocus)
