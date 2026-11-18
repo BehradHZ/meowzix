@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onFirst
@@ -79,17 +78,17 @@ class QueueDragDockRegressionTest {
         compose.onAllNodesWithContentDescription("Drag to reorder").onFirst()
             .performTouchInput {
                 down(0, center)
-                movePointerBy(0, Offset(0f, 90f))
+                moveBy(0, Offset(0f, 90f))
                 advanceEventTime(80L)
                 // Reproduce dock interception changing while this pointer is held.
                 controls.dockTopY = 0f
-                movePointerBy(0, Offset(0f, 65f))
+                moveBy(0, Offset(0f, 65f))
                 // The list must remain scrollable using a different pointer.
                 down(1, center + Offset(70f, 130f))
-                movePointerBy(1, Offset(0f, -240f))
+                moveBy(1, Offset(0f, -240f))
                 advanceEventTime(100L)
                 up(1)
-                movePointerBy(0, Offset(0f, 25f))
+                moveBy(0, Offset(0f, 25f))
                 up(0)
             }
 
