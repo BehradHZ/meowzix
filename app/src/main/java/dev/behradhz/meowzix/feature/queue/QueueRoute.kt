@@ -264,6 +264,17 @@ internal fun queueRowBlockedByFloatingControls(
 ): Boolean = !rowBottomInWindow.isFinite() ||
     rowBottomInWindow > controlsTopInWindow - guardPx
 
+/** A partially hidden row can still be dragged when its handle is fully exposed. */
+internal fun queueDragHandleEnabled(
+    allowed: Boolean,
+    isDragging: Boolean,
+    handleBottomInWindow: Float,
+    controlsTopInWindow: Float,
+    guardPx: Float,
+): Boolean = allowed && (isDragging || !queueRowBlockedByFloatingControls(
+    handleBottomInWindow, controlsTopInWindow, guardPx,
+))
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun QueueScreen(
@@ -925,8 +936,9 @@ internal fun QueueScreen(
                             isCurrent = queueIndex == state.currentIndex,
                             isDragging = isDragging,
                             dragOffsetY = 0f,
-                            reorderEnabled = (!touchBlocked || isDragging) && !searchActive &&
-                                draggedGroupId == null && queueIndex != state.currentIndex,
+                            reorderEnabled = !searchActive && draggedGroupId == null &&
+                                queueIndex != state.currentIndex,
+                            protectDragHandleFromDock = !inlineMode,
                             interactionEnabled = !touchBlocked || isDragging,
                             onPlay = { if (!touchBlocked && state.items.getOrNull(queueIndex) == item) onPlay(queueIndex) },
                             onDragStart = { fingerYInWindow ->
@@ -1293,6 +1305,7 @@ private fun SwipeableQueueItem(
     isDragging: Boolean,
     dragOffsetY: Float,
     reorderEnabled: Boolean,
+    protectDragHandleFromDock: Boolean,
     onPlay: () -> Unit,
     onDragStart: (Float) -> Unit,
     onDrag: (Float) -> Unit,
@@ -1357,6 +1370,19 @@ private fun SwipeableQueueItem(
     var swipeStage by remember(item.occurrenceId) { mutableIntStateOf(0) }
     var horizontalDragActive by remember(item.occurrenceId) { mutableStateOf(false) }
     var handleTopInWindow by remember(item.occurrenceId) { mutableFloatStateOf(Float.NaN) }
+    var handleBottomInWindow by remember(item.occurrenceId) { mutableFloatStateOf(Float.NaN) }
+    val floatingTouchBounds = LocalFloatingControlsTouchBounds.current
+    val effectiveReorderEnabled = if (!protectDragHandleFromDock || floatingTouchBounds == null)
+        reorderEnabled
+    else queueDragHandleEnabled(
+        allowed = reorderEnabled,
+        isDragging = isDragging,
+        handleBottomInWindow = handleBottomInWindow,
+        controlsTopInWindow = minOf(
+            floatingTouchBounds.dockTopY, floatingTouchBounds.miniPlayerTopY,
+        ),
+        guardPx = with(LocalDensity.current) { 16.dp.toPx() },
+    )
     val draggingNow by rememberUpdatedState(isDragging)
     val visualOffsetX by animateFloatAsState(
         targetValue = swipeOffsetX,
@@ -1475,9 +1501,13 @@ private fun SwipeableQueueItem(
                 Box(
                     modifier = Modifier
                         .size(48.dp)
-                        .onGloballyPositioned { handleTopInWindow = it.boundsInWindow().top }
-                        .pointerInput(item.occurrenceId, reorderEnabled) {
-                            if (reorderEnabled) {
+                        .onGloballyPositioned {
+                            val windowBounds = it.boundsInWindow()
+                            handleTopInWindow = windowBounds.top
+                            handleBottomInWindow = windowBounds.bottom
+                        }
+                        .pointerInput(item.occurrenceId, effectiveReorderEnabled) {
+                            if (effectiveReorderEnabled) {
                                 detectDragGestures(
                                     onDragStart = { localTouch ->
                                         haptics.perform(MeowzixHapticCue.Threshold)
@@ -1499,9 +1529,10 @@ private fun SwipeableQueueItem(
                 ) {
                     Icon(
                         Icons.Rounded.DragHandle,
-                        contentDescription = if (reorderEnabled) "Drag to reorder" else "Reordering disabled while filtering",
+                        contentDescription = if (effectiveReorderEnabled) "Drag to reorder"
+                            else "Reordering unavailable in covered area or while filtering",
                         tint = (if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                            .copy(alpha = if (reorderEnabled) 1f else 0.28f),
+                            .copy(alpha = if (effectiveReorderEnabled) 1f else 0.28f),
                     )
                 }
                 if (showOverflowActions) Box {
