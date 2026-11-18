@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.navigation
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -224,6 +225,7 @@ fun MeowzixApp(
     val selectedDockRoute =
         if (currentRoute == SETTINGS_ROUTE || currentRoute in SETTINGS_CHILD_ROUTES) lastContentTab else currentRoute
     val searchActive = searchContextRoute != null
+    val librarySelectionVisible = currentRoute == LIBRARY_ROUTE && librarySelectionActive
     val searchScope = when (searchContextRoute) {
         LIBRARY_ROUTE -> DockSearchScope.LIBRARY
         PLAYLISTS_ROUTE -> DockSearchScope.PLAYLIST
@@ -239,10 +241,10 @@ fun MeowzixApp(
     var homeScrollToTopRequest by remember { mutableIntStateOf(0) }
     var scrollDelta by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 28.dp.toPx() }
-    val dockScrollConnection = remember(currentRoute, searchActive, threshold) {
+    val dockScrollConnection = remember(currentRoute, searchActive, librarySelectionVisible, threshold) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput || searchActive ||
+                if (source != NestedScrollSource.UserInput || searchActive || librarySelectionVisible ||
                     (currentRoute == QUEUE_ROUTE && queueReorderGestureState.active)
                 ) return Offset.Zero
                 val delta = available.y
@@ -268,7 +270,7 @@ fun MeowzixApp(
             ): Offset {
                 // At the true bottom of a scrollable page, the remaining upward
                 // drag is unconsumed. Expand the dock so the reserved footer is filled.
-                if (currentRoute == QUEUE_ROUTE && queueReorderGestureState.active) return Offset.Zero
+                if (librarySelectionVisible || (currentRoute == QUEUE_ROUTE && queueReorderGestureState.active)) return Offset.Zero
                 if (shouldExpandDockAtEnd(
                         isUserInput = source == NestedScrollSource.UserInput,
                         searchActive = searchActive,
@@ -284,7 +286,7 @@ fun MeowzixApp(
             }
         }
     }
-    LaunchedEffect(currentRoute, searchActive) {
+    LaunchedEffect(currentRoute, searchActive, librarySelectionVisible) {
         dockCompact = false
         reachedScrollEnd = false
         scrollDelta = 0f
@@ -389,7 +391,7 @@ fun MeowzixApp(
                 ),
             ),
             LocalDockLayout provides DockLayout(
-                compact = dockCompact && !searchActive,
+                compact = dockCompact && !searchActive && !librarySelectionVisible,
                 reduceMotion = reduceMotion,
             ),
             LocalFloatingControlsTouchBounds provides floatingTouchBounds,
@@ -593,7 +595,7 @@ fun MeowzixApp(
                     libraryDisplaySettings.selection.normalized().dock else emptyList(),
                 onSelectionAction = libraryTracksViewModel::requestSelectionAction,
                 searchActive = searchActive,
-                dockCompact = dockCompact,
+                dockCompact = dockCompact && !librarySelectionVisible,
                 searchPlaceholder = searchScope.placeholder,
                 searchQuery = searchQuery,
                 onSearchQueryChange = { searchQuery = it },
@@ -642,7 +644,7 @@ fun MeowzixApp(
                 state = playbackState,
                 viewModel = playerViewModel,
                 morphState = morphingPlayerState,
-                dockCompact = dockCompact && !searchActive,
+                dockCompact = dockCompact && !searchActive && !librarySelectionVisible,
                 onMiniPlayerTopInWindow = { floatingTouchBounds.miniPlayerTopY = it },
                 onOpenQueue = { navigateTopLevel(QUEUE_ROUTE) },
                 onGoToArtist = { artist ->
@@ -703,15 +705,8 @@ internal fun MorphingDock(
     selectionActions: List<LibrarySelectionAction> = emptyList(),
     onSelectionAction: (LibrarySelectionAction) -> Unit = {},
 ) {
-    if (selectionActions.size == 4 && !searchActive) {
-        SelectionActionDock(
-            hazeState = hazeState,
-            actions = selectionActions,
-            onAction = onSelectionAction,
-            onSearch = { onSelect(SEARCH_ROUTE) },
-        )
-        return
-    }
+    // Retain the very same glass surfaces while swapping dock content. Search must
+    // keep its reversible morph even when Library selection is active.
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     // Wait for the bubble to occupy the dock before the IME starts resizing the footer.
@@ -731,7 +726,7 @@ internal fun MorphingDock(
         animationSpec = dockSearchMorphSpec(searchActive, reduceMotion),
         label = "search-dock-morph",
     )
-    val compact = dockCompact && !searchActive
+    val compact = dockCompact && !searchActive && selectionActions.size != 4
     val morph by animateFloatAsState(
         targetValue = if (compact) 1f else 0f,
         animationSpec = dockMorphSpec(compact, reduceMotion),
@@ -770,29 +765,43 @@ internal fun MorphingDock(
                     .floatingChromeFrame(dockShape),
                 shape = dockShape,
             ) {
-                // The regular navigation icons fade before the expanding search
-                // bubble covers them; they never intercept taps during search.
+                // Crossfade the four destinations into contextual actions, without unmounting
+                // the dock or its Search bubble. Rapid enter/exit remains reversible.
                 if (expandedAlpha > 0.01f && navigationAlpha > 0.01f) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 5.dp, vertical = 7.dp)
-                            .graphicsLayer {
-                                compositingStrategy = CompositingStrategy.ModulateAlpha
-                                alpha = expandedAlpha
-                                translationX = -morph * 10.dp.toPx()
-                            },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    Box(
+                        modifier = Modifier.fillMaxSize().graphicsLayer {
+                            compositingStrategy = CompositingStrategy.ModulateAlpha
+                            alpha = expandedAlpha
+                            translationX = -morph * 10.dp.toPx()
+                        },
                     ) {
-                        destinations.forEach { destination ->
-                            DockItem(
-                                destination = destination,
-                                selected = selectedRoute == destination.route,
-                                onClick = { onSelect(destination.route) },
-                                modifier = Modifier.weight(1f),
-                                enabled = !searchActive && searchMorph < 0.06f && morph < 0.40f,
-                            )
+                        Crossfade(
+                            targetState = selectionActions.size == 4,
+                            animationSpec = tween(if (reduceMotion) 0 else 260),
+                            label = "library-selection-dock",
+                        ) { selecting ->
+                            if (selecting) {
+                                SelectionDockActions(
+                                    actions = selectionActions,
+                                    onAction = onSelectionAction,
+                                )
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = 5.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    destinations.forEach { destination ->
+                                        DockItem(
+                                            destination = destination,
+                                            selected = selectedRoute == destination.route,
+                                            onClick = { onSelect(destination.route) },
+                                            modifier = Modifier.weight(1f),
+                                            enabled = !searchActive && searchMorph < 0.06f && morph < 0.40f,
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

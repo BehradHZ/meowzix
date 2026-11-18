@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.feature.library
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +64,7 @@ internal fun SwipeableCollectionRow(
     partiallySelected: Boolean = false,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(selectionMode) { if (selectionMode) menuOpen = false }
     var offsetX by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -161,7 +164,12 @@ internal fun SwipeableCollectionRow(
                     Text(subtitle, style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.70f))
                 }
-                if (onSelect != null) {
+                Crossfade(
+                    targetState = selectionMode && onSelect != null,
+                    animationSpec = tween(240),
+                    label = "collection-selection-control",
+                ) { inSelection ->
+                if (inSelection && onSelect != null) {
                     TriStateCheckbox(
                         state = when {
                             selected -> ToggleableState.On
@@ -185,6 +193,7 @@ internal fun SwipeableCollectionRow(
                             })
                         }
                     }
+                }
                 }
             }
         }

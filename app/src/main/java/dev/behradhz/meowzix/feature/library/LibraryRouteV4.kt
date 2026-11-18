@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -449,19 +450,25 @@ internal fun LibraryRouteV4(
         }
     }
         }
-        MeowzixStickyHeader(
-            title = if (selecting) "Selected ${selectedTracks.size}" else "Library",
-            subtitle = if (selecting) "" else "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
-            hazeState = headerHazeState,
+        Crossfade(
+            targetState = selecting,
+            animationSpec = tween(240),
             modifier = Modifier.align(Alignment.TopCenter),
-            leadingActions = if (selecting) {
-                { MeowzixHeaderAction("Cancel selection", Icons.Rounded.Close, tracksViewModel::cancelSelection) }
-            } else null,
-        ) {
-            if (selecting) LibrarySelectionMoreMenu(
-                actions = displaySettings.selection.normalized().more,
-                onAction = tracksViewModel::requestSelectionAction,
-            )
+            label = "library-selection-header",
+        ) { selectionHeader ->
+            MeowzixStickyHeader(
+                title = if (selectionHeader) "Selected ${selectedTracks.size}" else "Library",
+                subtitle = if (selectionHeader) "" else "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
+                hazeState = headerHazeState,
+                leadingActions = if (selectionHeader) {
+                    { MeowzixHeaderAction("Cancel selection", Icons.Rounded.Close, tracksViewModel::cancelSelection) }
+                } else null,
+            ) {
+                if (selectionHeader) LibrarySelectionMoreMenu(
+                    actions = displaySettings.selection.normalized().more,
+                    onAction = tracksViewModel::requestSelectionAction,
+                )
+            }
         }
     }
 
@@ -698,23 +705,29 @@ private fun LibraryDetailV4(
                 }
             }
         }
-        MeowzixStickyHeader(
-            title = if (selecting) "Selected ${selectedTracks.size}" else title,
-            subtitle = if (selecting) "" else "${tracks.size} tracks",
-            hazeState = hazeState,
+        Crossfade(
+            targetState = selecting,
+            animationSpec = tween(240),
             modifier = Modifier.align(Alignment.TopCenter),
-            leadingActions = {
-                if (selecting) MeowzixHeaderAction("Cancel selection", Icons.Rounded.Close, onCancelSelection)
-                else MeowzixHeaderAction("Back to library", Icons.Rounded.ArrowBack, onBack)
-            },
-        ) {
-            if (selecting) {
-                LibrarySelectionMoreMenu(moreActions, onSelectionAction, onSelectAll = onSelectAll)
-            } else if (tracks.isNotEmpty()) {
-                MeowzixHeaderAction("Select all", Icons.Rounded.SelectAll, onSelectAll)
-                MeowzixHeaderAction("Play", Icons.Rounded.PlayArrow, {
-                    viewModel.playCollection(tracks, PlaybackMode.ORDERED)
-                })
+            label = "collection-selection-header",
+        ) { selectionHeader ->
+            MeowzixStickyHeader(
+                title = if (selectionHeader) "Selected ${selectedTracks.size}" else title,
+                subtitle = if (selectionHeader) "" else "${tracks.size} tracks",
+                hazeState = hazeState,
+                leadingActions = {
+                    if (selectionHeader) MeowzixHeaderAction("Cancel selection", Icons.Rounded.Close, onCancelSelection)
+                    else MeowzixHeaderAction("Back to library", Icons.Rounded.ArrowBack, onBack)
+                },
+            ) {
+                if (selectionHeader) {
+                    LibrarySelectionMoreMenu(moreActions, onSelectionAction, onSelectAll = onSelectAll)
+                } else if (tracks.isNotEmpty()) {
+                    MeowzixHeaderAction("Select all", Icons.Rounded.SelectAll, onSelectAll)
+                    MeowzixHeaderAction("Play", Icons.Rounded.PlayArrow, {
+                        viewModel.playCollection(tracks, PlaybackMode.ORDERED)
+                    })
+                }
             }
         }
     }

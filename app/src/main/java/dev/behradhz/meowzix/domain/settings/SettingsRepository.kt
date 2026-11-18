@@ -33,7 +33,7 @@ enum class LibrarySelectionAction(val label: String) {
     DELETE("Delete"),
     PLAY_NEXT("Play next"),
     ADD_TO_PLAYLIST("Add to playlist"),
-    SHARE("Share"),
+    SHARE("Forward"),
     ADD_TO_QUEUE("Add to queue"),
     DOWNLOAD("Download"),
     LIKE("Like"),

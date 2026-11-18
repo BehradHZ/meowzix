@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.feature.library
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
@@ -337,6 +338,7 @@ private fun LibraryTrackRowContent(
     val forwardAction = LocalTrackForwardAction.current
     val chatLinkActions = LocalTrackChatLinkActions.current
     var menuExpanded by remember(track.id) { mutableStateOf(false) }
+    LaunchedEffect(selectionMode) { if (selectionMode) menuExpanded = false }
     val lifecycleOwner = LocalLifecycleOwner.current
     // Register only for the expanded popup, not for every item in the paged Library list.
     DisposableEffect(lifecycleOwner, menuExpanded) {
@@ -468,7 +470,12 @@ private fun LibraryTrackRowContent(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
             )
-            if (selectionMode) {
+            Crossfade(
+                targetState = selectionMode,
+                animationSpec = tween(if (reduceMotion) 0 else 240),
+                label = "track-selection-control",
+            ) { inSelection ->
+            if (inSelection) {
                 Checkbox(
                     checked = selected,
                     onCheckedChange = { onSelect?.invoke() },
@@ -528,6 +535,7 @@ private fun LibraryTrackRowContent(
                         canRemoveFromLibrary = canRemoveFromLibrary,
                     )
                 }
+            }
             }
             // Always reserve this slot, including for already-seen songs. The overflow
             // buttons therefore share one vertical axis while the dot fades in/out.
