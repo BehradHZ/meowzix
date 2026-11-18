@@ -849,7 +849,7 @@ internal fun QueueScreen(
             },
     ) {
         GlassLazyColumn(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().testTag("queue-list")
                 .then(if (inlineMode) Modifier else Modifier.statusBarsPadding())
                 .onGloballyPositioned { listTopInWindow = it.boundsInWindow().top }
                 .hazeSource(feedbackHazeState),
