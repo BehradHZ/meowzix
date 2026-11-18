@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.playback.QueueItemOrigin
 import dev.behradhz.meowzix.domain.playback.QueueGroupKind
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
@@ -268,6 +269,9 @@ class ResolvingPlaybackController @Inject constructor(
     }
 
     override fun move(fromIndex: Int, toIndex: Int) = delegate.move(fromIndex, toIndex)
+
+    override fun move(fromIndex: Int, toIndex: Int, destinationOrigin: QueueItemOrigin) =
+        delegate.move(fromIndex, toIndex, destinationOrigin)
 
     override fun clear() = delegate.clear()
 
