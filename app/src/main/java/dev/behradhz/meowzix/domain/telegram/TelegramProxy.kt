@@ -89,11 +89,12 @@ fun telegramProxyBadge(enabled: Boolean, status: TelegramConnectionStatus): Tele
 /** Reads only Telegram's documented proxy links, never arbitrary URLs or clipboard content. */
 object TelegramProxyLinkParser {
     private val candidate = Regex(
-        """(?i)(?:tg://|https?://|(?:www\.)?(?:t\.me|telegram\.me)/)(?:proxy|socks)\?[^\s<>"']+""",
+        """(?i)(?<![\w@./-])(?:tg://(?:proxy|socks)|(?:(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me)/(?:proxy|socks)))\?[^\s<>"']+""",
     )
 
+    // Clipboard and pasted messages may contain several links: skip malformed ones.
     fun findIn(text: String): TelegramProxyDraft? =
-        candidate.find(text)?.value?.let(::parse)
+        candidate.findAll(text).firstNotNullOfOrNull { parse(it.value) }
 
     fun parse(text: String): TelegramProxyDraft? = runCatching {
         val value = text.trim().trimEnd('.', ',', ')', ']', '}')
