@@ -121,6 +121,7 @@ fun PlaylistsRoute(
     val collapsedTelegramSections by viewModel.collapsedTelegramPlaylistSections.collectAsStateWithLifecycle(
         initialValue = emptySet(),
     )
+    val playlistGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val audioPermission = AudioPermission.requiredPermission()
@@ -217,6 +218,7 @@ fun PlaylistsRoute(
         gridContent = {
             PlaylistsSectionV3(
                 scrollToTopRequest = gridScrollToTopRequest,
+                gridState = playlistGridState,
                 playlists = if (searchQuery.isBlank()) state.playlists else state.playlists.filter {
                     matchesGlobalSearch(searchQuery, it.title, it.description)
                 },

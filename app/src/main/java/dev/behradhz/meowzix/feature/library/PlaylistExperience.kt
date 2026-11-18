@@ -167,6 +167,8 @@ private enum class PlaylistGroupBy(val label: String) {
 @Composable
 internal fun PlaylistsSectionV3(
     scrollToTopRequest: Int = 0,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState =
+        androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
     playlists: List<PlaylistSummary>,
     playlistArtwork: Map<UUID, String?>,
     newTracksByPlaylist: Map<UUID, Set<UUID>> = emptyMap(),
@@ -197,7 +199,6 @@ internal fun PlaylistsSectionV3(
         )
     }
 
-    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     LaunchedEffect(scrollToTopRequest) {
         if (scrollToTopRequest > 0) gridState.animateScrollToItem(0)
     }
