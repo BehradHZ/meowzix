@@ -23,7 +23,7 @@ internal fun LibrarySelectionMoreMenu(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        MeowzixHeaderAction("More selection actions", Icons.Rounded.MoreVert) { expanded = true }
+        MeowzixHeaderAction("More selection actions", Icons.Rounded.MoreVert, { expanded = true })
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (onSelectAll != null) {
                 DropdownMenuItem(text = { Text("Select / deselect all") }, onClick = {
