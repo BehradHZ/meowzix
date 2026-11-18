@@ -45,8 +45,8 @@ android {
         applicationId = "dev.behradhz.meowzix"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.8"
+        versionCode = 14
+        versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TELEGRAM_API_ID", telegramApiId.asBuildConfigString())
         buildConfigField("String", "TELEGRAM_API_HASH", telegramApiHash.asBuildConfigString())
