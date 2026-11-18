@@ -4,7 +4,6 @@ import android.graphics.Rect as AndroidRect
 import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.ScrollIndicatorState
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.ScrollableDefaults
@@ -25,7 +24,6 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,8 +49,6 @@ import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** Shared glass fast-scrollbar: native pixel scrolling, no extra layout or overlay. */
@@ -141,7 +137,6 @@ private fun Modifier.glassFastScroll(
     val accent = MaterialTheme.colorScheme.primary
     val foreground = MaterialTheme.colorScheme.onSurface
     val haptics = rememberMeowzixHaptics()
-    val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val view = LocalView.current
 
@@ -234,22 +229,11 @@ private fun Modifier.glassFastScroll(
                 dragging = true
                 haptics.perform(MeowzixHapticCue.DragStart)
 
-                // awaitPointerEvent runs in a restricted-suspension scope. A single
-                // conflated worker owns the ScrollScope for the entire drag. It handles
-                // the latest finger position without competing per-event scroll jobs.
-                val targets = Channel<Float>(Channel.CONFLATED)
-                scope.launch {
-                    scrollable.scroll(MutatePriority.UserInput) {
-                        var appliedFraction = metrics.fraction
-                        for (fraction in targets) {
-                            val delta = fastScrollbarContentDelta(
-                                appliedFraction, fraction, metrics.scrollRangePx,
-                            )
-                            appliedFraction = fraction
-                            if (delta != 0f) scrollBy(delta)
-                        }
-                    }
-                }
+                // Apply each drag delta synchronously. A deferred/conflated worker
+                // can lose a short scrub when Down, Move and Up arrive in one frame.
+                // The scrollbar itself owns this pointer; do not start a competing
+                // scroll coroutine that can outlive the finished gesture.
+                var appliedFraction = metrics.fraction
                 try {
                     down.consume()
                     while (true) {
@@ -260,11 +244,14 @@ private fun Modifier.glassFastScroll(
                             change.position.y - grabOffsetY, geometry,
                         )
                         dragFraction = fraction
-                        targets.trySend(fraction)
+                        val delta = fastScrollbarContentDelta(
+                            appliedFraction, fraction, metrics.scrollRangePx,
+                        )
+                        appliedFraction = fraction
+                        if (delta != 0f) scrollable.dispatchRawDelta(delta)
                         change.consume()
                     }
                 } finally {
-                    targets.close()
                     dragging = false
                     haptics.perform(MeowzixHapticCue.DragDrop)
                 }
