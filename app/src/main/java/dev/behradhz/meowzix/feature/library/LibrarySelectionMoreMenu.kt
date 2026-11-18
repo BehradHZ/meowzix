@@ -19,11 +19,18 @@ import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 internal fun LibrarySelectionMoreMenu(
     actions: List<LibrarySelectionAction>,
     onAction: (LibrarySelectionAction) -> Unit,
+    onSelectAll: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         MeowzixHeaderAction("More selection actions", Icons.Rounded.MoreVert) { expanded = true }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (onSelectAll != null) {
+                DropdownMenuItem(text = { Text("Select / deselect all") }, onClick = {
+                    expanded = false
+                    onSelectAll()
+                })
+            }
             if (actions.isEmpty()) {
                 DropdownMenuItem(
                     text = { Text("Configure in Settings") },
