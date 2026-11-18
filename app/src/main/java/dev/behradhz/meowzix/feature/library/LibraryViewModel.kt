@@ -26,6 +26,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.settings.TelegramPlaylistSection
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
@@ -97,6 +98,12 @@ class LibraryViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
+    val collapsedTelegramPlaylistSections = settingsRepository.collapsedTelegramPlaylistSections
+
+    fun setTelegramPlaylistSectionExpanded(playlistId: UUID, section: TelegramPlaylistSection, expanded: Boolean) =
+        viewModelScope.launch {
+            settingsRepository.setTelegramPlaylistSectionExpanded(playlistId, section, expanded)
+        }
     private var favoriteTracksSnapshot: List<Track> = emptyList()
     private var activeTrackSnapshot: Track? = null
     private var playlistTracksJob: Job? = null

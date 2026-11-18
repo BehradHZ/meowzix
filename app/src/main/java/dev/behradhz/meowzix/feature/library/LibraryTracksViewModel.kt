@@ -130,22 +130,24 @@ class LibraryTracksViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun toggleTrackSelection(track: Track) {
-        _selectionActive.value = true
         _selectedTracks.update { current ->
-            if (current.containsKey(track.id)) current - track.id
-            else current + (track.id to track)
+            toggleSelectedEntries(current, mapOf(track.id to track))
         }
+        finishSelectionWhenEmpty()
     }
 
     /** A collection checkbox toggles the complete collection, not just the filtered screen. */
     private fun toggleCollectionSelection(tracks: List<Track>) {
         if (tracks.isEmpty()) return
-        _selectionActive.value = true
-        val ids = tracks.mapTo(hashSetOf(), Track::id)
         _selectedTracks.update { current ->
-            if (ids.all(current::containsKey)) current - ids
-            else current + tracks.associateBy(Track::id)
+            toggleSelectedEntries(current, tracks.associateBy(Track::id))
         }
+        finishSelectionWhenEmpty()
+    }
+
+    private fun finishSelectionWhenEmpty() {
+        if (_selectedTracks.value.isEmpty()) cancelSelection()
+        else _selectionActive.value = true
     }
 
     fun toggleArtistSelection(artist: ArtistSummary) = viewModelScope.launch {

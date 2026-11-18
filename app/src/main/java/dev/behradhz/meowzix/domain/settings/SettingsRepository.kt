@@ -28,6 +28,18 @@ data class TelegramForwardSettings(
 enum class LibrarySortMode { RECENTLY_ADDED, OLDEST_ADDED, TITLE_ASC, TITLE_DESC, ARTIST_ASC }
 enum class LibraryGroupMode { NONE, ARTIST, ALBUM, YEAR }
 
+/** Telegram person playlists have two independent sections and independent saved states. */
+enum class TelegramPlaylistSection { PROFILE_MUSIC, SHARED_IN_CHAT }
+
+fun telegramPlaylistSectionKey(playlistId: UUID, section: TelegramPlaylistSection): String =
+    "$playlistId:${section.name}"
+
+fun isTelegramPlaylistSectionExpanded(
+    collapsedSections: Set<String>,
+    playlistId: UUID,
+    section: TelegramPlaylistSection,
+): Boolean = telegramPlaylistSectionKey(playlistId, section) !in collapsedSections
+
 /** Actions for the four fixed Selection Dock positions and optional More menu. */
 enum class LibrarySelectionAction(val label: String) {
     DELETE("Delete"),
@@ -155,6 +167,7 @@ interface SettingsRepository {
     val storagePolicySettings: Flow<StoragePolicySettings>
     val telegramForwardSettings: Flow<TelegramForwardSettings>
     val libraryDisplaySettings: Flow<LibraryDisplaySettings>
+    val collapsedTelegramPlaylistSections: Flow<Set<String>> get() = flowOf(emptySet())
     val appearanceSettings: Flow<AppearanceSettings>
     val playbackPreferenceSettings: Flow<PlaybackPreferenceSettings>
     val recentShuffleTrackIds: Flow<List<UUID>> get() = flowOf(emptyList())
@@ -171,6 +184,11 @@ interface SettingsRepository {
     suspend fun setLibraryGroupMode(mode: LibraryGroupMode)
     suspend fun setHighlightNewTelegramTracks(enabled: Boolean) {}
     suspend fun setLibrarySelectionSettings(value: LibrarySelectionSettings) {}
+    suspend fun setTelegramPlaylistSectionExpanded(
+        playlistId: UUID,
+        section: TelegramPlaylistSection,
+        expanded: Boolean,
+    ) {}
     suspend fun setWidgetTheme(mode: WidgetThemeMode)
     suspend fun setThemePreference(theme: ThemePreference)
     suspend fun setColorThemePreference(colorTheme: ColorThemePreference)

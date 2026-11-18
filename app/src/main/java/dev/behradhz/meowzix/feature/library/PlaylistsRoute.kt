@@ -117,6 +117,9 @@ fun PlaylistsRoute(
     reduceMotion: Boolean = false,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val collapsedTelegramSections by viewModel.collapsedTelegramPlaylistSections.collectAsStateWithLifecycle(
+        initialValue = emptySet(),
+    )
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val audioPermission = AudioPermission.requiredPermission()
@@ -322,6 +325,10 @@ fun PlaylistsRoute(
                 profileRefreshStatus = state.personProfileRefreshStatus,
                 profileRefreshError = state.personProfileRefreshError,
                 onRefreshProfile = viewModel::refreshSelectedPersonProfile,
+                collapsedTelegramSections = collapsedTelegramSections,
+                onTelegramSectionExpandedChange = { section, expanded ->
+                    playlistId?.let { viewModel.setTelegramPlaylistSectionExpanded(it, section, expanded) }
+                },
                 onGoToArtist = { track ->
                     closeDetail()
                     viewModel.resetNavigationState()

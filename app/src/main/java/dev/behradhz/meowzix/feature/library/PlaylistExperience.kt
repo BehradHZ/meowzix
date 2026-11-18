@@ -396,6 +396,9 @@ internal fun PlaylistDetailScreenV3(
     profileRefreshStatus: String? = null,
     profileRefreshError: String? = null,
     onRefreshProfile: () -> Unit = {},
+    collapsedTelegramSections: Set<String> = emptySet(),
+    onTelegramSectionExpandedChange:
+        (dev.behradhz.meowzix.domain.settings.TelegramPlaylistSection, Boolean) -> Unit = { _, _ -> },
     refreshing: Boolean = false,
     refreshError: String? = null,
     refreshStatus: String? = null,
@@ -458,12 +461,27 @@ internal fun PlaylistDetailScreenV3(
     var bulkPlaylistMenu by remember { mutableStateOf(false) }
     var showBulkLibraryRemoval by rememberSaveable(playlist?.id, isFavorites) { mutableStateOf(false) }
     BackHandler(enabled = isActive && selectionMode) { selectionMode = false; selectedIds = emptySet() }
-    LaunchedEffect(tracks) { selectedIds = selectedIds.intersect(tracks.map(Track::id).toSet()) }
+    LaunchedEffect(tracks) {
+        val kept = selectedIds.intersect(tracks.map(Track::id).toSet())
+        if (selectionMode && selectedIds.isNotEmpty() && kept.isEmpty()) selectionMode = false
+        selectedIds = kept
+    }
     val showProfileSections = telegramPerson && playlist?.telegramManaged == true && !isFavorites
-    var profileSectionExpanded by rememberSaveable(playlist?.id, isFavorites) { mutableStateOf(true) }
-    var chatSectionExpanded by rememberSaveable(playlist?.id, isFavorites) { mutableStateOf(true) }
+    val profileSectionExpanded = playlist?.id?.let {
+        dev.behradhz.meowzix.domain.settings.isTelegramPlaylistSectionExpanded(
+            collapsedTelegramSections, it,
+            dev.behradhz.meowzix.domain.settings.TelegramPlaylistSection.PROFILE_MUSIC,
+        )
+    } ?: true
+    val chatSectionExpanded = playlist?.id?.let {
+        dev.behradhz.meowzix.domain.settings.isTelegramPlaylistSectionExpanded(
+            collapsedTelegramSections, it,
+            dev.behradhz.meowzix.domain.settings.TelegramPlaylistSection.SHARED_IN_CHAT,
+        )
+    } ?: true
     fun toggleSelection(trackId: UUID) {
         selectedIds = if (trackId in selectedIds) selectedIds - trackId else selectedIds + trackId
+        if (selectedIds.isEmpty()) selectionMode = false
     }
 
     var sort by rememberSaveable { mutableStateOf(PlaylistTrackSort.CUSTOM) }
@@ -1080,8 +1098,14 @@ internal fun PlaylistDetailScreenV3(
                                 )
                                 val toggle = if (expandable) Modifier.clickable(role = Role.Button) {
                                     when (groupTitle) {
-                                        "Profile music" -> profileSectionExpanded = !profileSectionExpanded
-                                        "Shared in chat" -> chatSectionExpanded = !chatSectionExpanded
+                                        "Profile music" -> onTelegramSectionExpandedChange(
+                                            dev.behradhz.meowzix.domain.settings.TelegramPlaylistSection.PROFILE_MUSIC,
+                                            !profileSectionExpanded,
+                                        )
+                                        "Shared in chat" -> onTelegramSectionExpandedChange(
+                                            dev.behradhz.meowzix.domain.settings.TelegramPlaylistSection.SHARED_IN_CHAT,
+                                            !chatSectionExpanded,
+                                        )
                                     }
                                 } else Modifier
                                 Row(

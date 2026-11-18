@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -33,6 +34,8 @@ import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
+import dev.behradhz.meowzix.domain.settings.TelegramPlaylistSection
+import dev.behradhz.meowzix.domain.settings.telegramPlaylistSectionKey
 import dev.behradhz.meowzix.domain.settings.ThemePreference
 import dev.behradhz.meowzix.domain.settings.WidgetThemeMode
 import java.io.IOException
@@ -75,6 +78,10 @@ class DataStoreSettingsRepository @Inject constructor(
             includeSourceAttribution = values[FORWARD_INCLUDE_SOURCE] ?: true,
             keepCaption = values[FORWARD_KEEP_CAPTION] ?: true,
         )
+    }
+
+    override val collapsedTelegramPlaylistSections: Flow<Set<String>> = safeData.map { values ->
+        values[COLLAPSED_TELEGRAM_PLAYLIST_SECTIONS].orEmpty()
     }
 
     override val libraryDisplaySettings: Flow<LibraryDisplaySettings> = safeData.map { values ->
@@ -228,6 +235,19 @@ class DataStoreSettingsRepository @Inject constructor(
             prefs[LIBRARY_SELECTION_MORE] = safe.more.joinToString(",") { it.name }
         }
     }
+
+    override suspend fun setTelegramPlaylistSectionExpanded(
+        playlistId: UUID,
+        section: TelegramPlaylistSection,
+        expanded: Boolean,
+    ) {
+        val key = telegramPlaylistSectionKey(playlistId, section)
+        context.settingsDataStore.edit { prefs ->
+            val collapsed = prefs[COLLAPSED_TELEGRAM_PLAYLIST_SECTIONS].orEmpty().toMutableSet()
+            if (expanded) collapsed.remove(key) else collapsed.add(key)
+            prefs[COLLAPSED_TELEGRAM_PLAYLIST_SECTIONS] = collapsed
+        }
+    }
     override suspend fun setWidgetTheme(mode: WidgetThemeMode) = setEnum(WIDGET_THEME, mode)
     override suspend fun setThemePreference(theme: ThemePreference) = setEnum(THEME, theme)
     override suspend fun setColorThemePreference(colorTheme: ColorThemePreference) = setEnum(COLOR_THEME, colorTheme)
@@ -270,6 +290,8 @@ class DataStoreSettingsRepository @Inject constructor(
         val HIGHLIGHT_NEW_TELEGRAM_TRACKS = booleanPreferencesKey("highlight_new_telegram_tracks")
         val LIBRARY_SELECTION_DOCK = stringPreferencesKey("library_selection_dock")
         val LIBRARY_SELECTION_MORE = stringPreferencesKey("library_selection_more")
+        val COLLAPSED_TELEGRAM_PLAYLIST_SECTIONS =
+            stringSetPreferencesKey("collapsed_telegram_playlist_sections")
         val THEME = stringPreferencesKey("theme_preference")
         val WIDGET_THEME = stringPreferencesKey("widget_theme_mode")
         val COLOR_THEME = stringPreferencesKey("color_theme_preference")
