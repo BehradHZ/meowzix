@@ -26,7 +26,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import dev.behradhz.meowzix.domain.settings.DEFAULT_SELECTION_DOCK
-import androidx.compose.ui.test.assertExists
 
 @RunWith(AndroidJUnit4::class)
 class CompactDockInteractionTest {
