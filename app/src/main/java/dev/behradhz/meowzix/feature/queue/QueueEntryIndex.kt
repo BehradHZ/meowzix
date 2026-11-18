@@ -11,6 +11,29 @@ internal fun indexedQueueItems(
     matches: (QueueItem) -> Boolean,
 ): List<IndexedValue<QueueItem>> = items.withIndex().filter { matches(it.value) }
 
+/** Render each queue lane heading exactly once, regardless of preview item order. */
+internal data class QueueSectionStartSlots(val manual: Int?, val generated: Int?)
+
+internal fun queueSectionStartSlots(
+    rows: List<IndexedValue<QueueItem>>,
+    currentIndex: Int,
+    originAtSlot: (Int, IndexedValue<QueueItem>) ->
+        dev.behradhz.meowzix.domain.playback.QueueItemOrigin = { _, entry -> entry.value.origin },
+): QueueSectionStartSlots {
+    var manual: Int? = null
+    var generated: Int? = null
+    rows.forEachIndexed { slot, row ->
+        if (row.index <= currentIndex) return@forEachIndexed
+        when (originAtSlot(slot, row)) {
+            dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL ->
+                if (manual == null) manual = slot
+            dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED ->
+                if (generated == null) generated = slot
+        }
+    }
+    return QueueSectionStartSlots(manual = manual, generated = generated)
+}
+
 /** Visible-row center in LazyColumn viewport coordinates. */
 internal data class QueueDragTarget(
     val occurrenceId: java.util.UUID,
