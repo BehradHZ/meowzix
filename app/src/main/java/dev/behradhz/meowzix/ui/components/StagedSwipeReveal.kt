@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.Icon
@@ -99,7 +99,7 @@ fun BoxScope.StagedSwipeReveal(
         offsetPx, animatedExitProgress, cornerOverlapPx,
     )
 
-    // Actions are full rectangular surfaces stacked underneath the foreground
+    // Actions are full rounded surfaces stacked underneath the foreground
     // song card. Remove stays beneath the opaque primary layer until the
     // secondary threshold; then Play Next slides out of the exposed area.
     // The moving song-card silhouette (not a vertical gutter) masks BOTH
@@ -108,7 +108,7 @@ fun BoxScope.StagedSwipeReveal(
         if (secondaryLabel != null) {
             Surface(
                 modifier = Modifier.matchParentSize(),
-                shape = RectangleShape,
+                shape = RoundedCornerShape(18.dp),
                 color = if (secondaryIsDestructive) {
                     MaterialTheme.colorScheme.error.copy(alpha = 0.22f)
                 } else {
@@ -125,7 +125,7 @@ fun BoxScope.StagedSwipeReveal(
         Surface(
             modifier = Modifier.matchParentSize()
                 .graphicsLayer { translationX = primarySlidePx },
-            shape = RectangleShape,
+            shape = RoundedCornerShape(18.dp),
             // The first layer MUST be opaque or Remove leaks through before
             // the staged transition even when the main song card is masked.
             color = (if (swipingRight) MaterialTheme.colorScheme.primaryContainer
