@@ -18,6 +18,8 @@ import dev.behradhz.meowzix.domain.playback.QueueItemOrigin
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.navigation.FloatingControlsTouchBounds
 import dev.behradhz.meowzix.navigation.LocalFloatingControlsTouchBounds
+import dev.behradhz.meowzix.navigation.LocalQueueReorderGestureState
+import dev.behradhz.meowzix.navigation.QueueReorderGestureState
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 import java.util.UUID
 import org.junit.Assert.assertEquals
@@ -46,10 +48,14 @@ class QueueDragDockRegressionTest {
             miniPlayerTopY = Float.POSITIVE_INFINITY
         }
         val moves = mutableListOf<Triple<Int, Int, QueueItemOrigin>>()
+        val reorderSession = QueueReorderGestureState()
 
         compose.setContent {
             MeowzixTheme(darkTheme = true) {
-                CompositionLocalProvider(LocalFloatingControlsTouchBounds provides controls) {
+                CompositionLocalProvider(
+                    LocalFloatingControlsTouchBounds provides controls,
+                    LocalQueueReorderGestureState provides reorderSession,
+                ) {
                     Box(Modifier.fillMaxWidth().height(600.dp)) {
                         QueueScreen(
                             state = QueueState(items = items, currentIndex = 0),
@@ -75,22 +81,29 @@ class QueueDragDockRegressionTest {
             }
         }
 
-        compose.onAllNodesWithContentDescription("Drag to reorder").onFirst()
-            .performTouchInput {
-                down(0, center)
-                moveBy(0, Offset(0f, 90f))
-                advanceEventTime(80L)
-                // Reproduce dock interception changing while this pointer is held.
-                controls.dockTopY = 0f
-                moveBy(0, Offset(0f, 65f))
-                // The list must remain scrollable using a different pointer.
-                down(1, center + Offset(70f, 130f))
-                moveBy(1, Offset(0f, -240f))
-                advanceEventTime(100L)
-                up(1)
-                moveBy(0, Offset(0f, 25f))
-                up(0)
-            }
+        val dragHandle = compose.onAllNodesWithContentDescription("Drag to reorder").onFirst()
+        // The gesture is intentionally split: Compose batches events within a
+        // performTouchInput block. Safe-zone changes must occur only after the
+        // initial drag has actually been recognized.
+        dragHandle.performTouchInput {
+            down(0, center)
+            moveBy(0, Offset(0f, 90f))
+            advanceEventTime(80L)
+        }
+        compose.runOnUiThread {
+            assertTrue("The first phase must start a real Queue drag", reorderSession.active)
+            controls.dockTopY = 0f
+        }
+        dragHandle.performTouchInput {
+            moveBy(0, Offset(0f, 65f))
+            // A separate pointer scrolls the Queue while the first remains held.
+            down(1, center + Offset(70f, 130f))
+            moveBy(1, Offset(0f, -240f))
+            advanceEventTime(100L)
+            up(1)
+            moveBy(0, Offset(0f, 25f))
+            up(0)
+        }
 
         compose.waitForIdle()
         compose.onNodeWithTag("queue-drag-preview").assertDoesNotExist()
