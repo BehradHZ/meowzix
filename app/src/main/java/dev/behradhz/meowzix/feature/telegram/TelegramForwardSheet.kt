@@ -44,6 +44,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -417,7 +418,7 @@ private fun ForwardPickerBody(
                 .then(
                     if (floatingOverlay) Modifier.height(maxPanelHeight)
                         .border(1.dp, TelegramGlassStroke, sheetShape)
-                    else Modifier.fillMaxHeight(0.90f)
+                    else Modifier.fillMaxHeight()
                 )
                 .pointerInput(trackId) {
                     awaitPointerEventScope {
@@ -683,6 +684,7 @@ private fun ForwardPickerBody(
         body()
     } else {
         ModalBottomSheet(
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             onDismissRequest = dismissWithMotion,
             containerColor = Color.Transparent,
             scrimColor = Color.Black.copy(alpha = 0.66f),
@@ -1118,7 +1120,7 @@ internal fun ForwardFolderNavigation(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        ForwardFolderChip("All chats", selectedFolderId == null) { onSelectFolder(null) }
+        ForwardFolderChip("All", selectedFolderId == null) { onSelectFolder(null) }
         folders.forEach { folder ->
             ForwardFolderChip(folder.title, folder.id == selectedFolderId) { onSelectFolder(folder.id) }
         }

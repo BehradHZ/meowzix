@@ -208,6 +208,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
             async {
                 slots.withPermit {
                     runCatching { client.send(TdApi.GetChat(id)) }.getOrNull()
+                        ?.takeUnless { it.isMtprotoProxySponsoredChat() }
                         ?.toForwardSummary(currentUserId, id in selectedIds)
                 }
             }
@@ -404,6 +405,42 @@ class TdLibTelegramForwardRepository @Inject constructor(
         }
 
         hydrateLocal(FOLDER_FIRST_SCREEN_COUNT)
+
+        // A folder can be locally unindexed even though its chats already exist
+        // in All/Personal. Read membership from TDLib's cached main chat metadata
+        // and publish the first matching batches before any network pagination.
+        // chatLists (not positions) represents actual folder membership.
+        if (orderedIds.size < FOLDER_FIRST_SCREEN_COUNT) {
+            val mainChatIds = withTimeoutOrNull(1_000L) {
+                client.send(TdApi.GetChats(null, FOLDER_MAIN_SEED_COUNT)).chatIds.toList()
+            }.orEmpty()
+            val slots = Semaphore(8)
+            for (batch in mainChatIds.chunked(FOLDER_SEED_BATCH_SIZE)) {
+                val matching = coroutineScope {
+                    batch.map { id ->
+                        async {
+                            slots.withPermit {
+                                withTimeoutOrNull(FOLDER_SEED_CHAT_TIMEOUT_MS) {
+                                    try {
+                                        val chat = client.send(TdApi.GetChat(id))
+                                        if (chat.chatLists.any { list ->
+                                                list is TdApi.ChatListFolder && list.chatFolderId == folderId
+                                            } && !chat.isMtprotoProxySponsoredChat()
+                                        ) id else null
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                }
+                            }
+                        }
+                    }.awaitAll().filterNotNull()
+                }
+                if (matching.isNotEmpty()) hydrateAndEmit(matching)
+                if (orderedIds.size >= FOLDER_FIRST_SCREEN_COUNT) break
+            }
+        }
 
         // Read the static definition separately. Explicit inclusions may have no
         // chat-list position yet, so they should not disappear when GetChats is empty.
@@ -1191,6 +1228,9 @@ class TdLibTelegramForwardRepository @Inject constructor(
     private companion object {
         const val FOLDER_FIRST_SCREEN_COUNT = 24
         const val FOLDER_CHAT_BATCH_SIZE = 6
+        const val FOLDER_MAIN_SEED_COUNT = 96
+        const val FOLDER_SEED_BATCH_SIZE = 16
+        const val FOLDER_SEED_CHAT_TIMEOUT_MS = 450L
         const val FOLDER_MAX_VISIBLE_COUNT = 1000
         const val FOLDER_EXTRA_LOAD_PASSES = 8
         const val FOLDER_LOAD_TIMEOUT_MS = 12_000L
@@ -1289,6 +1329,10 @@ private fun String.telegramUsernameCandidate(): String? {
     if (candidate.isEmpty() || candidate.toLongOrNull() != null) return null
     return candidate.takeIf { value -> value.all { it.isLetterOrDigit() || it == '_' } }
 }
+
+/** MTProxy sponsored channels are not user-chosen Forward destinations. */
+private fun TdApi.Chat.isMtprotoProxySponsoredChat(): Boolean =
+    positions.any { it.source is TdApi.ChatSourceMtprotoProxy }
 
 private fun TdApi.Chat.toForwardSummary(
     currentUserId: Long,

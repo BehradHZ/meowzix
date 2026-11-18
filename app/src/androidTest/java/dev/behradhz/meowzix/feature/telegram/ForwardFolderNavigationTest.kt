@@ -41,7 +41,7 @@ class ForwardFolderNavigationTest {
         }
         compose.onNodeWithText("Friends").assertExists().performClick()
         compose.runOnIdle { assertEquals(42, selected) }
-        compose.onNodeWithText("All chats").performClick()
+        compose.onNodeWithText("All").performClick()
         compose.runOnIdle { assertEquals(null, selected) }
     }
 }

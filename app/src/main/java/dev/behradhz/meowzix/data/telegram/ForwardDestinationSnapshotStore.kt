@@ -25,11 +25,12 @@ internal class ForwardDestinationSnapshotStore(context: Context) {
         editor.apply()
     }
     fun clearAll() = prefs.edit().clear().apply()
-    private fun readChats(account: String, key: String): List<TelegramChatSummary>? = read(account,key) {
+    // v2 intentionally ignores old snapshots that could contain MTProxy-sponsored chats.
+    private fun readChats(account: String, key: String): List<TelegramChatSummary>? = read(account,"v2_$key") {
         TelegramChatSummary(it.getLong("id"), it.getString("title"), TelegramChatKind.valueOf(it.getString("kind")), false)
     }
     private fun writeChats(account: String, key: String, chats: List<TelegramChatSummary>) =
-        write(account,key,chats) { JSONObject().put("id",it.chatId).put("title",it.title).put("kind",it.kind.name) }
+        write(account,"v2_$key",chats) { JSONObject().put("id",it.chatId).put("title",it.title).put("kind",it.kind.name) }
     private fun <T> read(account: String,key: String, decode: (JSONObject)->T): List<T>? {
         val raw = prefs.getString("$account|$key",null) ?: return null
         return runCatching { val array=JSONArray(raw); (0 until array.length()).map { decode(array.getJSONObject(it)) } }.getOrNull()
