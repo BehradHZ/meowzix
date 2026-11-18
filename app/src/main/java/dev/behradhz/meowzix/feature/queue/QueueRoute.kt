@@ -24,6 +24,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.ScrollableDefaults
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,6 +85,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.boundsInWindow
@@ -141,6 +143,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 @Composable
 fun QueueRoute(
@@ -334,6 +337,7 @@ internal fun QueueScreen(
         onDispose { if (!inlineMode) reorderGestureState?.active = false }
     }
     val dragScope = rememberCoroutineScope()
+    val secondFingerFling = ScrollableDefaults.flingBehavior()
     val density = LocalDensity.current
     val reorderHaptics = rememberMeowzixHaptics()
     val groupCounts = remember(state.items, state.currentIndex) {
@@ -395,15 +399,15 @@ internal fun QueueScreen(
         val source = filteredItems.firstOrNull { it.value.occurrenceId == occurrence } ?: return null
         val visualSlot = displayItems.indexOfFirst { it.value.occurrenceId == occurrence }
         val slotOrigin = filteredItems.getOrNull(visualSlot)?.value?.origin ?: return null
-        val firstNextSlot = filteredItems.indexOfFirst {
-            it.index > state.currentIndex && it.value.origin == QueueItemOrigin.GENERATED
+        val previewSlots = queueSectionStartSlots(displayItems, state.currentIndex) { _, row ->
+            queuePreviewOrigin(row.value, draggedOccurrenceId, dragHoveredOrigin)
         }
         val layout = listState.layoutInfo
-        val nextSectionTop = if (firstNextSlot >= 0) {
+        val nextSectionTop = previewSlots.generated?.let { slot ->
             layout.visibleItemsInfo.firstOrNull {
-                it.key == "section-${firstNextSlot}-${QueueItemOrigin.GENERATED}"
+                it.key == "section-${slot}-${QueueItemOrigin.GENERATED}"
             }?.offset?.toFloat()
-        } else null
+        }
         val cardHeight = dragPreviewHeightPx.takeIf { it > 0 }?.toFloat()
             ?: layout.visibleItemsInfo.firstOrNull {
                 it.key == occurrence.toString()
@@ -414,6 +418,9 @@ internal fun QueueScreen(
         val centerInList = if (!inlineMode && dragFingerYInRoot.isFinite()) {
             dragFingerYInRoot + rootTopInWindow - listTopInWindow
         } else dragCenterY
+        // With the last Next card temporarily promoted, its heading vanishes.
+        // Keep its selected lane until a visible boundary can be hit-tested again.
+        if (nextSectionTop == null) return dragHoveredOrigin ?: slotOrigin
         return queueDropOrigin(
             slotOrigin, centerInList, nextSectionTop, cardHeight, source.value.origin,
         )
@@ -608,6 +615,10 @@ internal fun QueueScreen(
                     var centerOffsetY = 0f
                     var secondFingerId: PointerId? = null
                     var secondFingerTargets: Channel<Float>? = null
+                    var secondFingerTracker: VelocityTracker? = null
+                    var manualScrollJob: Job? = null
+                    var manualScrollGeneration = 0
+                    var secondFingerReleaseVelocity = 0f
                     try {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -633,6 +644,10 @@ internal fun QueueScreen(
                                     change.consume()
                                 } else {
                                     finished = true
+                                    // Finalize placement against the last settled scroll position.
+                                    manualScrollJob?.cancel()
+                                    manualScrollGeneration++
+                                    manualScrollActive = false
                                     currentRootStop(true)
                                 }
 
@@ -643,17 +658,41 @@ internal fun QueueScreen(
                                         it.id != down.id && it.pressed
                                     }
                                     if (second != null) {
+                                        manualScrollJob?.cancel()
                                         secondFingerId = second.id
                                         manualScrollActive = true
+                                        secondFingerReleaseVelocity = 0f
+                                        val tracker = VelocityTracker().apply {
+                                            addPosition(second.uptimeMillis, second.position)
+                                        }
+                                        secondFingerTracker = tracker
                                         val targets = Channel<Float>(Channel.CONFLATED)
                                         secondFingerTargets = targets
                                         val initialY = second.position.y
-                                        dragScope.launch {
-                                            listState.scroll(MutatePriority.UserInput) {
-                                                var previousY = initialY
-                                                for (y in targets) {
-                                                    scrollBy(previousY - y)
-                                                    previousY = y
+                                        val generation = ++manualScrollGeneration
+                                        manualScrollJob = dragScope.launch {
+                                            try {
+                                                // Prevent the LazyColumn recognizer from canceling
+                                                // the independent finger's scrolling mid-gesture.
+                                                listState.scroll(MutatePriority.PreventUserInput) {
+                                                    var previousY = initialY
+                                                    for (y in targets) {
+                                                        scrollBy(previousY - y)
+                                                        previousY = y
+                                                    }
+                                                    val fling = secondFingerReleaseVelocity
+                                                    if (abs(fling) > 350f) {
+                                                        val scrollScope = this
+                                                        with(secondFingerFling) {
+                                                            scrollScope.performFling(fling)
+                                                        }
+                                                    }
+                                                }
+                                            } catch (_: CancellationException) {
+                                                // A new gesture or released handle owns the list.
+                                            } finally {
+                                                if (generation == manualScrollGeneration) {
+                                                    manualScrollActive = false
                                                 }
                                             }
                                         }
@@ -663,14 +702,23 @@ internal fun QueueScreen(
                                     it.id == secondFingerId
                                 }
                                 if (secondChange != null) {
+                                    secondFingerTracker?.addPosition(
+                                        secondChange.uptimeMillis, secondChange.position,
+                                    )
                                     if (secondChange.pressed) {
                                         secondFingerTargets?.trySend(secondChange.position.y)
                                         secondChange.consume()
                                     } else {
+                                        secondFingerReleaseVelocity =
+                                            -(secondFingerTracker?.calculateVelocity()?.y ?: 0f)
+                                                .coerceIn(-12_000f, 12_000f)
+                                        secondFingerTargets?.trySend(secondChange.position.y)
                                         secondFingerTargets?.close()
                                         secondFingerTargets = null
+                                        secondFingerTracker = null
                                         secondFingerId = null
-                                        manualScrollActive = false
+                                        secondChange.consume()
+                                        // Keep manualScrollActive until fling settles.
                                     }
                                 }
                             }
@@ -678,6 +726,8 @@ internal fun QueueScreen(
                         }
                     } finally {
                         secondFingerTargets?.close()
+                        manualScrollJob?.cancel()
+                        manualScrollGeneration++
                         manualScrollActive = false
                         if (captured && !finished) currentRootStop(false)
                         dragCapturedByRoot = false
@@ -709,15 +759,17 @@ internal fun QueueScreen(
                 }
             } else {
                 val previewLanes = draggedQueueIndex != null && draggedGroupId == null
-                val sectionStarts = queueSectionStartSlots(visibleItems, state.currentIndex) { slot, row ->
-                    if (previewLanes) filteredItems.getOrNull(slot)?.value?.origin
-                        ?: row.value.origin else row.value.origin
+                val sectionStarts = queueSectionStartSlots(visibleItems, state.currentIndex) { _, row ->
+                    if (previewLanes) queuePreviewOrigin(
+                        row.value, draggedOccurrenceId, dragHoveredOrigin,
+                    ) else row.value.origin
                 }
                 visibleItems.forEachIndexed { displayPosition, entry ->
-                    // Section headers are anchored to visual slots during a track drag.
-                    val previewing = draggedQueueIndex != null && draggedGroupId == null
-                    val origin = if (previewing) filteredItems.getOrNull(displayPosition)
-                        ?.value?.origin ?: entry.value.origin else entry.value.origin
+                    // Preserve each existing manual song's section during a track drag.
+                    // The Next heading moves down as a generated song becomes manual.
+                    val origin = if (previewLanes) queuePreviewOrigin(
+                        entry.value, draggedOccurrenceId, dragHoveredOrigin,
+                    ) else entry.value.origin
                     val currentHeader = !searchActive && entry.index == state.currentIndex
                     val manualHeader = !searchActive && displayPosition == sectionStarts.manual
                     val generatedHeader = !searchActive && displayPosition == sectionStarts.generated

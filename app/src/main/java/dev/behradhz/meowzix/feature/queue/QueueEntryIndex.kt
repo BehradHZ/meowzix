@@ -127,6 +127,19 @@ internal fun resolveQueueBoundaryMove(
     } else resolved
 }
 
+/**
+ * Preserve the lane of every non-dragged occurrence during a preview. A generated
+ * occurrence moving into Queue must not visually push a pre-existing manual
+ * occurrence under the Next heading.
+ */
+internal fun queuePreviewOrigin(
+    row: QueueItem,
+    draggedOccurrenceId: java.util.UUID?,
+    hoveredOrigin: dev.behradhz.meowzix.domain.playback.QueueItemOrigin?,
+): dev.behradhz.meowzix.domain.playback.QueueItemOrigin =
+    if (row.occurrenceId == draggedOccurrenceId && hoveredOrigin != null)
+        hoveredOrigin else row.origin
+
 internal data class QueuePreviewMove(
     val fromIndex: Int,
     val toIndex: Int,

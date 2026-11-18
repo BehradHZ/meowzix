@@ -815,6 +815,36 @@ private fun NowPlayingScreen(
             },
             onCancel = { queueDragActive = false },
         )
+        // Only the portrait player's empty outer gutters own this gesture.
+        // A swipe in either direction closes the open Queue; the actual list
+        // remains free to scroll and reorder independently.
+        var queueGutterDragY by remember { mutableFloatStateOf(0f) }
+        val queueGutterGesture = Modifier.pointerInput(queueExpanded, playerActionsMenuOpen) {
+            if (queueExpanded && !playerActionsMenuOpen) detectVerticalDragGestures(
+                onDragStart = {
+                    queueGutterDragY = 0f
+                    queueDragFraction = 1f
+                    queueDragActive = false
+                },
+                onVerticalDrag = { change, dragY ->
+                    change.consume()
+                    queueGutterDragY += dragY
+                    queueDragActive = true
+                    queueDragFraction = (1f - abs(queueGutterDragY) / dragRangePx)
+                        .coerceIn(0.05f, 1f)
+                },
+                onDragEnd = {
+                    val shouldClose = abs(queueGutterDragY) >= lyricsSwipeThresholdPx
+                    queueDragActive = false
+                    onQueueExpandedChange(!shouldClose)
+                    queueGutterDragY = 0f
+                },
+                onDragCancel = {
+                    queueDragActive = false
+                    queueGutterDragY = 0f
+                },
+            )
+        }
         val queueDragGesture = Modifier.pointerInput(queueExpanded, lyricsExpanded, playerActionsMenuOpen) {
             if (!playerActionsMenuOpen) detectVerticalDragGestures(
                 onDragStart = {
@@ -940,13 +970,16 @@ private fun NowPlayingScreen(
         }
 
     Box(Modifier.fillMaxSize()) {
-        // The backdrop catches upward gestures on otherwise empty screen space
-        // (including the narrow outer gutters). It sits behind all controls, so
-        // their clicks and drags still win hit-testing. Once Queue is visible,
-        // its LazyColumn owns vertical scrolling instead of this background.
-        Box(Modifier.fillMaxSize().then(
-            if (!queueExpanded && !playerActionsMenuOpen) queueDragGesture else Modifier,
-        )) {
+        // Gesture handling on the backdrop reaches only the empty side gutters,
+        // never the Queue list or its reorder handles above this surface.
+        Box(Modifier.fillMaxSize()
+            .then(when {
+                playerActionsMenuOpen -> Modifier
+                queueExpanded -> queueGutterGesture
+                else -> queueDragGesture
+            })
+            .testTag("player-queue-side-gutters"),
+        ) {
             AnimatedPlayerBackdrop(hazeState, settledBackdropRef, backdropTransition)
         }
 
