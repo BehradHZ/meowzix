@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.feature.profile
 
 import android.Manifest
 import android.content.Intent
+import android.content.ActivityNotFoundException
 import android.net.Uri
 import android.provider.Settings
 import dev.behradhz.meowzix.LockScreenPlayerPreferences
@@ -104,6 +105,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.backup.BackupPreview
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -118,6 +121,7 @@ import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
+import dev.behradhz.meowzix.playback.VolumeButtonAccessibilityService
 import dev.behradhz.meowzix.ui.components.SleepTimerMenuContent
 import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
 import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
@@ -144,6 +148,19 @@ fun UnifiedSettingsScreen(
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val hasCurrentTrack by viewModel.hasCurrentTrack.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var volumeButtonAccess by remember(context) {
+        mutableStateOf(VolumeButtonAccessibilityService.hasAccess(context))
+    }
+    var showVolumeButtonAccessDialog by rememberSaveable { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        volumeButtonAccess = VolumeButtonAccessibilityService.hasAccess(context)
+    }
+    val volumeButtonAccessLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        volumeButtonAccess = VolumeButtonAccessibilityService.hasAccess(context)
+        if (volumeButtonAccess) viewModel.setVolumeButtonTrackNavigationEnabled(true)
+    }
     var lockScreenEnabled by remember(context) {
         mutableStateOf(LockScreenPlayerPreferences.isEnabled(context))
     }
@@ -452,6 +469,20 @@ fun UnifiedSettingsScreen(
                             state.playback.resumeAfterExternalAudio,
                             viewModel::setResumeAfterExternalAudio,
                             showSubtitle = true,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Hold volume buttons to skip tracks",
+                            "Works during Meowzix playback. Lock screen support varies by device.",
+                            Icons.AutoMirrored.Rounded.VolumeUp,
+                            state.playback.volumeButtonTrackNavigationEnabled && volumeButtonAccess,
+                            onChecked = { wanted ->
+                                volumeButtonAccess = VolumeButtonAccessibilityService.hasAccess(context)
+                                if (wanted && !volumeButtonAccess) showVolumeButtonAccessDialog = true
+                                else viewModel.setVolumeButtonTrackNavigationEnabled(wanted)
+                            },
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
                         )
                         SettingsRowDivider()
                         SettingsToggleRow(
@@ -767,6 +798,32 @@ fun UnifiedSettingsScreen(
             },
         )
         }
+    }
+
+    if (showVolumeButtonAccessDialog) {
+        AlertDialog(
+            onDismissRequest = { showVolumeButtonAccessDialog = false },
+            title = { Text("Enable Meowzix volume buttons") },
+            text = {
+                Text(
+                    "In Android Accessibility settings, enable Meowzix volume buttons. " +
+                        "It handles volume buttons during Meowzix playback and does not read your screen.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showVolumeButtonAccessDialog = false
+                    try {
+                        volumeButtonAccessLauncher.launch(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    } catch (_: ActivityNotFoundException) {
+                        Toast.makeText(context, "Accessibility settings are unavailable", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("Open Settings") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showVolumeButtonAccessDialog = false }) { Text("Cancel") }
+            },
+        )
     }
 
     pendingIconSource?.let { chosen ->

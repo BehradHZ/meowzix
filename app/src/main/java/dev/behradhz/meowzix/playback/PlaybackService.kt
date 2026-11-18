@@ -810,6 +810,7 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (!isPlaying) volumeKeyPlayback = Any()
             if (isPlaying) {
                 acknowledgeAudibleTrack(player.currentMediaItem?.mediaId)
                 // Media3 may accept playWhenReady=true while focus is still
@@ -1198,6 +1199,18 @@ class PlaybackService : MediaLibraryService() {
             player, liveSongCardEnabled, liveSongCardStyle, liveSongLeftAction,
             liveSongRightAction, currentFavorite, forceRefresh = forceRefresh,
         )
+    }
+
+    private var volumeKeyPlayback = Any()
+    internal val activeVolumeKeyPlayback: Any?
+        get() = volumeKeyPlayback.takeIf { player.isPlaying }
+
+    internal fun skipWithVolumeKey(next: Boolean) {
+        if (next) {
+            if (player.hasNextMediaItem()) player.seekToNext()
+        } else if (player.hasPreviousMediaItem()) {
+            player.seekToPrevious()
+        }
     }
 
     /**

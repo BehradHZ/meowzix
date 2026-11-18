@@ -308,6 +308,19 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".playback.VolumeButtonAccessibilityService"
+            android:exported="true"
+            android:label="@string/volume_button_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/volume_button_accessibility_service" />
+        </service>
+
         <!-- Explicit PendingIntent actions only; never exported to other apps. -->
         <receiver
             android:name=".playback.LiveSongControlsReceiver"

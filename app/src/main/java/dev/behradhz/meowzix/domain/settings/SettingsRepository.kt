@@ -140,6 +140,7 @@ data class PlaybackPreferenceSettings(
     val sleepTimerFadeEnabled: Boolean = true,
     val sleepTimerLastMode: SleepTimerPresetMode = SleepTimerPresetMode.DURATION,
     val sleepTimerLastMinutes: Int = 30,
+    val volumeButtonTrackNavigationEnabled: Boolean = false,
 )
 
 data class RecommendationPreferenceSettings(
@@ -188,6 +189,7 @@ interface SettingsRepository {
     suspend fun setDefaultRepeatMode(mode: RepeatMode)
     suspend fun setResumeOnLaunch(enabled: Boolean)
     suspend fun setResumeAfterExternalAudio(enabled: Boolean)
+    suspend fun setVolumeButtonTrackNavigationEnabled(enabled: Boolean)
     suspend fun setPauseOnMicrophoneRecording(enabled: Boolean) {}
     suspend fun setPlaybackSpeed(speed: Float) {}
     suspend fun setLiveSongCardEnabled(enabled: Boolean)

@@ -201,6 +201,8 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setLiveSongRightAction(value: LiveSongSideAction) = launch { settings.setLiveSongRightAction(value) }
     fun setLoudnessNormalization(value: Boolean) = launch { settings.setLoudnessNormalizationEnabled(value) }
     fun setCrossfadeSeconds(value: Int) = launch { settings.setCrossfadeDurationSeconds(value) }
+    fun setVolumeButtonTrackNavigationEnabled(enabled: Boolean) =
+        launch { settings.setVolumeButtonTrackNavigationEnabled(enabled) }
     fun setSleepTimerFadeEnabled(value: Boolean) = launch { settings.setSleepTimerFadeEnabled(value) }
     fun setSleepTimerMinutes(minutes: Int) = launch {
         val bounded = minutes.coerceIn(5, 180)

@@ -59,6 +59,14 @@ internal object PlaybackServiceBridge {
         if (service === instance) service = null
     }
 
+    val activeVolumeKeyPlayback: Any?
+        get() = service?.activeVolumeKeyPlayback
+
+    fun skipWithVolumeKey(playback: Any, next: Boolean) {
+        val current = service ?: return
+        if (current.activeVolumeKeyPlayback === playback) current.skipWithVolumeKey(next)
+    }
+
     fun dispatchIfRunning(action: ExternalPlaybackAction): Boolean {
         check(Looper.myLooper() == Looper.getMainLooper())
         val current = service ?: return false

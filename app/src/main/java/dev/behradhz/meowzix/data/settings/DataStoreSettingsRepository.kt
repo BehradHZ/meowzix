@@ -116,6 +116,7 @@ class DataStoreSettingsRepository @Inject constructor(
             defaultRepeat = values[DEFAULT_REPEAT_MODE].enumOrDefault(RepeatMode.OFF),
             resumeOnLaunch = values[RESUME_ON_LAUNCH] ?: true,
             resumeAfterExternalAudio = values[RESUME_AFTER_EXTERNAL_AUDIO] ?: false,
+            volumeButtonTrackNavigationEnabled = values[VOLUME_BUTTON_TRACK_NAVIGATION] ?: false,
             pauseOnMicrophoneRecording = values[PAUSE_ON_MICROPHONE_RECORDING] ?: false,
             playbackSpeed = (values[PLAYBACK_SPEED] ?: 1f).coerceIn(0.5f, 5f),
             liveSongCardEnabled = values[LIVE_SONG_CARD_ENABLED] ?: false,
@@ -180,6 +181,8 @@ class DataStoreSettingsRepository @Inject constructor(
     }
     override suspend fun setResumeOnLaunch(enabled: Boolean) = set(RESUME_ON_LAUNCH, enabled)
     override suspend fun setResumeAfterExternalAudio(enabled: Boolean) = set(RESUME_AFTER_EXTERNAL_AUDIO, enabled)
+    override suspend fun setVolumeButtonTrackNavigationEnabled(enabled: Boolean) =
+        set(VOLUME_BUTTON_TRACK_NAVIGATION, enabled)
     override suspend fun setPauseOnMicrophoneRecording(enabled: Boolean) = set(PAUSE_ON_MICROPHONE_RECORDING, enabled)
     override suspend fun setPlaybackSpeed(speed: Float) {
         if (!speed.isFinite()) return
@@ -285,6 +288,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val RESUME_ON_LAUNCH = booleanPreferencesKey("resume_on_launch")
         val RESUME_AFTER_EXTERNAL_AUDIO = booleanPreferencesKey("resume_after_external_audio")
         val PAUSE_ON_MICROPHONE_RECORDING = booleanPreferencesKey("pause_on_microphone_recording")
+        val VOLUME_BUTTON_TRACK_NAVIGATION = booleanPreferencesKey("volume_button_track_navigation")
         val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
         val LIVE_SONG_CARD_ENABLED = booleanPreferencesKey("live_song_card_enabled")
         val LIVE_SONG_CARD_STYLE = stringPreferencesKey("live_song_card_style")
