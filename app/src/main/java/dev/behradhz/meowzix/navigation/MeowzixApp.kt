@@ -232,6 +232,7 @@ fun MeowzixApp(
     }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     var dockCompact by rememberSaveable { mutableStateOf(false) }
+    val queueReorderGestureState = remember { QueueReorderGestureState() }
     var reachedScrollEnd by remember(currentRoute) { mutableStateOf(false) }
     // Incremented even when Home is already selected: reselecting the tab
     // should scroll its retained LazyColumn back to the header.
@@ -241,7 +242,9 @@ fun MeowzixApp(
     val dockScrollConnection = remember(currentRoute, searchActive, threshold) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput || searchActive) return Offset.Zero
+                if (source != NestedScrollSource.UserInput || searchActive ||
+                    (currentRoute == QUEUE_ROUTE && queueReorderGestureState.active)
+                ) return Offset.Zero
                 val delta = available.y
                 if (delta == 0f) return Offset.Zero
                 if (delta > 0f) reachedScrollEnd = false
@@ -265,6 +268,7 @@ fun MeowzixApp(
             ): Offset {
                 // At the true bottom of a scrollable page, the remaining upward
                 // drag is unconsumed. Expand the dock so the reserved footer is filled.
+                if (currentRoute == QUEUE_ROUTE && queueReorderGestureState.active) return Offset.Zero
                 if (shouldExpandDockAtEnd(
                         isUserInput = source == NestedScrollSource.UserInput,
                         searchActive = searchActive,
@@ -284,6 +288,7 @@ fun MeowzixApp(
         dockCompact = false
         reachedScrollEnd = false
         scrollDelta = 0f
+        if (currentRoute != QUEUE_ROUTE) queueReorderGestureState.active = false
     }
 
     fun dismissSearchKeyboard() {
@@ -388,6 +393,7 @@ fun MeowzixApp(
                 reduceMotion = reduceMotion,
             ),
             LocalFloatingControlsTouchBounds provides floatingTouchBounds,
+            LocalQueueReorderGestureState provides queueReorderGestureState,
         ) {
         // The scroll connection must be an ancestor of retained tabs as well as NavHost.
         // Keeping it on NavHost alone misses all top-level tab scroll gestures.
@@ -592,12 +598,15 @@ fun MeowzixApp(
                 searchQuery = searchQuery,
                 onSearchQueryChange = { searchQuery = it },
                 onExpandCompact = {
+                    if (!queueReorderGestureState.active) {
                     // This is a geometry action, not navigation; the mini player
                     // observes dockCompact and rises with the same eased timeline.
                     dockCompact = false
                     scrollDelta = 0f
+                    }
                 },
                 onSelect = { route ->
+                    if (!queueReorderGestureState.active) {
                     if (route == SEARCH_ROUTE) {
                         searchQuery = ""
                         searchContextRoute = when (currentRoute) {
@@ -608,6 +617,7 @@ fun MeowzixApp(
                         }
                     } else {
                         navigateTopLevel(route)
+                    }
                     }
                 },
                 reduceMotion = reduceMotion,
