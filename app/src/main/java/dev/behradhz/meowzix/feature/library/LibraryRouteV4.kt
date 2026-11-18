@@ -121,6 +121,16 @@ private enum class LibrarySectionV4(val label: String) {
     TRACKS("Tracks"), ARTISTS("Artists"), ALBUMS("Albums")
 }
 
+internal enum class LibraryBackAction { DISMISS_DISPLAY, CANCEL_SELECTION, CLOSE_AGGREGATE, NONE }
+
+/** A Back press on a selected artist cancels selection before leaving that artist. */
+internal fun libraryBackAction(displaySheet: Boolean, selecting: Boolean, inAggregate: Boolean) = when {
+    displaySheet -> LibraryBackAction.DISMISS_DISPLAY
+    selecting -> LibraryBackAction.CANCEL_SELECTION
+    inAggregate -> LibraryBackAction.CLOSE_AGGREGATE
+    else -> LibraryBackAction.NONE
+}
+
 @Composable
 internal fun LibraryRouteV4(
     onOpenNowPlaying: () -> Unit,
@@ -233,10 +243,11 @@ internal fun LibraryRouteV4(
     LaunchedEffect(availabilityFilter) { tracksViewModel.setAvailability(availabilityFilter) }
 
     BackHandler(enabled = isActive && (aggregateSelection != null || showDisplaySheet || selecting)) {
-        when {
-            showDisplaySheet -> showDisplaySheet = false
-            selecting -> tracksViewModel.cancelSelection()
-            aggregateSelection != null -> tracksViewModel.closeAggregate()
+        when (libraryBackAction(showDisplaySheet, selecting, aggregateSelection != null)) {
+            LibraryBackAction.DISMISS_DISPLAY -> showDisplaySheet = false
+            LibraryBackAction.CANCEL_SELECTION -> tracksViewModel.cancelSelection()
+            LibraryBackAction.CLOSE_AGGREGATE -> tracksViewModel.closeAggregate()
+            LibraryBackAction.NONE -> Unit
         }
     }
 

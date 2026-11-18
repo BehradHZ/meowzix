@@ -43,6 +43,12 @@ import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.feature.search.matchesGlobalSearch
 import java.util.UUID
 
+internal enum class PlaylistDockReselectAction { CLOSE_DETAIL, SCROLL_GRID_TOP }
+
+internal fun playlistDockReselectAction(showingDetails: Boolean): PlaylistDockReselectAction =
+    if (showingDetails) PlaylistDockReselectAction.CLOSE_DETAIL
+    else PlaylistDockReselectAction.SCROLL_GRID_TOP
+
 private const val FAVORITES_KEY = "favorites"
 private const val CREATE_PLAYLIST_KEY = "create-playlist"
 
@@ -200,10 +206,9 @@ fun PlaylistsRoute(
     var gridScrollToTopRequest by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     LaunchedEffect(reselectRequest) {
         if (reselectRequest <= 0) return@LaunchedEffect
-        if (selectedKey != null || showFavorites) {
-            if (!creatingPlaylist) closeDetail()
-        } else {
-            gridScrollToTopRequest++
+        when (playlistDockReselectAction(selectedKey != null || showFavorites)) {
+            PlaylistDockReselectAction.CLOSE_DETAIL -> if (!creatingPlaylist) closeDetail()
+            PlaylistDockReselectAction.SCROLL_GRID_TOP -> gridScrollToTopRequest++
         }
     }
 
