@@ -42,9 +42,10 @@ class GlassFastScrollbarInteractionTest {
         }
         compose.waitForIdle()
         val pxPerDp = compose.density.density
+        val widthPx = compose.onNodeWithTag("short-list").fetchSemanticsNode().size.width.toFloat()
         compose.onNodeWithTag("short-list").performTouchInput {
             // At the top the 96dp grip is centered 60dp from the list's top.
-            down(Offset(size.width - 7f * pxPerDp, 60f * pxPerDp))
+            down(Offset(widthPx - 7f * pxPerDp, 60f * pxPerDp))
             moveBy(Offset(0f, 12f * pxPerDp))
             up()
         }
@@ -76,8 +77,9 @@ class GlassFastScrollbarInteractionTest {
         }
         compose.waitForIdle()
         val pxPerDp = compose.density.density
+        val widthPx = compose.onNodeWithTag("short-grid").fetchSemanticsNode().size.width.toFloat()
         compose.onNodeWithTag("short-grid").performTouchInput {
-            down(Offset(size.width - 7f * pxPerDp, 60f * pxPerDp))
+            down(Offset(widthPx - 7f * pxPerDp, 60f * pxPerDp))
             moveBy(Offset(0f, 12f * pxPerDp))
             up()
         }
