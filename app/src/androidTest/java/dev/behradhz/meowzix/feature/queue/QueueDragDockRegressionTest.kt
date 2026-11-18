@@ -7,6 +7,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
@@ -82,18 +83,29 @@ class QueueDragDockRegressionTest {
         }
 
         val dragHandle = compose.onAllNodesWithContentDescription("Drag to reorder").onFirst()
+        val handleBeforeDrag = dragHandle.getUnclippedBoundsInRoot()
+        val touchYDp = (handleBeforeDrag.top.value + handleBeforeDrag.bottom.value) / 2f +
+            90f / compose.density.density
         // The gesture is intentionally split: Compose batches events within a
         // performTouchInput block. Safe-zone changes must occur only after the
         // initial drag has actually been recognized.
         dragHandle.performTouchInput {
             down(0, center)
-            moveBy(0, Offset(0f, 90f))
-            advanceEventTime(80L)
+            advanceEventTime(32L)
+            moveBy(0, Offset(0f, 24f))
+            advanceEventTime(32L)
+            moveBy(0, Offset(0f, 66f))
+            advanceEventTime(32L)
         }
-        compose.runOnUiThread {
-            assertTrue("The first phase must start a real Queue drag", reorderSession.active)
-            controls.dockTopY = 0f
-        }
+        compose.waitUntil(5_000L) { reorderSession.active }
+        val previewBounds = compose.onNodeWithTag("queue-drag-preview")
+            .getUnclippedBoundsInRoot()
+        val previewCenterYDp = (previewBounds.top.value + previewBounds.bottom.value) / 2f
+        assertEquals(
+            "The floating song card must be centered on the held pointer",
+            touchYDp, previewCenterYDp, 5f,
+        )
+        compose.runOnUiThread { controls.dockTopY = 0f }
         dragHandle.performTouchInput {
             moveBy(0, Offset(0f, 65f))
             // A separate pointer scrolls the Queue while the first remains held.
