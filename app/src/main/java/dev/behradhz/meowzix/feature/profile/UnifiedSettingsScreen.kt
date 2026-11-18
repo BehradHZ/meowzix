@@ -375,10 +375,12 @@ fun UnifiedSettingsScreen(
                         selection.dock.forEachIndexed { slot, current ->
                             SettingsChoiceRow(
                                 "Dock position ${slot + 1}", null, Icons.Rounded.LibraryMusic,
-                                current.name,
-                                LibrarySelectionAction.entries.map { it.name },
+                                current.label,
+                                LibrarySelectionAction.entries.map { it.label },
                             ) { chosen ->
-                                viewModel.setLibrarySelectionDockSlot(slot, LibrarySelectionAction.valueOf(chosen))
+                                viewModel.setLibrarySelectionDockSlot(
+                                    slot, LibrarySelectionAction.entries.first { it.label == chosen },
+                                )
                             }
                             SettingsRowDivider()
                         }
