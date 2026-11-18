@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,8 @@ import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** Shared glass fast-scrollbar: native pixel scrolling, no extra layout or overlay. */
@@ -138,6 +141,7 @@ private fun Modifier.glassFastScroll(
     val accent = MaterialTheme.colorScheme.primary
     val foreground = MaterialTheme.colorScheme.onSurface
     val haptics = rememberMeowzixHaptics()
+    val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val view = LocalView.current
 
@@ -226,32 +230,41 @@ private fun Modifier.glassFastScroll(
                 ) return@awaitEachGesture
 
                 val grabOffsetY = down.position.y - geometry.thumbCenterPx
-                var previousFraction = metrics.fraction
-                dragFraction = previousFraction
+                dragFraction = metrics.fraction
                 dragging = true
                 haptics.perform(MeowzixHapticCue.DragStart)
-                try {
-                    down.consume()
-                    // ScrollScope.scrollBy consumes real content pixels, including offsets *within*
-                    // an item. Holding UserInput priority cancels flings and avoids racing seeks.
+
+                // awaitPointerEvent runs in a restricted-suspension scope. A single
+                // conflated worker owns the ScrollScope for the entire drag. It handles
+                // the latest finger position without competing per-event scroll jobs.
+                val targets = Channel<Float>(Channel.CONFLATED)
+                scope.launch {
                     scrollable.scroll(MutatePriority.UserInput) {
-                        while (true) {
-                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!change.pressed) break
-                            val fraction = fastScrollbarFractionForY(
-                                change.position.y - grabOffsetY, geometry,
+                        var appliedFraction = metrics.fraction
+                        for (fraction in targets) {
+                            val delta = fastScrollbarContentDelta(
+                                appliedFraction, fraction, metrics.scrollRangePx,
                             )
-                            val deltaPx = fastScrollbarContentDelta(
-                                previousFraction, fraction, metrics.scrollRangePx,
-                            )
-                            previousFraction = fraction
-                            dragFraction = fraction
-                            if (deltaPx != 0f) scrollBy(deltaPx)
-                            change.consume()
+                            appliedFraction = fraction
+                            if (delta != 0f) scrollBy(delta)
                         }
                     }
+                }
+                try {
+                    down.consume()
+                    while (true) {
+                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        val fraction = fastScrollbarFractionForY(
+                            change.position.y - grabOffsetY, geometry,
+                        )
+                        dragFraction = fraction
+                        targets.trySend(fraction)
+                        change.consume()
+                    }
                 } finally {
+                    targets.close()
                     dragging = false
                     haptics.perform(MeowzixHapticCue.DragDrop)
                 }
