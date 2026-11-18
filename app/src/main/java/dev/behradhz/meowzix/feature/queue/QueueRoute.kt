@@ -85,6 +85,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -313,6 +314,10 @@ internal fun QueueScreen(
     var awaitingGroupCommit by remember { mutableStateOf(false) }
     var awaitingTrackCommit by remember { mutableStateOf(false) }
     var dragCenterY by remember { mutableFloatStateOf(Float.NaN) }
+    // Only the floating preview follows the actual finger. Drop hit-testing
+    // intentionally continues to use dragCenterY in LazyColumn coordinates.
+    var dragFingerYInRoot by remember { mutableFloatStateOf(Float.NaN) }
+    var dragPreviewHeightPx by remember { mutableIntStateOf(0) }
     var dragCapturedByRoot by remember { mutableStateOf(false) }
     var manualScrollActive by remember { mutableStateOf(false) }
     var rootTopInWindow by remember { mutableFloatStateOf(0f) }
@@ -407,6 +412,8 @@ internal fun QueueScreen(
         draggedQueueIndex = null
         draggedOccurrenceId = null
         dragCenterY = Float.NaN
+        dragFingerYInRoot = Float.NaN
+        dragPreviewHeightPx = 0
         if (!inlineMode) reorderGestureState?.active = false
     }
 
@@ -474,6 +481,8 @@ internal fun QueueScreen(
             filteredItems.indexOfFirst { it.value.groupId == id }
         draggedGroupId = null
         dragCenterY = Float.NaN
+        dragFingerYInRoot = Float.NaN
+        dragPreviewHeightPx = 0
         draggedGroupTarget = null
         if (!inlineMode) reorderGestureState?.active = false
         if (commit && changed) {
@@ -572,6 +581,9 @@ internal fun QueueScreen(
                             }
                             if (captured) {
                                 if (change.pressed) {
+                                    // Root-local pointer Y is independent of list padding,
+                                    // section headers, and auto/second-finger scrolling.
+                                    dragFingerYInRoot = change.position.y
                                     currentRootDrag(
                                         change.position.y + rootTopInWindow -
                                             listTopInWindow + centerOffsetY
@@ -803,9 +815,16 @@ internal fun QueueScreen(
                                 draggedGroupId == null && queueIndex != state.currentIndex,
                             interactionEnabled = !touchBlocked || isDragging,
                             onPlay = { if (!touchBlocked && state.items.getOrNull(queueIndex) == item) onPlay(queueIndex) },
-                            onDragStart = {
+                            onDragStart = { fingerYInWindow ->
                                 if (!searchActive && draggedGroupId == null) {
                                     dragCapturedByRoot = false
+                                    dragPreviewHeightPx = 0
+                                    // Use the exact handle touch position for the
+                                    // first preview frame; root pointer events update it.
+                                    if (!inlineMode) {
+                                        dragFingerYInRoot = if (fingerYInWindow.isFinite())
+                                            fingerYInWindow - rootTopInWindow else Float.NaN
+                                    }
                                     if (!inlineMode) reorderGestureState?.active = true
                                     displayItems = filteredItems
                                     awaitingTrackCommit = false
@@ -819,6 +838,7 @@ internal fun QueueScreen(
                             },
                             onDrag = { deltaY ->
                                 if (dragCapturedByRoot || searchActive) return@SwipeableQueueItem
+                                if (!inlineMode && dragFingerYInRoot.isFinite()) dragFingerYInRoot += deltaY
                                 val draggedKey = draggedOccurrenceId?.toString()
                                     ?: return@SwipeableQueueItem
                                 if (!dragCenterY.isFinite()) {
@@ -870,16 +890,19 @@ internal fun QueueScreen(
         }
         val draggedGroup = draggedGroupId?.let(state.groups::get)
         if (dragCenterY.isFinite() && (draggedTrack != null || draggedGroup != null)) {
+            val useFingerPosition = !inlineMode && draggedTrack != null &&
+                dragFingerYInRoot.isFinite()
             Box(
                 modifier = Modifier.fillMaxWidth()
                     .padding(horizontal = if (inlineMode) 2.dp else 12.dp)
                     .offset {
-                        IntOffset(
-                            0,
-                            (listTopInWindow - rootTopInWindow + dragCenterY -
-                                with(density) { 38.dp.toPx() }).roundToInt(),
-                        )
+                        val centerY = if (useFingerPosition) dragFingerYInRoot else
+                            listTopInWindow - rootTopInWindow + dragCenterY
+                        val halfHeight = if (useFingerPosition && dragPreviewHeightPx > 0)
+                            dragPreviewHeightPx / 2f else with(density) { 38.dp.toPx() }
+                        IntOffset(0, (centerY - halfHeight).roundToInt())
                     }
+                    .onSizeChanged { dragPreviewHeightPx = it.height }
                     .zIndex(30f)
                     .testTag("queue-drag-preview"),
             ) {
@@ -1148,7 +1171,7 @@ private fun SwipeableQueueItem(
     dragOffsetY: Float,
     reorderEnabled: Boolean,
     onPlay: () -> Unit,
-    onDragStart: () -> Unit,
+    onDragStart: (Float) -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
@@ -1210,6 +1233,7 @@ private fun SwipeableQueueItem(
     var swipeOffsetX by remember(item.occurrenceId) { mutableFloatStateOf(0f) }
     var swipeStage by remember(item.occurrenceId) { mutableIntStateOf(0) }
     var horizontalDragActive by remember(item.occurrenceId) { mutableStateOf(false) }
+    var handleTopInWindow by remember(item.occurrenceId) { mutableFloatStateOf(Float.NaN) }
     val draggingNow by rememberUpdatedState(isDragging)
     val visualOffsetX by animateFloatAsState(
         targetValue = swipeOffsetX,
@@ -1328,10 +1352,17 @@ private fun SwipeableQueueItem(
                 Box(
                     modifier = Modifier
                         .size(48.dp)
+                        .onGloballyPositioned { handleTopInWindow = it.boundsInWindow().top }
                         .pointerInput(item.occurrenceId, reorderEnabled) {
                             if (reorderEnabled) {
                                 detectDragGestures(
-                                    onDragStart = { haptics.perform(MeowzixHapticCue.Threshold); onDragStart() },
+                                    onDragStart = { localTouch ->
+                                        haptics.perform(MeowzixHapticCue.Threshold)
+                                        onDragStart(
+                                            if (handleTopInWindow.isFinite())
+                                                handleTopInWindow + localTouch.y else Float.NaN
+                                        )
+                                    },
                                     onDragCancel = onDragCancel,
                                     onDragEnd = onDragEnd,
                                     onDrag = { change, dragAmount ->
