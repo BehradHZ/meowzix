@@ -41,6 +41,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import dev.behradhz.meowzix.core.model.Track
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
+import dev.behradhz.meowzix.navigation.ContextualSelectionController
+import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.compose.runtime.SideEffect
 import dev.behradhz.meowzix.feature.search.matchesGlobalSearch
 import java.util.UUID
 
@@ -116,6 +121,9 @@ internal fun PlaylistContentTransition(
 fun PlaylistsRoute(
     viewModel: LibraryViewModel,
     isActive: Boolean = true,
+    selectionController: ContextualSelectionController? = null,
+    selectionMoreActions: List<LibrarySelectionAction> = emptyList(),
+    forwardViewModel: NowPlayingViewModel = hiltViewModel(),
     onOpenNowPlaying: () -> Unit,
     onGoToArtist: (String) -> Unit,
     searchQuery: String = "",
@@ -125,6 +133,7 @@ fun PlaylistsRoute(
     reduceMotion: Boolean = false,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var forwardSelection by remember { mutableStateOf<TrackForwardSelection?>(null) }
     val collapsedTelegramSections by viewModel.collapsedTelegramPlaylistSections.collectAsStateWithLifecycle(
         initialValue = emptySet(),
     )
@@ -202,6 +211,10 @@ fun PlaylistsRoute(
     fun closeDetail() {
         selectedKey = null
         showFavorites = false
+        selectionController?.active = false
+    }
+    SideEffect {
+        if (!isActive || (selectedKey == null && !showFavorites)) selectionController?.active = false
     }
 
     var gridScrollToTopRequest by remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -341,6 +354,20 @@ fun PlaylistsRoute(
                 onBulkAddToPlaylist = viewModel::addTracksToPlaylist,
                 onBulkAddToQueue = viewModel::addTracksToQueue,
                 onBulkLike = viewModel::likeTracks,
+                onBulkUnlike = viewModel::unlikeTracks,
+                onBulkForward = { tracks ->
+                    val first = tracks.firstOrNull()
+                    if (first != null) {
+                        forwardSelection = TrackForwardSelection(
+                            first.id,
+                            if (tracks.size == 1) first.title else "${tracks.size} selected tracks",
+                            if (tracks.size == 1) first.artist else null,
+                        )
+                        forwardViewModel.openForwardPickerForTracks(tracks)
+                    }
+                },
+                selectionController = selectionController,
+                selectionMoreActions = selectionMoreActions,
                 onBulkRemove = viewModel::removePlaylistTracks,
                 telegramPerson = state.selectedPlaylistIsPerson,
                 profileTrackIds = state.selectedPlaylistProfileTrackIds,
@@ -390,5 +417,10 @@ fun PlaylistsRoute(
             )
             }
         },
+    )
+    TrackForwardOverlay(
+        selection = forwardSelection,
+        viewModel = forwardViewModel,
+        onDismiss = { forwardSelection = null },
     )
 }

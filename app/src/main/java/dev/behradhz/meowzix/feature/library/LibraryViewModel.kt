@@ -442,6 +442,11 @@ class LibraryViewModel @Inject constructor(
             .onFailure { reportLoadError(it, "Unable to like selected tracks") }
     }
 
+    fun unlikeTracks(tracks: List<Track>) = viewModelScope.launch {
+        runCatching { tracks.distinctBy(Track::id).forEach { repository.setFavorite(it.id, false) } }
+            .onFailure { reportLoadError(it, "Unable to unlike selected tracks") }
+    }
+
     fun removePlaylistTracks(tracks: List<Track>) {
         val playlistId = _state.value.selectedPlaylistId?.takeUnless { it == LOCAL_PLAYLIST_ID } ?: return
         viewModelScope.launch {

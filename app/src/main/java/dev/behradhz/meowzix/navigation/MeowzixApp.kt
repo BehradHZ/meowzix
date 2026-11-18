@@ -187,6 +187,7 @@ fun MeowzixApp(
     val librarySelectionActive by libraryTracksViewModel.selectionActive.collectAsStateWithLifecycle()
     val libraryDisplaySettings by libraryTracksViewModel.displaySettings.collectAsStateWithLifecycle()
     val queueSelectionController = remember { ContextualSelectionController() }
+    val playlistSelectionController = remember { ContextualSelectionController() }
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
     val playerBlocksBackgroundBack =
         playbackState.currentTrack != null && morphingPlayerState.blocksBackgroundBack
@@ -228,7 +229,8 @@ fun MeowzixApp(
     val searchActive = searchContextRoute != null
     val librarySelectionVisible = currentRoute == LIBRARY_ROUTE && librarySelectionActive
     val contextualSelectionVisible = librarySelectionVisible ||
-        (currentRoute == QUEUE_ROUTE && queueSelectionController.active)
+        (currentRoute == QUEUE_ROUTE && queueSelectionController.active) ||
+        (currentRoute == PLAYLISTS_ROUTE && playlistSelectionController.active)
     val searchScope = when (searchContextRoute) {
         LIBRARY_ROUTE -> DockSearchScope.LIBRARY
         PLAYLISTS_ROUTE -> DockSearchScope.PLAYLIST
@@ -459,6 +461,8 @@ fun MeowzixApp(
             if (PLAYLISTS_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == PLAYLISTS_ROUTE, hazeState = hazeState) {
                 PlaylistsRoute(
                     isActive = currentRoute == PLAYLISTS_ROUTE && !playerBlocksBackgroundBack,
+                    selectionController = playlistSelectionController,
+                    selectionMoreActions = libraryDisplaySettings.selection.normalized().more,
                     viewModel = libraryViewModel,
                     searchQuery = if (searchActive && searchScope == DockSearchScope.PLAYLIST) searchQuery else "",
                     onOpenNowPlaying = { morphingPlayerState.expand() },
@@ -620,6 +624,7 @@ fun MeowzixApp(
                     when (currentRoute) {
                         LIBRARY_ROUTE -> libraryTracksViewModel.requestSelectionAction(action)
                         QUEUE_ROUTE -> queueSelectionController.onAction(action)
+                        PLAYLISTS_ROUTE -> playlistSelectionController.onAction(action)
                     }
                 },
                 searchActive = searchActive,

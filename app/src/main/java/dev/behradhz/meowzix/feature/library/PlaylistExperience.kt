@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
@@ -20,6 +21,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
@@ -62,6 +64,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -99,6 +103,8 @@ import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -139,6 +145,8 @@ import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
+import dev.behradhz.meowzix.navigation.ContextualSelectionController
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
@@ -411,6 +419,10 @@ internal fun PlaylistDetailScreenV3(
     onBulkAddToPlaylist: (List<Track>, UUID) -> Unit = { _, _ -> },
     onBulkAddToQueue: (List<Track>) -> Unit = {},
     onBulkLike: (List<Track>) -> Unit = {},
+    onBulkUnlike: (List<Track>) -> Unit = {},
+    onBulkForward: (List<Track>) -> Unit = {},
+    selectionController: ContextualSelectionController? = null,
+    selectionMoreActions: List<LibrarySelectionAction> = emptyList(),
     onBulkRemove: (List<Track>) -> Unit = {},
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
@@ -507,7 +519,7 @@ internal fun PlaylistDetailScreenV3(
         val baseline = refreshBaseline ?: return@LaunchedEffect
         if ((newTrackIds - baseline).isNotEmpty()) {
             // Selection controls exist only in selection mode.
-            val firstTrackIndex = if (selectionMode) 3 else 2
+            val firstTrackIndex = 2
             listState.animateScrollToItem(firstTrackIndex.coerceAtMost(listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
             refreshBaseline = null
         } else if (!refreshing) {
@@ -542,12 +554,75 @@ internal fun PlaylistDetailScreenV3(
             selectedIds = emptySet()
             // The optional selection panel adds one row above the sort controls.
             // Don't skip the first result when selection is off.
-            listState.scrollToItem(if (selectionMode) 3 else 2)
+            listState.scrollToItem(2)
         }
     }
     val selectedTracks = sortedTracks.filter { it.id in selectedIds }
     val selectedToLibrary = selectedTracks.filterNot { it.id in libraryTrackIds }
     val selectedInLibrary = selectedTracks.filter { it.id in libraryTrackIds }
+    val selectionContext = LocalContext.current
+    fun cancelSelection() {
+        selectionMode = false
+        selectedIds = emptySet()
+        bulkPlaylistMenu = false
+    }
+    fun toggleAllVisible() {
+        val ids = visibleTracks.map(Track::id).toSet()
+        selectedIds = if (ids.isNotEmpty() && ids.all(selectedIds::contains)) selectedIds - ids
+            else selectedIds + ids
+        if (selectedIds.isEmpty()) selectionMode = false
+    }
+    fun handleSelectionAction(action: LibrarySelectionAction) {
+        if (selectedTracks.isEmpty()) return
+        when (action) {
+            LibrarySelectionAction.DELETE -> {
+                if (editable) {
+                    onBulkRemove(selectedTracks)
+                    cancelSelection()
+                } else if (selectedInLibrary.isNotEmpty()) showBulkLibraryRemoval = true
+                else android.widget.Toast.makeText(
+                    selectionContext, "This playlist cannot be edited", android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+            LibrarySelectionAction.PLAY_NEXT -> {
+                selectedTracks.asReversed().forEach(onPlayNext)
+                cancelSelection()
+            }
+            LibrarySelectionAction.ADD_TO_PLAYLIST -> bulkPlaylistMenu = true
+            LibrarySelectionAction.SHARE -> {
+                onBulkForward(selectedTracks)
+                cancelSelection()
+            }
+            LibrarySelectionAction.ADD_TO_QUEUE -> {
+                onBulkAddToQueue(selectedTracks)
+                cancelSelection()
+            }
+            LibrarySelectionAction.DOWNLOAD -> {
+                selectedTracks.forEach(onPinOffline)
+                cancelSelection()
+            }
+            LibrarySelectionAction.LIKE -> {
+                onBulkLike(selectedTracks)
+                cancelSelection()
+            }
+            LibrarySelectionAction.UNLIKE -> {
+                onBulkUnlike(selectedTracks)
+                cancelSelection()
+            }
+            LibrarySelectionAction.PLAY_SELECTED, LibrarySelectionAction.SHUFFLE -> {
+                onPlay(selectedTracks, if (action == LibrarySelectionAction.PLAY_SELECTED)
+                    PlaybackMode.ORDERED else PlaybackMode.PURE_SHUFFLE)
+                cancelSelection()
+            }
+        }
+    }
+    SideEffect {
+        selectionController?.active = isActive && selectionMode && !editing
+        selectionController?.onAction = ::handleSelectionAction
+    }
+    DisposableEffect(selectionController) {
+        onDispose { selectionController?.active = false }
+    }
     val grouped: List<Pair<String?, List<Track>>> = remember(
         visibleTracks, groupBy, showProfileSections, profileTrackIds, messageTrackIds, searchQuery,
     ) {
@@ -565,6 +640,30 @@ internal fun PlaylistDetailScreenV3(
         }
     }
 
+    if (bulkPlaylistMenu) {
+        AlertDialog(
+            onDismissRequest = { bulkPlaylistMenu = false },
+            title = { Text("Add ${selectedTracks.size} songs to playlist") },
+            text = {
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    val destinations = playlists.filter { !it.telegramManaged && !it.localManaged }
+                    if (destinations.isEmpty()) Text("Create a playlist first.")
+                    destinations.forEach { destination ->
+                        Text(
+                            destination.title,
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                onBulkAddToPlaylist(selectedTracks, destination.id)
+                                cancelSelection()
+                            }.padding(vertical = 12.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { bulkPlaylistMenu = false }) { Text("Cancel") }
+            },
+        )
+    }
     if (showBulkLibraryRemoval) {
         AlertDialog(
             onDismissRequest = { showBulkLibraryRemoval = false },
@@ -815,95 +914,6 @@ internal fun PlaylistDetailScreenV3(
                             ) { sortedTracks.distinctBy(Track::id).forEach(onAddToQueue) }
                         }
                     }
-                    }
-                }
-            }
-
-            if (selectionMode) item(key = "playlist-selection") {
-                PlaylistGlassPanel(hazeState, Modifier.fillMaxWidth(), radius = 19.dp) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "${selectedIds.size} selected",
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            TextButton(
-                                enabled = visibleTracks.isNotEmpty(),
-                                onClick = { selectedIds = visibleTracks.map(Track::id).toSet() },
-                            ) { Text("Select all") }
-                        }
-                        if (selectionMode) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                PlaylistBulkIconAction(
-                                    label = "Add to library",
-                                    icon = Icons.Rounded.LibraryMusic,
-                                    tag = "bulk-add-library",
-                                    enabled = selectedToLibrary.isNotEmpty(),
-                                    onClick = { onBulkAddToLibrary(selectedToLibrary) },
-                                )
-                                PlaylistBulkIconAction(
-                                    label = "Remove from Library",
-                                    icon = Icons.Rounded.DeleteOutline,
-                                    tag = "bulk-remove-library",
-                                    enabled = selectedInLibrary.isNotEmpty(),
-                                    onClick = { showBulkLibraryRemoval = true },
-                                )
-                                PlaylistBulkIconAction(
-                                    label = "Add to queue",
-                                    icon = Icons.Rounded.QueueMusic,
-                                    tag = "bulk-add-queue",
-                                    enabled = selectedTracks.isNotEmpty(),
-                                    onClick = { onBulkAddToQueue(selectedTracks) },
-                                )
-                                PlaylistBulkIconAction(
-                                    label = "Like selected songs",
-                                    icon = Icons.Rounded.Favorite,
-                                    tag = "bulk-like",
-                                    enabled = selectedTracks.isNotEmpty(),
-                                    onClick = { onBulkLike(selectedTracks) },
-                                )
-                                Box {
-                                    PlaylistBulkIconAction(
-                                        label = "Add to playlist",
-                                        icon = Icons.Rounded.PlaylistAdd,
-                                        tag = "bulk-add-playlist",
-                                        enabled = selectedTracks.isNotEmpty() && playlists.any { !it.telegramManaged && !it.localManaged },
-                                        onClick = { bulkPlaylistMenu = true },
-                                    )
-                                    DropdownMenu(
-                                        expanded = bulkPlaylistMenu,
-                                        onDismissRequest = { bulkPlaylistMenu = false },
-                                    ) {
-                                        playlists.filter { !it.telegramManaged && !it.localManaged }.forEach { target ->
-                                            DropdownMenuItem(
-                                                text = { Text(target.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                                onClick = {
-                                                    bulkPlaylistMenu = false
-                                                    onBulkAddToPlaylist(selectedTracks, target.id)
-                                                },
-                                            )
-                                        }
-                                    }
-                                }
-                                if (editable) PlaylistBulkIconAction(
-                                    label = "Remove from playlist",
-                                    icon = Icons.Rounded.DeleteOutline,
-                                    tag = "bulk-remove",
-                                    enabled = selectedTracks.isNotEmpty(),
-                                    onClick = {
-                                        onBulkRemove(selectedTracks)
-                                        selectionMode = false
-                                        selectedIds = emptySet()
-                                    },
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -1197,54 +1207,76 @@ internal fun PlaylistDetailScreenV3(
             }
         }
         }
-        MeowzixStickyHeader(
-            title = "",
-            subtitle = "",
-            hazeState = hazeState,
-            modifier = Modifier.align(Alignment.TopCenter)
-                .onGloballyPositioned { headerBottomInRoot = it.boundsInRoot().bottom },
-            leadingActions = {
-                MeowzixHeaderAction("Back to playlists", Icons.Rounded.ArrowBack, onBack)
-            },
-            centerContent = {
-                AnimatedVisibility(
-                    visible = showCollapsedHeader,
-                    enter = if (reduceMotion) EnterTransition.None else {
-                        fadeIn(tween(180)) + scaleIn(initialScale = 0.96f, animationSpec = tween(180))
-                    },
-                    exit = if (reduceMotion) ExitTransition.None else fadeOut(tween(160)),
-                ) {
-                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().testTag("playlist-collapsed-header"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
+        Crossfade(
+            targetState = selectionMode,
+            animationSpec = tween(if (reduceMotion) 0 else 240),
+            modifier = Modifier.align(Alignment.TopCenter),
+            label = "playlist-selection-header",
+        ) { selecting ->
+            MeowzixStickyHeader(
+                title = "",
+                subtitle = "",
+                hazeState = hazeState,
+                modifier = Modifier.onGloballyPositioned {
+                    headerBottomInRoot = it.boundsInRoot().bottom
+                },
+                leadingActions = {
+                    if (selecting) MeowzixHeaderAction("Cancel selection", Icons.Rounded.Close, ::cancelSelection)
+                    else MeowzixHeaderAction("Back to playlists", Icons.Rounded.ArrowBack, onBack)
+                },
+                centerContent = {
+                    if (selecting) {
+                        Text(
+                            "Selected ${selectedIds.size}",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    } else {
+                        AnimatedVisibility(
+                            visible = showCollapsedHeader,
+                            enter = if (reduceMotion) EnterTransition.None else {
+                                fadeIn(tween(180)) + scaleIn(initialScale = 0.96f, animationSpec = tween(180))
+                            },
+                            exit = if (reduceMotion) ExitTransition.None else fadeOut(tween(160)),
                         ) {
-                            PlaylistArtworkV3(
-                                artworkRef, title, isFavorites, 32.dp,
-                                reduceMotion = reduceMotion,
-                            )
-                            Spacer(Modifier.size(8.dp))
-                            Text(
-                                title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().testTag("playlist-collapsed-header"),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Alignment.CenterHorizontally,
+                                ) {
+                                    PlaylistArtworkV3(artworkRef, title, isFavorites, 32.dp, reduceMotion = reduceMotion)
+                                    Spacer(Modifier.size(8.dp))
+                                    Text(
+                                        title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                         }
                     }
-                }
-            },
-        ) {
-            TextButton(
-                onClick = {
-                    selectionMode = !selectionMode
-                    selectedIds = emptySet()
                 },
-                modifier = Modifier.testTag("playlist-header-select"),
             ) {
-                Text(if (selectionMode) "Done" else "Select")
+                if (selecting) {
+                    MeowzixHeaderAction("Select all", Icons.Rounded.SelectAll, ::toggleAllVisible)
+                    LibrarySelectionMoreMenu(
+                        actions = selectionMoreActions,
+                        onAction = ::handleSelectionAction,
+                        onSelectAll = ::toggleAllVisible,
+                        onAddToLibrary = if (selectedToLibrary.isNotEmpty())
+                            ({ onBulkAddToLibrary(selectedToLibrary); cancelSelection() }) else null,
+                        onRemoveFromLibrary = if (selectedInLibrary.isNotEmpty())
+                            ({ showBulkLibraryRemoval = true }) else null,
+                    )
+                } else {
+                    TextButton(
+                        onClick = { selectionMode = true; selectedIds = emptySet() },
+                        modifier = Modifier.testTag("playlist-header-select"),
+                    ) { Text("Select") }
+                }
             }
         }
         }

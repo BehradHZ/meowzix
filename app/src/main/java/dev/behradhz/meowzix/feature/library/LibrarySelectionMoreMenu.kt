@@ -47,6 +47,8 @@ internal fun LibrarySelectionMoreMenu(
     actions: List<LibrarySelectionAction>,
     onAction: (LibrarySelectionAction) -> Unit,
     onSelectAll: (() -> Unit)? = null,
+    onAddToLibrary: (() -> Unit)? = null,
+    onRemoveFromLibrary: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(18.dp)
@@ -89,6 +91,16 @@ internal fun LibrarySelectionMoreMenu(
                             onClick = { expanded = false; onSelectAll() },
                         )
                     }
+                    if (onAddToLibrary != null) DropdownMenuItem(
+                        text = { Text("Add selected to Library") },
+                        leadingIcon = { Icon(Icons.Rounded.PlaylistAdd, contentDescription = null) },
+                        onClick = { expanded = false; onAddToLibrary() },
+                    )
+                    if (onRemoveFromLibrary != null) DropdownMenuItem(
+                        text = { Text("Remove selected from Library") },
+                        leadingIcon = { Icon(Icons.Rounded.DeleteOutline, contentDescription = null) },
+                        onClick = { expanded = false; onRemoveFromLibrary() },
+                    )
                     actions.forEach { action ->
                         DropdownMenuItem(
                             text = { Text(action.label) },
