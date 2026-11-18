@@ -92,6 +92,7 @@ class PlaylistExperienceTest {
     ): Calls {
         val membership = mutableStateOf(librarySongIds)
         val unseenIds = mutableStateOf(newSongIds)
+        val collapsedSections = mutableStateOf(emptySet<String>())
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
@@ -140,6 +141,17 @@ class PlaylistExperienceTest {
                         profileTrackIds = profileSongIds,
                         messageTrackIds = chatSongIds,
                         onRefreshProfile = { calls.profileRefreshCount++ },
+                        collapsedTelegramSections = collapsedSections.value,
+                        onTelegramSectionExpandedChange = { section, expanded ->
+                            val key = dev.behradhz.meowzix.domain.settings.telegramPlaylistSectionKey(
+                                playlist.id, section,
+                            )
+                            collapsedSections.value = if (expanded) {
+                                collapsedSections.value - key
+                            } else {
+                                collapsedSections.value + key
+                            }
+                        },
                         onBulkAddToLibrary = { calls.bulkLibraryIds = it.map(Track::id) },
                         onBulkRemoveFromLibrary = { selected ->
                             calls.removedFromLibrary.addAll(selected.map(Track::id))
