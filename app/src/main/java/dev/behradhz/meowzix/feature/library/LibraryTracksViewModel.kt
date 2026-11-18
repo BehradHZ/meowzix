@@ -15,6 +15,12 @@ import dev.behradhz.meowzix.data.repository.PagedLibraryTracks
 import dev.behradhz.meowzix.data.settings.PlaybackContextKeys
 import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.library.LibraryTrack
+import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.library.PlaylistRepository
+import dev.behradhz.meowzix.domain.downloads.DownloadRepository
+import dev.behradhz.meowzix.domain.library.LOCAL_PLAYLIST_ID
+import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
@@ -24,6 +30,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -33,6 +41,7 @@ import kotlinx.coroutines.flow.first
 import dev.behradhz.meowzix.domain.playback.QueueGroupKind
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 
 sealed interface LibraryAggregateSelection {
     data class Artist(val name: String, val normalizedName: String) : LibraryAggregateSelection
@@ -48,10 +57,22 @@ class LibraryTracksViewModel @Inject constructor(
     private val queueRepository: QueueRepository,
     private val queueFeedbackBus: dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus,
     private val playbackContextPolicyStore: PlaybackContextPolicyStore,
+    private val musicLibrary: MusicLibraryRepository,
+    private val playlists: PlaylistRepository,
+    private val downloads: DownloadRepository,
 ) : ViewModel() {
     private val availability = MutableStateFlow(LibraryAvailabilityFilter.ALL)
     private val aggregateSelection = MutableStateFlow<LibraryAggregateSelection?>(null)
     private val searchQuery = MutableStateFlow("")
+    /** One canonical Track per ID. It survives browsing, filters and search within Library. */
+    private val _selectedTracks = MutableStateFlow<Map<UUID, Track>>(emptyMap())
+    val selectedTracks = _selectedTracks.asStateFlow()
+    private val _selectionActive = MutableStateFlow(false)
+    val selectionActive = _selectionActive.asStateFlow()
+    private val _selectionAction = MutableStateFlow<LibrarySelectionAction?>(null)
+    val selectionAction = _selectionAction.asStateFlow()
+    private val _selectionError = MutableStateFlow<String?>(null)
+    val selectionError = _selectionError.asStateFlow()
     val queueFeedback = queueFeedbackBus.events
 
     val displaySettings: StateFlow<LibraryDisplaySettings> = settingsRepository.libraryDisplaySettings
@@ -107,6 +128,108 @@ class LibraryTracksViewModel @Inject constructor(
             if (query.isBlank()) source else source.map { tracks -> tracks.filter { matchesTrack(query, it) } }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun toggleTrackSelection(track: Track) {
+        _selectionActive.value = true
+        _selectedTracks.update { current ->
+            if (current.containsKey(track.id)) current - track.id
+            else current + (track.id to track)
+        }
+    }
+
+    /** A collection checkbox toggles the complete collection, not just the filtered screen. */
+    private fun toggleCollectionSelection(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        _selectionActive.value = true
+        val ids = tracks.mapTo(hashSetOf(), Track::id)
+        _selectedTracks.update { current ->
+            if (ids.all(current::containsKey)) current - ids
+            else current + tracks.associateBy(Track::id)
+        }
+    }
+
+    fun toggleArtistSelection(artist: ArtistSummary) = viewModelScope.launch {
+        try {
+            toggleCollectionSelection(queryRepository.artistTracks(artist.normalizedName).first())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _selectionError.value = error.message ?: "Unable to select artist"
+        }
+    }
+
+    fun toggleAlbumSelection(album: AlbumSummary) = viewModelScope.launch {
+        try {
+            toggleCollectionSelection(queryRepository.albumTracks(album.name, album.normalizedArtist).first())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _selectionError.value = error.message ?: "Unable to select album"
+        }
+    }
+
+    fun toggleEntireOpenCollection() = viewModelScope.launch {
+        val tracks = try {
+            when (val collection = aggregateSelection.value) {
+                is LibraryAggregateSelection.Artist -> queryRepository.artistTracks(collection.normalizedName).first()
+                is LibraryAggregateSelection.Album -> queryRepository.albumTracks(collection.name, collection.normalizedArtist).first()
+                LibraryAggregateSelection.Favorites -> queryRepository.favoriteTracks().first()
+                null -> emptyList()
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _selectionError.value = error.message ?: "Unable to select collection"
+            return@launch
+        }
+        toggleCollectionSelection(tracks)
+    }
+
+    fun cancelSelection() {
+        _selectedTracks.value = emptyMap()
+        _selectionActive.value = false
+        _selectionAction.value = null
+    }
+
+    fun requestSelectionAction(action: LibrarySelectionAction) {
+        if (_selectionActive.value && _selectedTracks.value.isNotEmpty()) _selectionAction.value = action
+    }
+
+    fun consumeSelectionAction() { _selectionAction.value = null }
+    fun consumeSelectionError() { _selectionError.value = null }
+
+    /** All bulk operations use canonical IDs and never delete physical files or Telegram messages. */
+    fun performSelectionAction(action: LibrarySelectionAction, playlistId: UUID? = null) {
+        val ids = _selectedTracks.value.keys.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                when (action) {
+                    LibrarySelectionAction.DELETE -> musicLibrary.removeTracksFromLibrary(ids)
+                    LibrarySelectionAction.PLAY_NEXT -> ids.asReversed().forEach(queueRepository::playNext)
+                    LibrarySelectionAction.ADD_TO_PLAYLIST -> {
+                        val target = playlistId?.takeUnless { it == LOCAL_PLAYLIST_ID }
+                            ?: error("Choose a playlist")
+                        ids.forEach { playlists.addTrack(target, it) }
+                    }
+                    LibrarySelectionAction.ADD_TO_QUEUE -> ids.forEach(queueRepository::addToQueue)
+                    LibrarySelectionAction.DOWNLOAD -> ids.forEach(downloads::pinOffline)
+                    LibrarySelectionAction.LIKE -> ids.forEach { musicLibrary.setFavorite(it, true) }
+                    LibrarySelectionAction.UNLIKE -> ids.forEach { musicLibrary.setFavorite(it, false) }
+                    LibrarySelectionAction.PLAY_SELECTED ->
+                        queueRepository.replaceAndPlay(ids, PlaybackMode.ORDERED)
+                    LibrarySelectionAction.SHUFFLE ->
+                        queueRepository.replaceAndPlay(ids, PlaybackMode.PURE_SHUFFLE)
+                    LibrarySelectionAction.SHARE -> return@launch // Handled via Android Sharesheet.
+                }
+                cancelSelection()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _selectionError.value = error.message ?: "Unable to complete selection action"
+            }
+        }
+    }
 
     fun setAvailability(filter: LibraryAvailabilityFilter) {
         availability.value = filter
