@@ -26,6 +26,82 @@ class QueueReorderPreviewTest {
             queueDropOrigin(QueueItemOrigin.GENERATED, 150f, 150f)))
     }
 
+    @Test fun `Next item can enter Queue when its section heading is offscreen`() {
+        val hovered = queueDropOriginWithoutHeading(
+            sourceOrigin = QueueItemOrigin.GENERATED,
+            previousOrigin = QueueItemOrigin.GENERATED,
+            dragCenterY = 120f,
+            draggedCardHeightPx = 76f,
+            visibleRows = listOf(
+                QueueVisibleLaneRow(55f, QueueItemOrigin.MANUAL),
+                QueueVisibleLaneRow(155f, QueueItemOrigin.MANUAL),
+            ),
+        )
+        assertEquals(QueueItemOrigin.MANUAL, hovered)
+        val current = row().copy(origin = QueueItemOrigin.GENERATED)
+        val manual = row().copy(origin = QueueItemOrigin.MANUAL)
+        val firstNext = row().copy(origin = QueueItemOrigin.GENERATED)
+        val laterNext = row().copy(origin = QueueItemOrigin.GENERATED)
+        val original = indexedQueueItems(listOf(current, manual, firstNext, laterNext)) { true }
+        assertEquals(
+            QueuePreviewMove(3, 2, QueueItemOrigin.MANUAL),
+            resolveQueueBoundaryMove(
+                original, original, laterNext.occurrenceId, hovered, firstNextSlot = 2,
+            ),
+        )
+    }
+
+    @Test fun `offscreen lane detection responds when list scrolls back into Next`() {
+        val hoveringQueue = queueDropOriginWithoutHeading(
+            sourceOrigin = QueueItemOrigin.GENERATED,
+            previousOrigin = QueueItemOrigin.GENERATED,
+            dragCenterY = 120f,
+            draggedCardHeightPx = 76f,
+            visibleRows = listOf(QueueVisibleLaneRow(60f, QueueItemOrigin.MANUAL)),
+        )
+        assertEquals(QueueItemOrigin.MANUAL, hoveringQueue)
+        val hoveringNext = queueDropOriginWithoutHeading(
+            sourceOrigin = QueueItemOrigin.GENERATED,
+            previousOrigin = hoveringQueue,
+            dragCenterY = 120f,
+            draggedCardHeightPx = 76f,
+            visibleRows = listOf(
+                QueueVisibleLaneRow(45f, QueueItemOrigin.GENERATED),
+                QueueVisibleLaneRow(120f, QueueItemOrigin.GENERATED),
+            ),
+        )
+        assertEquals(QueueItemOrigin.GENERATED, hoveringNext)
+    }
+
+    @Test fun `offscreen fallback uses dragged card top only for Next promotion`() {
+        val mixed = listOf(
+            QueueVisibleLaneRow(40f, QueueItemOrigin.MANUAL),
+            QueueVisibleLaneRow(160f, QueueItemOrigin.GENERATED),
+        )
+        assertEquals(
+            QueueItemOrigin.MANUAL,
+            queueDropOriginWithoutHeading(
+                QueueItemOrigin.GENERATED, QueueItemOrigin.GENERATED,
+                dragCenterY = 185f, draggedCardHeightPx = 76f, visibleRows = mixed,
+            ),
+        )
+        assertEquals(
+            QueueItemOrigin.GENERATED,
+            queueDropOriginWithoutHeading(
+                QueueItemOrigin.MANUAL, QueueItemOrigin.MANUAL,
+                dragCenterY = 185f, draggedCardHeightPx = 76f, visibleRows = mixed,
+            ),
+        )
+        assertEquals(
+            QueueItemOrigin.MANUAL,
+            queueDropOriginWithoutHeading(
+                QueueItemOrigin.GENERATED, QueueItemOrigin.MANUAL,
+                dragCenterY = Float.NaN, draggedCardHeightPx = 76f,
+                visibleRows = emptyList(),
+            ),
+        )
+    }
+
     @Test fun `moving a generated occurrence inside Queue requests a manual lane`() {
         val playing = row()
         val queued = row()
