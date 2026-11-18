@@ -418,9 +418,26 @@ internal fun QueueScreen(
         val centerInList = if (!inlineMode && dragFingerYInRoot.isFinite()) {
             dragFingerYInRoot + rootTopInWindow - listTopInWindow
         } else dragCenterY
-        // With the last Next card temporarily promoted, its heading vanishes.
-        // Keep its selected lane until a visible boundary can be hit-tested again.
-        if (nextSectionTop == null) return dragHoveredOrigin ?: source.value.origin
+        // A section heading may leave LazyColumn's viewport during independent
+        // scrolling. The visible non-dragged rows still reveal which lane the
+        // finger is hovering over; do not lock the song to its previous lane.
+        if (nextSectionTop == null) {
+            val byKey = displayItems.asSequence()
+                .filter { it.index > state.currentIndex && it.value.occurrenceId != occurrence }
+                .associateBy { it.value.occurrenceId.toString() }
+            val visibleRows = layout.visibleItemsInfo.mapNotNull { info ->
+                byKey[info.key]?.let {
+                    QueueVisibleLaneRow(info.offset.toFloat(), it.value.origin)
+                }
+            }
+            return queueDropOriginWithoutHeading(
+                sourceOrigin = source.value.origin,
+                previousOrigin = dragHoveredOrigin,
+                dragCenterY = centerInList,
+                draggedCardHeightPx = cardHeight,
+                visibleRows = visibleRows,
+            )
+        }
         return queueDropOrigin(
             slotOrigin, centerInList, nextSectionTop, cardHeight, source.value.origin,
         )
