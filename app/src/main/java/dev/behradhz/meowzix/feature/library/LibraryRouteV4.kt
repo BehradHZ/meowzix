@@ -11,7 +11,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -85,6 +92,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -117,7 +125,7 @@ import dev.behradhz.meowzix.domain.settings.LibrarySortMode
 import java.util.UUID
 import kotlinx.coroutines.delay
 
-private enum class LibrarySectionV4(val label: String) {
+internal enum class LibrarySectionV4(val label: String) {
     TRACKS("Tracks"), ARTISTS("Artists"), ALBUMS("Albums")
 }
 
@@ -319,6 +327,11 @@ internal fun LibraryRouteV4(
             LibraryAggregateSelection.Favorites -> "Favorites"
             null -> "Library"
         }
+        val detailSection = when (aggregateSelection) {
+            is LibraryAggregateSelection.Artist -> LibrarySectionV4.ARTISTS
+            is LibraryAggregateSelection.Album -> LibrarySectionV4.ALBUMS
+            else -> selectedSection
+        }
         LibraryDetailV4(
             title = title,
             tracks = aggregateTracks,
@@ -336,6 +349,14 @@ internal fun LibraryRouteV4(
             selecting = selecting,
             selectedTracks = selectedTracks,
             lastSelectionCount = lastSelectionCount,
+            detailSection = detailSection,
+            onSelectSection = { section ->
+                sectionIndex = section.ordinal
+                // Navigate to the corresponding full Library section without
+                // clearing the selected songs; even tapping the active artist
+                // chip returns from its detail to the entire Artists list.
+                tracksViewModel.closeAggregate()
+            },
             moreActions = displaySettings.selection.normalized().more,
             onToggleSelection = tracksViewModel::toggleTrackSelection,
             onSelectAll = tracksViewModel::toggleEntireOpenCollection,
@@ -372,17 +393,10 @@ internal fun LibraryRouteV4(
             .graphicsLayer { alpha = refreshContentAlpha }
             .hazeSource(headerHazeState),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            LibrarySectionV4.entries.forEachIndexed { index, section ->
-                SelectChipV4(section.label, sectionIndex == index) { sectionIndex = index }
-            }
-        }
+        LibrarySectionTabs(
+            activeSection = selectedSection,
+            onSelectSection = { sectionIndex = it.ordinal },
+        )
 
         if (selectedSection == LibrarySectionV4.TRACKS) {
             Row(
@@ -704,6 +718,8 @@ private fun LibraryDetailV4(
     selecting: Boolean,
     selectedTracks: Map<UUID, Track>,
     lastSelectionCount: Int,
+    detailSection: LibrarySectionV4,
+    onSelectSection: (LibrarySectionV4) -> Unit,
     moreActions: List<dev.behradhz.meowzix.domain.settings.LibrarySelectionAction>,
     onToggleSelection: (Track) -> Unit,
     onSelectAll: () -> Unit,
@@ -718,11 +734,21 @@ private fun LibraryDetailV4(
     val visibleTrackKeys by remember(listState) {
         derivedStateOf { listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
     }
+    val selectionTabOffset by animateDpAsState(
+        targetValue = if (selecting) 44.dp else 0.dp,
+        animationSpec = tween(durationMillis = 330, easing = FastOutSlowInEasing),
+        label = "library-detail-tabs-content-shift",
+    )
     Box(Modifier.fillMaxSize()) {
         GlassLazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = dockAwareBottomPadding(188.dp)),
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                end = 12.dp,
+                top = 100.dp + selectionTabOffset,
+                bottom = dockAwareBottomPadding(188.dp),
+            ),
             verticalArrangement = Arrangement.spacedBy(TRACK_ROW_SPACING),
         ) {
             items(tracks, key = { it.id.toString() }, contentType = { "track" }) { track ->
@@ -754,6 +780,14 @@ private fun LibraryDetailV4(
                 }
             }
         }
+        LibraryDetailSectionTabs(
+            visible = selecting,
+            activeSection = detailSection,
+            onSelectSection = onSelectSection,
+            modifier = Modifier.align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 96.dp),
+        )
         Crossfade(
             targetState = selecting,
             animationSpec = tween(240),
@@ -779,6 +813,53 @@ private fun LibraryDetailV4(
                 }
             }
         }
+    }
+}
+
+/** Same tab row and position as the parent Library, with no separate detail styling. */
+@Composable
+internal fun LibrarySectionTabs(
+    activeSection: LibrarySectionV4,
+    onSelectSection: (LibrarySectionV4) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        LibrarySectionV4.entries.forEach { section ->
+            SelectChipV4(section.label, activeSection == section) {
+                onSelectSection(section)
+            }
+        }
+    }
+}
+
+/** Slide the section navigation in for selection and remove it without leaving a gap. */
+@Composable
+internal fun LibraryDetailSectionTabs(
+    visible: Boolean,
+    activeSection: LibrarySectionV4,
+    onSelectSection: (LibrarySectionV4) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier.testTag("library-detail-section-tabs"),
+        enter = expandVertically(
+            expandFrom = Alignment.Top,
+            animationSpec = tween(durationMillis = 330, easing = FastOutSlowInEasing),
+        ) + fadeIn(animationSpec = tween(durationMillis = 250)),
+        exit = shrinkVertically(
+            shrinkTowards = Alignment.Top,
+            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+        ) + fadeOut(animationSpec = tween(durationMillis = 200)),
+        label = "library-detail-selection-tabs-slide",
+    ) {
+        LibrarySectionTabs(activeSection, onSelectSection)
     }
 }
 
