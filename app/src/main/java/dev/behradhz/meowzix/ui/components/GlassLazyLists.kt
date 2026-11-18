@@ -1,15 +1,18 @@
 package dev.behradhz.meowzix.ui.components
 
+import android.graphics.Rect as AndroidRect
+import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.MutatePriority
+import androidx.compose.foundation.ScrollIndicatorState
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.ScrollableDefaults
+import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -21,28 +24,35 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
 import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collect
 import kotlin.math.roundToInt
 
-/** A single, subtle fast-scroller for the app's vertical list surfaces. */
+/** Shared glass fast-scrollbar: native pixel scrolling, no extra layout or overlay. */
 @Composable
 fun GlassLazyColumn(
     modifier: Modifier = Modifier,
@@ -58,22 +68,9 @@ fun GlassLazyColumn(
     LazyColumn(
         modifier = modifier.glassFastScroll(
             key = state,
-            snapshot = {
-                val layout = state.layoutInfo
-                ScrollSnapshot(
-                    totalItems = layout.totalItemsCount,
-                    visibleItems = layout.visibleItemsInfo.size,
-                    firstIndex = state.firstVisibleItemIndex,
-                    firstOffsetPx = state.firstVisibleItemScrollOffset,
-                    firstItemSizePx = layout.visibleItemsInfo.map { it.size }
-                        .filter { it > 0 }.let { sizes ->
-                            if (sizes.isEmpty()) 1 else sizes.average().roundToInt().coerceAtLeast(1)
-                        },
-                    atEnd = !state.canScrollForward,
-                )
-            },
+            scrollable = state,
+            indicator = { state.scrollIndicatorState },
             isScrolling = { state.isScrollInProgress },
-            jumpTo = { target -> state.requestScrollToItem(target.index, target.offsetPx) },
             enabled = userScrollEnabled,
         ),
         state = state,
@@ -87,7 +84,6 @@ fun GlassLazyColumn(
     )
 }
 
-/** Grid variant uses exactly the same gesture, dimensions, and materials as lists. */
 @Composable
 fun GlassLazyVerticalGrid(
     columns: GridCells,
@@ -105,31 +101,9 @@ fun GlassLazyVerticalGrid(
         columns = columns,
         modifier = modifier.glassFastScroll(
             key = state,
-            snapshot = {
-                val layout = state.layoutInfo
-                val columns = layout.maxSpan.coerceAtLeast(1)
-                val visibleRows = layout.visibleItemsInfo.map { it.row }
-                    .filter { it >= 0 }.distinct().size
-                val rowHeights = layout.visibleItemsInfo.map { it.size.height }
-                    .filter { it > 0 }
-                ScrollSnapshot(
-                    totalItems = (layout.totalItemsCount + columns - 1) / columns,
-                    visibleItems = visibleRows.coerceAtLeast(1),
-                    firstIndex = state.firstVisibleItemIndex / columns,
-                    firstOffsetPx = state.firstVisibleItemScrollOffset,
-                    firstItemSizePx = if (rowHeights.isEmpty()) 1
-                        else rowHeights.average().roundToInt().coerceAtLeast(1),
-                    atEnd = !state.canScrollForward,
-                )
-            },
+            scrollable = state,
+            indicator = { state.scrollIndicatorState },
             isScrolling = { state.isScrollInProgress },
-            jumpTo = { target ->
-                val columns = state.layoutInfo.maxSpan.coerceAtLeast(1)
-                val last = state.layoutInfo.totalItemsCount - 1
-                if (last >= 0) state.requestScrollToItem(
-                    (target.index * columns).coerceAtMost(last), target.offsetPx,
-                )
-            },
             enabled = userScrollEnabled,
         ),
         state = state,
@@ -143,41 +117,42 @@ fun GlassLazyVerticalGrid(
     )
 }
 
-private data class ScrollSnapshot(
-    val totalItems: Int,
-    val visibleItems: Int,
-    val firstIndex: Int,
-    val firstOffsetPx: Int,
-    val firstItemSizePx: Int,
-    val atEnd: Boolean,
-)
+private fun scrollMetrics(indicator: ScrollIndicatorState?): FastScrollMetrics? =
+    indicator?.let {
+        val metrics = FastScrollMetrics(
+            scrollOffsetPx = it.scrollOffset.toFloat(),
+            contentSizePx = it.contentSize.toFloat(),
+            viewportSizePx = it.viewportSize.toFloat(),
+        )
+        metrics.takeIf { value -> value.scrollRangePx > 0f && value.viewportSizePx > 0f }
+    }
 
 @Composable
 private fun Modifier.glassFastScroll(
     key: Any,
-    snapshot: () -> ScrollSnapshot,
+    scrollable: ScrollableState,
+    indicator: () -> ScrollIndicatorState?,
     isScrolling: () -> Boolean,
-    jumpTo: (FastScrollbarTarget) -> Unit,
     enabled: Boolean,
 ): Modifier {
     val accent = MaterialTheme.colorScheme.primary
     val foreground = MaterialTheme.colorScheme.onSurface
     val haptics = rememberMeowzixHaptics()
     val density = LocalDensity.current
-    val layoutDirection = LocalLayoutDirection.current
-    // Leave the Back gesture strip untouched; the grip is inset from that strip.
-    val rightInsetPx = maxOf(
-        WindowInsets.systemGestures.getRight(density, layoutDirection).toFloat(),
-        with(density) { 24.dp.toPx() },
-    ) + with(density) { 18.dp.toPx() }
+    val view = LocalView.current
+
+    // Keep the grip in its original, visually flush position. Android Back is only excluded
+    // inside the moving handle, not across the height of the screen.
+    val rightInsetPx = with(density) { 4.dp.toPx() }
     val thumbWidthPx = with(density) { 6.dp.toPx() }
     val halfTouchWidthPx = with(density) { 12.dp.toPx() }
-    val verticalSlopPx = with(density) { 10.dp.toPx() }
+    val verticalSlopPx = with(density) { 8.dp.toPx() }
     val railInsetPx = with(density) { 12.dp.toPx() }
-    val minThumbHeightPx = with(density) { 40.dp.toPx() }
+    val minThumbHeightPx = with(density) { 44.dp.toPx() }
+    val maxThumbHeightPx = with(density) { 96.dp.toPx() }
     var dragging by remember(key) { mutableStateOf(false) }
     var dragFraction by remember(key) { mutableFloatStateOf(0f) }
-    // Only animate engagement, never the thumb position or the content itself.
+    var boundsInRoot by remember(key) { mutableStateOf<Rect?>(null) }
     val visibility by animateFloatAsState(
         targetValue = if (dragging) 1f else if (isScrolling()) 0.8f else 0.35f,
         animationSpec = tween(140),
@@ -185,21 +160,58 @@ private fun Modifier.glassFastScroll(
     )
     if (!enabled) return this
 
+    // A narrow, updated gesture-exclusion rectangle moves with the thumb. Excluding the
+    // entire right edge would disable Back over every list; moving the indicator inward is
+    // not necessary. Preserve exclusions registered by other Compose controls.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        LaunchedEffect(view, key, rightInsetPx, railInsetPx) {
+            var owned: AndroidRect? = null
+            fun replaceOwned(next: AndroidRect?) {
+                if (owned == next) return
+                val all = view.systemGestureExclusionRects.toMutableList()
+                owned?.let { all.remove(it) }
+                if (next != null && !next.isEmpty) all.add(next)
+                view.systemGestureExclusionRects = all
+                owned = next
+            }
+            try {
+                snapshotFlow {
+                    val bounds = boundsInRoot
+                    val metrics = scrollMetrics(indicator())
+                    if (bounds == null || metrics == null) null else {
+                        val geometry = fastScrollbarGeometry(
+                            bounds.height, metrics, railInsetPx,
+                            minThumbHeightPx, maxThumbHeightPx,
+                        )
+                        geometry?.let { g ->
+                            AndroidRect(
+                                (bounds.right - with(density) { 24.dp.toPx() }).roundToInt(),
+                                (bounds.top + g.thumbTopPx - verticalSlopPx).roundToInt(),
+                                bounds.right.roundToInt(),
+                                (bounds.top + g.thumbTopPx + g.thumbHeightPx + verticalSlopPx)
+                                    .roundToInt(),
+                            )
+                        }
+                    }
+                }.distinctUntilChanged().collect { replaceOwned(it) }
+            } finally {
+                replaceOwned(null)
+            }
+        }
+    }
+
     return this
+        .onGloballyPositioned { boundsInRoot = it.boundsInRoot() }
         .pointerInput(key, rightInsetPx) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                val initial = snapshot()
+                val metrics = scrollMetrics(indicator()) ?: return@awaitEachGesture
                 val geometry = fastScrollbarGeometry(
                     viewportPx = size.height.toFloat(),
-                    totalItems = initial.totalItems,
-                    visibleItems = initial.visibleItems,
-                    firstIndex = initial.firstIndex,
-                    firstOffsetPx = initial.firstOffsetPx,
-                    firstItemSizePx = initial.firstItemSizePx,
+                    metrics = metrics,
                     insetPx = railInsetPx,
                     minThumbHeightPx = minThumbHeightPx,
-                    atEnd = initial.atEnd,
+                    maxThumbHeightPx = maxThumbHeightPx,
                 ) ?: return@awaitEachGesture
                 if (!fastScrollbarThumbHitTest(
                         xPx = down.position.x,
@@ -213,35 +225,31 @@ private fun Modifier.glassFastScroll(
                     )
                 ) return@awaitEachGesture
 
-                // Avoid any jump just from grabbing the thumb off-center.
-                val grabOffsetY = down.position.y - (geometry.thumbTopPx + geometry.thumbHeightPx / 2f)
-                dragFraction = ((geometry.thumbTopPx - geometry.trackTopPx) /
-                    (geometry.trackHeightPx - geometry.thumbHeightPx).coerceAtLeast(1f))
-                    .coerceIn(0f, 1f)
+                val grabOffsetY = down.position.y - geometry.thumbCenterPx
+                var previousFraction = metrics.fraction
+                dragFraction = previousFraction
                 dragging = true
                 haptics.perform(MeowzixHapticCue.DragStart)
                 try {
                     down.consume()
-                    var lastTarget: FastScrollbarTarget? = null
-                    while (true) {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
-                        val fraction = fastScrollbarFractionForY(change.position.y - grabOffsetY, geometry)
-                        dragFraction = fraction
-                        // Pixel offset gives continuous, intermediate positions inside each row.
-                        // Freeze geometry/height during the gesture to avoid variable-row jitter.
-                        val target = fastScrollbarTargetForFraction(
-                            fraction = fraction,
-                            totalItems = initial.totalItems,
-                            visibleItems = initial.visibleItems,
-                            estimatedItemSizePx = initial.firstItemSizePx.toFloat(),
-                        )
-                        if (target != lastTarget) {
-                            lastTarget = target
-                            jumpTo(target)
+                    // ScrollScope.scrollBy consumes real content pixels, including offsets *within*
+                    // an item. Holding UserInput priority cancels flings and avoids racing seeks.
+                    scrollable.scroll(MutatePriority.UserInput) {
+                        while (true) {
+                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            val fraction = fastScrollbarFractionForY(
+                                change.position.y - grabOffsetY, geometry,
+                            )
+                            val deltaPx = fastScrollbarContentDelta(
+                                previousFraction, fraction, metrics.scrollRangePx,
+                            )
+                            previousFraction = fraction
+                            dragFraction = fraction
+                            if (deltaPx != 0f) scrollBy(deltaPx)
+                            change.consume()
                         }
-                        change.consume()
                     }
                 } finally {
                     dragging = false
@@ -251,31 +259,25 @@ private fun Modifier.glassFastScroll(
         }
         .drawWithContent {
             drawContent()
-            val data = snapshot()
+            val metrics = scrollMetrics(indicator()) ?: return@drawWithContent
             val geometry = fastScrollbarGeometry(
                 viewportPx = size.height,
-                totalItems = data.totalItems,
-                visibleItems = data.visibleItems,
-                firstIndex = data.firstIndex,
-                firstOffsetPx = data.firstOffsetPx,
-                firstItemSizePx = data.firstItemSizePx,
+                metrics = metrics,
                 insetPx = railInsetPx,
                 minThumbHeightPx = minThumbHeightPx,
-                atEnd = data.atEnd,
+                maxThumbHeightPx = maxThumbHeightPx,
             ) ?: return@drawWithContent
 
-            val thumbWidth = if (dragging) 6.dp.toPx() else 4.dp.toPx()
-            val rightInset = rightInsetPx
-            val left = size.width - rightInset - thumbWidth
+            val thumbWidth = if (dragging) thumbWidthPx else 4.dp.toPx()
+            val left = size.width - rightInsetPx - thumbWidth
             val radius = CornerRadius(thumbWidth / 2f)
             val thumbTop = if (dragging) {
-                geometry.trackTopPx + (geometry.trackHeightPx - geometry.thumbHeightPx) * dragFraction
+                geometry.trackTopPx + geometry.travelPx * dragFraction
             } else geometry.thumbTopPx
             val thumbHeight = geometry.thumbHeightPx
-            // An understated rail and a layered, frosted-glass-looking thumb.
             drawRoundRect(
                 foreground.copy(alpha = 0.035f * visibility),
-                topLeft = Offset(size.width - rightInset - 2.dp.toPx(), geometry.trackTopPx),
+                topLeft = Offset(size.width - rightInsetPx - 2.dp.toPx(), geometry.trackTopPx),
                 size = Size(2.dp.toPx(), geometry.trackHeightPx),
                 cornerRadius = CornerRadius(2.dp.toPx()),
             )
