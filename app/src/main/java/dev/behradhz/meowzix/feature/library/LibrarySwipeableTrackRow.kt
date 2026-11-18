@@ -44,6 +44,7 @@ import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -135,6 +136,9 @@ internal fun SwipeableLibraryTrackRow(
     artworkVisible: Boolean = true,
     onTrackInteracted: () -> Unit = {},
     onLongClick: (() -> Unit)? = null,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onSelect: (() -> Unit)? = null,
 ) {
     LaunchedEffect(track.id, track.artworkRef, artworkVisible) {
         if (artworkVisible) onEnsureArtwork()
@@ -210,8 +214,8 @@ internal fun SwipeableLibraryTrackRow(
                     clip = true
                 }
                 .pointerInput(track.id, actionThreshold, libraryThreshold, chatLibraryMembership,
-                    hasChatLibraryAction) {
-                    detectHorizontalDragGestures(
+                    hasChatLibraryAction, selectionMode) {
+                    if (!selectionMode) detectHorizontalDragGestures(
                         onDragStart = {
                             horizontalDragActive = true
                             swipeStage = when {
@@ -265,7 +269,7 @@ internal fun SwipeableLibraryTrackRow(
             LibraryTrackRowContent(
                 track = track,
                 isCurrent = isCurrent,
-                onClick = onClick,
+                onClick = if (selectionMode) { { onSelect?.invoke() } } else onClick,
                 onTrackInteracted = onTrackInteracted,
                 onPlayNext = onPlayNext,
                 onAddToQueue = onAddToQueue,
@@ -287,7 +291,10 @@ internal fun SwipeableLibraryTrackRow(
                 isNewArrival = isNewArrival,
                 reduceMotion = reduceMotion,
                 artworkVisible = artworkVisible,
-                onLongClick = onLongClick,
+                onLongClick = if (selectionMode) onSelect else onLongClick,
+                selectionMode = selectionMode,
+                selected = selected,
+                onSelect = onSelect,
             )
         }
     }
@@ -321,6 +328,9 @@ private fun LibraryTrackRowContent(
     reduceMotion: Boolean,
     artworkVisible: Boolean,
     onLongClick: (() -> Unit)?,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onSelect: (() -> Unit)?,
 ) {
     val recommendationActions = LocalLibraryRecommendationActions.current
     val trackToolsActions = LocalLibraryTrackToolsActions.current
@@ -418,7 +428,7 @@ private fun LibraryTrackRowContent(
                 size = 52.dp,
                 isOffline = availability == LibraryTrackAvailability.OFFLINE,
                 download = download,
-                onDownload = onPinOffline,
+                onDownload = if (selectionMode) ({ onSelect?.invoke() }) else onPinOffline,
             )
             Spacer(Modifier.size(10.dp))
             Column(Modifier.weight(1f)) {
@@ -458,7 +468,13 @@ private fun LibraryTrackRowContent(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
             )
-            Box {
+            if (selectionMode) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { onSelect?.invoke() },
+                    modifier = Modifier.size(48.dp),
+                )
+            } else Box {
                 IconButton(onClick = { menuExpanded = true }) {
                     Icon(Icons.Rounded.MoreVert, contentDescription = "Track actions")
                 }
