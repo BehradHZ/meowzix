@@ -104,6 +104,7 @@ import dev.behradhz.meowzix.feature.library.PlaylistsRoute
 import dev.behradhz.meowzix.data.repository.AlbumSummary
 import dev.behradhz.meowzix.feature.library.LibraryViewModel
 import dev.behradhz.meowzix.feature.library.LibraryTracksViewModel
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.profile.SettingsRoute
 import dev.behradhz.meowzix.feature.queue.QueueRoute
@@ -182,6 +183,8 @@ fun MeowzixApp(
     val telegramAuthState by telegramProxyViewModel.state.collectAsStateWithLifecycle()
     var openProxyRequest by remember { mutableIntStateOf(0) }
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
+    val librarySelectionActive by libraryTracksViewModel.selectionActive.collectAsStateWithLifecycle()
+    val libraryDisplaySettings by libraryTracksViewModel.displaySettings.collectAsStateWithLifecycle()
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
     val playerBlocksBackgroundBack =
         playbackState.currentTrack != null && morphingPlayerState.blocksBackgroundBack
@@ -580,6 +583,9 @@ fun MeowzixApp(
                 hazeState = hazeState,
                 destinations = destinations,
                 selectedRoute = if (searchActive) SEARCH_ROUTE else selectedDockRoute,
+                selectionActions = if (currentRoute == LIBRARY_ROUTE && librarySelectionActive)
+                    libraryDisplaySettings.selection.normalized().dock else emptyList(),
+                onSelectionAction = libraryTracksViewModel::requestSelectionAction,
                 searchActive = searchActive,
                 dockCompact = dockCompact,
                 searchPlaceholder = searchScope.placeholder,
@@ -684,7 +690,18 @@ internal fun MorphingDock(
     onExpandCompact: () -> Unit,
     onCloseSearch: () -> Unit,
     reduceMotion: Boolean = false,
+    selectionActions: List<LibrarySelectionAction> = emptyList(),
+    onSelectionAction: (LibrarySelectionAction) -> Unit = {},
 ) {
+    if (selectionActions.size == 4 && !searchActive) {
+        SelectionActionDock(
+            hazeState = hazeState,
+            actions = selectionActions,
+            onAction = onSelectionAction,
+            onSearch = { onSelect(SEARCH_ROUTE) },
+        )
+        return
+    }
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     // Wait for the bubble to occupy the dock before the IME starts resizing the footer.
