@@ -263,10 +263,9 @@ class PlaylistExperienceTest {
             librarySongIds = members,
         )
         compose.onNodeWithTag("playlist-header-select").performClick()
-        compose.onNodeWithText("Select all").performClick()
-        compose.onNodeWithTag("playlist-detail-list")
-            .performScrollToNode(hasTestTag("bulk-remove-library"))
-        compose.onNodeWithTag("bulk-remove-library").performClick()
+        compose.onNodeWithContentDescription("Select all").performClick()
+        compose.onNodeWithContentDescription("More selection actions").performClick()
+        compose.onNodeWithText("Remove selected from Library").performClick()
         compose.onNodeWithText("Remove 2 songs from Library?").assertIsDisplayed()
         compose.onNodeWithText("Remove 2").performClick()
         compose.runOnIdle { assertEquals(members, calls.removedFromLibrary.toSet()) }
@@ -289,16 +288,15 @@ class PlaylistExperienceTest {
             .performScrollToNode(hasTestTag("playlist-select:${tracks.first().id}"))
         // A profile track can also appear in the chat section; both rows select one Track ID.
         compose.onAllNodesWithTag("playlist-select:${tracks.first().id}").onFirst().performClick()
-        compose.onNodeWithTag("playlist-detail-list")
-            .performScrollToNode(hasTestTag("bulk-add-library"))
-        compose.onNodeWithTag("bulk-add-library").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Selected 1").assertIsDisplayed()
+        compose.onNodeWithContentDescription("More selection actions").performClick()
+        compose.onNodeWithText("Add selected to Library").performClick()
         compose.runOnIdle {
             assertEquals(listOf(tracks.first().id), calls.bulkLibraryIds)
             assertTrue(calls.plays.isEmpty())
         }
-        compose.onNodeWithTag("bulk-add-queue").assertIsDisplayed()
-        compose.onNodeWithTag("bulk-like").assertIsDisplayed()
-        compose.onNodeWithTag("bulk-add-playlist").assertIsDisplayed()
+        // The bulk panel is gone: successful actions return to the normal playlist chrome.
+        compose.onNodeWithTag("playlist-header-select").assertIsDisplayed()
     }
 
     @Test fun telegramProfileAndChatSectionsCollapseIndependently() {
