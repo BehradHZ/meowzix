@@ -423,9 +423,8 @@ class TdLibTelegramForwardRepository @Inject constructor(
                                 withTimeoutOrNull(FOLDER_SEED_CHAT_TIMEOUT_MS) {
                                     try {
                                         val chat = client.send(TdApi.GetChat(id))
-                                        if (chat.chatLists.any { list ->
-                                                list is TdApi.ChatListFolder && list.chatFolderId == folderId
-                                            } && !chat.isMtprotoProxySponsoredChat()
+                                        if (isChatInForwardFolder(chat.chatLists, folderId) &&
+                                            !chat.isMtprotoProxySponsoredChat()
                                         ) id else null
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
@@ -1330,9 +1329,16 @@ private fun String.telegramUsernameCandidate(): String? {
     return candidate.takeIf { value -> value.all { it.isLetterOrDigit() || it == '_' } }
 }
 
+/** TDLib's chatLists is authoritative for membership (positions may be empty). */
+internal fun isChatInForwardFolder(chatLists: Array<TdApi.ChatList>, folderId: Int): Boolean =
+    chatLists.any { it is TdApi.ChatListFolder && it.chatFolderId == folderId }
+
 /** MTProxy sponsored channels are not user-chosen Forward destinations. */
-private fun TdApi.Chat.isMtprotoProxySponsoredChat(): Boolean =
+internal fun isMtprotoProxySponsoredForwardChat(positions: Array<TdApi.ChatPosition>): Boolean =
     positions.any { it.source is TdApi.ChatSourceMtprotoProxy }
+
+private fun TdApi.Chat.isMtprotoProxySponsoredChat(): Boolean =
+    isMtprotoProxySponsoredForwardChat(positions)
 
 private fun TdApi.Chat.toForwardSummary(
     currentUserId: Long,
