@@ -27,6 +27,9 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -44,6 +47,7 @@ internal fun SelectionActionDock(
     onSearch: () -> Unit,
 ) {
     require(actions.size == 4)
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
     BoxWithConstraints(Modifier.fillMaxWidth().height(72.dp)) {
         val shape = RoundedCornerShape(36.dp)
         FloatingChromeGlassSurface(
@@ -93,5 +97,6 @@ internal fun SelectionActionDock(
                 Icon(Icons.Rounded.Search, contentDescription = "Search selected library", modifier = Modifier.size(25.dp))
             }
         }
+    }
     }
 }
