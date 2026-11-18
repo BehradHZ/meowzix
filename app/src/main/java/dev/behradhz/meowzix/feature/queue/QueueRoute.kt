@@ -988,7 +988,7 @@ internal fun QueueScreen(
         }
         val draggedGroup = draggedGroupId?.let(state.groups::get)
         val promoteToQueue = draggedTrack?.origin == QueueItemOrigin.GENERATED &&
-            (queueDropTargetOrigin() ?: dragHoveredOrigin) == QueueItemOrigin.MANUAL
+            (dragHoveredOrigin ?: queueDropTargetOrigin()) == QueueItemOrigin.MANUAL
         if (dragCenterY.isFinite() && (draggedTrack != null || draggedGroup != null)) {
             val useFingerPosition = !inlineMode && draggedTrack != null &&
                 dragFingerYInRoot.isFinite()
