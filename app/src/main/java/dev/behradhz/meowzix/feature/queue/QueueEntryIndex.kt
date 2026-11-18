@@ -128,6 +128,53 @@ internal fun queueDropOrigin(
     }
 }
 
+/** Layout-space evidence for choosing a Queue lane while its heading is virtualized. */
+internal data class QueueVisibleLaneRow(
+    val topY: Float,
+    val origin: dev.behradhz.meowzix.domain.playback.QueueItemOrigin,
+)
+
+/**
+ * LazyColumn drops the section heading from visibleItemsInfo when it scrolls
+ * off-screen. Infer the target lane from actual visible rows rather than
+ * indefinitely preserving the dragged song's previous lane.
+ *
+ * The caller excludes the dragged occurrence. Non-dragged rows retain their
+ * authoritative lane even as the preview reorders.
+ */
+internal fun queueDropOriginWithoutHeading(
+    sourceOrigin: dev.behradhz.meowzix.domain.playback.QueueItemOrigin,
+    previousOrigin: dev.behradhz.meowzix.domain.playback.QueueItemOrigin?,
+    dragCenterY: Float,
+    draggedCardHeightPx: Float,
+    visibleRows: List<QueueVisibleLaneRow>,
+): dev.behradhz.meowzix.domain.playback.QueueItemOrigin {
+    val fallback = previousOrigin ?: sourceOrigin
+    if (!dragCenterY.isFinite()) return fallback
+    val rows = visibleRows.filter { it.topY.isFinite() }
+    val manualVisible = rows.any {
+        it.origin == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL
+    }
+    val generatedTop = rows.filter {
+        it.origin == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
+    }.minOfOrNull { it.topY }
+    return when {
+        generatedTop == null && manualVisible ->
+            dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL
+        generatedTop != null && !manualVisible ->
+            dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
+        generatedTop != null -> {
+            val topEdge = if (sourceOrigin ==
+                dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED)
+                dragCenterY - draggedCardHeightPx.coerceAtLeast(0f) / 2f else dragCenterY
+            if (topEdge < generatedTop)
+                dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL
+            else dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
+        }
+        else -> fallback
+    }
+}
+
 /**
  * Promoting a Next occurrence snaps its *destination* to the first generated
  * slot (the end of Queue) even before a row's midpoint is crossed. Higher
