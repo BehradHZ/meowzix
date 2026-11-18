@@ -160,6 +160,11 @@ internal fun LibraryRouteV4(
     val aggregateSelection by tracksViewModel.selectedAggregate.collectAsStateWithLifecycle()
     val selecting by tracksViewModel.selectionActive.collectAsStateWithLifecycle()
     val selectedTracks by tracksViewModel.selectedTracks.collectAsStateWithLifecycle()
+    // Retain the count through the exit crossfade; don't flash "Selected 0".
+    var lastSelectionCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(selectedTracks.size) {
+        if (selectedTracks.isNotEmpty()) lastSelectionCount = selectedTracks.size
+    }
     val aggregateTracks by tracksViewModel.aggregateTracks.collectAsStateWithLifecycle()
     val pagingItems = tracksViewModel.tracks.collectAsLazyPagingItems()
     var refreshBaseline by remember { mutableStateOf<Set<UUID>?>(null) }
@@ -311,6 +316,7 @@ internal fun LibraryRouteV4(
             viewModel = viewModel,
             selecting = selecting,
             selectedTracks = selectedTracks,
+            lastSelectionCount = lastSelectionCount,
             moreActions = displaySettings.selection.normalized().more,
             onToggleSelection = tracksViewModel::toggleTrackSelection,
             onSelectAll = tracksViewModel::toggleEntireOpenCollection,
@@ -457,7 +463,7 @@ internal fun LibraryRouteV4(
             label = "library-selection-header",
         ) { selectionHeader ->
             MeowzixStickyHeader(
-                title = if (selectionHeader) "Selected ${selectedTracks.size}" else "Library",
+                title = if (selectionHeader) "Selected ${if (selecting) selectedTracks.size else lastSelectionCount}" else "Library",
                 subtitle = if (selectionHeader) "" else "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
                 hazeState = headerHazeState,
                 leadingActions = if (selectionHeader) {
@@ -658,6 +664,7 @@ private fun LibraryDetailV4(
     onGoToArtist: (Track) -> Unit,
     selecting: Boolean,
     selectedTracks: Map<UUID, Track>,
+    lastSelectionCount: Int,
     moreActions: List<dev.behradhz.meowzix.domain.settings.LibrarySelectionAction>,
     onToggleSelection: (Track) -> Unit,
     onSelectAll: () -> Unit,
@@ -712,7 +719,7 @@ private fun LibraryDetailV4(
             label = "collection-selection-header",
         ) { selectionHeader ->
             MeowzixStickyHeader(
-                title = if (selectionHeader) "Selected ${selectedTracks.size}" else title,
+                title = if (selectionHeader) "Selected ${if (selecting) selectedTracks.size else lastSelectionCount}" else title,
                 subtitle = if (selectionHeader) "" else "${tracks.size} tracks",
                 hazeState = hazeState,
                 leadingActions = {

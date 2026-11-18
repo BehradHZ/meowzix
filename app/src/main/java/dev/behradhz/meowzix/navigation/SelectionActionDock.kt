@@ -43,6 +43,7 @@ import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 internal fun SelectionDockActions(
     actions: List<LibrarySelectionAction>,
     onAction: (LibrarySelectionAction) -> Unit,
+    enabled: Boolean = true,
 ) {
     if (actions.size != 4) return
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
@@ -55,7 +56,7 @@ internal fun SelectionDockActions(
                 Column(
                     modifier = Modifier.weight(1f).fillMaxHeight()
                         .testTag("selection-dock-" + action.name.lowercase())
-                        .clickable(role = Role.Button) { onAction(action) },
+                        .clickable(enabled = enabled, role = Role.Button) { onAction(action) },
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {

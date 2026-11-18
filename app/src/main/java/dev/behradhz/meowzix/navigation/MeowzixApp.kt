@@ -776,14 +776,16 @@ internal fun MorphingDock(
                         },
                     ) {
                         Crossfade(
-                            targetState = selectionActions.size == 4,
+                            // Preserve the outgoing action snapshot while it fades away.
+                            targetState = selectionActions.takeIf { it.size == 4 },
                             animationSpec = tween(if (reduceMotion) 0 else 260),
                             label = "library-selection-dock",
-                        ) { selecting ->
-                            if (selecting) {
+                        ) { activeSelectionActions ->
+                            if (activeSelectionActions != null) {
                                 SelectionDockActions(
-                                    actions = selectionActions,
+                                    actions = activeSelectionActions,
                                     onAction = onSelectionAction,
+                                    enabled = selectionActions.size == 4 && !searchActive,
                                 )
                             } else {
                                 Row(
@@ -797,7 +799,8 @@ internal fun MorphingDock(
                                             selected = selectedRoute == destination.route,
                                             onClick = { onSelect(destination.route) },
                                             modifier = Modifier.weight(1f),
-                                            enabled = !searchActive && searchMorph < 0.06f && morph < 0.40f,
+                                            enabled = selectionActions.size != 4 &&
+                                                !searchActive && searchMorph < 0.06f && morph < 0.40f,
                                         )
                                     }
                                 }
