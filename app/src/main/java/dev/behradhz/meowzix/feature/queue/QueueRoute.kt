@@ -313,6 +313,7 @@ internal fun QueueScreen(
     var awaitingTrackCommit by remember { mutableStateOf(false) }
     var dragCenterY by remember { mutableFloatStateOf(Float.NaN) }
     var dragCapturedByRoot by remember { mutableStateOf(false) }
+    var manualScrollActive by remember { mutableStateOf(false) }
     var rootTopInWindow by remember { mutableFloatStateOf(0f) }
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
     val reorderGestureState = LocalQueueReorderGestureState.current
@@ -525,7 +526,7 @@ internal fun QueueScreen(
                 else -> 0f
             }
             var autoScrolled = false
-            if (velocity != 0f) {
+            if (velocity != 0f && !manualScrollActive) {
                 try {
                     autoScrolled = listState.scrollBy(velocity * dt) != 0f
                 } catch (cancel: CancellationException) {
@@ -589,6 +590,7 @@ internal fun QueueScreen(
                                     }
                                     if (second != null) {
                                         secondFingerId = second.id
+                                        manualScrollActive = true
                                         val targets = Channel<Float>(Channel.CONFLATED)
                                         secondFingerTargets = targets
                                         val initialY = second.position.y
@@ -614,6 +616,7 @@ internal fun QueueScreen(
                                         secondFingerTargets?.close()
                                         secondFingerTargets = null
                                         secondFingerId = null
+                                        manualScrollActive = false
                                     }
                                 }
                             }
@@ -621,6 +624,7 @@ internal fun QueueScreen(
                         }
                     } finally {
                         secondFingerTargets?.close()
+                        manualScrollActive = false
                         if (captured && !finished) currentRootStop(false)
                         dragCapturedByRoot = false
                     }
@@ -1205,6 +1209,7 @@ private fun SwipeableQueueItem(
     var swipeOffsetX by remember(item.occurrenceId) { mutableFloatStateOf(0f) }
     var swipeStage by remember(item.occurrenceId) { mutableIntStateOf(0) }
     var horizontalDragActive by remember(item.occurrenceId) { mutableStateOf(false) }
+    val draggingNow by rememberUpdatedState(isDragging)
     val visualOffsetX by animateFloatAsState(
         targetValue = swipeOffsetX,
         animationSpec = if (horizontalDragActive) snap() else tween(190),
@@ -1236,8 +1241,8 @@ private fun SwipeableQueueItem(
                     shape = RoundedCornerShape(18.dp)
                     clip = true
                 }
-                .pointerInput(item.occurrenceId, isDragging, actionThreshold, removeThreshold, interactionEnabled) {
-                    if (!isDragging && interactionEnabled) {
+                .pointerInput(item.occurrenceId, actionThreshold, removeThreshold, interactionEnabled) {
+                    if (!draggingNow && interactionEnabled) {
                         detectHorizontalDragGestures(
                             onDragStart = {
                                 horizontalDragActive = true
