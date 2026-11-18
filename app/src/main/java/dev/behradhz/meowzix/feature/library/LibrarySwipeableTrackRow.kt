@@ -269,7 +269,7 @@ internal fun SwipeableLibraryTrackRow(
             LibraryTrackRowContent(
                 track = track,
                 isCurrent = isCurrent,
-                onClick = if (selectionMode) { { onSelect?.invoke() } } else onClick,
+                onClick = if (selectionMode) { { onSelect?.invoke(); Unit } } else onClick,
                 onTrackInteracted = onTrackInteracted,
                 onPlayNext = onPlayNext,
                 onAddToQueue = onAddToQueue,
@@ -428,7 +428,7 @@ private fun LibraryTrackRowContent(
                 size = 52.dp,
                 isOffline = availability == LibraryTrackAvailability.OFFLINE,
                 download = download,
-                onDownload = if (selectionMode) ({ onSelect?.invoke() }) else onPinOffline,
+                onDownload = if (selectionMode) ({ onSelect?.invoke(); Unit }) else onPinOffline,
             )
             Spacer(Modifier.size(10.dp))
             Column(Modifier.weight(1f)) {
