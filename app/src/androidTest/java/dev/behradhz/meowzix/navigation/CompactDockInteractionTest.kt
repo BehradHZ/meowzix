@@ -95,14 +95,14 @@ class CompactDockInteractionTest {
         }
 
         val circleWidth = compose.onNodeWithTag("dock-search-bubble")
-            .getUnclippedBoundsInRoot().width
+            .getUnclippedBoundsInRoot().let { it.right - it.left }
         compose.runOnIdle { searchActive = true }
         compose.mainClock.advanceTimeBy(150)
         val intermediateWidth = compose.onNodeWithTag("dock-search-bubble")
-            .getUnclippedBoundsInRoot().width
+            .getUnclippedBoundsInRoot().let { it.right - it.left }
         compose.mainClock.advanceTimeBy(DockSearchOpenDurationMs.toLong())
         val expandedWidth = compose.onNodeWithTag("dock-search-bubble")
-            .getUnclippedBoundsInRoot().width
+            .getUnclippedBoundsInRoot().let { it.right - it.left }
 
         assertTrue("Search must grow from the existing circle", intermediateWidth > circleWidth + 5.dp)
         assertTrue("Search must not jump directly to full width", expandedWidth > intermediateWidth + 5.dp)
@@ -110,7 +110,7 @@ class CompactDockInteractionTest {
         compose.runOnIdle { searchActive = false }
         compose.mainClock.advanceTimeBy(DockSearchCloseDurationMs.toLong() + 80L)
         val collapsedWidth = compose.onNodeWithTag("dock-search-bubble")
-            .getUnclippedBoundsInRoot().width
+            .getUnclippedBoundsInRoot().let { it.right - it.left }
         assertTrue("Closing must restore the original search circle", (collapsedWidth - circleWidth).value < 2f &&
             (collapsedWidth - circleWidth).value > -2f)
     }
