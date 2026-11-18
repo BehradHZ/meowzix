@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.MutatePriority
@@ -1656,7 +1657,10 @@ private fun SwipeableQueueItem(
                         }
                         .pointerInput(item.occurrenceId, effectiveReorderEnabled) {
                             if (effectiveReorderEnabled) {
-                                detectDragGestures(
+                                // Reserve vertical motion for reordering. The parent
+                                // row owns horizontal swipe actions; a generic 2D
+                                // detector can lose the handle gesture to a sibling.
+                                detectVerticalDragGestures(
                                     onDragStart = { localTouch ->
                                         haptics.perform(MeowzixHapticCue.Threshold)
                                         onDragStart(
@@ -1666,9 +1670,9 @@ private fun SwipeableQueueItem(
                                     },
                                     onDragCancel = onDragCancel,
                                     onDragEnd = onDragEnd,
-                                    onDrag = { change, dragAmount ->
+                                    onVerticalDrag = { change, deltaY ->
                                         change.consume()
-                                        onDrag(dragAmount.y)
+                                        onDrag(deltaY)
                                     },
                                 )
                             }
