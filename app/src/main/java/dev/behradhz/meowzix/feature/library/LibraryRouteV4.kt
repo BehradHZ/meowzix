@@ -55,6 +55,8 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -155,6 +157,8 @@ internal fun LibraryRouteV4(
         remember { mutableStateOf(emptyList<AlbumSummary>()) }
     }
     val aggregateSelection by tracksViewModel.selectedAggregate.collectAsStateWithLifecycle()
+    val selecting by tracksViewModel.selectionActive.collectAsStateWithLifecycle()
+    val selectedTracks by tracksViewModel.selectedTracks.collectAsStateWithLifecycle()
     val aggregateTracks by tracksViewModel.aggregateTracks.collectAsStateWithLifecycle()
     val pagingItems = tracksViewModel.tracks.collectAsLazyPagingItems()
     var refreshBaseline by remember { mutableStateOf<Set<UUID>?>(null) }
@@ -221,10 +225,11 @@ internal fun LibraryRouteV4(
     val availabilityFilter = LibraryAvailabilityFilter.entries[availabilityIndex]
     LaunchedEffect(availabilityFilter) { tracksViewModel.setAvailability(availabilityFilter) }
 
-    BackHandler(enabled = isActive && (aggregateSelection != null || showDisplaySheet)) {
+    BackHandler(enabled = isActive && (aggregateSelection != null || showDisplaySheet || selecting)) {
         when {
             showDisplaySheet -> showDisplaySheet = false
-            else -> tracksViewModel.closeAggregate()
+            aggregateSelection != null -> tracksViewModel.closeAggregate()
+            selecting -> tracksViewModel.cancelSelection()
         }
     }
 
@@ -303,6 +308,13 @@ internal fun LibraryRouteV4(
                 onOpenNowPlaying()
             },
             viewModel = viewModel,
+            selecting = selecting,
+            selectedTracks = selectedTracks,
+            moreActions = displaySettings.selection.normalized().more,
+            onToggleSelection = tracksViewModel::toggleTrackSelection,
+            onSelectAll = tracksViewModel::toggleEntireOpenCollection,
+            onCancelSelection = tracksViewModel::cancelSelection,
+            onSelectionAction = tracksViewModel::requestSelectionAction,
             onGoToArtist = { track ->
                 tracksViewModel.openArtistForTrack(track)
             },
@@ -409,6 +421,9 @@ internal fun LibraryRouteV4(
                     newTrackIds = state.newTrackIds,
                     scrollToNewRequest = scrollToNewRequest,
                     state = state,
+                    selecting = selecting,
+                    selectedIds = selectedTracks.keys,
+                    onToggleSelection = tracksViewModel::toggleTrackSelection,
                     onPlay = { row ->
                         tracksViewModel.playTrack(row.track.id)
                         onOpenNowPlaying()
@@ -422,22 +437,32 @@ internal fun LibraryRouteV4(
                     artists, tracksViewModel::openArtist,
                     { tracksViewModel.queueArtist(it, true) },
                     { tracksViewModel.queueArtist(it, false) },
+                    selectedTracks.values.toList(), selecting, tracksViewModel::toggleArtistSelection,
                 )
                 LibrarySectionV4.ALBUMS -> AlbumListV4(
                     albums, tracksViewModel::openAlbum,
                     { tracksViewModel.queueAlbum(it, true) },
                     { tracksViewModel.queueAlbum(it, false) },
+                    selectedTracks.values.toList(), selecting, tracksViewModel::toggleAlbumSelection,
                 )
             }
         }
     }
         }
         MeowzixStickyHeader(
-            title = "Library",
-            subtitle = "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
+            title = if (selecting) "Selected ${selectedTracks.size}" else "Library",
+            subtitle = if (selecting) "" else "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
             hazeState = headerHazeState,
             modifier = Modifier.align(Alignment.TopCenter),
-        )
+            leadingActions = if (selecting) {
+                { MeowzixHeaderAction("Cancel selection", Icons.Rounded.Close, tracksViewModel::cancelSelection) }
+            } else null,
+        ) {
+            if (selecting) LibrarySelectionMoreMenu(
+                actions = displaySettings.selection.normalized().more,
+                onAction = tracksViewModel::requestSelectionAction,
+            )
+        }
     }
 
     if (showDisplaySheet) {
@@ -457,6 +482,9 @@ private fun PagedTrackListV4(
     newTrackIds: Set<UUID>,
     scrollToNewRequest: Int,
     state: LibraryUiState,
+    selecting: Boolean,
+    selectedIds: Set<UUID>,
+    onToggleSelection: (Track) -> Unit,
     onPlay: (LibraryTrack) -> Unit,
     viewModel: LibraryViewModel,
     onGoToArtist: (Track) -> Unit,
@@ -530,6 +558,10 @@ private fun PagedTrackListV4(
                         isNewArrival = row.track.id in newTrackIds,
                         artworkVisible = row.track.id.toString() in visibleTrackKeys,
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                        onLongClick = { onToggleSelection(row.track) },
+                        selectionMode = selecting,
+                        selected = row.track.id in selectedIds,
+                        onSelect = { onToggleSelection(row.track) },
                     )
                 }
             }
@@ -550,6 +582,9 @@ private fun ArtistListV4(
     onOpen: (ArtistSummary) -> Unit,
     onNext: (ArtistSummary) -> Unit,
     onQueue: (ArtistSummary) -> Unit,
+    selectedTracks: List<Track>,
+    selecting: Boolean,
+    onSelect: (ArtistSummary) -> Unit,
 ) {
     GlassLazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -562,6 +597,11 @@ private fun ArtistListV4(
                 onClick = { onOpen(row) },
                 onPlayNext = { onNext(row) },
                 onAddToQueue = { onQueue(row) },
+                onSelect = { onSelect(row) },
+                selectionMode = selecting,
+                selected = row.trackCount > 0 &&
+                    selectedTracks.count { it.normalizedArtist == row.normalizedName } >= row.trackCount,
+                partiallySelected = selectedTracks.any { it.normalizedArtist == row.normalizedName },
             )
         }
     }
@@ -573,6 +613,9 @@ private fun AlbumListV4(
     onOpen: (AlbumSummary) -> Unit,
     onNext: (AlbumSummary) -> Unit,
     onQueue: (AlbumSummary) -> Unit,
+    selectedTracks: List<Track>,
+    selecting: Boolean,
+    onSelect: (AlbumSummary) -> Unit,
 ) {
     GlassLazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -585,6 +628,13 @@ private fun AlbumListV4(
                 onClick = { onOpen(row) },
                 onPlayNext = { onNext(row) },
                 onAddToQueue = { onQueue(row) },
+                onSelect = { onSelect(row) },
+                selectionMode = selecting,
+                selected = row.trackCount > 0 &&
+                    selectedTracks.count { it.album == row.name && it.normalizedArtist == row.normalizedArtist } >= row.trackCount,
+                partiallySelected = selectedTracks.any {
+                    it.album == row.name && it.normalizedArtist == row.normalizedArtist
+                },
             )
         }
     }
@@ -599,6 +649,13 @@ private fun LibraryDetailV4(
     onPlay: (Track) -> Unit,
     viewModel: LibraryViewModel,
     onGoToArtist: (Track) -> Unit,
+    selecting: Boolean,
+    selectedTracks: Map<UUID, Track>,
+    moreActions: List<dev.behradhz.meowzix.domain.settings.LibrarySelectionAction>,
+    onToggleSelection: (Track) -> Unit,
+    onSelectAll: () -> Unit,
+    onCancelSelection: () -> Unit,
+    onSelectionAction: (dev.behradhz.meowzix.domain.settings.LibrarySelectionAction) -> Unit,
 ) {
     val hazeState = rememberHazeState()
     val listState = rememberLazyListState()
@@ -633,20 +690,28 @@ private fun LibraryDetailV4(
                     isNewArrival = track.id in state.newTrackIds,
                     artworkVisible = track.id.toString() in visibleTrackKeys,
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                    onLongClick = { onToggleSelection(track) },
+                    selectionMode = selecting,
+                    selected = track.id in selectedTracks,
+                    onSelect = { onToggleSelection(track) },
                 )
                 }
             }
         }
         MeowzixStickyHeader(
-            title = title,
-            subtitle = "${tracks.size} tracks",
+            title = if (selecting) "Selected ${selectedTracks.size}" else title,
+            subtitle = if (selecting) "" else "${tracks.size} tracks",
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
             leadingActions = {
-                MeowzixHeaderAction("Back to library", Icons.Rounded.ArrowBack, onBack)
+                if (selecting) MeowzixHeaderAction("Cancel selection", Icons.Rounded.Close, onCancelSelection)
+                else MeowzixHeaderAction("Back to library", Icons.Rounded.ArrowBack, onBack)
             },
         ) {
-            if (tracks.isNotEmpty()) {
+            if (selecting) {
+                LibrarySelectionMoreMenu(moreActions, onSelectionAction, onSelectAll = onSelectAll)
+            } else if (tracks.isNotEmpty()) {
+                MeowzixHeaderAction("Select all", Icons.Rounded.SelectAll, onSelectAll)
                 MeowzixHeaderAction("Play", Icons.Rounded.PlayArrow, {
                     viewModel.playCollection(tracks, PlaybackMode.ORDERED)
                 })
