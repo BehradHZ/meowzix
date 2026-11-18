@@ -24,37 +24,12 @@
 
 <table align="center">
   <tr>
-    <td align="center" valign="middle" width="205" height="290"><strong>Library</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-    <td align="center" valign="middle" width="205" height="290"><strong>Now Playing</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-    <td align="center" valign="middle" width="205" height="290"><strong>Telegram Playlists</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
+    <td align="center" valign="top"><img src="assets/screenshots/01-home.webp" alt="Home with recommended tracks and recently played music" width="205"><br><sub><b>Home</b></sub></td>
+    <td align="center" valign="top"><img src="assets/screenshots/02-now-playing.webp" alt="Now Playing with artwork-led player controls" width="205"><br><sub><b>Now Playing</b></sub></td>
+    <td align="center" valign="top"><img src="assets/screenshots/08-telegram-playlist.webp" alt="Telegram playlist with playback and queue actions" width="205"><br><sub><b>Telegram Playlist</b></sub></td>
   </tr>
 </table>
-
-<!-- SCREENSHOT GUIDE
-Screenshots are intentionally left as text placeholders: no broken image links.
-Store screenshots in assets/screenshots/ using the filenames below.
-Replace a screenshot cell's "Screenshot coming soon" and line breaks with:
-  <img src="assets/screenshots/01-library.png" alt="Meowzix music library" width="200">
-For each two-column feature row use width="290" (portrait screenshots).
-Please keep image alt text meaningful. Change only the relevant table cell.
-  01-library.png                Library
-  02-now-playing.png            Now Playing
-  03-telegram-playlist.png      Telegram Playlists
-  04-telegram-sources.png       Telegram Sources
-  05-offline-downloads.png      Offline Downloads
-  06-queue.png                  Queue
-  07-sleep-timer.png            Sleep Timer
-  08-shuffle-modes.png          Shuffle Modes
-  09-smart-mixes.png            Personalized Mixes
-  10-live-lyrics.png            Live Lyrics
-  11-expanded-lyrics.png        Expanded Lyrics
-  12-equalizer.png              Equalizer
-  13-visualizer.png             Visualizer
-  14-search.png                 Search
-  15-playlist-detail.png        Playlist Detail
-  16-vinyl-widget.png           Vinyl Widget
-  17-media-controls.png         Media Controls
--->
+<p align="center"><sub>Actual Meowzix Android screenshots</sub></p>
 
 ---
 
@@ -69,12 +44,7 @@ Meowzix unifies music indexed from your Android device with audio from **Telegra
 - **Telegram sharing:** Send or forward tracks using an in-app chat picker, including chat folders and search.
 - **Source-independent playback:** Local audio continues working when Telegram or the network isn't available.
 
-<table align="center">
-  <tr>
-    <td align="center" valign="middle" width="310" height="290"><strong>Telegram Sources</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-    <td align="center" valign="middle" width="310" height="290"><strong>Offline Downloads</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-  </tr>
-</table>
+<p align="center"><img src="assets/screenshots/05-telegram-sources.webp" alt="Telegram source selector with source names redacted for privacy" width="285"><br><sub><b>Telegram source management</b> · Private chat names redacted</sub></p>
 
 ### Playback and queue
 
@@ -85,12 +55,7 @@ Built on **Media3 / ExoPlayer**, Meowzix supports uninterrupted background liste
 - **Sleep Timer:** Stop at a selected time or at the end of the track, with optional fade.
 - **Seamless transitions:** Gapless and configurable crossfade, plus loudness handling where supported.
 
-<table align="center">
-  <tr>
-    <td align="center" valign="middle" width="310" height="290"><strong>Queue</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-    <td align="center" valign="middle" width="310" height="290"><strong>Sleep Timer</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-  </tr>
-</table>
+<p align="center"><img src="assets/screenshots/03-queue.webp" alt="Up Next queue with playback controls and draggable tracks" width="285"><br><sub><b>Editable playback queue</b></sub></p>
 
 ### Smart Shuffle and personalized listening
 
@@ -98,12 +63,7 @@ Built on **Media3 / ExoPlayer**, Meowzix supports uninterrupted background liste
 
 Personalized mixes and exploration help surface less-played music instead of only replaying the same favorites. The source-agnostic recommendation pipeline can learn from local and Telegram tracks; it does **not** need a cloud AI service.
 
-<table align="center">
-  <tr>
-    <td align="center" valign="middle" width="310" height="290"><strong>Shuffle Modes</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-    <td align="center" valign="middle" width="310" height="290"><strong>Personalized Mixes</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-  </tr>
-</table>
+
 
 ### Lyrics and a more expressive player
 
@@ -114,8 +74,8 @@ Personalized mixes and exploration help surface less-played music instead of onl
 
 <table align="center">
   <tr>
-    <td align="center" valign="middle" width="310" height="290"><strong>Live Lyrics</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-    <td align="center" valign="middle" width="310" height="290"><strong>Expanded Lyrics</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
+    <td align="center" valign="top"><img src="assets/screenshots/06-synced-lyrics.webp" alt="Player showing synchronized lyrics and visual waveform seekbar" width="285"><br><sub><b>Synced lyrics + waveform</b></sub></td>
+    <td align="center" valign="top"><img src="assets/screenshots/04-expanded-lyrics.webp" alt="Expanded synchronized lyrics view" width="285"><br><sub><b>Expanded lyrics</b></sub></td>
   </tr>
 </table>
 
@@ -127,12 +87,7 @@ Personalized mixes and exploration help surface less-played music instead of onl
 
 Effect availability varies with Android hardware and the audio route.
 
-<table align="center">
-  <tr>
-    <td align="center" valign="middle" width="310" height="290"><strong>Equalizer</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-    <td align="center" valign="middle" width="310" height="290"><strong>Visualizer</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-  </tr>
-</table>
+
 
 ### Library, search, and organization
 
@@ -140,23 +95,13 @@ Browse songs, artists, albums, favorites, playlists, and recent listening histor
 
 There are also tools for **duplicate management**, locally stored library data, and **backup/restore**. Your playlists, queue, and preferences are managed within Meowzix.
 
-<table align="center">
-  <tr>
-    <td align="center" valign="middle" width="310" height="290"><strong>Search</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-    <td align="center" valign="middle" width="310" height="290"><strong>Playlist Detail</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-  </tr>
-</table>
+<p align="center"><img src="assets/screenshots/07-library-search.webp" alt="Music library with filters and the contextual search field" width="285"><br><sub><b>Library filters + contextual search</b></sub></p>
 
 ### Music beyond the app
 
 Control playback from the **animated vinyl home-screen widget**, complete with a spinning record and moving tonearm. The Android media notification can show track metadata, progress, and configurable controls. An **Android Auto** media-library integration is also implemented for compatible hosts.
 
-<table align="center">
-  <tr>
-    <td align="center" valign="middle" width="310" height="290"><strong>Vinyl Widget</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-    <td align="center" valign="middle" width="310" height="290"><strong>Media Controls</strong><br><sub>Screenshot coming soon</sub><br><br><br><br><br><br></td>
-  </tr>
-</table>
+
 
 > **Compatibility:** Some audio effects and Android integrations depend on the device. Source-code checks do not replace physical-device and Android Auto host testing. See [verification status](docs/PRODUCT_IMPROVEMENTS_STATUS.md).
 
