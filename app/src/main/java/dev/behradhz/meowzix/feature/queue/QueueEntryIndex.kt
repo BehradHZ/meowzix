@@ -78,6 +78,32 @@ internal fun reorderPreviewItems(
 }
 
 /**
+ * Keep the temporary drag preview partitioned into Queue and Next. Moving the
+ * dragged occurrence across their boundary must not put other MANUAL songs
+ * visually below the Next heading before the reorder is committed.
+ *
+ * Only the dragged occurrence is allowed to change lanes; every other
+ * occurrence retains its original provenance and relative lane order.
+ */
+internal fun keepQueuePreviewSections(
+    rows: List<IndexedValue<QueueItem>>,
+    currentIndex: Int,
+    draggedOccurrenceId: java.util.UUID?,
+    hoveredOrigin: dev.behradhz.meowzix.domain.playback.QueueItemOrigin?,
+): List<IndexedValue<QueueItem>> {
+    val dragged = rows.firstOrNull { it.value.occurrenceId == draggedOccurrenceId }
+        ?: return rows
+    val targetOrigin = hoveredOrigin ?: dragged.value.origin
+    fun effectiveOrigin(row: IndexedValue<QueueItem>) =
+        if (row.value.occurrenceId == draggedOccurrenceId) targetOrigin else row.value.origin
+    val played = rows.filter { it.index <= currentIndex }
+    val upcoming = rows.filter { it.index > currentIndex }
+    return played +
+        upcoming.filter { effectiveOrigin(it) == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL } +
+        upcoming.filter { effectiveOrigin(it) == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED }
+}
+
+/**
  * The section heading is the boundary between manually queued and generated
  * songs. A drop above it targets Queue even if the dragged song still occupies
  * the first generated visual slot.
