@@ -29,6 +29,15 @@ internal class FloatingControlsTouchBounds {
 internal val LocalFloatingControlsTouchBounds =
     compositionLocalOf<FloatingControlsTouchBounds?> { null }
 
+/** Suppresses dock interactions during Queue reorder without disabling Queue scrolling. */
+@Stable
+internal class QueueReorderGestureState {
+    var active by androidx.compose.runtime.mutableStateOf(false)
+}
+
+internal val LocalQueueReorderGestureState =
+    compositionLocalOf<QueueReorderGestureState?> { null }
+
 /** Allow content to use the lower edge when the dock is small, without obscuring controls. */
 @Composable
 internal fun dockAwareBottomPadding(expanded: Dp): Dp {
