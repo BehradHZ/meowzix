@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
@@ -81,6 +82,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -685,63 +687,33 @@ internal fun MorphingDock(
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    LaunchedEffect(searchActive) {
+    // Wait for the bubble to occupy the dock before the IME starts resizing the footer.
+    // LaunchedEffect cancels the pending focus if search is closed mid-transition.
+    LaunchedEffect(searchActive, reduceMotion) {
         if (searchActive) {
-            if (!reduceMotion) delay(110)
+            if (!reduceMotion) delay(DockSearchOpenDurationMs.toLong() - 35L)
             runCatching { focusRequester.requestFocus() }
             keyboardController?.show()
         }
     }
 
-    if (searchActive) {
-        FloatingChromeGlassSurface(
-            hazeState = hazeState,
-            modifier = Modifier.fillMaxWidth().height(72.dp)
-                .floatingChromeFrame(RoundedCornerShape(36.dp)),
-            shape = RoundedCornerShape(36.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.size(12.dp))
-                BasicTextField(
-                    value = searchQuery,
-                    onValueChange = onSearchQueryChange,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Medium,
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.weight(1f).focusRequester(focusRequester),
-                    decorationBox = { inner ->
-                        Box(contentAlignment = Alignment.CenterStart) {
-                            if (searchQuery.isEmpty()) {
-                                Text(searchPlaceholder, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f))
-                            }
-                            inner()
-                        }
-                    },
-                )
-                IconButton(onClick = onCloseSearch) {
-                    Icon(Icons.Rounded.Clear, contentDescription = if (searchQuery.isBlank()) "Close search" else "Clear search")
-                }
-            }
-        }
-        return
-    }
-
-    // One eased, reversible timeline controls width, height, icon crossfade and
-    // the motion-blur pulse. Avoid switching layouts on the boolean itself.
+    // Keep both glass bubbles in one layout. Switching the entire composable on
+    // searchActive caused the previous instant cut, and could not animate back.
+    val searchMorph by animateFloatAsState(
+        targetValue = if (searchActive) 1f else 0f,
+        animationSpec = dockSearchMorphSpec(searchActive, reduceMotion),
+        label = "search-dock-morph",
+    )
+    val compact = dockCompact && !searchActive
     val morph by animateFloatAsState(
-        targetValue = if (dockCompact) 1f else 0f,
-        animationSpec = dockMorphSpec(dockCompact, reduceMotion),
+        targetValue = if (compact) 1f else 0f,
+        animationSpec = dockMorphSpec(compact, reduceMotion),
         label = "dock-morph",
     )
     val expandedAlpha = ((0.48f - morph) / 0.38f).coerceIn(0f, 1f)
     val compactAlpha = ((morph - 0.18f) / 0.55f).coerceIn(0f, 1f)
+    val navigationAlpha = dockSearchNavigationAlpha(searchMorph)
+    val searchInputAlpha = dockSearchInputAlpha(searchMorph)
     val activeDestination = destinations.firstOrNull { it.route == selectedRoute }
         ?: destinations.first()
 
@@ -751,9 +723,12 @@ internal fun MorphingDock(
         val leftHeight = lerp(72.dp, compactSize, morph)
         val searchSize = lerp(62.dp, compactSize, morph)
         val dockShape = RoundedCornerShape(lerp(36.dp, 26.dp, morph))
-        val searchShape = RoundedCornerShape(searchSize / 2)
-        // Both edges have fixed anchors. Shrinking the left dock must never
-        // pull Search toward the center or underneath the compact player.
+
+        // The Search circle retains its original end-edge anchor as it grows
+        // across the dock. The very same glass surface is used in both states.
+        val searchWidth = lerp(searchSize, maxWidth, searchMorph)
+        val searchHeight = lerp(searchSize, 72.dp, searchMorph)
+        val searchShape = RoundedCornerShape(lerp(searchSize / 2, 36.dp, searchMorph))
         Box(modifier = Modifier.fillMaxSize()) {
             FloatingChromeGlassSurface(
                 hazeState = hazeState,
@@ -761,18 +736,21 @@ internal fun MorphingDock(
                     .align(Alignment.CenterStart)
                     .width(leftWidth)
                     .height(leftHeight)
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                        alpha = navigationAlpha
+                    }
                     .floatingChromeFrame(dockShape),
                 shape = dockShape,
             ) {
-                // Keep the four destinations composed long enough to fade out,
-                // then let the selected destination take over the circular dock.
-                if (expandedAlpha > 0.01f) {
+                // The regular navigation icons fade before the expanding search
+                // bubble covers them; they never intercept taps during search.
+                if (expandedAlpha > 0.01f && navigationAlpha > 0.01f) {
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 5.dp, vertical = 7.dp)
                             .graphicsLayer {
-                                // Child dock icons do not overlap; avoid an extra alpha render target.
                                 compositingStrategy = CompositingStrategy.ModulateAlpha
                                 alpha = expandedAlpha
                                 translationX = -morph * 10.dp.toPx()
@@ -786,12 +764,12 @@ internal fun MorphingDock(
                                 selected = selectedRoute == destination.route,
                                 onClick = { onSelect(destination.route) },
                                 modifier = Modifier.weight(1f),
-                                enabled = morph < 0.40f,
+                                enabled = !searchActive && searchMorph < 0.06f && morph < 0.40f,
                             )
                         }
                     }
                 }
-                if (compactAlpha > 0.01f) {
+                if (compactAlpha > 0.01f && navigationAlpha > 0.01f) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -803,7 +781,7 @@ internal fun MorphingDock(
                                 scaleY = scale
                             }
                             .semantics { contentDescription = "Expand navigation dock" }
-                            .clickable(enabled = dockCompact && morph > 0.55f) {
+                            .clickable(enabled = compact && morph > 0.55f && searchMorph < 0.06f) {
                                 onExpandCompact()
                             },
                         contentAlignment = Alignment.Center,
@@ -814,21 +792,85 @@ internal fun MorphingDock(
                     }
                 }
             }
+
             FloatingChromeGlassSurface(
                 hazeState = hazeState,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .size(searchSize)
+                    .width(searchWidth)
+                    .height(searchHeight)
+                    .testTag("dock-search-bubble")
                     .floatingChromeFrame(searchShape)
-                    .clickable { onSelect(SEARCH_ROUTE) },
+                    .clickable(enabled = !searchActive && searchMorph < 0.06f) {
+                        onSelect(SEARCH_ROUTE)
+                    },
                 shape = searchShape,
             ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Rounded.Search,
-                        contentDescription = "Search all music",
-                        modifier = Modifier.size(lerp(25.dp, 22.dp, morph)),
-                    )
+                Box(Modifier.fillMaxSize()) {
+                    // Keep a single Search icon anchored to the original circle.
+                    // Only the surrounding glass and the input grow; the icon
+                    // never jumps from a centered button to the opposite edge.
+                    if (searchMorph > 0.32f) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .graphicsLayer {
+                                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                                    alpha = searchInputAlpha
+                                },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(
+                                onClick = onCloseSearch,
+                                enabled = searchActive && searchInputAlpha > 0.85f,
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Clear,
+                                    contentDescription = if (searchQuery.isBlank()) "Close search" else "Clear search",
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = onSearchQueryChange,
+                                enabled = searchActive,
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                modifier = Modifier.weight(1f).focusRequester(focusRequester),
+                                decorationBox = { inner ->
+                                    Box(contentAlignment = Alignment.CenterStart) {
+                                        if (searchQuery.isEmpty()) {
+                                            Text(
+                                                searchPlaceholder,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+                                            )
+                                        }
+                                        inner()
+                                    }
+                                },
+                            )
+                            Spacer(Modifier.width(searchSize))
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .width(searchSize)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Rounded.Search,
+                            contentDescription = if (searchActive) null else "Search all music",
+                            tint = if (searchActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(lerp(25.dp, 23.dp, searchMorph)),
+                        )
+                    }
                 }
             }
         }
