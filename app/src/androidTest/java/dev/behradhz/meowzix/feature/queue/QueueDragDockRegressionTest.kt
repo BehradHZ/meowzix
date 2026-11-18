@@ -6,10 +6,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onNode
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
-import androidx.compose.ui.test.onAllNodesWithContentDescription
-import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
@@ -82,7 +86,14 @@ class QueueDragDockRegressionTest {
             }
         }
 
-        val dragHandle = compose.onAllNodesWithContentDescription("Drag to reorder").onFirst()
+        // Resolve the intended manual item, not the first prefetched handle
+        // (which may be clipped or outside the emulator's visible viewport).
+        val targetTag = "queue-item-${items[1].occurrenceId}"
+        compose.onNodeWithTag("queue-list").performScrollToNode(hasTestTag(targetTag))
+        val dragHandle = compose.onNode(
+            hasContentDescription("Drag to reorder") and hasAnyAncestor(hasTestTag(targetTag)),
+            useUnmergedTree = true,
+        ).assertIsDisplayed()
         val handleBeforeDrag = dragHandle.getUnclippedBoundsInRoot()
         val touchYDp = (handleBeforeDrag.top.value + handleBeforeDrag.bottom.value) / 2f +
             90f / compose.density.density
