@@ -25,6 +25,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import dev.behradhz.meowzix.domain.settings.DEFAULT_SELECTION_DOCK
+import androidx.compose.ui.test.assertExists
 
 @RunWith(AndroidJUnit4::class)
 class CompactDockInteractionTest {
@@ -113,6 +115,50 @@ class CompactDockInteractionTest {
             .getUnclippedBoundsInRoot().let { it.right - it.left }
         assertTrue("Closing must restore the original search circle", (collapsedWidth - circleWidth).value < 2f &&
             (collapsedWidth - circleWidth).value > -2f)
+    }
+
+    @Test fun selectionSearchRetainsTheSameMorphingBubbleAndFourLabeledActions() {
+        var searchActive by mutableStateOf(false)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                Box(Modifier.fillMaxWidth()) {
+                    MorphingDock(
+                        hazeState = rememberHazeState(),
+                        destinations = listOf(
+                            DockDestination("home", "Home") {
+                                Icon(Icons.Rounded.Home, contentDescription = null)
+                            },
+                        ),
+                        selectedRoute = if (searchActive) "search" else "library",
+                        searchActive = searchActive,
+                        dockCompact = false,
+                        searchPlaceholder = "Search Library",
+                        searchQuery = "",
+                        onSearchQueryChange = {},
+                        onSelect = { if (it == "search") searchActive = true },
+                        onExpandCompact = {},
+                        onCloseSearch = { searchActive = false },
+                        reduceMotion = false,
+                        selectionActions = DEFAULT_SELECTION_DOCK,
+                    )
+                }
+            }
+        }
+        compose.mainClock.advanceTimeBy(320)
+        compose.onNodeWithTag("selection-dock-delete").assertExists()
+        compose.onNodeWithTag("selection-dock-share").assertExists()
+        val circleWidth = compose.onNodeWithTag("dock-search-bubble")
+            .getUnclippedBoundsInRoot().let { it.right - it.left }
+        compose.runOnIdle { searchActive = true }
+        compose.mainClock.advanceTimeBy(150)
+        val middleWidth = compose.onNodeWithTag("dock-search-bubble")
+            .getUnclippedBoundsInRoot().let { it.right - it.left }
+        compose.mainClock.advanceTimeBy(DockSearchOpenDurationMs.toLong())
+        val expandedWidth = compose.onNodeWithTag("dock-search-bubble")
+            .getUnclippedBoundsInRoot().let { it.right - it.left }
+        assertTrue("Selected-library Search must animate, not jump", middleWidth > circleWidth + 5.dp)
+        assertTrue("Search must finish expanding", expandedWidth > middleWidth + 5.dp)
     }
 
 }

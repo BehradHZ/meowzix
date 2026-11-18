@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
 
 /** Shared swipeable artist/album row used by Library and global search. */
 @Composable
@@ -177,7 +178,7 @@ internal fun SwipeableCollectionRow(
                             else -> ToggleableState.Off
                         },
                         onClick = onSelect,
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier.size(48.dp).testTag("collection-selection-checkbox"),
                     )
                 } else if (onPlayNext != null && onAddToQueue != null) {
                     Box {
