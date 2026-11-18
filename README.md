@@ -22,15 +22,12 @@
   <a href="#build-from-source">Build from source</a>
 </p>
 
-<table align="center">
-  <tr>
-    <td align="center" valign="top"><img src="assets/screenshots/01-home.png" alt="Home with recommended tracks and recently played music" width="205"><br><sub><b>Home</b></sub></td>
-    <td align="center" valign="top"><img src="assets/screenshots/02-now-playing.png" alt="Now Playing with artwork-led player controls" width="205"><br><sub><b>Now Playing</b></sub></td>
-    <td align="center" valign="top"><img src="assets/screenshots/08-telegram-playlist.png" alt="Telegram playlist with playback and queue actions" width="205"><br><sub><b>Telegram Playlist</b></sub></td>
-  </tr>
-</table>
-<p align="center"><sub>Actual Meowzix Android screenshots</sub></p>
-
+<p align="center">
+  <a href="assets/screenshots/01-home.png"><img src="assets/screenshots/01-home.png" alt="Meowzix Home screen" width="31%"></a>
+  <a href="assets/screenshots/02-now-playing.png"><img src="assets/screenshots/02-now-playing.png" alt="Meowzix Now Playing screen" width="31%"></a>
+  <a href="assets/screenshots/08-telegram-playlist.png"><img src="assets/screenshots/08-telegram-playlist.png" alt="Meowzix Telegram playlist screen" width="31%"></a>
+</p>
+<p align="center"><sub>Home · Now Playing · Telegram Playlist</sub></p>
 ---
 
 ## Features
@@ -72,12 +69,11 @@ Personalized mixes and exploration help surface less-played music instead of onl
 - **Artwork-led design:** Glass-inspired surfaces, animated transitions, album-art accents, and customizable light/dark colors.
 - **Personal themes:** Preset or custom accents, with Material You integration on supported Android versions.
 
-<table align="center">
-  <tr>
-    <td align="center" valign="top"><img src="assets/screenshots/06-synced-lyrics.png" alt="Player showing synchronized lyrics and visual waveform seekbar" width="285"><br><sub><b>Synced lyrics + waveform</b></sub></td>
-    <td align="center" valign="top"><img src="assets/screenshots/04-expanded-lyrics.png" alt="Expanded synchronized lyrics view" width="285"><br><sub><b>Expanded lyrics</b></sub></td>
-  </tr>
-</table>
+<p align="center">
+  <a href="assets/screenshots/06-synced-lyrics.png"><img src="assets/screenshots/06-synced-lyrics.png" alt="Synced lyrics and waveform in Now Playing" width="48%"></a>
+  <a href="assets/screenshots/04-expanded-lyrics.png"><img src="assets/screenshots/04-expanded-lyrics.png" alt="Expanded synchronized lyrics" width="48%"></a>
+</p>
+<p align="center"><sub>Synced lyrics + waveform · Expanded lyrics</sub></p>
 
 ### Sound and visual controls
 
