@@ -6,6 +6,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.snap
@@ -57,6 +58,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -79,6 +81,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -143,8 +146,10 @@ private const val TOP_LEVEL_ENTER_DURATION_MS = 120
 private const val TOP_LEVEL_EXIT_DURATION_MS = 90
 private val RETAINED_TAB_ORDER = listOf(HOME_ROUTE, LIBRARY_ROUTE, PLAYLISTS_ROUTE, QUEUE_ROUTE)
 private val RETAINED_TAB_ROUTES = RETAINED_TAB_ORDER.toSet()
-private const val TAB_MOTION_DURATION_MS = 340
-private const val TAB_FADE_DURATION_MS = 265
+private const val TAB_MOTION_DURATION_MS = 165
+private const val TAB_FADE_DURATION_MS = 125
+private const val TELEGRAM_ENTRY_DURATION_MS = 220
+private const val TELEGRAM_NAV_DURATION_MS = 205
 
 /**
  * Directional positions for tab transitions: an incoming right-hand tab starts
@@ -628,9 +633,11 @@ fun MeowzixApp(
                 )
             }
             composable(TELEGRAM_AUTH_ROUTE) {
-                TelegramAuthRoute(
-                    onBack = { navController.popBackStack() },
-                )
+                TelegramDestinationEntrance(reduceMotion = reduceMotion) {
+                    TelegramAuthRoute(
+                        onBack = { navController.popBackStack() },
+                    )
+                }
             }
             composable(DOWNLOADS_ROUTE) { DownloadsRoute(onBack = { navController.popBackStack() }) }
             composable(HISTORY_ROUTE) { HistoryRoute(onBack = { navController.popBackStack() }) }
@@ -832,9 +839,9 @@ private fun RetainedTopLevelTab(
     ) { selected -> retainedTabOffsetFraction(route, selected) }
     // Do not mount another tab instance: retain the same LazyListState and
     // Compose saveables while only changing placement during the transition.
-    val placeTab = currentRoute in RETAINED_TAB_ROUTES &&
-        (transition.currentState == route || transition.targetState == route || opacity > 0.001f)
-    val slideDistancePx = with(LocalDensity.current) { 42.dp.toPx() }
+    val placeTab = transition.currentState == route ||
+        transition.targetState == route || opacity > 0.001f
+    val slideDistancePx = with(LocalDensity.current) { 20.dp.toPx() }
     Box(
         Modifier
             .fillMaxSize()
