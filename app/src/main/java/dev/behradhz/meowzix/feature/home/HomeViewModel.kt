@@ -78,15 +78,10 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(cachedState ?: HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
-    val initialSourceChoiceCompleted = settingsRepository.initialSourceChoiceCompleted
     val telegramConnectReminderDismissed = settingsRepository.telegramConnectReminderDismissed
 
     fun dismissTelegramConnectReminder() = viewModelScope.launch {
         settingsRepository.dismissTelegramConnectReminder()
-    }
-
-    suspend fun completeInitialSourceChoice() {
-        settingsRepository.setInitialSourceChoiceCompleted()
     }
 
     private var homePlayGeneration = 0L
