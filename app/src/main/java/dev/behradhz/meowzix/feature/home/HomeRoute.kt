@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -48,6 +52,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -57,9 +62,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.LookaheadScope
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.BorderStroke
@@ -67,6 +74,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -137,6 +145,19 @@ fun HomeRoute(
     val listState = rememberLazyListState()
     // Keep the Home header's blur input separate from NavHost/dock and card haze sources.
     val headerHazeState = rememberHazeState()
+    // The frosted header + reminder are fixed siblings above the scrollable feed.
+    // Measure their combined height so the feed starts below them at scroll position 0.
+    var pinnedChromeHeightPx by remember(showTelegramConnectReminder) { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val feedTopPadding = if (showTelegramConnectReminder) {
+        if (pinnedChromeHeightPx > 0) {
+            val chromeHeightBelowStatusBar = with(density) {
+                (pinnedChromeHeightPx - WindowInsets.statusBars.getTop(this))
+                    .coerceAtLeast(0).toDp()
+            }
+            maxOf(100.dp, chromeHeightBelowStatusBar + 14.dp)
+        } else 198.dp // Initial layout only; onSizeChanged supplies the measured value.
+    } else 100.dp
     HomeScrollToTopEffect(listState, scrollToTopRequest)
 
     if (isActive) LifecycleStartEffect(viewModel, foregroundSessionId) {
@@ -177,23 +198,11 @@ fun HomeRoute(
                 contentPadding = PaddingValues(
                     start = 18.dp,
                     end = 18.dp,
-                    top = 100.dp,
+                    top = feedTopPadding,
                     bottom = dockAwareBottomPadding(198.dp),
                 ),
                 verticalArrangement = Arrangement.spacedBy(28.dp),
             ) {
-                if (showTelegramConnectReminder) {
-                    item("telegram-connect-reminder") {
-                        HomeTelegramConnectBanner(
-                            hazeState = hazeState,
-                            onConnect = onConnectTelegram,
-                            onDismiss = {
-                                dismissedInSession = true
-                                viewModel.dismissTelegramConnectReminder()
-                            },
-                        )
-                    }
-                }
                 currentTrack?.let { track ->
                     item("continue") {
                         ContinueGlassHero(
@@ -294,13 +303,35 @@ fun HomeRoute(
             }
         }
 
-        MeowzixStickyHeader(
-            title = "Home",
-            subtitle = if (showInitialSourceChoice) "Choose where your music comes from." else "Your listening, shaped for this moment.",
-            hazeState = headerHazeState,
-            tintAlpha = 0.28f,
-            modifier = Modifier.align(Alignment.TopCenter),
-        )
+        // Draw after the feed: both the header and the banner remain in place
+        // while music cards move beneath their frosted glass surfaces.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .zIndex(1f)
+                .onSizeChanged { pinnedChromeHeightPx = it.height },
+        ) {
+            MeowzixStickyHeader(
+                title = "Home",
+                subtitle = if (showInitialSourceChoice) "Choose where your music comes from." else "Your listening, shaped for this moment.",
+                hazeState = headerHazeState,
+                tintAlpha = 0.28f,
+            )
+            if (showTelegramConnectReminder) {
+                HomeTelegramConnectBanner(
+                    hazeState = headerHazeState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, top = 8.dp, bottom = 4.dp),
+                    onConnect = onConnectTelegram,
+                    onDismiss = {
+                        dismissedInSession = true
+                        viewModel.dismissTelegramConnectReminder()
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -312,7 +343,7 @@ internal fun shouldShowInitialSourceChoice(
     telegramConnected: Boolean,
 ): Boolean = isReady && isFirstAppLaunch && !isCompleted && !telegramConnected
 
-/** This banner appears in the feed, underneath the sticky Home header. */
+/** Keep the Telegram reminder anchored immediately below the Home header. */
 internal fun shouldShowTelegramConnectReminder(
     isReady: Boolean,
     isConnected: Boolean,
@@ -324,13 +355,14 @@ internal fun shouldShowTelegramConnectReminder(
 @Composable
 private fun HomeTelegramConnectBanner(
     hazeState: HazeState,
+    modifier: Modifier = Modifier,
     onConnect: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val shape = RoundedCornerShape(22.dp)
     GlassSurface(
         hazeState = hazeState,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 78.dp)
             .clip(shape)
