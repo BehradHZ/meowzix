@@ -5,6 +5,8 @@ import dev.behradhz.meowzix.domain.playback.SmartQueueAdaptationReason
 import dev.behradhz.meowzix.domain.recommendation.PersonalizationModel
 import dev.behradhz.meowzix.domain.recommendation.RecommendationConfig
 import dev.behradhz.meowzix.domain.recommendation.TrainingScheduler
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import kotlinx.coroutines.flow.first
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -20,15 +22,22 @@ class PersonalizationTrainer @Inject constructor(
     private val model: PersonalizationModel,
     private val scheduler: TrainingScheduler,
     private val adaptationBus: SmartQueueAdaptationBus,
+    private val settings: SettingsRepository,
 ) {
+    private suspend fun learningEnabled(): Boolean =
+        settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled &&
+            settings.networkPlaybackSettings.first().listeningHistoryEnabled
+
     private val trainingMutex = Mutex()
 
     fun onPlaybackFinalized(@Suppress("UNUSED_PARAMETER") playbackInstanceId: UUID) = scheduler.scheduleTraining()
     fun refreshIfStale() = scheduler.scheduleTraining()
 
     suspend fun trainPending(forceRebuild: Boolean = false) = withContext(Dispatchers.Default) {
+        if (!learningEnabled()) return@withContext
         var updatedModel = false
         trainingMutex.withLock {
+            if (!learningEnabled()) return@withLock
             val state = model.state()
             val rebuild = forceRebuild || state.requiresRebuild
             val latest = datasetBuilder.latestDataVersion()
@@ -36,6 +45,8 @@ class PersonalizationTrainer @Inject constructor(
             if (!rebuild && !datasetBuilder.hasPendingBatch(state.historyFloorVersion, state.trainingDataVersion)) return@withLock
             if (rebuild) datasetBuilder.rebuildPreferenceStats(state.historyFloorVersion)
             val samples = datasetBuilder.materialize(state.historyFloorVersion, if (rebuild) 0L else state.trainingDataVersion, latestFirst = rebuild)
+            // The user might disable Smart while the bounded replay is running.
+            if (!learningEnabled()) return@withLock
             if (rebuild) {
                 model.rebuild(samples)
                 updatedModel = true
@@ -62,6 +73,7 @@ class PersonalizationTrainer @Inject constructor(
         model.reset(datasetBuilder.latestEventSequence())
     }
     suspend fun rebuildFromStoredHistory() {
+        if (!learningEnabled()) return
         trainingMutex.withLock { model.reset(0L); datasetBuilder.clearDerivedSamples() }
         scheduler.scheduleTraining(rebuild = true)
     }
