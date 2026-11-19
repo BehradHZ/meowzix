@@ -285,6 +285,7 @@ internal fun MorphingPlayerOverlay(
     viewModel: NowPlayingViewModel,
     morphState: MorphingPlayerState,
     dockCompact: Boolean = false,
+    canRemoveOffline: Boolean = false,
     onMiniPlayerTopInWindow: (Float) -> Unit = {},
     onOpenQueue: () -> Unit,
     onGoToArtist: (String) -> Unit = {},
@@ -541,6 +542,7 @@ internal fun MorphingPlayerOverlay(
                 ) {
                     NowPlayingRoute(
                         onBack = morphState::collapse,
+                        canRemoveOffline = canRemoveOffline,
                         onOpenQueue = {
                             morphState.collapse()
                             onOpenQueue()
