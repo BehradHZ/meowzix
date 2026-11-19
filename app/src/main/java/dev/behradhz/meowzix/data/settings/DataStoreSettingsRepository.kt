@@ -163,6 +163,8 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun recordShuffleExposure(trackId: UUID) {
         context.settingsDataStore.edit { values ->
+            // Keep the privacy gate atomic with the exposure write.
+            if (values[SMART_RECOMMENDATIONS] == false) return@edit
             val recent = (values[RECENT_SHUFFLE_TRACK_IDS] ?: "").split(',')
                 .filter { it.isNotBlank() && it != trackId.toString() }
             values[RECENT_SHUFFLE_TRACK_IDS] = (listOf(trackId.toString()) + recent.take(159)).joinToString(",")
@@ -219,7 +221,14 @@ class DataStoreSettingsRepository @Inject constructor(
             if (mode == SleepTimerPresetMode.DURATION) it[SLEEP_TIMER_LAST_MINUTES] = minutes.coerceIn(5, 180)
         }
     }
-    override suspend fun setSmartRecommendationsEnabled(enabled: Boolean) = set(SMART_RECOMMENDATIONS, enabled)
+    override suspend fun setSmartRecommendationsEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { values ->
+            values[SMART_RECOMMENDATIONS] = enabled
+            if (!enabled && values[DEFAULT_PLAYBACK_MODE] == PlaybackMode.SMART_SHUFFLE.name) {
+                values[DEFAULT_PLAYBACK_MODE] = PlaybackMode.ORDERED.name
+            }
+        }
+    }
     override suspend fun setAudioAnalysisEnabled(enabled: Boolean) = set(AUDIO_ANALYSIS, enabled)
     override suspend fun setDiagnosticsVisible(enabled: Boolean) = set(DIAGNOSTICS_VISIBLE, enabled)
 
@@ -267,7 +276,12 @@ class DataStoreSettingsRepository @Inject constructor(
             it[COLOR_THEME] = ColorThemePreference.CUSTOM.name
         }
     }
-    override suspend fun setDefaultPlaybackMode(mode: PlaybackMode) = setEnum(DEFAULT_PLAYBACK_MODE, mode)
+    override suspend fun setDefaultPlaybackMode(mode: PlaybackMode) {
+        context.settingsDataStore.edit { values ->
+            if (mode == PlaybackMode.SMART_SHUFFLE && values[SMART_RECOMMENDATIONS] == false) return@edit
+            values[DEFAULT_PLAYBACK_MODE] = mode.name
+        }
+    }
     override suspend fun setDefaultRepeatMode(mode: RepeatMode) = setEnum(DEFAULT_REPEAT_MODE, mode)
 
     override suspend fun setLyricsTextScalePercent(percent: Int) {
