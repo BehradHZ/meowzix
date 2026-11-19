@@ -150,6 +150,10 @@ internal fun shouldCommitMiniTrackSwipe(totalDrag: Offset, pagerWidthPx: Float):
     playerDragAxis(totalDrag, 0f) == PlayerDragAxis.HORIZONTAL &&
         abs(totalDrag.x) / pagerWidthPx.coerceAtLeast(1f) >= MINI_CARD_COMMIT_THRESHOLD
 
+/** Use drag direction relative to the gesture's starting expansion state. */
+internal fun shouldSettlePlayerExpanded(startFraction: Float, dragY: Float, thresholdPx: Float): Boolean =
+    if (startFraction >= 0.5f) dragY < thresholdPx else dragY <= -thresholdPx
+
 internal enum class MiniCardDirection { PREVIOUS, NEXT }
 
 /**
@@ -249,6 +253,13 @@ internal class MorphingPlayerState internal constructor(initiallyExpanded: Boole
         targetExpanded = false
         settleRequestId++
     }
+
+    /** Gesture recognizers may both finish the same swipe; never treat that as two Back presses. */
+    fun settleCollapseFromGesture() {
+        finishCollapseImmediately = false
+        targetExpanded = false
+        settleRequestId++
+    }
 }
 
 @Composable
@@ -294,6 +305,7 @@ internal fun MorphingPlayerOverlay(
     var expansionFraction by remember(track.id) {
         mutableFloatStateOf(if (morphState.targetExpanded) 1f else 0f)
     }
+    var draggingPlayer by remember(track.id) { mutableStateOf(false) }
     var lyricsExpanded by remember(track.id) { mutableStateOf(false) }
     var inlineQueueExpanded by remember { mutableStateOf(false) }
     var moreActionsMenuOpen by remember(track.id) { mutableStateOf(false) }
@@ -317,7 +329,9 @@ internal fun MorphingPlayerOverlay(
         }
     }
 
-    LaunchedEffect(morphState.targetExpanded, morphState.settleRequestId, track.id) {
+    LaunchedEffect(morphState.targetExpanded, morphState.settleRequestId, track.id, draggingPlayer) {
+        // Never write an animation frame over a gesture-controlled position.
+        if (draggingPlayer) return@LaunchedEffect
         if (!morphState.targetExpanded) inlineQueueExpanded = false
         if (morphState.finishCollapseImmediately && !morphState.targetExpanded) {
             expansionFraction = 0f
@@ -426,6 +440,7 @@ internal fun MorphingPlayerOverlay(
                         var verticalGesture = false
                         var pointerPressed = true
 
+                        try {
                         while (pointerPressed) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -438,6 +453,7 @@ internal fun MorphingPlayerOverlay(
                                     PlayerDragAxis.VERTICAL -> {
                                         axisLocked = true
                                         verticalGesture = true
+                                        draggingPlayer = true
                                     }
                                     PlayerDragAxis.HORIZONTAL -> {
                                         axisLocked = true
@@ -457,13 +473,15 @@ internal fun MorphingPlayerOverlay(
                         }
 
                         if (axisLocked && verticalGesture) {
-                            val shouldExpand = if (startFraction >= 0.5f) {
-                                totalDrag.y < settleDistancePx
-                            } else {
-                                totalDrag.y <= -settleDistancePx
-                            }
-                            // Both branches request a new settle, even if the target is unchanged.
-                            if (shouldExpand) morphState.expand() else morphState.collapse()
+                            val shouldExpand = shouldSettlePlayerExpanded(
+                                startFraction, totalDrag.y, settleDistancePx,
+                            )
+                            if (shouldExpand) morphState.expand()
+                            else morphState.settleCollapseFromGesture()
+                        }
+                        } finally {
+                            // Restore regular animation even if the gesture is cancelled.
+                            draggingPlayer = false
                         }
                     }
                 }
