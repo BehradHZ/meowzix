@@ -12,6 +12,7 @@ import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackRepository
 import dev.behradhz.meowzix.domain.recommendation.RecommendationReason
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -45,6 +46,7 @@ class RecommendationActionsViewModel @Inject constructor(
     private val queue: QueueRepository,
     private val feedback: RecommendationFeedbackRepository,
     private val maintenance: PersonalizationMaintenance,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(RecommendationActionState())
     val state = _state.asStateFlow()
@@ -69,6 +71,7 @@ class RecommendationActionsViewModel @Inject constructor(
 
     fun moreLikeThis(trackId: UUID) {
         viewModelScope.launch {
+            if (!canSaveFeedback()) return@launch
             feedback.set(trackId, RecommendationFeedbackAction.MORE_LIKE_THIS)
             open(trackId, false, feedbackNotice = "More like this saved", feedbackTrackId = trackId)
         }
@@ -84,8 +87,17 @@ class RecommendationActionsViewModel @Inject constructor(
         }
     }
 
+    private suspend fun canSaveFeedback(): Boolean {
+        if (settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled) return true
+        _state.value = RecommendationActionState(
+            feedbackNotice = "Enable Smart recommendations in Settings to save recommendation feedback."
+        )
+        return false
+    }
+
     private fun setFeedback(trackId: UUID, action: RecommendationFeedbackAction, notice: String) {
         viewModelScope.launch {
+            if (!canSaveFeedback()) return@launch
             feedback.set(trackId, action)
             _state.value = RecommendationActionState(feedbackNotice = notice, feedbackTrackId = trackId)
         }
