@@ -164,9 +164,15 @@ class ResolvingPlaybackController @Inject constructor(
         }
     }
 
-    override fun playNext(trackId: UUID) = delegate.playNext(trackId)
+    override fun playNext(trackId: UUID) {
+        delegate.playNext(trackId)
+        scope.launch { historySafely { history.recordQueueRequest(trackId, queueState.value.playbackMode, true) } }
+    }
 
-    override fun addToQueue(trackId: UUID) = delegate.addToQueue(trackId)
+    override fun addToQueue(trackId: UUID) {
+        delegate.addToQueue(trackId)
+        scope.launch { historySafely { history.recordQueueRequest(trackId, queueState.value.playbackMode, false) } }
+    }
 
     override fun playNextGroup(trackIds: List<UUID>, kind: QueueGroupKind, title: String) =
         delegate.playNextGroup(trackIds, kind, title)
@@ -312,9 +318,22 @@ class ResolvingPlaybackController @Inject constructor(
         val newTrackId = playback.currentTrack?.id
         val seekChanged = playback.seekRevision != lastPlaybackState.seekRevision
         if (seekChanged) activeHistoryId?.let { id ->
-            historySafely { history.recordSeek(id, playback.positionMs, lastPlaybackState.durationMs) }
+            historySafely {
+                history.recordDirectionalSeek(
+                    id, lastPlaybackState.positionMs, playback.positionMs, lastPlaybackState.durationMs,
+                )
+            }
         }
         val occurrenceChanged = playback.playbackOccurrenceId != null && playback.playbackOccurrenceId != lastPlaybackState.playbackOccurrenceId
+        if (!occurrenceChanged && newTrackId != null && newTrackId == historyTrackId) {
+            activeHistoryId?.let { id ->
+                if (lastPlaybackState.status == PlaybackStatus.PLAYING && playback.status == PlaybackStatus.PAUSED) {
+                    historySafely { history.recordPlaybackPause(id) }
+                } else if (lastPlaybackState.status == PlaybackStatus.PAUSED && playback.status == PlaybackStatus.PLAYING) {
+                    historySafely { history.recordPlaybackResume(id) }
+                }
+            }
+        }
         if (newTrackId != historyTrackId || occurrenceChanged) {
             if (intentionalSkip || nextInitiator == PlaybackInitiator.USER || (occurrenceChanged && (playback.userInterruptedPrevious || playback.userSelectedOccurrence))) {
                 lastHistoryInstanceId?.let { id -> historySafely { history.recordQueueOverride(id) } }
