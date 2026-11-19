@@ -633,7 +633,7 @@ fun UnifiedSettingsScreen(
                         SettingsRowDivider()
                         SettingsToggleRow(
                             "Smart recommendations",
-                            "Personalize music suggestions from your listening habits. Your data stays on this device.",
+                            "When off, new listening events, feedback and local audio analysis stop. Existing data stays until you clear it.",
                             Icons.Rounded.AutoAwesome,
                             state.recommendations.smartRecommendationsEnabled,
                             viewModel::setSmart,
