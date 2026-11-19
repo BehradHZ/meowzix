@@ -194,7 +194,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 telegramRepository.musicSourceState.value.accountId != accountId ||
                 client.chatFolderRevision != revision
             ) return
-            if (!snapshots.folderChats(accountId, folder.id).isNullOrEmpty()) continue
+            if (snapshots.folderChatSnapshot(accountId, folder.id) != null) continue
             try {
                 val list = TdApi.ChatListFolder(folder.id)
                 var ids = withTimeoutOrNull(1_500L) {
@@ -232,7 +232,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
                     telegramRepository.authState.value.step is TelegramAuthStep.Ready &&
                     telegramRepository.musicSourceState.value.accountId == accountId &&
                     client.chatFolderRevision == revision &&
-                    snapshots.folderChats(accountId, folder.id).isNullOrEmpty()
+                    snapshots.folderChatSnapshot(accountId, folder.id) == null
                 ) {
                     snapshots.saveFolderChats(accountId, folder.id, previews)
                 }
@@ -434,10 +434,9 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val memory = synchronized(folderRequestLock) {
             folderChatCaches[folderId]?.snapshot(
                 accountId, client, client.chatFolderRevision, SystemClock.elapsedRealtime(),
-            )?.takeIf { it.isNotEmpty() }
+            )
         }
         return (memory ?: snapshots.folderChats(accountId, folderId))
-            ?.takeIf { it.isNotEmpty() }
             ?.map { it.copy(selected = it.chatId in selectedIds) }
     }
 
@@ -457,7 +456,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
      * batches. A slow LoadChats(100) can no longer block the first visible rows.
      *
      * The cold flow is scoped to the selected folder: switching folders cancels unused
-     * work. Completed lists are retained in the existing account/revision-scoped cache.
+     * work. Completed lists are retained on disk for seven days, across restarts.
      */
     override fun streamForwardFolderChats(folderId: Int): Flow<List<TelegramChatSummary>> = flow {
         cachedForwardFolderChats(folderId)?.let { emit(it) }
@@ -476,7 +475,8 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val freshMemory = synchronized(folderRequestLock) {
             folderChatCaches[folderId]?.snapshot(accountId, client, revision, SystemClock.elapsedRealtime())
         }
-        if (freshMemory != null) return@flow
+        // A completed disk index skips pagination until its seven-day TTL expires.
+        if (freshMemory != null || snapshots.completeFolderChats(accountId, folderId) != null) return@flow
         val chatList = TdApi.ChatListFolder(folderId)
         val orderedIds = LinkedHashSet<Long>()
         val resolved = LinkedHashMap<Long, TelegramChatSummary>()
@@ -618,24 +618,33 @@ class TdLibTelegramForwardRepository @Inject constructor(
             ) {
                 error("This Telegram folder hasn't finished loading. Tap Retry loading folder.")
             }
+            // Confirmed empty folders are complete and should not be rescanned.
+            snapshots.saveCompleteFolderChats(accountId, folderId, emptyList())
+            synchronized(folderRequestLock) {
+                folderChatCaches.getOrPut(folderId) { ForwardFolderMemoryCache() }.save(
+                    accountId, client, revision, SystemClock.elapsedRealtime(), emptyList(),
+                )
+            }
             emit(emptyList())
             return@flow
         }
 
-        // Partial previews are durable, but only complete in-memory snapshots skip further pagination.
-        snapshots.saveFolderChats(accountId, folderId, final)
-        if (shouldCacheForwardFolderChats(
-                knownChatCount = orderedIds.size,
-                resolvedChatCount = final.size,
-                reachedEnd = reachedEnd,
-                definitionLoaded = definitionResult.isSuccess,
-            )
-        ) {
+        val complete = shouldCacheForwardFolderChats(
+            knownChatCount = orderedIds.size,
+            resolvedChatCount = final.size,
+            reachedEnd = reachedEnd,
+            definitionLoaded = definitionResult.isSuccess,
+        )
+        if (complete) {
+            snapshots.saveCompleteFolderChats(accountId, folderId, final)
             synchronized(folderRequestLock) {
                 folderChatCaches.getOrPut(folderId) { ForwardFolderMemoryCache() }.save(
                     accountId, client, revision, SystemClock.elapsedRealtime(), final,
                 )
             }
+        } else {
+            // Incomplete results remain a preview, never a seven-day index.
+            snapshots.saveFolderChats(accountId, folderId, final)
         }
         emit(final)
     }
