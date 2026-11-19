@@ -9,7 +9,7 @@ import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-enum class ListeningEventType { PLAY_STARTED, PLAY_COMPLETED, PLAY_STOPPED, SKIPPED_EARLY, SKIPPED_LATE, MANUAL_SELECTED, AUTO_SELECTED, REPLAYED, FAVORITED, UNFAVORITED, SEEKED, QUEUE_REMOVED, QUEUE_OVERRIDDEN }
+enum class ListeningEventType { PLAY_STARTED, PLAY_COMPLETED, PLAY_STOPPED, SKIPPED_EARLY, SKIPPED_LATE, MANUAL_SELECTED, AUTO_SELECTED, REPLAYED, FAVORITED, UNFAVORITED, SEEKED, SEEKED_FORWARD, SEEKED_BACKWARD, QUEUE_REMOVED, QUEUE_OVERRIDDEN, PLAY_NEXT_REQUESTED, QUEUE_ADD_REQUESTED, PLAYBACK_PAUSED, PLAYBACK_RESUMED }
 enum class PlaybackInitiator { USER, PURE_SHUFFLE, SMART_SHUFFLE, QUEUE, SYSTEM_RESUME }
 enum class TimeBucket { EARLY_MORNING, MORNING, AFTERNOON, EVENING, NIGHT, LATE_NIGHT }
 
@@ -65,6 +65,12 @@ interface ListeningHistoryRepository {
     suspend fun startPlayback(trackId: UUID, initiatedBy: PlaybackInitiator, mode: PlaybackMode): UUID
     suspend fun finalizePlayback(playbackInstanceId: UUID, positionMs: Long, durationMs: Long, intentionalSkip: Boolean)
     suspend fun recordSeek(playbackInstanceId: UUID, positionMs: Long, durationMs: Long)
+    suspend fun recordDirectionalSeek(playbackInstanceId: UUID, fromPositionMs: Long, toPositionMs: Long, durationMs: Long) {
+        recordSeek(playbackInstanceId, toPositionMs, durationMs)
+    }
+    suspend fun recordPlaybackPause(playbackInstanceId: UUID) {}
+    suspend fun recordPlaybackResume(playbackInstanceId: UUID) {}
+    suspend fun recordQueueRequest(trackId: UUID, mode: PlaybackMode, playNext: Boolean) {}
     suspend fun recordFavorite(trackId: UUID, favorite: Boolean) {}
     suspend fun recordQueueRemoval(trackId: UUID, mode: PlaybackMode) {}
     suspend fun recordQueueOverride(playbackInstanceId: UUID) {}
