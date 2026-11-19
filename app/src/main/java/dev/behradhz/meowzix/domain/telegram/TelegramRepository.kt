@@ -201,6 +201,12 @@ interface TelegramForwardRepository {
 
     suspend fun searchChats(query: String, limit: Int = 50): List<TelegramChatSummary>
 
+    /** Show recent destinations immediately while TDLib refreshes their metadata. */
+    fun cachedRecentForwardChats(): List<TelegramChatSummary>? = null
+
+    /** Load a visible destination's thumbnail without blocking list rendering. */
+    suspend fun resolveForwardChatPhoto(chatId: Long): String? = null
+
     /** Return a valid in-memory snapshot without I/O, or null if a load is needed. */
     fun cachedForwardFolders(): List<TelegramForwardFolder>? = null
 

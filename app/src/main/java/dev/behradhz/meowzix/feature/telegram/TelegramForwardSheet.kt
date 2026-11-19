@@ -641,6 +641,7 @@ private fun ForwardPickerBody(
                             TelegramDestinationRow(
                                 chat = chat,
                                 job = latestJob,
+                                repository = repository,
                                 onClick = {
                                     if (isSending) return@TelegramDestinationRow
                                     actionError = null
@@ -899,7 +900,24 @@ internal fun ForwardOptionPill(
 }
 
 @Composable
-private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJob?, onClick: () -> Unit) {
+private fun TelegramDestinationRow(
+    chat: TelegramChatSummary,
+    job: TelegramSendJob?,
+    repository: TelegramForwardRepository,
+    onClick: () -> Unit,
+) {
+    var photoRef by remember(chat.chatId, chat.profilePhotoRef) { mutableStateOf(chat.profilePhotoRef) }
+    LaunchedEffect(chat.chatId, chat.profilePhotoRef) {
+        if (photoRef == null) {
+            try {
+                photoRef = repository.resolveForwardChatPhoto(chat.chatId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // An unavailable avatar must never prevent forwarding.
+            }
+        }
+    }
     val blocksNewSend = job != null && job.state != TelegramSendState.CANCELED
     val rowShape = RoundedCornerShape(20.dp)
     Row(
@@ -911,8 +929,8 @@ private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJ
             .padding(horizontal = 10.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (chat.profilePhotoRef != null) {
-            ChatAvatar(chat.profilePhotoRef, chat.title, size = 46.dp)
+        if (photoRef != null) {
+            ChatAvatar(photoRef, chat.title, size = 46.dp)
         } else {
             Surface(modifier = Modifier.size(46.dp), shape = CircleShape, color = TelegramGlassFill) {
                 Box(contentAlignment = Alignment.Center) {

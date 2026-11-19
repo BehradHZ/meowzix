@@ -130,8 +130,10 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
         searchJob?.cancel()
         foldersJob?.cancel()
         val cachedFolders = forward.cachedForwardFolders()
+        val cachedChats = forward.cachedRecentForwardChats().orEmpty()
         _ui.value = OverlayForwardState(
             track = snapshot,
+            chats = cachedChats,
             folders = cachedFolders.orEmpty(),
             foldersLoading = cachedFolders == null,
             foldersError = if (cachedFolders?.isEmpty() == true) "No Telegram folders found" else null,
