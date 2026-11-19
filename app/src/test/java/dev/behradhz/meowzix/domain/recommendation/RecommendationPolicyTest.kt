@@ -236,4 +236,51 @@ class RecommendationPolicyTest {
         assertTrue(high.finalScore - off.finalScore <= RecommendationConfig.MAX_EXPLORATION_BONUS + 1e-12)
     }
 
+    @Test fun phase2SparseTrackBorrowsArtistAlbumEvidenceWithConfidence() {
+        val unknown = candidate(101).candidate
+        val positivePrior = unknown.copy(
+            artistStats = PreferenceSnapshot(starts = 24, completions = 20, manualSelections = 8),
+            albumStats = PreferenceSnapshot(starts = 12, completions = 11, replays = 3),
+        )
+        val negativePrior = unknown.copy(
+            artistStats = PreferenceSnapshot(starts = 24, earlySkips = 21),
+            albumStats = PreferenceSnapshot(starts = 12, earlySkips = 11),
+        )
+        assertTrue(BehavioralPreferenceModel.global(positivePrior) > BehavioralPreferenceModel.global(unknown))
+        assertTrue(BehavioralPreferenceModel.global(positivePrior) > BehavioralPreferenceModel.global(negativePrior))
+        assertTrue(BehavioralPreferenceModel.global(negativePrior) >= 0.0)
+    }
+
+    @Test fun phase2DirectObservationsOverrideArtistAlbumPriors() {
+        val lowPrior = candidate(102).candidate.copy(
+            artistStats = PreferenceSnapshot(starts = 30, earlySkips = 29),
+            albumStats = PreferenceSnapshot(starts = 20, earlySkips = 19),
+        )
+        val highDirect = lowPrior.copy(global = PreferenceSnapshot(starts = 50, completions = 47, manualSelections = 20))
+        val lowDirect = lowPrior.copy(global = PreferenceSnapshot(starts = 50, earlySkips = 45))
+        assertTrue(BehavioralPreferenceModel.global(highDirect) > BehavioralPreferenceModel.global(lowDirect))
+        assertTrue(BehavioralPreferenceModel.global(highDirect) > BehavioralPreferenceModel.global(lowPrior))
+        assertTrue(BehavioralPreferenceModel.confidence(50, 5.0) > BehavioralPreferenceModel.confidence(1, 5.0))
+    }
+
+    @Test fun phase2RecencyEvidenceChangesScoresWithoutDatabaseOrModel() {
+        val plain = candidate(103).candidate
+        val positive = plain.copy(recentPositive = 1.0)
+        val negative = plain.copy(recentNegative = 1.0)
+        val baseline = AdaptiveScorer().score(plain, now).total
+        assertEquals(0.08, AdaptiveScorer().score(positive, now).total - baseline, 1e-10)
+        assertEquals(-0.10, AdaptiveScorer().score(negative, now).total - baseline, 1e-10)
+        assertEquals(baseline, AdaptiveScorer().score(plain, now).total, 0.0)
+        assertTrue(AdaptiveScorer().score(positive, now).total > AdaptiveScorer().score(negative, now).total)
+    }
+
+    @Test fun phase2RewardsDoNotMistakeNeutralPlayerEventsForPreference() {
+        val neutral = setOf("PLAY_STARTED", "SEEKED_FORWARD", "SEEKED_BACKWARD", "PLAYBACK_PAUSED",
+            "PLAYBACK_RESUMED", "QUEUE_ADD_REQUESTED", "PLAY_NEXT_REQUESTED", "PLAY_STOPPED")
+        assertEquals(0.0, PersonalizationRewardBuilder.reward(neutral), 0.0)
+        assertTrue(PersonalizationRewardBuilder.reward(setOf("MANUAL_SELECTED", "PLAY_COMPLETED")) > 0)
+        assertTrue(PersonalizationRewardBuilder.reward(setOf("PLAY_STARTED", "SKIPPED_EARLY")) < 0)
+        assertTrue(PersonalizationRewardBuilder.reward(setOf("PLAY_STARTED", "SKIPPED_LATE")) < 0)
+    }
+
 }
