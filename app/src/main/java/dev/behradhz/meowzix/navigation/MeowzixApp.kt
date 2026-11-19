@@ -385,7 +385,8 @@ fun MeowzixApp(
         if (route == HOME_ROUTE) {
             dockCompact = false
             scrollDelta = 0f
-            homeScrollToTopRequest++
+            // Returning from a different tab preserves Home's retained scroll state.
+            // Only DockTabTapAction.RESELECT explicitly scrolls Home to the top.
         }
         lastContentTab = route
         navController.navigate(route) {
