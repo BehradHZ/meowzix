@@ -1456,6 +1456,7 @@ private fun PlayerHeader(
     var draggedLyricsRequest by remember { mutableIntStateOf(0) }
     var draggedSpeedRequest by remember { mutableIntStateOf(0) }
     var draggedTimerRequest by remember { mutableIntStateOf(0) }
+    var draggedRemoveRequest by remember { mutableIntStateOf(0) }
     var triggerBounds by remember { mutableStateOf(Rect.Zero) }
     val actionBounds = remember { mutableStateMapOf<Int, Rect>() }
     val chatActions = LocalTrackChatLinkActions.current
@@ -1596,6 +1597,7 @@ private fun PlayerHeader(
                                         2 -> { menuExpanded = false; onWhyThisSong() }
                                         3 -> { menuExpanded = false; onContinueVibe() }
                                         4 -> { draggedLyricsRequest++ }
+                                        6 -> { draggedRemoveRequest++ }
                                         5 -> {
                                             menuExpanded = false
                                             if (chatActions != null && viewInChatOrigin != null) openChatMessage()
@@ -1659,6 +1661,7 @@ private fun PlayerHeader(
                     draggedLyricsRequest = draggedLyricsRequest,
                     draggedSpeedRequest = draggedSpeedRequest,
                     draggedTimerRequest = draggedTimerRequest,
+                    draggedRemoveRequest = draggedRemoveRequest,
                     onActionBoundsChanged = { index, bounds -> actionBounds[index] = bounds },
                 )
             }
