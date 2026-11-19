@@ -60,4 +60,70 @@ class InitialSourceChoicePolicyTest {
             ),
         )
     }
+
+    @Test
+    fun disconnectedTelegramShowsReminderWhenHomeIsReady() {
+        assertTrue(
+            shouldShowTelegramConnectReminder(
+                isReady = true,
+                isConnected = false,
+                isInitializing = false,
+                isDismissed = false,
+                isFirstLaunchChoiceVisible = false,
+            ),
+        )
+    }
+
+    @Test
+    fun telegramReminderIsHiddenWhenDismissedOrConnected() {
+        assertFalse(
+            shouldShowTelegramConnectReminder(
+                isReady = true,
+                isConnected = false,
+                isInitializing = false,
+                isDismissed = true,
+                isFirstLaunchChoiceVisible = false,
+            ),
+        )
+        assertFalse(
+            shouldShowTelegramConnectReminder(
+                isReady = true,
+                isConnected = true,
+                isInitializing = false,
+                isDismissed = false,
+                isFirstLaunchChoiceVisible = false,
+            ),
+        )
+    }
+
+    @Test
+    fun reminderDoesNotFlashDuringInitializationOrSourceChoice() {
+        assertFalse(
+            shouldShowTelegramConnectReminder(
+                isReady = true,
+                isConnected = false,
+                isInitializing = true,
+                isDismissed = false,
+                isFirstLaunchChoiceVisible = false,
+            ),
+        )
+        assertFalse(
+            shouldShowTelegramConnectReminder(
+                isReady = false,
+                isConnected = false,
+                isInitializing = false,
+                isDismissed = false,
+                isFirstLaunchChoiceVisible = false,
+            ),
+        )
+        assertFalse(
+            shouldShowTelegramConnectReminder(
+                isReady = true,
+                isConnected = false,
+                isInitializing = false,
+                isDismissed = false,
+                isFirstLaunchChoiceVisible = true,
+            ),
+        )
+    }
 }
