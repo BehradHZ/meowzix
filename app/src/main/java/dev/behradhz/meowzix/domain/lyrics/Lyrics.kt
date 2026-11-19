@@ -51,6 +51,7 @@ data class TrackLyrics(
     val selected: LyricsVersion? = null,
     val versions: List<LyricsVersion> = emptyList(),
     val automaticDiscoveryDisabled: Boolean = false,
+    val showInPlayer: Boolean = true,
 )
 
 interface LyricsRepository {
@@ -61,6 +62,7 @@ interface LyricsRepository {
     suspend fun selectVersion(trackId: UUID, versionId: UUID)
     suspend fun setUserDelay(versionId: UUID, delayMs: Long)
     suspend fun deleteVersion(trackId: UUID, versionId: UUID)
+    suspend fun setShowInPlayer(trackId: UUID, show: Boolean)
     suspend fun removeAllFromTrack(trackId: UUID)
     suspend fun restoreAutomaticDiscovery(trackId: UUID)
     suspend fun isAutomaticDiscoveryDisabled(trackId: UUID): Boolean

@@ -364,7 +364,7 @@ fun NowPlayingRoute(
                 onLyricsDelay = lyricsViewModel::adjustDelay,
                 onLyricsVersion = lyricsViewModel::selectVersion,
                 onLyricsDeleteVersion = lyricsViewModel::deleteVersion,
-                onLyricsRemoveAll = lyricsViewModel::removeAllLyrics,
+                onLyricsShowChange = lyricsViewModel::setShowInPlayer,
                 onLyricsRestoreAutomatic = lyricsViewModel::restoreAutomaticLyrics,
                 onLyricSeek = lyricsViewModel::seekToLine,
             )
@@ -465,7 +465,7 @@ private fun NowPlayingScreen(
     onLyricsDelay: (Long) -> Unit,
     onLyricsVersion: (java.util.UUID) -> Unit,
     onLyricsDeleteVersion: (java.util.UUID) -> Unit,
-    onLyricsRemoveAll: () -> Unit,
+    onLyricsShowChange: (Boolean) -> Unit,
     onLyricsRestoreAutomatic: () -> Unit,
     onLyricSeek: (Int) -> Unit,
 ) {
@@ -524,14 +524,14 @@ private fun NowPlayingScreen(
                         playbackSpeed = state.playbackSpeed,
                         onWhyThisSong = onWhyThisSong,
                         onContinueVibe = onContinueVibe,
-                        onToggleLyrics = onToggleLyrics,
+                        onOpenLyrics = onExpandLyrics,
                         lyricsState = lyricsState,
                         onLyricsImport = onLyricsImport,
                         onLyricsPaste = onLyricsPaste,
                         onLyricsDelay = onLyricsDelay,
                         onLyricsVersion = onLyricsVersion,
                         onLyricsDeleteVersion = onLyricsDeleteVersion,
-                        onLyricsRemoveAll = onLyricsRemoveAll,
+                        onLyricsShowChange = onLyricsShowChange,
                         onLyricsRestoreAutomatic = onLyricsRestoreAutomatic,
                     )
                     Spacer(Modifier.height(8.dp))
@@ -739,7 +739,8 @@ private fun NowPlayingScreen(
     val backdropTransition = remember { mutableStateOf<ArtworkBackdropTransition?>(null) }
     val settledBackdropRef = remember { mutableStateOf(track.artworkRef) }
     val currentTrackId = track.id
-    val currentTrackHasLyrics = lyricsState.trackId == currentTrackId && lyricsState.hasDisplayableLyrics
+    val currentTrackHasLyrics = lyricsState.trackId == currentTrackId &&
+        lyricsState.hasDisplayableLyrics && lyricsState.trackLyrics?.showInPlayer != false
     var settledArtworkTrackId by remember { mutableStateOf<UUID?>(null) }
     var reservedLyricsLayout by remember { mutableStateOf(false) }
     // Retain the previous cover's layout throughout the swipe/crop animation. Only after the
@@ -1022,14 +1023,14 @@ private fun NowPlayingScreen(
                 playbackSpeed = state.playbackSpeed,
                 onWhyThisSong = onWhyThisSong,
                 onContinueVibe = onContinueVibe,
-                onToggleLyrics = onToggleLyrics,
+                onOpenLyrics = onExpandLyrics,
                 lyricsState = lyricsState,
                 onLyricsImport = onLyricsImport,
                 onLyricsPaste = onLyricsPaste,
                 onLyricsDelay = onLyricsDelay,
                 onLyricsVersion = onLyricsVersion,
                 onLyricsDeleteVersion = onLyricsDeleteVersion,
-                onLyricsRemoveAll = onLyricsRemoveAll,
+                onLyricsShowChange = onLyricsShowChange,
                 onLyricsRestoreAutomatic = onLyricsRestoreAutomatic,
                 )
             }
@@ -1408,14 +1409,14 @@ private fun PlayerHeader(
     playbackSpeed: Float,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
-    onToggleLyrics: () -> Unit,
+    onOpenLyrics: () -> Unit,
     lyricsState: NowPlayingLyricsState,
     onLyricsImport: (android.net.Uri) -> Unit,
     onLyricsPaste: (String) -> Unit,
     onLyricsDelay: (Long) -> Unit,
     onLyricsVersion: (UUID) -> Unit,
     onLyricsDeleteVersion: (UUID) -> Unit,
-    onLyricsRemoveAll: () -> Unit,
+    onLyricsShowChange: (Boolean) -> Unit,
     onLyricsRestoreAutomatic: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -1611,13 +1612,13 @@ private fun PlayerHeader(
                     onViewInChat = if (chatActions != null && viewInChatOrigin != null) ::openChatMessage else null,
                     viewInChatOrigin = viewInChatOrigin,
                     isLocalSource = chatOriginLoaded && viewInChatOrigin == null,
-                    onToggleLyrics = onToggleLyrics,
+                    onOpenLyrics = onOpenLyrics,
                     onImportLrc = { importLauncher.launch(arrayOf("*/*")) },
                     onPasteLyrics = { pasteDialog = true },
                     onAdjustDelay = onLyricsDelay,
                     onSelectVersion = onLyricsVersion,
                     onDeleteVersion = onLyricsDeleteVersion,
-                    onRemoveAllLyrics = onLyricsRemoveAll,
+                    onShowLyricsChange = onLyricsShowChange,
                     onRestoreAutomaticLyrics = onLyricsRestoreAutomatic,
                     dragInProgress = dragInProgress,
                     draggedAction = dragSelection,

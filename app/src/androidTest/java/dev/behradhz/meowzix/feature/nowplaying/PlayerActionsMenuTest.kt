@@ -10,6 +10,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -58,7 +60,7 @@ class PlayerActionsMenuTest {
                         expanded = expanded, trackId = trackId,
                         lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId, selected, versions)),
                         lyricsExpanded = false, sleepTimerLabel = "Off",
-                        onDismiss = { expanded = false },                         onWhyThisSong = {}, onContinueVibe = {}, onToggleLyrics = {},
+                        onDismiss = { expanded = false },                         onWhyThisSong = {}, onContinueVibe = {}, onOpenLyrics = {},
                         onImportLrc = { imported++ }, onPasteLyrics = {},
                         onAdjustDelay = { delay += it }, onSelectVersion = { selectedId = it },
                         onDeleteVersion = {},
@@ -108,7 +110,7 @@ class PlayerActionsMenuTest {
                     onWhyThisSong = {},
                     onContinueVibe = {},
                     onViewInChat = if (hasSource) ({ opened++ }) else null,
-                    onToggleLyrics = {},
+                    onOpenLyrics = {},
                     onImportLrc = {},
                     onPasteLyrics = {},
                     onAdjustDelay = {},
@@ -138,7 +140,7 @@ class PlayerActionsMenuTest {
                     lyricsExpanded = false, sleepTimerLabel = "Off",
                     onDismiss = {}, onWhyThisSong = {}, onContinueVibe = {},
                     onViewInChat = { opened++ }, isLocalSource = true,
-                    onToggleLyrics = {}, onImportLrc = {}, onPasteLyrics = {},
+                    onOpenLyrics = {}, onImportLrc = {}, onPasteLyrics = {},
                     onAdjustDelay = {}, onSelectVersion = {}, onDeleteVersion = {},
                 )
             }
@@ -160,7 +162,7 @@ class PlayerActionsMenuTest {
                     lyricsExpanded = false, sleepTimerLabel = "Off",
                     onDismiss = {}, onWhyThisSong = {}, onContinueVibe = {},
                     onViewInChat = { opened++ }, viewInChatOrigin = origin,
-                    onToggleLyrics = {}, onImportLrc = {}, onPasteLyrics = {},
+                    onOpenLyrics = {}, onImportLrc = {}, onPasteLyrics = {},
                     onAdjustDelay = {}, onSelectVersion = {}, onDeleteVersion = {},
                 )
             }
@@ -193,7 +195,7 @@ class PlayerActionsMenuTest {
                         onDismiss = { expanded = false },
                         onWhyThisSong = { whyOpened++ },
                         onContinueVibe = { vibeOpened++ },
-                        onToggleLyrics = {},
+                        onOpenLyrics = {},
                         onImportLrc = {},
                         onPasteLyrics = {},
                         onAdjustDelay = {},
@@ -233,7 +235,7 @@ class PlayerActionsMenuTest {
                     lyricsExpanded = false, sleepTimerLabel = "Off",
                     onDismiss = {}, onWhyThisSong = {}, onContinueVibe = {},
                     onViewInChat = {},
-                    onToggleLyrics = {}, onImportLrc = {}, onPasteLyrics = {},
+                    onOpenLyrics = {}, onImportLrc = {}, onPasteLyrics = {},
                     onAdjustDelay = {}, onSelectVersion = {}, onDeleteVersion = {},
                 )
             }
@@ -267,7 +269,7 @@ class PlayerActionsMenuTest {
                         onDismiss = { expanded = false },
                         onWhyThisSong = {},
                         onContinueVibe = {},
-                        onToggleLyrics = {},
+                        onOpenLyrics = {},
                         onImportLrc = {},
                         onPasteLyrics = {},
                         onAdjustDelay = {},
@@ -298,7 +300,7 @@ class PlayerActionsMenuTest {
                     lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId, version, listOf(version))),
                     lyricsExpanded = false, sleepTimerLabel = "Off",
                     onDismiss = {}, onWhyThisSong = {},
-                    onContinueVibe = {}, onToggleLyrics = {}, onImportLrc = {},
+                    onContinueVibe = {}, onOpenLyrics = {}, onImportLrc = {},
                     onPasteLyrics = {}, onAdjustDelay = {}, onSelectVersion = {},
                     onDeleteVersion = { deletedId = it },
                 )
@@ -325,7 +327,7 @@ class PlayerActionsMenuTest {
                     lyricsState = NowPlayingLyricsState(trackId, TrackLyrics(trackId)),
                     lyricsExpanded = false, sleepTimerLabel = "Off",
                     onDismiss = {}, onWhyThisSong = {},
-                    onContinueVibe = {}, onToggleLyrics = {}, onImportLrc = {},
+                    onContinueVibe = {}, onOpenLyrics = {}, onImportLrc = {},
                     onPasteLyrics = { pasted++ }, onAdjustDelay = {}, onSelectVersion = {},
                     onDeleteVersion = {},
                 )
@@ -337,41 +339,50 @@ class PlayerActionsMenuTest {
         compose.runOnIdle { assertEquals(1, pasted) }
     }
 
-    @Test fun removeAllLyricsRequiresConfirmationThenOffersRestore() {
+    @Test fun showToggleKeepsLyricsIntactAndOpenLyricsRemainsAvailable() {
         val trackId = UUID.randomUUID()
-        val embedded = version(trackId, "Detected", true).copy(sourceType = LyricsSourceType.EMBEDDED)
-        var removed by mutableIntStateOf(0)
-        var restored by mutableIntStateOf(0)
-        var disabled by mutableStateOf(false)
+        val lyric = version(trackId, "Detected", true).copy(sourceType = LyricsSourceType.EMBEDDED)
+        var shown by mutableStateOf(true)
+        var expanded by mutableStateOf(true)
+        var opened by mutableIntStateOf(0)
         compose.setContent {
-            val trackLyrics = if (disabled) TrackLyrics(trackId, automaticDiscoveryDisabled = true)
-                else TrackLyrics(trackId, embedded, listOf(embedded))
             MeowzixTheme(darkTheme = true) {
                 PlayerActionsMenu(
-                    expanded = true, trackId = trackId,
-                    lyricsState = NowPlayingLyricsState(trackId, trackLyrics),
-                    lyricsExpanded = false, sleepTimerLabel = "Off",
-                    onDismiss = {}, onWhyThisSong = {},
-                    onContinueVibe = {}, onToggleLyrics = {},
-                    onImportLrc = {}, onPasteLyrics = {}, onAdjustDelay = {},
-                    onSelectVersion = {}, onDeleteVersion = {},
-                    onRemoveAllLyrics = { removed++; disabled = true },
-                    onRestoreAutomaticLyrics = { restored++ },
+                    expanded = expanded,
+                    trackId = trackId,
+                    lyricsState = NowPlayingLyricsState(
+                        trackId, TrackLyrics(trackId, lyric, listOf(lyric), showInPlayer = shown),
+                    ),
+                    lyricsExpanded = false,
+                    sleepTimerLabel = "Off",
+                    onDismiss = { expanded = false },
+                    onWhyThisSong = {},
+                    onContinueVibe = {},
+                    onOpenLyrics = { opened++ },
+                    onImportLrc = {},
+                    onPasteLyrics = {},
+                    onAdjustDelay = {},
+                    onSelectVersion = {},
+                    onDeleteVersion = {},
+                    onShowLyricsChange = { shown = it },
                 )
             }
         }
         compose.onNodeWithTag("player-action-lyrics").performClick()
-        compose.onNodeWithTag("player-action-remove-lyrics-from-track").performClick()
-        compose.onNodeWithText("Remove lyrics from track?").assertIsDisplayed()
-        compose.runOnIdle { assertEquals(0, removed) }
-        compose.onNodeWithText("Cancel").performClick()
-        compose.onNodeWithText("Remove lyrics from track?").assertDoesNotExist()
-        compose.onNodeWithTag("player-action-remove-lyrics-from-track").performClick()
-        compose.onNodeWithText("Remove").performClick()
-        compose.runOnIdle { assertEquals(1, removed) }
-        compose.onNodeWithTag("player-lyrics-empty").assertIsDisplayed()
-        compose.onNodeWithTag("player-action-restore-detected-lyrics").performClick()
-        compose.runOnIdle { assertEquals(1, restored) }
+        compose.onNodeWithTag("player-lyrics-show-toggle").assertIsOn().performClick()
+        compose.onNodeWithTag("player-lyrics-show-toggle").assertIsOff()
+        compose.onNodeWithTag("player-lyrics-version-" + lyric.id).assertIsDisplayed()
+        compose.onNodeWithTag("player-action-remove-lyrics-from-track").assertDoesNotExist()
+        compose.onNodeWithTag("player-action-open-lyrics").performClick()
+        compose.runOnIdle {
+            assertEquals(1, opened)
+            assertEquals(false, expanded)
+            assertEquals(false, shown)
+        }
+        compose.runOnIdle { expanded = true }
+        compose.onNodeWithTag("player-action-lyrics").performClick()
+        compose.onNodeWithTag("player-lyrics-show-toggle").assertIsOff().performClick()
+        compose.onNodeWithTag("player-lyrics-show-toggle").assertIsOn()
     }
 
     @Test fun speedPageKeepsPopupOpenAndAppliesFineAdjustments() {
@@ -389,7 +400,7 @@ class PlayerActionsMenuTest {
                     onDismiss = { expanded = false },
                     onWhyThisSong = {},
                     onContinueVibe = {},
-                    onToggleLyrics = {},
+                    onOpenLyrics = {},
                     onImportLrc = {},
                     onPasteLyrics = {},
                     onAdjustDelay = {},
@@ -431,7 +442,7 @@ class PlayerActionsMenuTest {
                     onDismiss = { expanded = false },
                     onWhyThisSong = {},
                     onContinueVibe = {},
-                    onToggleLyrics = {},
+                    onOpenLyrics = {},
                     onImportLrc = {},
                     onPasteLyrics = {},
                     onAdjustDelay = {},

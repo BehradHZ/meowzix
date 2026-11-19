@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -104,13 +105,13 @@ internal fun PlayerActionsMenu(
     onDismiss: () -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
-    onToggleLyrics: () -> Unit,
+    onOpenLyrics: () -> Unit,
     onImportLrc: () -> Unit,
     onPasteLyrics: () -> Unit,
     onAdjustDelay: (Long) -> Unit,
     onSelectVersion: (UUID) -> Unit,
     onDeleteVersion: (UUID) -> Unit,
-    onRemoveAllLyrics: () -> Unit = {},
+    onShowLyricsChange: (Boolean) -> Unit = {},
     onRestoreAutomaticLyrics: () -> Unit = {},
     sleepTimerActive: Boolean = false,
     sleepTimerCanEnable: Boolean = true,
@@ -137,7 +138,6 @@ internal fun PlayerActionsMenu(
 ) {
     var page by remember(trackId) { mutableStateOf(PlayerActionsPage.ACTIONS) }
     var pendingDelete by remember(trackId) { mutableStateOf<LyricsVersion?>(null) }
-    var pendingRemoveAll by remember(trackId) { mutableStateOf(false) }
     LaunchedEffect(expanded) { if (!expanded) page = PlayerActionsPage.ACTIONS }
     LaunchedEffect(draggedLyricsRequest) {
         if (draggedLyricsRequest > 0) page = PlayerActionsPage.LYRICS
@@ -292,9 +292,10 @@ internal fun PlayerActionsMenu(
                         ) {
                             PlayerActionLine(Icons.Rounded.Add, "Import .lrc") { onDismiss(); onImportLrc() }
                             PlayerActionLine(Icons.Rounded.Description, "Paste lyrics") { onDismiss(); onPasteLyrics() }
-                            PlayerActionLine(Icons.Rounded.Visibility,
-                                if (lyricsExpanded) "Back to player" else "Show lyrics",
-                            ) { onDismiss(); onToggleLyrics() }
+                            PlayerActionLine(Icons.Rounded.Visibility, "OPEN LYRICS") {
+                                onDismiss()
+                                onOpenLyrics()
+                            }
                         }
                         Spacer(Modifier.heightIn(min = 10.dp))
                         Text("SYNC TIMING", style = MaterialTheme.typography.labelSmall,
@@ -395,17 +396,27 @@ internal fun PlayerActionsMenu(
                             }
                         }
                         Spacer(Modifier.heightIn(min = 10.dp))
-                        if (versions.isNotEmpty()) {
-                            PlayerActionLine(
-                                icon = Icons.Rounded.DeleteOutline,
-                                title = "Remove lyrics from track",
-                            ) { pendingRemoveAll = true }
+                        val showLyrics = lyricsState.trackLyrics?.showInPlayer ?: true
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .toggleable(
+                                    value = showLyrics,
+                                    role = Role.Switch,
+                                    onValueChange = onShowLyricsChange,
+                                )
+                                .heightIn(min = 52.dp)
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                                .testTag("player-lyrics-show-toggle"),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                "Removes all lyrics in Meowzix, not files on your device.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 8.dp, bottom = 3.dp),
+                                "SHOW",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
                             )
+                            Switch(checked = showLyrics, onCheckedChange = null)
                         }
                         if (lyricsState.trackLyrics?.automaticDiscoveryDisabled == true) {
                             PlayerActionLine(
@@ -460,25 +471,6 @@ internal fun PlayerActionsMenu(
                 }
             }
         }
-    }
-
-    if (pendingRemoveAll) {
-        AlertDialog(
-            onDismissRequest = { pendingRemoveAll = false },
-            title = { Text("Remove lyrics from track?") },
-            text = { Text("All lyrics versions will be removed from Meowzix. The song and any original .lrc files on your device will remain untouched. Auto-detection will be disabled for this track until restored.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingRemoveAll = false
-                    onRemoveAllLyrics()
-                }) {
-                    Text("Remove", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingRemoveAll = false }) { Text("Cancel") }
-            },
-        )
     }
 
     pendingDelete?.let { version ->

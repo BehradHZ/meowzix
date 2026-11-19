@@ -1,6 +1,12 @@
 package dev.behradhz.meowzix.data.lyrics
 
+import android.content.Context
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.stringSetPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.withTransaction
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.data.db.LyricsDao
 import dev.behradhz.meowzix.data.db.LyricsDetachedTrackEntity
 import dev.behradhz.meowzix.data.db.LyricsVersionEntity
@@ -11,21 +17,33 @@ import dev.behradhz.meowzix.domain.lyrics.LyricsRepository
 import dev.behradhz.meowzix.domain.lyrics.LyricsSourceType
 import dev.behradhz.meowzix.domain.lyrics.LyricsVersion
 import dev.behradhz.meowzix.domain.lyrics.TrackLyrics
+import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
+
+private val Context.lyricsDisplayDataStore by preferencesDataStore("lyrics_display")
+private val HIDDEN_LYRICS_TRACKS = stringSetPreferencesKey("hidden_lyrics_track_ids")
 
 @Singleton
 class RoomLyricsRepository @Inject constructor(
     private val database: MeowzixDatabase,
     private val dao: LyricsDao,
+    @param:ApplicationContext private val context: Context,
 ) : LyricsRepository {
+    private val hiddenLyricsTrackIds = context.lyricsDisplayDataStore.data
+        .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
+        .map { preferences -> preferences[HIDDEN_LYRICS_TRACKS].orEmpty() }
+
     override fun observe(trackId: UUID): Flow<TrackLyrics> = combine(
         dao.observeForTrack(trackId.toString()),
         dao.observeDiscoveryDisabled(trackId.toString()),
-    ) { rows, discoveryDisabled ->
+        hiddenLyricsTrackIds,
+    ) { rows, discoveryDisabled, hiddenTracks ->
         val versions = rows.mapNotNull(::toDomain)
         TrackLyrics(
             trackId = trackId,
@@ -34,7 +52,16 @@ class RoomLyricsRepository @Inject constructor(
                 ?: versions.firstOrNull(),
             versions = versions,
             automaticDiscoveryDisabled = discoveryDisabled,
+            showInPlayer = trackId.toString() !in hiddenTracks,
         )
+    }
+
+    override suspend fun setShowInPlayer(trackId: UUID, show: Boolean) {
+        context.lyricsDisplayDataStore.edit { preferences ->
+            val hidden = preferences[HIDDEN_LYRICS_TRACKS].orEmpty().toMutableSet()
+            if (show) hidden.remove(trackId.toString()) else hidden.add(trackId.toString())
+            preferences[HIDDEN_LYRICS_TRACKS] = hidden
+        }
     }
 
     override suspend fun importLrc(trackId: UUID, rawText: String, sourceLabel: String?): UUID {
