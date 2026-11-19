@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -37,6 +38,22 @@ class SettingsPlaybackControlsTest {
         }
         compose.onNodeWithTag("settings-playback-mode-SMART_SHUFFLE").performClick()
         compose.runOnIdle { assertEquals(PlaybackMode.SMART_SHUFFLE, result) }
+    }
+
+    @Test fun smartPlaybackModeIsDisabledWhenRecommendationRecordingIsOff() {
+        var selected = PlaybackMode.ORDERED
+        compose.setContent {
+            MeowzixTheme {
+                SettingsPlaybackModeSelector(
+                    selected = PlaybackMode.ORDERED,
+                    onSelect = { selected = it },
+                    smartEnabled = false,
+                )
+            }
+        }
+        compose.onNodeWithTag("settings-playback-mode-SMART_SHUFFLE").assertIsNotEnabled()
+        compose.onNodeWithTag("settings-playback-mode-PURE_SHUFFLE").performClick()
+        compose.runOnIdle { assertEquals(PlaybackMode.PURE_SHUFFLE, selected) }
     }
 
     @Test fun repeatCardCyclesOffOneAll() {
