@@ -704,7 +704,7 @@ class PlaybackService : MediaLibraryService() {
                     }
                     val analysisIds = PlaybackAudioAnalysisPlan.select(playingId, upcoming.asSequence())
                     serviceScope.launch {
-                        if (settingsRepository.recommendationPreferenceSettings.first().audioAnalysisEnabled &&
+                        if (settingsRepository.recommendationPreferenceSettings.first().let { it.smartRecommendationsEnabled && it.audioAnalysisEnabled } &&
                             player.currentMediaItem?.mediaId == playingId.toString()
                         ) {
                             audioFeatureCoordinator.schedulePlaybackWindow(analysisIds)
