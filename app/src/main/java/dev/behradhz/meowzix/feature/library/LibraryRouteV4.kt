@@ -227,6 +227,7 @@ internal fun LibraryRouteV4(
     ) { granted ->
         permissionRequestAttempted = true
         permissionGranted = granted
+        AudioPermission.notifyPermissionResult()
     }
 
     DisposableEffect(lifecycleOwner, permission) {
