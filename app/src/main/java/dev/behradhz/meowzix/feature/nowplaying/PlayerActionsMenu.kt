@@ -134,6 +134,7 @@ internal fun PlayerActionsMenu(
     draggedLyricsRequest: Int = 0,
     draggedSpeedRequest: Int = 0,
     draggedTimerRequest: Int = 0,
+    draggedRemoveRequest: Int = 0,
     onActionBoundsChanged: (Int, Rect) -> Unit = { _, _ -> },
     playbackSpeed: Float = 1f,
     onViewInChat: (() -> Unit)? = null,
@@ -161,6 +162,13 @@ internal fun PlayerActionsMenu(
     }
     LaunchedEffect(draggedTimerRequest) {
         if (draggedTimerRequest > 0) page = PlayerActionsPage.SLEEP_TIMER
+    }
+    LaunchedEffect(draggedRemoveRequest) {
+        if (draggedRemoveRequest > 0 && onRemoveFromLocations != null) {
+            removeOffline = false
+            removeLibrary = false
+            page = PlayerActionsPage.REMOVE
+        }
     }
     val accent = MaterialTheme.colorScheme.primary
     val glass = MaterialTheme.colorScheme.surface
