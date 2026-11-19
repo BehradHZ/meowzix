@@ -76,6 +76,8 @@ interface ListeningHistoryRepository {
     suspend fun recordQueueOverride(playbackInstanceId: UUID) {}
     suspend fun clear()
     suspend fun resetPersonalization()
+    /** Forget in-flight analytics state without deleting previously saved history. */
+    suspend fun discardActiveTracking() {}
 }
 
 data class EventTimeContext(val localHour: Int, val dayOfWeek: DayOfWeek, val bucket: TimeBucket, val isWeekend: Boolean)
