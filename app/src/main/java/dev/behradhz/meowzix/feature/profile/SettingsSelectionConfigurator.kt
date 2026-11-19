@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +45,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,12 +65,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.zIndex
 import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.domain.settings.LibrarySelectionSettings
 import dev.behradhz.meowzix.domain.settings.selectionLabel
 import dev.behradhz.meowzix.navigation.selectionActionIcon
-import kotlin.math.roundToInt
 
 /** A live configuration preview; it never issues real selection or playback commands. */
 @Composable
@@ -179,6 +182,17 @@ private fun SettingsSelectionMorePreview(
 ) {
     val colors = MaterialTheme.colorScheme
     var menuOpen by rememberSaveable { mutableStateOf(true) }
+    val menuListState = rememberLazyListState()
+    val rowHeightPx = with(LocalDensity.current) { 54.dp.toPx() }
+    // Reorder locally during the gesture; persist only the final position.
+    // Waiting for DataStore on each drag delta would cause visible jumps and races.
+    var visibleOrder by remember { mutableStateOf(selection.moreOrder) }
+    var draggedAction by remember { mutableStateOf<LibrarySelectionAction?>(null) }
+    var draggedOffsetPx by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(selection.moreOrder) {
+        if (draggedAction == null) visibleOrder = selection.moreOrder
+    }
+
     val shape = RoundedCornerShape(22.dp)
     Box(
         modifier = Modifier.fillMaxWidth().height(398.dp)
@@ -236,15 +250,55 @@ private fun SettingsSelectionMorePreview(
                     style = MaterialTheme.typography.titleSmall)
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 288.dp),
+                    state = menuListState,
                 ) {
-                    itemsIndexed(selection.moreOrder, key = { _, action -> action.name }) { index, action ->
-                        Box(Modifier.animateItem()) {
+                    itemsIndexed(visibleOrder, key = { _, action -> action.name }) { _, action ->
+                        val isDragging = action == draggedAction
+                        Box(
+                            Modifier
+                                .animateItem(
+                                    fadeInSpec = null,
+                                    placementSpec = if (isDragging) null
+                                        else tween(durationMillis = if (reduceMotion) 0 else 185),
+                                    fadeOutSpec = null,
+                                )
+                                .zIndex(if (isDragging) 1f else 0f)
+                                .graphicsLayer {
+                                    translationY = if (isDragging) draggedOffsetPx else 0f
+                                },
+                        ) {
                             SettingsMoreActionRow(
-                                action = action, index = index, count = selection.moreOrder.size,
+                                action = action,
                                 enabled = action in selection.more,
+                                dragging = isDragging,
                                 reduceMotion = reduceMotion,
                                 onEnabled = { onEnabled(action, it) },
-                                onMove = { onMove(action, it) },
+                                onDragStart = {
+                                    draggedAction = action
+                                    draggedOffsetPx = 0f
+                                },
+                                onDragMove = { deltaY ->
+                                    if (draggedAction == action) {
+                                        val frame = advanceSelectionMenuDrag(
+                                            visibleOrder, action, draggedOffsetPx, deltaY, rowHeightPx,
+                                        )
+                                        // Every crossed midpoint immediately moves adjacent rows.
+                                        visibleOrder = frame.order
+                                        draggedOffsetPx = frame.offsetPx
+                                    }
+                                },
+                                onDragEnd = {
+                                    val previousIndex = selection.moreOrder.indexOf(action)
+                                    val newIndex = visibleOrder.indexOf(action)
+                                    draggedAction = null
+                                    draggedOffsetPx = 0f
+                                    if (newIndex >= 0 && newIndex != previousIndex) onMove(action, newIndex)
+                                },
+                                onDragCancel = {
+                                    draggedAction = null
+                                    draggedOffsetPx = 0f
+                                    visibleOrder = selection.moreOrder
+                                },
                             )
                         }
                     }
@@ -257,23 +311,41 @@ private fun SettingsSelectionMorePreview(
 @Composable
 private fun SettingsMoreActionRow(
     action: LibrarySelectionAction,
-    index: Int,
-    count: Int,
     enabled: Boolean,
+    dragging: Boolean,
     reduceMotion: Boolean,
     onEnabled: (Boolean) -> Unit,
-    onMove: (Int) -> Unit,
+    onDragStart: () -> Unit,
+    onDragMove: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
 ) {
-    val rowPx = with(LocalDensity.current) { 54.dp.toPx() }
-    var dragging by remember(action) { mutableFloatStateOf(0f) }
+    // The pointerInput key must not depend on the item's index: reordering
+    // must not cancel the active gesture as the row changes position.
+    val currentStart by rememberUpdatedState(onDragStart)
+    val currentMove by rememberUpdatedState(onDragMove)
+    val currentEnd by rememberUpdatedState(onDragEnd)
+    val currentCancel by rememberUpdatedState(onDragCancel)
     val opacity by animateFloatAsState(
         if (enabled) 1f else 0.5f, tween(if (reduceMotion) 0 else 180),
         label = "selection-menu-row-opacity",
     )
+    val elevation by androidx.compose.animation.core.animateDpAsState(
+        if (dragging) 7.dp else 0.dp,
+        tween(if (reduceMotion) 0 else 140),
+        label = "selection-menu-row-elevation",
+    )
+    val rowShape = RoundedCornerShape(12.dp)
     Row(
         modifier = Modifier.fillMaxWidth().height(54.dp)
-            .zIndex(if (dragging != 0f) 1f else 0f)
-            .graphicsLayer { translationY = dragging }
+            .testTag("selection-settings-more-row-" + action.name.lowercase())
+            .shadow(elevation, rowShape)
+            .clip(rowShape)
+            .background(
+                if (dragging) MaterialTheme.colorScheme.primaryContainer
+                    .copy(alpha = 0.87f)
+                else Color.Transparent,
+            )
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -288,18 +360,14 @@ private fun SettingsMoreActionRow(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(26.dp)
                 .testTag("selection-settings-more-handle-" + action.name.lowercase())
-                .pointerInput(action, index, count) {
+                .pointerInput(action) {
                     detectDragGestures(
-                        onDragStart = { dragging = 0f },
-                        onDragCancel = { dragging = 0f },
-                        onDragEnd = {
-                            val target = (index + (dragging / rowPx).roundToInt()).coerceIn(0, count - 1)
-                            if (target != index) onMove(target)
-                            dragging = 0f
-                        },
+                        onDragStart = { currentStart() },
+                        onDragCancel = { currentCancel() },
+                        onDragEnd = { currentEnd() },
                     ) { change, delta ->
                         change.consume()
-                        dragging += delta.y
+                        currentMove(delta.y)
                     }
                 },
         )
