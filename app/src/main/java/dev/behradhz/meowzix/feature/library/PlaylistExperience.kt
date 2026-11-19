@@ -146,6 +146,7 @@ import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
+import dev.behradhz.meowzix.domain.settings.selectionShouldLike
 import dev.behradhz.meowzix.navigation.ContextualSelectionController
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.behradhz.meowzix.ui.components.GlassSurface
@@ -473,13 +474,26 @@ internal fun PlaylistDetailScreenV3(
 
     var selectionMode by rememberSaveable(playlist?.id, isFavorites) { mutableStateOf(false) }
     var selectedIds by remember(playlist?.id, isFavorites) { mutableStateOf(emptySet<UUID>()) }
+    // Favorites disappear from the source list when unliked. Keep them rendered only
+    // for the current selection session, so the Like/Unlike exception is meaningful.
+    var favoriteSelectionSnapshot by remember(playlist?.id, isFavorites) {
+        mutableStateOf<Map<UUID, Track>>(emptyMap())
+    }
     var bulkPlaylistMenu by remember { mutableStateOf(false) }
     var showBulkLibraryRemoval by rememberSaveable(playlist?.id, isFavorites) { mutableStateOf(false) }
     BackHandler(enabled = isActive && selectionMode) { selectionMode = false; selectedIds = emptySet() }
     LaunchedEffect(tracks) {
-        val kept = selectedIds.intersect(tracks.map(Track::id).toSet())
-        if (selectionMode && selectedIds.isNotEmpty() && kept.isEmpty()) selectionMode = false
-        selectedIds = kept
+        if (!isFavorites || !selectionMode) {
+            val kept = selectedIds.intersect(tracks.map(Track::id).toSet())
+            if (selectionMode && selectedIds.isNotEmpty() && kept.isEmpty()) selectionMode = false
+            selectedIds = kept
+        }
+    }
+    LaunchedEffect(selectedIds, tracks, selectionMode) {
+        favoriteSelectionSnapshot = if (isFavorites && selectionMode) {
+            favoriteSelectionSnapshot.filterKeys { it in selectedIds } +
+                tracks.filter { it.id in selectedIds }.associateBy(Track::id)
+        } else emptyMap()
     }
     val showProfileSections = telegramPerson && playlist?.telegramManaged == true && !isFavorites
     val profileSectionExpanded = playlist?.id?.let {
@@ -528,19 +542,24 @@ internal fun PlaylistDetailScreenV3(
         }
     }
     val scope = rememberCoroutineScope()
-    var customTracks by remember { mutableStateOf(tracks) }
+    val shownTracks = if (isFavorites && selectionMode) {
+        tracks + favoriteSelectionSnapshot.values.filterNot { snapshot ->
+            tracks.any { it.id == snapshot.id }
+        }
+    } else tracks
+    var customTracks by remember { mutableStateOf(shownTracks) }
     var draggedTrackId by remember { mutableStateOf<UUID?>(null) }
     var draggedDistance by remember { mutableStateOf(0f) }
 
-    LaunchedEffect(tracks, draggedTrackId) {
-        if (draggedTrackId == null) customTracks = tracks
+    LaunchedEffect(shownTracks, draggedTrackId) {
+        if (draggedTrackId == null) customTracks = shownTracks
     }
 
-    val sortedTracks = remember(tracks, sort, ascending, customTracks, newTrackIds, playlist) {
+    val sortedTracks = remember(shownTracks, sort, ascending, customTracks, newTrackIds, playlist) {
         val ordered = when (sort) {
             PlaylistTrackSort.CUSTOM -> customTracks
-            PlaylistTrackSort.NAME -> tracks.sortedBy { it.title.lowercase() }.let { if (ascending) it else it.reversed() }
-            PlaylistTrackSort.MODIFIED -> tracks.sortedBy(Track::updatedAt).let { if (ascending) it else it.reversed() }
+            PlaylistTrackSort.NAME -> shownTracks.sortedBy { it.title.lowercase() }.let { if (ascending) it else it.reversed() }
+            PlaylistTrackSort.MODIFIED -> shownTracks.sortedBy(Track::updatedAt).let { if (ascending) it else it.reversed() }
         }
         // Virtual Local and Telegram playlists have no user-defined custom ordering to
         // override. Keep unread arrivals at the top, without changing persisted membership.
@@ -602,12 +621,13 @@ internal fun PlaylistDetailScreenV3(
                 cancelSelection()
             }
             LibrarySelectionAction.LIKE -> {
-                onBulkLike(selectedTracks)
-                cancelSelection()
-            }
-            LibrarySelectionAction.UNLIKE -> {
-                onBulkUnlike(selectedTracks)
-                cancelSelection()
+                val like = selectionShouldLike(selectedTracks.map(Track::favorite))
+                if (like) onBulkLike(selectedTracks) else onBulkUnlike(selectedTracks)
+                if (isFavorites) {
+                    favoriteSelectionSnapshot = favoriteSelectionSnapshot +
+                        selectedTracks.associate { it.id to it.copy(favorite = like) }
+                }
+                // This is the only bulk action that intentionally preserves selection.
             }
             LibrarySelectionAction.PLAY_SELECTED, LibrarySelectionAction.SHUFFLE -> {
                 onPlay(selectedTracks, if (action == LibrarySelectionAction.PLAY_SELECTED)
@@ -619,6 +639,8 @@ internal fun PlaylistDetailScreenV3(
     SideEffect {
         selectionController?.active = isActive && selectionMode && !editing
         selectionController?.onAction = ::handleSelectionAction
+        selectionController?.allSelectedLiked = selectedTracks.isNotEmpty() &&
+            selectedTracks.all(Track::favorite)
     }
     DisposableEffect(selectionController) {
         onDispose { selectionController?.active = false }
@@ -1265,6 +1287,8 @@ internal fun PlaylistDetailScreenV3(
                     LibrarySelectionMoreMenu(
                         actions = selectionMoreActions,
                         onAction = ::handleSelectionAction,
+                        allSelectedLiked = selectedTracks.isNotEmpty() &&
+                            selectedTracks.all(Track::favorite),
                         onSelectAll = ::toggleAllVisible,
                         onAddToLibrary = if (selectedToLibrary.isNotEmpty())
                             ({ onBulkAddToLibrary(selectedToLibrary); cancelSelection() }) else null,

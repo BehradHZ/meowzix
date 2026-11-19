@@ -21,6 +21,7 @@ import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.library.LOCAL_PLAYLIST_ID
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
+import dev.behradhz.meowzix.domain.settings.selectionShouldLike
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
@@ -216,15 +217,23 @@ class LibraryTracksViewModel @Inject constructor(
                     }
                     LibrarySelectionAction.ADD_TO_QUEUE -> ids.forEach(queueRepository::addToQueue)
                     LibrarySelectionAction.DOWNLOAD -> ids.forEach(downloads::pinOffline)
-                    LibrarySelectionAction.LIKE -> ids.forEach { musicLibrary.setFavorite(it, true) }
-                    LibrarySelectionAction.UNLIKE -> ids.forEach { musicLibrary.setFavorite(it, false) }
+                    LibrarySelectionAction.LIKE -> {
+                        // Read current canonical favorites to avoid stale selection snapshots.
+                        val like = selectionShouldLike(ids.map { musicLibrary.trackById(it)?.favorite == true })
+                        ids.distinct().forEach { musicLibrary.setFavorite(it, like) }
+                        _selectedTracks.update { selected ->
+                            selected.mapValues { (id, track) ->
+                                if (id in ids) track.copy(favorite = like) else track
+                            }
+                        }
+                    }
                     LibrarySelectionAction.PLAY_SELECTED ->
                         queueRepository.replaceAndPlay(ids, PlaybackMode.ORDERED)
                     LibrarySelectionAction.SHUFFLE ->
                         queueRepository.replaceAndPlay(ids, PlaybackMode.PURE_SHUFFLE)
                     LibrarySelectionAction.SHARE -> return@launch // Handled via Android Sharesheet.
                 }
-                cancelSelection()
+                if (action != LibrarySelectionAction.LIKE) cancelSelection()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {

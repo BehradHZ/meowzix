@@ -9,6 +9,7 @@ import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
+import dev.behradhz.meowzix.domain.settings.selectionShouldLike
 import dev.behradhz.meowzix.domain.library.RemoveTrackFromLocations
 import dev.behradhz.meowzix.domain.library.QueueTrackStatus
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
@@ -127,9 +128,10 @@ class QueueViewModel @Inject constructor(
                         trackIds.forEach(queueRepository::addToQueue)
                     LibrarySelectionAction.DOWNLOAD ->
                         trackIds.distinct().forEach(downloads::pinOffline)
-                    LibrarySelectionAction.LIKE, LibrarySelectionAction.UNLIKE -> {
-                        val favorite = action == LibrarySelectionAction.LIKE
-                        trackIds.distinct().forEach { libraryRepository.setFavorite(it, favorite) }
+                    LibrarySelectionAction.LIKE -> {
+                        val uniqueIds = trackIds.distinct()
+                        val like = selectionShouldLike(uniqueIds.map { libraryRepository.trackById(it)?.favorite == true })
+                        uniqueIds.forEach { libraryRepository.setFavorite(it, like) }
                     }
                     LibrarySelectionAction.PLAY_SELECTED ->
                         queueRepository.replaceAndPlay(trackIds, PlaybackMode.ORDERED)

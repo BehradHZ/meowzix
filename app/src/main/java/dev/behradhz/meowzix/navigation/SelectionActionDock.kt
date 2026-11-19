@@ -36,7 +36,26 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.vector.ImageVector
 import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
+import dev.behradhz.meowzix.domain.settings.selectionLabel
+
+/** Shared iconography between the live selection controls and the Settings preview. */
+internal fun selectionActionIcon(
+    action: LibrarySelectionAction,
+    allSelectedLiked: Boolean = false,
+): ImageVector = when (action) {
+    LibrarySelectionAction.DELETE -> Icons.Rounded.DeleteOutline
+    LibrarySelectionAction.PLAY_NEXT -> Icons.Rounded.PlaylistPlay
+    LibrarySelectionAction.ADD_TO_PLAYLIST -> Icons.Rounded.PlaylistAdd
+    LibrarySelectionAction.SHARE -> Icons.Rounded.Send
+    LibrarySelectionAction.ADD_TO_QUEUE -> Icons.Rounded.QueueMusic
+    LibrarySelectionAction.DOWNLOAD -> Icons.Rounded.Download
+    LibrarySelectionAction.LIKE ->
+        if (allSelectedLiked) Icons.Rounded.FavoriteBorder else Icons.Rounded.Favorite
+    LibrarySelectionAction.PLAY_SELECTED -> Icons.Rounded.PlayArrow
+    LibrarySelectionAction.SHUFFLE -> Icons.Rounded.Shuffle
+}
 
 /** Only contextual content, never a second glass dock: Search keeps its shared morph. */
 @Composable
@@ -44,6 +63,7 @@ internal fun SelectionDockActions(
     actions: List<LibrarySelectionAction>,
     onAction: (LibrarySelectionAction) -> Unit,
     enabled: Boolean = true,
+    allSelectedLiked: Boolean = false,
 ) {
     if (actions.size != 4) return
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
@@ -61,18 +81,7 @@ internal fun SelectionDockActions(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Icon(
-                        imageVector = when (action) {
-                            LibrarySelectionAction.DELETE -> Icons.Rounded.DeleteOutline
-                            LibrarySelectionAction.PLAY_NEXT -> Icons.Rounded.PlaylistPlay
-                            LibrarySelectionAction.ADD_TO_PLAYLIST -> Icons.Rounded.PlaylistAdd
-                            LibrarySelectionAction.SHARE -> Icons.Rounded.Send
-                            LibrarySelectionAction.ADD_TO_QUEUE -> Icons.Rounded.QueueMusic
-                            LibrarySelectionAction.DOWNLOAD -> Icons.Rounded.Download
-                            LibrarySelectionAction.LIKE -> Icons.Rounded.Favorite
-                            LibrarySelectionAction.UNLIKE -> Icons.Rounded.FavoriteBorder
-                            LibrarySelectionAction.PLAY_SELECTED -> Icons.Rounded.PlayArrow
-                            LibrarySelectionAction.SHUFFLE -> Icons.Rounded.Shuffle
-                        },
+                        imageVector = selectionActionIcon(action, allSelectedLiked),
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(22.dp),
@@ -81,7 +90,7 @@ internal fun SelectionDockActions(
                     Text(
                         text = when (action) {
                             LibrarySelectionAction.ADD_TO_PLAYLIST -> "Add to\nplaylist"
-                            else -> action.label
+                            else -> action.selectionLabel(allSelectedLiked)
                         },
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 10.sp,

@@ -185,6 +185,7 @@ fun MeowzixApp(
     var openProxyRequest by remember { mutableIntStateOf(0) }
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val librarySelectionActive by libraryTracksViewModel.selectionActive.collectAsStateWithLifecycle()
+    val librarySelectedTracks by libraryTracksViewModel.selectedTracks.collectAsStateWithLifecycle()
     val libraryDisplaySettings by libraryTracksViewModel.displaySettings.collectAsStateWithLifecycle()
     val queueSelectionController = remember { ContextualSelectionController() }
     val playlistSelectionController = remember { ContextualSelectionController() }
@@ -231,6 +232,13 @@ fun MeowzixApp(
     val contextualSelectionVisible = librarySelectionVisible ||
         (currentRoute == QUEUE_ROUTE && queueSelectionController.active) ||
         (currentRoute == PLAYLISTS_ROUTE && playlistSelectionController.active)
+    val selectionAllLiked = when (currentRoute) {
+        LIBRARY_ROUTE -> librarySelectedTracks.isNotEmpty() &&
+            librarySelectedTracks.values.all { it.favorite }
+        QUEUE_ROUTE -> queueSelectionController.allSelectedLiked
+        PLAYLISTS_ROUTE -> playlistSelectionController.allSelectedLiked
+        else -> false
+    }
     val searchScope = when (searchContextRoute) {
         LIBRARY_ROUTE -> DockSearchScope.LIBRARY
         PLAYLISTS_ROUTE -> DockSearchScope.PLAYLIST
@@ -620,6 +628,7 @@ fun MeowzixApp(
                 selectedRoute = if (searchActive) SEARCH_ROUTE else selectedDockRoute,
                 selectionActions = if (contextualSelectionVisible)
                     libraryDisplaySettings.selection.normalized().dock else emptyList(),
+                selectionAllLiked = selectionAllLiked,
                 onSelectionAction = { action ->
                     when (currentRoute) {
                         LIBRARY_ROUTE -> libraryTracksViewModel.requestSelectionAction(action)
@@ -737,6 +746,7 @@ internal fun MorphingDock(
     reduceMotion: Boolean = false,
     selectionActions: List<LibrarySelectionAction> = emptyList(),
     onSelectionAction: (LibrarySelectionAction) -> Unit = {},
+    selectionAllLiked: Boolean = false,
 ) {
     // Retain the very same glass surfaces while swapping dock content. Search must
     // keep its reversible morph even when Library selection is active.
@@ -818,6 +828,7 @@ internal fun MorphingDock(
                                 SelectionDockActions(
                                     actions = activeSelectionActions,
                                     onAction = onSelectionAction,
+                                    allSelectedLiked = selectionAllLiked,
                                     enabled = selectionActions.size == 4 && !searchActive,
                                 )
                             } else {

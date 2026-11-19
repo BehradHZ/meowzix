@@ -39,6 +39,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
+import dev.behradhz.meowzix.domain.settings.selectionLabel
+import dev.behradhz.meowzix.navigation.selectionActionIcon
 import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 
 /** Anchored frosted popup with the same single-surface treatment as Track Actions. */
@@ -49,6 +51,7 @@ internal fun LibrarySelectionMoreMenu(
     onSelectAll: (() -> Unit)? = null,
     onAddToLibrary: (() -> Unit)? = null,
     onRemoveFromLibrary: (() -> Unit)? = null,
+    allSelectedLiked: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(18.dp)
@@ -103,21 +106,10 @@ internal fun LibrarySelectionMoreMenu(
                     )
                     actions.forEach { action ->
                         DropdownMenuItem(
-                            text = { Text(action.label) },
+                            text = { Text(action.selectionLabel(allSelectedLiked)) },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = when (action) {
-                                        LibrarySelectionAction.DELETE -> Icons.Rounded.DeleteOutline
-                                        LibrarySelectionAction.PLAY_NEXT -> Icons.Rounded.PlaylistPlay
-                                        LibrarySelectionAction.ADD_TO_PLAYLIST -> Icons.Rounded.PlaylistAdd
-                                        LibrarySelectionAction.SHARE -> Icons.Rounded.Send
-                                        LibrarySelectionAction.ADD_TO_QUEUE -> Icons.Rounded.QueueMusic
-                                        LibrarySelectionAction.DOWNLOAD -> Icons.Rounded.Download
-                                        LibrarySelectionAction.LIKE -> Icons.Rounded.Favorite
-                                        LibrarySelectionAction.UNLIKE -> Icons.Rounded.FavoriteBorder
-                                        LibrarySelectionAction.PLAY_SELECTED -> Icons.Rounded.PlayArrow
-                                        LibrarySelectionAction.SHUFFLE -> Icons.Rounded.Shuffle
-                                    },
+                                    imageVector = selectionActionIcon(action, allSelectedLiked),
                                     contentDescription = null,
                                 )
                             },

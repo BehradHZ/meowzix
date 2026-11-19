@@ -382,38 +382,20 @@ fun UnifiedSettingsScreen(
                     }
                 }
             }
-            if (page == SettingsCategory.LIBRARY) {
+            // Library selection belongs at the end of Appearance, not in a separate category.
+            if (page == SettingsCategory.APPEARANCE) {
                 item(key = "library-selection") {
                     SettingsGlassSection(
-                        hazeState, "Selection dock", "Four pinned actions, left to right",
-                        Icons.Rounded.LibraryMusic, showHeading = false,
+                        hazeState, "Library selection", "Configure the selection dock and More menu",
+                        Icons.Rounded.LibraryMusic,
                     ) {
-                        val selection = state.libraryDisplay.selection.normalized()
-                        selection.dock.forEachIndexed { slot, current ->
-                            SettingsChoiceRow(
-                                "Dock position ${slot + 1}", null, Icons.Rounded.LibraryMusic,
-                                current.label,
-                                LibrarySelectionAction.entries.map { it.label },
-                            ) { chosen ->
-                                viewModel.setLibrarySelectionDockSlot(
-                                    slot, LibrarySelectionAction.entries.first { it.label == chosen },
-                                )
-                            }
-                            SettingsRowDivider()
-                        }
-                        Text(
-                            "More menu actions",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        SettingsSelectionConfigurator(
+                            settings = state.libraryDisplay.selection,
+                            reduceMotion = state.appearance.reduceMotion,
+                            onDockSlot = viewModel::setLibrarySelectionDockSlot,
+                            onMoreEnabled = viewModel::setLibrarySelectionMore,
+                            onMoreMove = viewModel::moveLibrarySelectionMore,
                         )
-                        LibrarySelectionAction.entries.filterNot { it in selection.dock }.forEach { action ->
-                            SettingsToggleRow(
-                                action.label, "Show in the selection header's More menu",
-                                Icons.Rounded.LibraryMusic,
-                                action in selection.more,
-                                { enabled -> viewModel.setLibrarySelectionMore(action, enabled) },
-                            )
-                        }
                     }
                 }
             }

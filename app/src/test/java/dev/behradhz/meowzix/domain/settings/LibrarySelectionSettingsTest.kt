@@ -52,6 +52,36 @@ class LibrarySelectionSettingsTest {
         assertEquals(4, restored.dock.size)
     }
 
+    @Test fun legacyUnlikePreferencesMigrateToOneFavoriteAction() {
+        assertEquals(LibrarySelectionAction.LIKE, librarySelectionActionFromName("UNLIKE"))
+        assertEquals("Like", LibrarySelectionAction.LIKE.selectionLabel(false))
+        assertEquals("Unlike", LibrarySelectionAction.LIKE.selectionLabel(true))
+        assertFalse(LibrarySelectionAction.entries.any { it.name == "UNLIKE" })
+    }
+
+    @Test fun favoriteActionLikesMixedSelectionsAndUnlikesOnlyIfAllAreLiked() {
+        assertTrue(selectionShouldLike(listOf(false, false)))
+        assertTrue(selectionShouldLike(listOf(true, false, true)))
+        assertFalse(selectionShouldLike(listOf(true, true)))
+        assertFalse(selectionShouldLike(emptyList()))
+    }
+
+    @Test fun disabledMoreActionKeepsItsDragPosition() {
+        val moved = LibrarySelectionSettings().moveMoreAction(LibrarySelectionAction.LIKE, 0)
+        val disabled = moved.setMoreEnabled(LibrarySelectionAction.LIKE, false)
+        assertEquals(LibrarySelectionAction.LIKE, disabled.moreOrder.first())
+        val restored = disabled.setMoreEnabled(LibrarySelectionAction.LIKE, true)
+        assertEquals(LibrarySelectionAction.LIKE, restored.more.first())
+        assertEquals(DEFAULT_SELECTION_DOCK, restored.dock)
+    }
+
+    @Test fun displacedPinnedActionKeepsAUniquePositionInMoreOrder() {
+        val changed = LibrarySelectionSettings().setDockSlot(0, LibrarySelectionAction.DOWNLOAD)
+        assertEquals(LibrarySelectionAction.DELETE, changed.moreOrder[1])
+        assertEquals(changed.moreOrder.size, changed.moreOrder.distinct().size)
+        assertFalse(LibrarySelectionAction.DOWNLOAD in changed.moreOrder)
+    }
+
     @Test fun stalePreferencesCannotCreateDuplicatedOrUndersizedDock() {
         val corrupt = LibrarySelectionSettings(
             dock = listOf(LibrarySelectionAction.SHARE, LibrarySelectionAction.SHARE),

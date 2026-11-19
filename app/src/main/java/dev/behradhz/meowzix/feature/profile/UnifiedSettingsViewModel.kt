@@ -247,6 +247,10 @@ class UnifiedSettingsViewModel @Inject constructor(
         val current = settings.libraryDisplaySettings.first().selection
         settings.setLibrarySelectionSettings(current.setMoreEnabled(action, enabled))
     }
+    fun moveLibrarySelectionMore(action: LibrarySelectionAction, targetIndex: Int) = launch {
+        val current = settings.libraryDisplaySettings.first().selection
+        settings.setLibrarySelectionSettings(current.moveMoreAction(action, targetIndex))
+    }
     fun setExploration(value: Int) = launch { settings.setExplorationPercent(value) }
     fun setAudioAnalysis(value: Boolean) = launch { settings.setAudioAnalysisEnabled(value) }
     fun setDiagnostics(value: Boolean) = launch { settings.setDiagnosticsVisible(value) }

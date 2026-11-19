@@ -395,13 +395,15 @@ internal fun QueueScreen(
             }
             else -> {
                 onBulkAction(action, selectedItems)
-                cancelSelection()
+                if (action != LibrarySelectionAction.LIKE) cancelSelection()
             }
         }
     }
     SideEffect {
         selectionController?.active = isActive && selectionMode
         selectionController?.onAction = ::handleSelectionAction
+        selectionController?.allSelectedLiked = selectedItems.isNotEmpty() &&
+            selectedItems.all { aux.statuses[it.id]?.favorite == true }
     }
     DisposableEffect(selectionController) {
         onDispose { selectionController?.active = false }
@@ -1221,7 +1223,11 @@ internal fun QueueScreen(
                             selectedOccurrences - ids else selectedOccurrences + ids
                         if (selectedOccurrences.isEmpty()) selectionMode = false
                     })
-                    LibrarySelectionMoreMenu(selectionMoreActions, ::handleSelectionAction)
+                    LibrarySelectionMoreMenu(
+                        selectionMoreActions, ::handleSelectionAction,
+                        allSelectedLiked = selectedItems.isNotEmpty() &&
+                            selectedItems.all { aux.statuses[it.id]?.favorite == true },
+                    )
                 } else {
                     if (filteredItems.isNotEmpty()) {
                         MeowzixHeaderAction("Select tracks", Icons.Rounded.Checklist, { selectionMode = true })

@@ -8,5 +8,6 @@ import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 /** Route-local state for the shared morphing dock. The active screen owns its selection. */
 class ContextualSelectionController {
     var active by mutableStateOf(false)
+    var allSelectedLiked by mutableStateOf(false)
     var onAction: (LibrarySelectionAction) -> Unit = {}
 }

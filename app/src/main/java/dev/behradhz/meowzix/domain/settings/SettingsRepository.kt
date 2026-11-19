@@ -48,11 +48,25 @@ enum class LibrarySelectionAction(val label: String) {
     SHARE("Forward"),
     ADD_TO_QUEUE("Add to queue"),
     DOWNLOAD("Download"),
-    LIKE("Like"),
-    UNLIKE("Unlike"),
+    LIKE("Like / Unlike"),
     PLAY_SELECTED("Play selected"),
     SHUFFLE("Shuffle selected"),
 }
+
+/** One favorite action whose label follows the selected tracks. */
+fun LibrarySelectionAction.selectionLabel(allSelectedLiked: Boolean): String =
+    if (this == LibrarySelectionAction.LIKE) {
+        if (allSelectedLiked) "Unlike" else "Like"
+    } else label
+
+/** A mixed selection is always liked first; only an all-liked selection is unliked. */
+fun selectionShouldLike(favoriteStates: Collection<Boolean>): Boolean =
+    favoriteStates.any { !it }
+
+/** Old preferences used the separate UNLIKE action. */
+fun librarySelectionActionFromName(name: String): LibrarySelectionAction? =
+    if (name == "UNLIKE") LibrarySelectionAction.LIKE
+    else LibrarySelectionAction.entries.firstOrNull { it.name == name }
 
 val DEFAULT_SELECTION_DOCK = listOf(
     LibrarySelectionAction.DELETE,
@@ -63,13 +77,21 @@ val DEFAULT_SELECTION_DOCK = listOf(
 
 data class LibrarySelectionSettings(
     val dock: List<LibrarySelectionAction> = DEFAULT_SELECTION_DOCK,
-    val more: List<LibrarySelectionAction> = LibrarySelectionAction.entries.filterNot { it in DEFAULT_SELECTION_DOCK },
+    /** Enabled More actions, stored in menu order. */
+    val more: List<LibrarySelectionAction> =
+        LibrarySelectionAction.entries.filterNot { it in DEFAULT_SELECTION_DOCK },
+    /** Every unpinned action including disabled entries, preserving drag order. */
+    val moreOrder: List<LibrarySelectionAction> =
+        LibrarySelectionAction.entries.filterNot { it in DEFAULT_SELECTION_DOCK },
 ) {
-    /** Defensive normalization for old/corrupt preferences: the dock must always have four unique actions. */
     fun normalized(): LibrarySelectionSettings {
         val pinned = dock.distinct().take(4).toMutableList()
-        LibrarySelectionAction.entries.forEach { if (pinned.size < 4 && it !in pinned) pinned.add(it) }
-        return copy(dock = pinned, more = more.distinct().filterNot { it in pinned })
+        LibrarySelectionAction.entries.forEach { action ->
+            if (pinned.size < 4 && action !in pinned) pinned.add(action)
+        }
+        val order = (moreOrder + more + LibrarySelectionAction.entries)
+            .distinct().filterNot { it in pinned }
+        return copy(dock = pinned, more = order.filter { it in more }, moreOrder = order)
     }
 
     fun setDockSlot(slot: Int, action: LibrarySelectionAction): LibrarySelectionSettings {
@@ -78,17 +100,33 @@ data class LibrarySelectionSettings(
         val next = current.dock.toMutableList()
         val existing = next.indexOf(action)
         val displaced = next[slot]
+        if (displaced == action) return current
         next[slot] = action
-        if (existing >= 0 && existing != slot) next[existing] = displaced
+        if (existing >= 0) next[existing] = displaced
         val nextMore = if (existing >= 0) current.more else
             (current.more.filterNot { it == action } + displaced).distinct()
-        return LibrarySelectionSettings(next, nextMore).normalized()
+        val nextOrder = current.moreOrder.toMutableList()
+        if (existing < 0) {
+            val index = nextOrder.indexOf(action)
+            if (index >= 0) nextOrder[index] = displaced else nextOrder.add(displaced)
+        }
+        return LibrarySelectionSettings(next, nextMore, nextOrder).normalized()
     }
 
     fun setMoreEnabled(action: LibrarySelectionAction, enabled: Boolean): LibrarySelectionSettings {
         val current = normalized()
         if (action in current.dock) return current
-        return current.copy(more = if (enabled) (current.more + action).distinct() else current.more - action)
+        return current.copy(more = if (enabled) current.more + action else current.more - action).normalized()
+    }
+
+    fun moveMoreAction(action: LibrarySelectionAction, targetIndex: Int): LibrarySelectionSettings {
+        val current = normalized()
+        val from = current.moreOrder.indexOf(action)
+        if (from < 0 || targetIndex !in current.moreOrder.indices) return current
+        val next = current.moreOrder.toMutableList()
+        next.removeAt(from)
+        next.add(targetIndex, action)
+        return current.copy(moreOrder = next).normalized()
     }
 }
 

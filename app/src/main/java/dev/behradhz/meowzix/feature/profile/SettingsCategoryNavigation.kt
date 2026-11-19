@@ -39,7 +39,6 @@ import dev.chrisbanes.haze.HazeState
 /** Telegram and Downloads are direct destinations; other categories stay inline. */
 internal enum class SettingsCategory(val title: String, val icon: ImageVector, val subtitle: String? = null) {
     APPEARANCE("Appearance", Icons.Rounded.Palette),
-    LIBRARY("Library selection", Icons.Rounded.LibraryMusic, "Selection dock and More actions"),
     PLAYBACK("Playback", Icons.Rounded.PlayCircle),
     SOUND("Sound", Icons.Rounded.GraphicEq),
     DISCOVERY("Discovery", Icons.Rounded.AutoAwesome),

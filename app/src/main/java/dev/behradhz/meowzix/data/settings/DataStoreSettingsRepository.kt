@@ -22,6 +22,7 @@ import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
 import dev.behradhz.meowzix.domain.settings.LibrarySortMode
 import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.domain.settings.LibrarySelectionSettings
+import dev.behradhz.meowzix.domain.settings.librarySelectionActionFromName
 import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
@@ -91,11 +92,14 @@ class DataStoreSettingsRepository @Inject constructor(
             highlightNewTelegramTracks = values[HIGHLIGHT_NEW_TELEGRAM_TRACKS] ?: true,
             selection = LibrarySelectionSettings(
                 dock = values[LIBRARY_SELECTION_DOCK]?.split(",")?.mapNotNull { name ->
-                    LibrarySelectionAction.entries.firstOrNull { it.name == name }
+                    librarySelectionActionFromName(name)
                 } ?: LibrarySelectionSettings().dock,
                 more = values[LIBRARY_SELECTION_MORE]?.split(",")?.mapNotNull { name ->
-                    LibrarySelectionAction.entries.firstOrNull { it.name == name }
+                    librarySelectionActionFromName(name)
                 } ?: LibrarySelectionSettings().more,
+                moreOrder = values[LIBRARY_SELECTION_MORE_ORDER]?.split(",")?.mapNotNull(::librarySelectionActionFromName)
+                    ?: (values[LIBRARY_SELECTION_MORE]?.split(",")?.mapNotNull(::librarySelectionActionFromName)
+                        ?: LibrarySelectionSettings().more),
             ).normalized(),
         )
     }
@@ -233,6 +237,7 @@ class DataStoreSettingsRepository @Inject constructor(
         context.settingsDataStore.edit { prefs ->
             prefs[LIBRARY_SELECTION_DOCK] = safe.dock.joinToString(",") { it.name }
             prefs[LIBRARY_SELECTION_MORE] = safe.more.joinToString(",") { it.name }
+            prefs[LIBRARY_SELECTION_MORE_ORDER] = safe.moreOrder.joinToString(",") { it.name }
         }
     }
 
@@ -290,6 +295,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val HIGHLIGHT_NEW_TELEGRAM_TRACKS = booleanPreferencesKey("highlight_new_telegram_tracks")
         val LIBRARY_SELECTION_DOCK = stringPreferencesKey("library_selection_dock")
         val LIBRARY_SELECTION_MORE = stringPreferencesKey("library_selection_more")
+        val LIBRARY_SELECTION_MORE_ORDER = stringPreferencesKey("library_selection_more_order")
         val COLLAPSED_TELEGRAM_PLAYLIST_SECTIONS =
             stringSetPreferencesKey("collapsed_telegram_playlist_sections")
         val THEME = stringPreferencesKey("theme_preference")

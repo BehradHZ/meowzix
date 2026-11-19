@@ -78,6 +78,24 @@ class QueueSelectionTest {
         compose.runOnIdle { assertFalse(controller.active) }
     }
 
+    @Test fun favoriteActionKeepsSelectedOccurrencesUntilExplicitCancel() {
+        var favoritesTriggered = 0
+        showQueue { action, rows ->
+            assertEquals(LibrarySelectionAction.LIKE, action)
+            assertEquals(2, rows.size)
+            favoritesTriggered++
+        }
+        compose.onNodeWithTag("queue-item-${occurrences[0]}").performTouchInput { longClick() }
+        compose.onNodeWithTag("queue-item-${occurrences[1]}").performClick()
+        compose.onNodeWithText("Selected 2").assertIsDisplayed()
+        compose.runOnIdle { controller.onAction(LibrarySelectionAction.LIKE) }
+        compose.onNodeWithText("Selected 2").assertIsDisplayed()
+        compose.runOnIdle {
+            assertTrue(controller.active)
+            assertEquals(1, favoritesTriggered)
+        }
+    }
+
     @Test fun selectAllTogglesVisibleOccurrencesAndRestoresHeader() {
         showQueue()
         compose.onNodeWithContentDescription("Select tracks").performClick()

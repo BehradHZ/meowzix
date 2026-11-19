@@ -298,6 +298,7 @@ internal fun LibraryRouteV4(
                 onBulkAddToPlaylist = viewModel::addTracksToPlaylist,
                 onBulkAddToQueue = viewModel::addTracksToQueue,
                 onBulkLike = viewModel::likeTracks,
+                onBulkUnlike = viewModel::unlikeTracks,
                 onBulkRemove = viewModel::removePlaylistTracks,
                 telegramPerson = state.selectedPlaylistIsPerson,
                 profileTrackIds = state.selectedPlaylistProfileTrackIds,
@@ -509,6 +510,8 @@ internal fun LibraryRouteV4(
                 if (selectionHeader) LibrarySelectionMoreMenu(
                     actions = displaySettings.selection.normalized().more,
                     onAction = tracksViewModel::requestSelectionAction,
+                    allSelectedLiked = selectedTracks.isNotEmpty() &&
+                        selectedTracks.values.all(Track::favorite),
                 )
             }
         }
@@ -804,7 +807,11 @@ private fun LibraryDetailV4(
                 },
             ) {
                 if (selectionHeader) {
-                    LibrarySelectionMoreMenu(moreActions, onSelectionAction, onSelectAll = onSelectAll)
+                    LibrarySelectionMoreMenu(
+                        moreActions, onSelectionAction, onSelectAll = onSelectAll,
+                        allSelectedLiked = selectedTracks.isNotEmpty() &&
+                            selectedTracks.values.all(Track::favorite),
+                    )
                 } else if (tracks.isNotEmpty()) {
                     MeowzixHeaderAction("Select all", Icons.Rounded.SelectAll, onSelectAll)
                     MeowzixHeaderAction("Play", Icons.Rounded.PlayArrow, {
