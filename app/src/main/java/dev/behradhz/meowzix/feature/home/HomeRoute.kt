@@ -367,6 +367,7 @@ private fun HomeTelegramConnectBanner(
     onDismiss: () -> Unit,
 ) {
     val shape = RoundedCornerShape(22.dp)
+    val telegramAccent = Color(0xFF2AABEE)
     GlassSurface(
         hazeState = hazeState,
         modifier = modifier
@@ -377,7 +378,7 @@ private fun HomeTelegramConnectBanner(
             .testTag("home-telegram-reminder"),
         shape = shape,
         fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.83f),
-        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        tint = telegramAccent.copy(alpha = 0.12f),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
@@ -387,8 +388,8 @@ private fun HomeTelegramConnectBanner(
             Surface(
                 modifier = Modifier.size(42.dp),
                 shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                contentColor = MaterialTheme.colorScheme.primary,
+                color = telegramAccent.copy(alpha = 0.14f),
+                contentColor = telegramAccent,
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
