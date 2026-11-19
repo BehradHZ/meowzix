@@ -7,6 +7,7 @@ import dev.behradhz.meowzix.data.repository.ArtworkRepairCoordinator
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.library.RemoveTrackFromLocations
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
@@ -72,6 +73,7 @@ class NowPlayingViewModel @Inject constructor(
     private val queueRepository: QueueRepository,
     private val audioVisualizerRepository: AudioVisualizerRepository,
     private val libraryRepository: MusicLibraryRepository,
+    private val trackRemoval: RemoveTrackFromLocations,
     private val telegramForwardRepository: TelegramForwardRepository,
     private val settingsRepository: SettingsRepository,
     private val artworkRepairCoordinator: ArtworkRepairCoordinator,
@@ -80,6 +82,26 @@ class NowPlayingViewModel @Inject constructor(
     queueActionFeedbackBus: QueueActionFeedbackBus,
 ) : ViewModel() {
     val queueActionFeedback = queueActionFeedbackBus.events
+    private val _trackRemovalError = MutableStateFlow<String?>(null)
+    val trackRemovalError: StateFlow<String?> = _trackRemovalError.asStateFlow()
+
+    /** Remove only user-selected locations; never delete the device original or Telegram message. */
+    fun removeTrackFromLocations(trackId: UUID, offline: Boolean, fromLibrary: Boolean) {
+        if (!offline && !fromLibrary) return
+        viewModelScope.launch {
+            try {
+                trackRemoval(trackId, offline, fromLibrary)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _trackRemovalError.value = error.message ?: "Unable to remove song"
+            }
+        }
+    }
+
+    fun dismissTrackRemovalError() {
+        _trackRemovalError.value = null
+    }
 
     private val currentTrackId = playbackController.state
         .map { playback -> playback.currentTrack?.id }
