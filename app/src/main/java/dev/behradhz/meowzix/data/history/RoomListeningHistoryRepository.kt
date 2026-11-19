@@ -38,11 +38,15 @@ class RoomListeningHistoryRepository @Inject constructor(
 ) : ListeningHistoryRepository {
     private val mutex = Mutex()
     private val active = mutableMapOf<UUID, ActivePlayback>()
-    private val unrecordedPlayback = mutableMapOf<UUID, UUID>() // In-memory only.
     private var currentSession: Session? = null
     private var lastFinalized: ActivePlayback? = null
     private var lastCompletion: Pair<UUID, Instant>? = null
     private var lastDirectionalSeek: RecentSeek? = null
+
+    // Both controls must allow profiling; basic library playback remains unaffected.
+    private suspend fun shouldRecord(): Boolean =
+        settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled &&
+            settings.networkPlaybackSettings.first().listeningHistoryEnabled
 
     override fun observeEvents(): Flow<List<ListeningEvent>> = dao.observeEvents().map { rows ->
         rows.map { row ->
@@ -93,10 +97,7 @@ class RoomListeningHistoryRepository @Inject constructor(
         if (initiatedBy == PlaybackInitiator.USER) {
             database.telegramDao().markTrackSeen(trackId.toString())
         }
-        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) {
-            unrecordedPlayback[playbackId] = trackId
-            return@withLock playbackId
-        }
+        if (!shouldRecord()) return@withLock playbackId
         // Restored Media3 state can outlive its canonical library row (for example after a source
         // was removed while the app was closed). History has a foreign key to Track, so recording
         // such a stale queue item must be a no-op rather than a process-fatal constraint error.
@@ -125,16 +126,12 @@ class RoomListeningHistoryRepository @Inject constructor(
         durationMs: Long,
         intentionalSkip: Boolean,
     ) = mutex.withLock {
-        val type = ListeningEventSemantics.outcome(positionMs, durationMs, intentionalSkip)
-        val unrecordedTrack = unrecordedPlayback.remove(playbackInstanceId)
-        if (unrecordedTrack != null) {
-            return@withLock
-        }
         val context = active[playbackInstanceId] ?: return@withLock
-        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) {
+        if (!shouldRecord()) {
             active.remove(playbackInstanceId)
             return@withLock
         }
+        val type = ListeningEventSemantics.outcome(positionMs, durationMs, intentionalSkip)
         database.withTransaction {
             insert(context, type, Instant.now(), positionMs, durationMs)
         }
@@ -145,7 +142,7 @@ class RoomListeningHistoryRepository @Inject constructor(
     }
 
     override suspend fun recordSeek(playbackInstanceId: UUID, positionMs: Long, durationMs: Long) = mutex.withLock {
-        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        if (!shouldRecord()) return@withLock
         val context = active[playbackInstanceId] ?: return@withLock
         database.withTransaction { insert(context, ListeningEventType.SEEKED, Instant.now(), positionMs, durationMs) }
     }
@@ -159,7 +156,7 @@ class RoomListeningHistoryRepository @Inject constructor(
         val delta = toPositionMs - fromPositionMs
         if (delta in -999L..999L) return@withLock
         val context = active[playbackInstanceId] ?: return@withLock
-        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        if (!shouldRecord()) return@withLock
         val now = System.currentTimeMillis()
         val forward = delta > 0L
         val previous = lastDirectionalSeek
@@ -179,12 +176,12 @@ class RoomListeningHistoryRepository @Inject constructor(
 
     private suspend fun recordPlaybackState(playbackInstanceId: UUID, type: ListeningEventType) = mutex.withLock {
         val context = active[playbackInstanceId] ?: return@withLock
-        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        if (!shouldRecord()) return@withLock
         database.withTransaction { insert(context, type, Instant.now(), null, null) }
     }
 
     override suspend fun recordQueueRequest(trackId: UUID, mode: PlaybackMode, playNext: Boolean) = mutex.withLock {
-        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        if (!shouldRecord()) return@withLock
         recordStandalone(
             trackId,
             if (playNext) ListeningEventType.PLAY_NEXT_REQUESTED else ListeningEventType.QUEUE_ADD_REQUESTED,
@@ -193,7 +190,7 @@ class RoomListeningHistoryRepository @Inject constructor(
     }
 
     override suspend fun recordFavorite(trackId: UUID, favorite: Boolean) = mutex.withLock {
-        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        if (!shouldRecord()) return@withLock
         val type = if (favorite) ListeningEventType.FAVORITED else ListeningEventType.UNFAVORITED
         val running = active.values.lastOrNull { it.trackId == trackId }
         if (running != null) database.withTransaction { insert(running, type, Instant.now(), null, null) }
@@ -201,12 +198,12 @@ class RoomListeningHistoryRepository @Inject constructor(
     }
 
     override suspend fun recordQueueRemoval(trackId: UUID, mode: PlaybackMode) = mutex.withLock {
-        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        if (!shouldRecord()) return@withLock
         recordStandalone(trackId, ListeningEventType.QUEUE_REMOVED, mode)
     }
 
     override suspend fun recordQueueOverride(playbackInstanceId: UUID) = mutex.withLock {
-        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        if (!shouldRecord()) return@withLock
         val context = active[playbackInstanceId] ?: lastFinalized?.takeIf { it.id == playbackInstanceId } ?: return@withLock
         database.withTransaction { insert(context, ListeningEventType.QUEUE_OVERRIDDEN, Instant.now(), null, null) }
     }
@@ -231,7 +228,6 @@ class RoomListeningHistoryRepository @Inject constructor(
 
     override suspend fun clear() = mutex.withLock {
         active.clear()
-        unrecordedPlayback.clear()
         currentSession = null
         lastCompletion = null
         lastFinalized = null
@@ -247,7 +243,6 @@ class RoomListeningHistoryRepository @Inject constructor(
 
     override suspend fun resetPersonalization() = mutex.withLock {
         active.clear()
-        unrecordedPlayback.clear()
         // The trainer clears aggregates and the model under the same lock used by rebuilds.
         lastCompletion = null
         lastFinalized = null
