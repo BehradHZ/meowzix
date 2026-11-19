@@ -7,7 +7,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -24,8 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.weight
 import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
@@ -42,6 +40,8 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -395,97 +396,54 @@ private fun FirstLaunchSourcePicker(
             .padding(horizontal = 18.dp)
             .padding(top = 100.dp, bottom = dockAwareBottomPadding(198.dp))
             .testTag("first-launch-source-choice"),
-        contentAlignment = Alignment.Center,
     ) {
-        val compactLayout = maxWidth < 300.dp
-        val telegramIcon: @Composable () -> Unit = {
-            Icon(
-                painter = painterResource(R.drawable.ic_telegram_plane),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(27.dp),
-            )
-        }
-        val libraryIcon: @Composable () -> Unit = {
-            Icon(
-                Icons.Rounded.LibraryMusic,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(27.dp),
-            )
-        }
+        val compactHeight = maxHeight < 500.dp
+        val iconSize = if (compactHeight) 56.dp else 72.dp
+        val telegramAccent = Color(0xFF24A8E0)
+        val libraryAccent = Color(0xFFC47C5C)
+
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = maxHeight)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(
-                text = "Your music, your way",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            FirstLaunchSourceCard(
+                hazeState = hazeState,
+                title = "Telegram",
+                description = "Access music from Saved Messages and your selected chats.",
+                buttonLabel = "Connect Telegram",
+                testTagPrefix = "first-launch-telegram",
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                accent = telegramAccent,
+                iconSize = iconSize,
+                icon = {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_telegram_plane),
+                        contentDescription = null,
+                        tint = telegramAccent,
+                        modifier = Modifier.size(if (compactHeight) 28.dp else 34.dp),
+                    )
+                },
+                onClick = onConnectTelegram,
             )
-            Text(
-                text = "Choose where to begin.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.padding(top = 4.dp, bottom = 24.dp),
+            FirstLaunchSourceCard(
+                hazeState = hazeState,
+                title = "Library",
+                description = "Play audio files stored on your device. No Telegram connection needed.",
+                buttonLabel = "Open Library",
+                testTagPrefix = "first-launch-library",
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                accent = libraryAccent,
+                iconSize = iconSize,
+                icon = {
+                    Icon(
+                        Icons.Rounded.LibraryMusic,
+                        contentDescription = null,
+                        tint = libraryAccent,
+                        modifier = Modifier.size(if (compactHeight) 28.dp else 34.dp),
+                    )
+                },
+                onClick = onOpenLibrary,
             )
-            if (compactLayout) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    FirstLaunchSourceCard(
-                        hazeState = hazeState,
-                        title = "Telegram",
-                        description = "Music from your chats",
-                        testTagPrefix = "first-launch-telegram",
-                        modifier = Modifier.fillMaxWidth(0.78f).aspectRatio(1f),
-                        icon = telegramIcon,
-                        onClick = onConnectTelegram,
-                    )
-                    FirstLaunchSourceCard(
-                        hazeState = hazeState,
-                        title = "Library",
-                        description = "Files on your device",
-                        testTagPrefix = "first-launch-library",
-                        modifier = Modifier.fillMaxWidth(0.78f).aspectRatio(1f),
-                        icon = libraryIcon,
-                        onClick = onOpenLibrary,
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    FirstLaunchSourceCard(
-                        hazeState = hazeState,
-                        title = "Telegram",
-                        description = "Music from your chats",
-                        testTagPrefix = "first-launch-telegram",
-                        modifier = Modifier.weight(1f).aspectRatio(1f),
-                        icon = telegramIcon,
-                        onClick = onConnectTelegram,
-                    )
-                    FirstLaunchSourceCard(
-                        hazeState = hazeState,
-                        title = "Library",
-                        description = "Files on your device",
-                        testTagPrefix = "first-launch-library",
-                        modifier = Modifier.weight(1f).aspectRatio(1f),
-                        icon = libraryIcon,
-                        onClick = onOpenLibrary,
-                    )
-                }
-            }
         }
     }
 }
@@ -495,51 +453,66 @@ private fun FirstLaunchSourceCard(
     hazeState: HazeState,
     title: String,
     description: String,
+    buttonLabel: String,
     testTagPrefix: String,
     modifier: Modifier,
+    accent: Color,
+    iconSize: androidx.compose.ui.unit.Dp,
     icon: @Composable () -> Unit,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(26.dp)
+    val shape = RoundedCornerShape(28.dp)
     GlassSurface(
         hazeState = hazeState,
-        modifier = modifier
-            .clip(shape)
-            .clickable(role = Role.Button, onClickLabel = "Open $title", onClick = onClick)
-            .testTag("$testTagPrefix-card"),
+        modifier = modifier.clip(shape).testTag("$testTagPrefix-card"),
         shape = shape,
-        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
-        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.09f),
+        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
+        tint = accent.copy(alpha = 0.075f),
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(10.dp),
+            modifier = Modifier.fillMaxSize().padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
         ) {
-            Surface(
-                modifier = Modifier.size(46.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                contentColor = MaterialTheme.colorScheme.primary,
+            Column(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
             ) {
-                Box(contentAlignment = Alignment.Center) { icon() }
+                Surface(
+                    modifier = Modifier.size(iconSize),
+                    shape = RoundedCornerShape(20.dp),
+                    color = accent.copy(alpha = 0.12f),
+                    contentColor = accent,
+                ) {
+                    Box(contentAlignment = Alignment.Center) { icon() }
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = accent,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
             }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                modifier = Modifier.padding(top = 9.dp),
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+            OutlinedButton(
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+                    .testTag("$testTagPrefix-button"),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.5.dp, accent.copy(alpha = 0.9f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = accent),
+            ) {
+                Text(buttonLabel, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }
