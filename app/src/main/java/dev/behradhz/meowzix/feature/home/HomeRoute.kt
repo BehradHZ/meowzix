@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -35,17 +36,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
-import androidx.compose.material3.Button
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
@@ -53,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.LookaheadScope
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
@@ -60,6 +66,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -91,6 +98,7 @@ fun HomeRoute(
     isActive: Boolean = true,
     isFirstAppLaunch: Boolean = false,
     isTelegramConnected: Boolean = false,
+    isTelegramStatusInitializing: Boolean = false,
     onConnectTelegram: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -101,6 +109,16 @@ fun HomeRoute(
         isFirstAppLaunch = isFirstAppLaunch,
         isCompleted = initialSourceChoiceCompleted,
         telegramConnected = isTelegramConnected,
+    )
+    val telegramReminderDismissed by viewModel.telegramConnectReminderDismissed
+        .collectAsStateWithLifecycle(initialValue = true)
+    var dismissedInSession by rememberSaveable { mutableStateOf(false) }
+    val showTelegramConnectReminder = shouldShowTelegramConnectReminder(
+        isReady = state.isReady,
+        isConnected = isTelegramConnected,
+        isInitializing = isTelegramStatusInitializing,
+        isDismissed = telegramReminderDismissed || dismissedInSession,
+        isFirstLaunchChoiceVisible = showInitialSourceChoice,
     )
     val sourceChoiceScope = rememberCoroutineScope()
 
@@ -163,6 +181,18 @@ fun HomeRoute(
                 ),
                 verticalArrangement = Arrangement.spacedBy(28.dp),
             ) {
+                if (showTelegramConnectReminder) {
+                    item("telegram-connect-reminder") {
+                        HomeTelegramConnectBanner(
+                            hazeState = hazeState,
+                            onConnect = onConnectTelegram,
+                            onDismiss = {
+                                dismissedInSession = true
+                                viewModel.dismissTelegramConnectReminder()
+                            },
+                        )
+                    }
+                }
                 currentTrack?.let { track ->
                     item("continue") {
                         ContinueGlassHero(
@@ -281,6 +311,76 @@ internal fun shouldShowInitialSourceChoice(
     telegramConnected: Boolean,
 ): Boolean = isReady && isFirstAppLaunch && !isCompleted && !telegramConnected
 
+/** This banner appears in the feed, underneath the sticky Home header. */
+internal fun shouldShowTelegramConnectReminder(
+    isReady: Boolean,
+    isConnected: Boolean,
+    isInitializing: Boolean,
+    isDismissed: Boolean,
+    isFirstLaunchChoiceVisible: Boolean,
+): Boolean = isReady && !isConnected && !isInitializing && !isDismissed && !isFirstLaunchChoiceVisible
+
+@Composable
+private fun HomeTelegramConnectBanner(
+    hazeState: HazeState,
+    onConnect: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val shape = RoundedCornerShape(22.dp)
+    GlassSurface(
+        hazeState = hazeState,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 78.dp)
+            .clip(shape)
+            .clickable(role = Role.Button, onClickLabel = "Connect Telegram", onClick = onConnect)
+            .testTag("home-telegram-reminder"),
+        shape = shape,
+        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.83f),
+        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.size(42.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                contentColor = MaterialTheme.colorScheme.primary,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_telegram_plane),
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Connect Telegram",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Bring music from your chats into Meowzix.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(44.dp).testTag("home-telegram-reminder-dismiss"),
+            ) {
+                Icon(Icons.Rounded.Close, contentDescription = "Dismiss Telegram reminder")
+            }
+        }
+    }
+}
+
 @Composable
 private fun FirstLaunchSourcePicker(
     hazeState: HazeState,
@@ -297,6 +397,23 @@ private fun FirstLaunchSourcePicker(
             .testTag("first-launch-source-choice"),
         contentAlignment = Alignment.Center,
     ) {
+        val compactLayout = maxWidth < 300.dp
+        val telegramIcon: @Composable () -> Unit = {
+            Icon(
+                painter = painterResource(R.drawable.ic_telegram_plane),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(27.dp),
+            )
+        }
+        val libraryIcon: @Composable () -> Unit = {
+            Icon(
+                Icons.Rounded.LibraryMusic,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(27.dp),
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -312,44 +429,63 @@ private fun FirstLaunchSourcePicker(
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
             Text(
-                text = "Choose a source to get started.",
+                text = "Choose where to begin.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+                modifier = Modifier.padding(top = 4.dp, bottom = 24.dp),
             )
-            FirstLaunchSourceCard(
-                hazeState = hazeState,
-                title = "Connect Telegram",
-                description = "Access music from Saved Messages\nand your selected Telegram chats.",
-                buttonLabel = "Connect Telegram",
-                testTagPrefix = "first-launch-telegram",
-                icon = {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_telegram_plane),
-                        contentDescription = "Telegram",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(26.dp),
+            if (compactLayout) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    FirstLaunchSourceCard(
+                        hazeState = hazeState,
+                        title = "Telegram",
+                        description = "Music from your chats",
+                        testTagPrefix = "first-launch-telegram",
+                        modifier = Modifier.fillMaxWidth(0.78f).aspectRatio(1f),
+                        icon = telegramIcon,
+                        onClick = onConnectTelegram,
                     )
-                },
-                onClick = onConnectTelegram,
-            )
-            Spacer(Modifier.height(14.dp))
-            FirstLaunchSourceCard(
-                hazeState = hazeState,
-                title = "Library",
-                description = "Play audio files stored on your device.\nNo Telegram connection is needed.",
-                buttonLabel = "Open Library",
-                testTagPrefix = "first-launch-library",
-                icon = {
-                    Icon(
-                        Icons.Rounded.LibraryMusic,
-                        contentDescription = "Library",
-                        modifier = Modifier.size(26.dp),
+                    FirstLaunchSourceCard(
+                        hazeState = hazeState,
+                        title = "Library",
+                        description = "Files on your device",
+                        testTagPrefix = "first-launch-library",
+                        modifier = Modifier.fillMaxWidth(0.78f).aspectRatio(1f),
+                        icon = libraryIcon,
+                        onClick = onOpenLibrary,
                     )
-                },
-                onClick = onOpenLibrary,
-            )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FirstLaunchSourceCard(
+                        hazeState = hazeState,
+                        title = "Telegram",
+                        description = "Music from your chats",
+                        testTagPrefix = "first-launch-telegram",
+                        modifier = Modifier.weight(1f).aspectRatio(1f),
+                        icon = telegramIcon,
+                        onClick = onConnectTelegram,
+                    )
+                    FirstLaunchSourceCard(
+                        hazeState = hazeState,
+                        title = "Library",
+                        description = "Files on your device",
+                        testTagPrefix = "first-launch-library",
+                        modifier = Modifier.weight(1f).aspectRatio(1f),
+                        icon = libraryIcon,
+                        onClick = onOpenLibrary,
+                    )
+                }
+            }
         }
     }
 }
@@ -359,26 +495,31 @@ private fun FirstLaunchSourceCard(
     hazeState: HazeState,
     title: String,
     description: String,
-    buttonLabel: String,
     testTagPrefix: String,
+    modifier: Modifier,
     icon: @Composable () -> Unit,
     onClick: () -> Unit,
 ) {
+    val shape = RoundedCornerShape(26.dp)
     GlassSurface(
         hazeState = hazeState,
-        modifier = Modifier.fillMaxWidth().testTag("$testTagPrefix-card"),
-        shape = RoundedCornerShape(28.dp),
-        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+        modifier = modifier
+            .clip(shape)
+            .clickable(role = Role.Button, onClickLabel = "Open $title", onClick = onClick)
+            .testTag("$testTagPrefix-card"),
+        shape = shape,
+        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
+        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.09f),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier.fillMaxSize().padding(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
             Surface(
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(46.dp),
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.13f),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                 contentColor = MaterialTheme.colorScheme.primary,
             ) {
                 Box(contentAlignment = Alignment.Center) { icon() }
@@ -387,7 +528,8 @@ private fun FirstLaunchSourceCard(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 8.dp),
+                maxLines = 1,
+                modifier = Modifier.padding(top = 9.dp),
             )
             Text(
                 text = description,
@@ -398,13 +540,6 @@ private fun FirstLaunchSourceCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 4.dp),
             )
-            Button(
-                onClick = onClick,
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("$testTagPrefix-button"),
-                shape = RoundedCornerShape(20.dp),
-            ) {
-                Text(buttonLabel, fontWeight = FontWeight.SemiBold)
-            }
         }
     }
 }
