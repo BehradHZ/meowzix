@@ -72,6 +72,7 @@ class HeuristicRecommendationEngine @Inject constructor(
     }
 
     override suspend fun whyThisSong(trackId: UUID): List<RecommendationReason> = withContext(Dispatchers.Default) {
+        if (!settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled) return@withContext emptyList()
         val currentState = safely { personalizationModel.state() }
         if (currentState != null) invalidateExplanationsIfChanged(currentState)
         synchronized(explanationCache) { explanationCache[trackId] }?.takeIf { Instant.now().epochSecond - it.first.epochSecond < 1_800 }?.let { return@withContext it.second }
@@ -81,8 +82,16 @@ class HeuristicRecommendationEngine @Inject constructor(
 
     private suspend fun rank(allowedTrackIds: List<UUID>?, currentTrackId: UUID?, bucketOverride: TimeBucket?, seed: Long, anchorId: UUID? = null): RankedPool {
         val now = Instant.now()
-        val feedbackEffects = safely { feedbackRepository.snapshot(now) }?.effects(now).orEmpty()
         val time = ListeningEventSemantics.timeContext(now, ZoneId.systemDefault())
+        val preferences = settings.recommendationPreferenceSettings.first()
+        if (!preferences.smartRecommendationsEnabled) {
+            synchronized(explanationCache) { explanationCache.clear() }
+            return RankedPool(
+                emptyList(), emptyList(),
+                RecommendationContext(time.localHour, time.dayOfWeek.value, time.isWeekend, time.bucket, now),
+            )
+        }
+        val feedbackEffects = safely { feedbackRepository.snapshot(now) }?.effects(now).orEmpty()
         val state = safely { personalizationModel.state() } ?: PersonalizationModelState()
         invalidateExplanationsIfChanged(state)
         val recent = historyDao.recommendationWindow(now.minusSeconds(28L * 86_400).toEpochMilli(), state.historyFloorVersion, 5_000)
@@ -95,7 +104,7 @@ class HeuristicRecommendationEngine @Inject constructor(
             recommendationDao.preferredTrackIds(96).mapNotNull { it.uuid() }).distinct()
         // IDs are cheap to enumerate; only <=800 complete candidates/features are ever hydrated/scored.
         val offlineOnly = settings.networkPlaybackSettings.first().offlineMode
-        val explorationPercent = settings.recommendationPreferenceSettings.first().explorationPercent.coerceIn(0, 50)
+        val explorationPercent = preferences.explorationPercent.coerceIn(0, 50)
         val artistAlpha = settings.playbackPreferenceSettings.first().artistShuffleAlpha.toDouble()
         val eligibleIds = recommendationDao.eligibleTrackIds(offlineOnly).mapNotNull { it.uuid() }
         val eligible = eligibleIds.toHashSet()
@@ -136,6 +145,23 @@ class HeuristicRecommendationEngine @Inject constructor(
             val vector = try { AudioFeatureVectorCodec.decode(row.vectorBlob, AudioVectorFormat.valueOf(row.vectorFormat)) } catch (_: Exception) { null }
             vector?.takeIf(AudioFeatureSchema::isCompatible)?.let { row.trackId to it }
         }.toMap()
+        // Reuse the bounded 28-day event window to compute recent evidence once per track.
+        // No extra Room queries or work on the playback-position tick.
+        val sevenDaysMs = 7.0 * 86_400_000.0
+        val byTrack = recent.groupBy { it.trackId }
+        val recentEvidence = byTrack.mapValues { (_, events) ->
+            fun decayed(type: String) = events.asSequence().filter { it.type == type }.sumOf {
+                exp(-(now.toEpochMilli() - it.occurredAtEpochMs).coerceAtLeast(0L) / sevenDaysMs)
+            }
+            RecentPositiveEvidence(decayed("MANUAL_SELECTED"), decayed("REPLAYED"), decayed("PLAY_COMPLETED"))
+        }
+        val recentNegative = byTrack.mapValues { (_, events) ->
+            events.asSequence().filter { it.type == "SKIPPED_EARLY" || it.type == "SKIPPED_LATE" }
+                .sumOf {
+                    val weight = if (it.type == "SKIPPED_EARLY") 1.0 else 0.35
+                    weight * exp(-(now.toEpochMilli() - it.occurredAtEpochMs).coerceAtLeast(0L) / sevenDaysMs)
+                }.coerceAtMost(1.0)
+        }
         val candidates = tracks.map { track ->
             val trackSources = sources[track.id].orEmpty()
             val stats = global[track.id]
@@ -144,7 +170,11 @@ class HeuristicRecommendationEngine @Inject constructor(
                 trackSources.isNotEmpty(), trackSources.any { it.availability == SourceAvailability.AVAILABLE_LOCAL && (!it.localPath.isNullOrBlank() || !it.contentUri.isNullOrBlank()) },
                 stats?.snapshot() ?: PreferenceSnapshot(), timeStats?.snapshot() ?: PreferenceSnapshot(),
                 stats?.lastPlayedAtEpochMs?.let(Instant::ofEpochMilli), track.normalizedArtist?.let(context.recentArtistIds::indexOf)?.takeIf { it >= 0 },
-                recent.count { it.sessionId == sessionId && it.trackId == track.id && it.type == "SKIPPED_EARLY" && it.occurredAtEpochMs >= now.minusSeconds(1_800).toEpochMilli() })
+                byTrack[track.id].orEmpty().count { it.sessionId == sessionId && it.type == "SKIPPED_EARLY" && it.occurredAtEpochMs >= now.minusSeconds(1_800).toEpochMilli() },
+                artistStats = track.normalizedArtist?.let(artistStats::get),
+                albumStats = CausalTrainingDataset.albumKey(track.normalizedArtist, track.album)?.let(albumStats::get),
+                recentPositive = recentEvidence[track.id]?.strength ?: 0.0,
+                recentNegative = recentNegative[track.id] ?: 0.0)
         }
         val valid = CandidateGenerator.generate(candidates.filter { it.trackId in ids }, currentTrackId, offlineOnly)
         val anchorCandidates = candidates.filter { it.trackId == anchorId || it.trackId in positiveIds.take(2) || it.trackId == currentTrackId }
@@ -157,10 +187,6 @@ class HeuristicRecommendationEngine @Inject constructor(
                 CausalTrainingDataset.albumKey(track.normalizedArtist, track.album)?.let(albumStats::get))))
         }
         val learned = safely { personalizationModel.score(context, featureVectors) }?.associateBy { it.trackId }.orEmpty()
-        val recentEvidence = recent.groupBy { it.trackId }.mapValues { (_, events) ->
-            fun decayed(type: String) = events.filter { it.type == type }.sumOf { exp(-(now.toEpochMilli() - it.occurredAtEpochMs).coerceAtLeast(0L) / (7.0 * 86_400_000.0)) }
-            RecentPositiveEvidence(decayed("MANUAL_SELECTED"), decayed("REPLAYED"), decayed("PLAY_COMPLETED"))
-        }
         val ranked = scoring.map { candidate ->
             val track = trackById.getValue(candidate.trackId.toString())
             val (score, breakdown) = RecommendationRanking.score(
