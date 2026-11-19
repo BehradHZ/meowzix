@@ -48,6 +48,9 @@ data class ListeningEventEntity(
     @ColumnInfo(defaultValue = "0") val eventSequence: Long = 0L,
     /** Only final outcomes use this key; repeated intentional seeks/actions remain observable. */
     val outcomeKey: String? = null,
+    /** Optional phase-3 context; older history remains explicitly unknown. */
+    val outputClass: String? = null,
+    val offlineOnly: Boolean? = null,
 )
 
 @Entity(tableName = "track_preference_stats")

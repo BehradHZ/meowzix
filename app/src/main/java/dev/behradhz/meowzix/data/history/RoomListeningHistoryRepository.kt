@@ -7,6 +7,7 @@ import dev.behradhz.meowzix.data.db.ListeningSessionEntity
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.TrackPreferenceStatsEntity
 import dev.behradhz.meowzix.data.db.TrackTimePreferenceEntity
+import dev.behradhz.meowzix.data.recommendation.AndroidAudioOutputContext
 import dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
 import dev.behradhz.meowzix.domain.history.ListeningEvent
 import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
@@ -35,6 +36,7 @@ class RoomListeningHistoryRepository @Inject constructor(
     private val dao: HistoryDao,
     private val personalizationTrainer: PersonalizationTrainer,
     private val settings: SettingsRepository,
+    private val audioOutputContext: AndroidAudioOutputContext? = null,
 ) : ListeningHistoryRepository {
     private val mutex = Mutex()
     private val active = mutableMapOf<UUID, ActivePlayback>()
@@ -65,6 +67,8 @@ class RoomListeningHistoryRepository @Inject constructor(
                 playbackMode = PlaybackMode.valueOf(row.playbackMode),
                 playbackInstanceId = UUID.fromString(row.playbackInstanceId),
                 sessionId = UUID.fromString(row.sessionId),
+                outputClass = row.outputClass,
+                offlineOnly = row.offlineOnly,
             )
         }
     }
@@ -105,7 +109,9 @@ class RoomListeningHistoryRepository @Inject constructor(
 
         val now = Instant.now()
         val session = session(now, mode)
-        val context = ActivePlayback(playbackId, trackId, session.id, initiatedBy, mode, ListeningEventSemantics.timeContext(now, ZoneId.systemDefault()).bucket)
+        val context = ActivePlayback(playbackId, trackId, session.id, initiatedBy, mode,
+            ListeningEventSemantics.timeContext(now, ZoneId.systemDefault()).bucket,
+            audioOutputContext?.currentClass()?.name, settings.networkPlaybackSettings.first().offlineMode)
         database.withTransaction {
             if (initiatedBy == PlaybackInitiator.USER) insert(context, ListeningEventType.MANUAL_SELECTED, now, null, null)
             else insert(context, ListeningEventType.AUTO_SELECTED, now, null, null)
@@ -212,7 +218,9 @@ class RoomListeningHistoryRepository @Inject constructor(
         if (database.libraryDao().trackById(trackId.toString()) == null) return
         val now = Instant.now()
         val session = session(now, mode)
-        val context = ActivePlayback(UUID.randomUUID(), trackId, session.id, PlaybackInitiator.USER, mode, ListeningEventSemantics.timeContext(now, ZoneId.systemDefault()).bucket)
+        val context = ActivePlayback(UUID.randomUUID(), trackId, session.id, PlaybackInitiator.USER, mode,
+            ListeningEventSemantics.timeContext(now, ZoneId.systemDefault()).bucket,
+            audioOutputContext?.currentClass()?.name, settings.networkPlaybackSettings.first().offlineMode)
         database.withTransaction {
             insert(context, type, now, 0L, null)
             if (type == ListeningEventType.FAVORITED || type == ListeningEventType.UNFAVORITED) {
@@ -299,6 +307,8 @@ class RoomListeningHistoryRepository @Inject constructor(
                 completionRatio = ratio,
                 initiatedBy = context.initiatedBy.name,
                 playbackMode = context.mode.name,
+                outputClass = context.outputClass,
+                offlineOnly = context.offlineOnly,
             ),
         )
         if (inserted == -1L) return
@@ -336,7 +346,16 @@ class RoomListeningHistoryRepository @Inject constructor(
     }
 
     private data class RecentSeek(val playbackId: UUID, val forward: Boolean, val atEpochMs: Long)
-    private data class ActivePlayback(val id: UUID, val trackId: UUID, val sessionId: UUID, val initiatedBy: PlaybackInitiator, val mode: PlaybackMode, val timeBucket: dev.behradhz.meowzix.domain.history.TimeBucket)
+    private data class ActivePlayback(
+        val id: UUID,
+        val trackId: UUID,
+        val sessionId: UUID,
+        val initiatedBy: PlaybackInitiator,
+        val mode: PlaybackMode,
+        val timeBucket: dev.behradhz.meowzix.domain.history.TimeBucket,
+        val outputClass: String?,
+        val offlineOnly: Boolean?,
+    )
     private data class Session(val id: UUID, val startedAtEpochMs: Long, var lastActivityEpochMs: Long, val initialMode: PlaybackMode)
 
     private companion object {

@@ -54,10 +54,10 @@ class LocalLinearPersonalizationModel internal constructor(
                 candidates.map { candidate ->
                     currentCoroutineContext().ensureActive()
                     require(candidate.schemaVersion == modelState.featureSchemaVersion)
-                    RecommendationFeatureSchemaV2.validate(candidate.values)
+                    RecommendationFeatureSchemaV3.validate(candidate.values)
                     val (reward, uncertainty) = ranker.predict(candidate.values)
                     val contributions = candidate.values.mapIndexed { index, value ->
-                        FeatureContribution(RecommendationFeatureSchemaV2.names[index], coefficients[index] * value)
+                        FeatureContribution(RecommendationFeatureSchemaV3.names[index], coefficients[index] * value)
                     }.filter { it.value > 0.01 }.sortedByDescending { it.value }.take(8)
                     ModelTrackScore(candidate.trackId, reward, uncertainty, contributions)
                 }
@@ -83,7 +83,7 @@ class LocalLinearPersonalizationModel internal constructor(
             fresh.forEach { sample ->
                 currentCoroutineContext().ensureActive()
                 require(sample.featureSchemaVersion == PersonalizationFeatureVectorizer.SCHEMA_VERSION && sample.rewardSchemaVersion == PersonalizationRewardBuilder.VERSION)
-                RecommendationFeatureSchemaV2.validate(sample.features)
+                RecommendationFeatureSchemaV3.validate(sample.features)
                 next.update(sample.features, sample.reward, sample.weight)
             }
             next.coefficients()

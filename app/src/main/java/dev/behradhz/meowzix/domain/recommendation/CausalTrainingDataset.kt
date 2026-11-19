@@ -9,7 +9,8 @@ data class TrainingEvent(
     val sessionId: UUID,
     val playbackInstanceId: UUID,
 )
-data class TrainingTrack(val trackId: UUID, val artist: String?, val album: String?, val durationMs: Long)
+data class TrainingTrack(val trackId: UUID, val artist: String?, val album: String?, val durationMs: Long,
+    val metadata: CanonicalTrackMetadata? = null)
 data class TrainingAudio(val values: DoubleArray, val generatedAt: Instant, val sourceId: UUID, val extractorVersion: String)
 
 /** Replays insertion-ordered events. Every vector is frozen BEFORE its decision's first event. */
@@ -75,6 +76,14 @@ object CausalTrainingDataset {
                     recentArtistIds = session.recent.map { tracks[it]?.artist ?: "" },
                     recentSkipStreak = session.skipStreak,
                     currentTrackId = session.recent.firstOrNull(),
+                    outputClass = event.outputClass?.let { route ->
+                        OutputClass.entries.firstOrNull { it.name == route }
+                    },
+                    offlineOnly = event.offlineOnly ?: false,
+                    offlineOnlyKnown = event.offlineOnly != null,
+                    sessionElapsedMs = session.startedAt?.let { first ->
+                        (event.occurredAt.toEpochMilli() - first.toEpochMilli()).coerceAtLeast(0L)
+                    },
                 )
                 // Old audio is usable only if it existed at the decision time; no future feature leakage.
                 val acoustic = audio[event.trackId]?.takeIf { !it.generatedAt.isAfter(event.occurredAt) }
@@ -83,7 +92,9 @@ object CausalTrainingDataset {
                         track.trackId, track.artist, track.trackId in favorites, track.durationMs,
                         acoustic?.values, global[track.trackId] ?: PreferenceSnapshot(),
                         bucket[track.trackId to event.timeBucket] ?: PreferenceSnapshot(), lastPlayed[track.trackId],
-                        track.artist?.let(artists::get), albumKey?.let(albums::get), favoriteKnown = track.trackId in knownFavorites,
+                        track.artist?.let(artists::get), albumKey?.let(albums::get),
+                        favoriteKnown = track.trackId in knownFavorites,
+                        metadata = track.metadata?.takeIf { it.addedAt == null || !it.addedAt.isAfter(event.occurredAt) },
                     )), context, acoustic,
                 )
             }
@@ -109,6 +120,7 @@ object CausalTrainingDataset {
             track.artist?.let { artists[it] = increment(artists[it] ?: PreferenceSnapshot(), type) }
             albumKey?.let { albums[it] = increment(albums[it] ?: PreferenceSnapshot(), type) }
             if (type == "PLAY_STARTED") {
+                if (session.startedAt == null) session.startedAt = event.occurredAt
                 lastPlayed[track.trackId] = event.occurredAt
                 session.position++
                 session.recent.add(0, track.trackId)
@@ -132,5 +144,10 @@ object CausalTrainingDataset {
     )
     fun albumKey(artist: String?, album: String?): String? = album?.trim()?.takeIf(String::isNotBlank)?.let { "$artist|${it.lowercase(java.util.Locale.ROOT)}" }
     private data class Snapshot(val values: DoubleArray, val context: RecommendationContext, val audio: TrainingAudio?)
-    private class Session(val recent: MutableList<UUID> = ArrayList(), var position: Int = 0, var skipStreak: Int = 0)
+    private class Session(
+        val recent: MutableList<UUID> = ArrayList(),
+        var position: Int = 0,
+        var skipStreak: Int = 0,
+        var startedAt: Instant? = null,
+    )
 }

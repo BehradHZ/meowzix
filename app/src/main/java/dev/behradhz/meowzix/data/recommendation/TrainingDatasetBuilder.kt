@@ -37,7 +37,9 @@ class TrainingDatasetBuilder @Inject constructor(
         // but they are not separate learning identities. All post-merge events are canonicalized below.
         val tracks = libraryDao.allTracks().asSequence().filterNot { it.hidden }.associate { row ->
             val id = UUID.fromString(row.id)
-            id to TrainingTrack(id, row.normalizedArtist, row.album, row.durationMs)
+            id to TrainingTrack(id, row.normalizedArtist, row.album, row.durationMs,
+                CanonicalTrackMetadata.fromLibrary(id, row.normalizedTitle, row.normalizedArtist, row.album,
+                    row.durationMs, row.createdAtEpochMs))
         }
         val audio = audioFeatureDao.compatibleVectors(audioFeatureExtractor.extractorName,
             audioFeatureExtractor.extractorVersion, audioFeatureExtractor.schemaVersion).mapNotNull { row ->
@@ -71,6 +73,7 @@ class TrainingDatasetBuilder @Inject constructor(
                             dev.behradhz.meowzix.domain.history.PlaybackInitiator.valueOf(event.initiatedBy),
                             dev.behradhz.meowzix.domain.playback.PlaybackMode.valueOf(event.playbackMode),
                             UUID.fromString(event.playbackInstanceId), UUID.fromString(event.sessionId),
+                            outputClass = event.outputClass, offlineOnly = event.offlineOnly,
                         ), UUID.fromString(event.sessionId), UUID.fromString(event.playbackInstanceId))
                     } catch (_: IllegalArgumentException) { null }
                 }.forEach(accumulator::accept)

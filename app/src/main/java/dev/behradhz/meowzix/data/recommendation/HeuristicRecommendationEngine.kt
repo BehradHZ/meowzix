@@ -26,6 +26,7 @@ class HeuristicRecommendationEngine @Inject constructor(
     private val settings: SettingsRepository,
     private val personalizationModel: PersonalizationModel,
     private val feedbackRepository: RecommendationFeedbackRepository,
+    private val audioOutputContext: AndroidAudioOutputContext? = null,
 ) : RecommendationEngine {
     private val sectionGenerator = RecommendationSectionGenerator()
     private var explanationModelStamp: Pair<Long, Long>? = null
@@ -136,10 +137,14 @@ class HeuristicRecommendationEngine @Inject constructor(
         }?.sessionId
         val sessionStarts = starts.filter { it.sessionId == sessionId }.take(20)
         val outcomes = recent.filter { it.sessionId == sessionId && it.type in CausalTrainingDataset.finalTypes }
+        val elapsedMs = sessionId?.let(historyDao::sessionStartedAt)
+            ?.let { startedAt -> (now.toEpochMilli() - startedAt).coerceAtLeast(0L) }
         val context = RecommendationContext(time.localHour, time.dayOfWeek.value, time.isWeekend, bucket, now,
             sessionId?.uuid(), sessionId?.let { historyDao.sessionPosition(it, state.historyFloorVersion) } ?: 0,
             sessionStarts.mapNotNull { it.trackId.uuid() }, sessionStarts.map { trackById[it.trackId]?.normalizedArtist ?: "" },
-            outcomes.takeWhile { it.type == "SKIPPED_EARLY" }.size, currentTrackId, anchorId, offlineOnly = offlineOnly)
+            outcomes.takeWhile { it.type == "SKIPPED_EARLY" }.size, currentTrackId, anchorId,
+            outputClass = audioOutputContext?.currentClass(), offlineOnly = offlineOnly,
+            offlineOnlyKnown = true, sessionElapsedMs = elapsedMs)
         val audio = recommendationDao.compatibleAudioVectorsForTracks(strings, audioFeatureExtractor.extractorName,
             audioFeatureExtractor.extractorVersion, audioFeatureExtractor.schemaVersion).mapNotNull { row ->
             val vector = try { AudioFeatureVectorCodec.decode(row.vectorBlob, AudioVectorFormat.valueOf(row.vectorFormat)) } catch (_: Exception) { null }
@@ -184,7 +189,10 @@ class HeuristicRecommendationEngine @Inject constructor(
             TrackFeatures(candidate.trackId, PersonalizationFeatureVectorizer.vectorize(context, TrackPersonalizationFeatures(
                 candidate.trackId, track.normalizedArtist, track.favorite, track.durationMs, audio[track.id],
                 candidate.global, candidate.time, candidate.lastPlayedAt, track.normalizedArtist?.let(artistStats::get),
-                CausalTrainingDataset.albumKey(track.normalizedArtist, track.album)?.let(albumStats::get))))
+                CausalTrainingDataset.albumKey(track.normalizedArtist, track.album)?.let(albumStats::get),
+                metadata = CanonicalTrackMetadata.fromLibrary(
+                    candidate.trackId, track.normalizedTitle, track.normalizedArtist,
+                    track.album, track.durationMs, track.createdAtEpochMs))))
         }
         val learned = safely { personalizationModel.score(context, featureVectors) }?.associateBy { it.trackId }.orEmpty()
         val ranked = scoring.map { candidate ->

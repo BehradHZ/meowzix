@@ -115,6 +115,11 @@ interface HistoryDao {
     @Query("SELECT COUNT(*) FROM listening_events WHERE sessionId = :sessionId AND type = 'PLAY_STARTED' AND eventSequence > :floor")
     suspend fun sessionPosition(sessionId: String, floor: Long): Int
 
+    /** Actual session start, not the oldest row in a bounded recent-event window. */
+    @Query("SELECT startedAtEpochMs FROM listening_sessions WHERE id = :sessionId LIMIT 1")
+    suspend fun sessionStartedAt(sessionId: String): Long?
+
+
     /** Restore the same aggregates used by live ranking without racing new playback writes. */
     @Transaction
     suspend fun rebuildPreferenceStats(floor: Long) {

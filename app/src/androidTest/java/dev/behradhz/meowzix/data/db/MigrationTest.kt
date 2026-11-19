@@ -366,6 +366,54 @@ class MigrationTest {
         database.close()
     }
 
+
+    @Test
+    fun migrateSixteenToTwentyTwoPreservesListeningHistoryAndLeavesUnknownRouteNull() {
+        // The latest committed historical fixture is v16. Use only production migrations
+        // instead of fabricating an uncommitted v21 schema fixture.
+        val db = helper.createDatabase(TEST_DATABASE_16_22, 16)
+        db.execSQL(
+            "INSERT INTO tracks(id, title, normalizedTitle, durationMs, favorite, hidden, createdAtEpochMs, updatedAtEpochMs) " +
+                "VALUES ('context-track', 'Track', 'track', 180000, 0, 0, 1, 1)"
+        )
+        db.execSQL(
+            "INSERT INTO listening_sessions(id, startedAtEpochMs, initialMode) " +
+                "VALUES ('session-context', 1000, 'ORDERED')"
+        )
+        db.execSQL(
+            "INSERT INTO listening_events(id, playbackInstanceId, trackId, sessionId, type, occurredAtEpochMs, " +
+                "localHour, dayOfWeek, timeBucket, isWeekend, initiatedBy, playbackMode) " +
+                "VALUES ('context-event', 'playback-context', 'context-track', 'session-context', " +
+                "'PLAY_STARTED', 1100, 9, 1, 'MORNING', 0, 'USER', 'ORDERED')"
+        )
+        db.close()
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DATABASE_16_22, 22, true,
+            MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19,
+            MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
+        )
+        migrated.query(
+            "SELECT type, outputClass, offlineOnly FROM listening_events WHERE id = 'context-event'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("PLAY_STARTED", cursor.getString(0))
+            assertTrue(cursor.isNull(1))
+            assertTrue(cursor.isNull(2))
+        }
+        migrated.execSQL(
+            "UPDATE listening_events SET outputClass = 'BLUETOOTH', offlineOnly = 1 WHERE id = 'context-event'"
+        )
+        migrated.query(
+            "SELECT outputClass, offlineOnly FROM listening_events WHERE id = 'context-event'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("BLUETOOTH", cursor.getString(0))
+            assertEquals(1, cursor.getInt(1))
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"
@@ -382,5 +430,6 @@ class MigrationTest {
         const val TEST_DATABASE_16_17 = "migration-test-16-17"
         const val TEST_DATABASE_17_18 = "migration-test-17-18"
         const val TEST_DATABASE_20_21 = "migration-test-20-21"
+        const val TEST_DATABASE_16_22 = "migration-test-16-22"
     }
 }

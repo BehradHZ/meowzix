@@ -22,6 +22,9 @@ data class RecommendationContext(
     val anchorTrackId: UUID? = null,
     val outputClass: OutputClass? = null,
     val offlineOnly: Boolean = false,
+    val offlineOnlyKnown: Boolean = false,
+    /** Elapsed time before the current selection, not total future session duration. */
+    val sessionElapsedMs: Long? = null,
 )
 
 data class TrackPersonalizationFeatures(
@@ -36,6 +39,7 @@ data class TrackPersonalizationFeatures(
     val artistStats: PreferenceSnapshot? = null,
     val albumStats: PreferenceSnapshot? = null,
     val favoriteKnown: Boolean = true,
+    val metadata: CanonicalTrackMetadata? = null,
 )
 
 data class TrackFeatures(val trackId: UUID, val values: DoubleArray, val schemaVersion: Int = PersonalizationFeatureVectorizer.SCHEMA_VERSION)
@@ -91,7 +95,7 @@ interface PersonalizationModel {
 }
 
 object RecommendationConfig {
-    const val MODEL_VERSION = "2"
+    const val MODEL_VERSION = "3"
     const val MIN_TRAINING_SAMPLES = 75
     const val DOMINANT_TRAINING_SAMPLES = 200
     const val UPDATE_BATCH = 10

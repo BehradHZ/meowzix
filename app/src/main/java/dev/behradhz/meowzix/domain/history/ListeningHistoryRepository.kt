@@ -28,6 +28,10 @@ data class ListeningEvent(
     val playbackMode: PlaybackMode,
     val playbackInstanceId: UUID? = null,
     val sessionId: UUID? = null,
+    /** Coarse output category only; null for older/unknown routes. */
+    val outputClass: String? = null,
+    /** null represents a historical event without an offline-mode snapshot. */
+    val offlineOnly: Boolean? = null,
 )
 
 data class ListeningHistoryDisplayEvent(

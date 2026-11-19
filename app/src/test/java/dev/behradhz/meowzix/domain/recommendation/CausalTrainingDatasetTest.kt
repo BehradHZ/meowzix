@@ -35,6 +35,44 @@ class CausalTrainingDatasetTest {
         assertTrue(samples[1].features[RecommendationFeature.COMPLETION_RATE.ordinal] > samples[0].features[RecommendationFeature.COMPLETION_RATE.ordinal])
         assertTrue(samples[1].features[RecommendationFeature.MANUAL_RATE.ordinal] > 0.0)
     }
+
+    @Test fun subsequentDecisionsUseOnlyPriorSessionAndSavedContext() {
+        val old = playback(1, 10)
+        val later = playback(4, 11).map {
+            it.copy(event = it.event.copy(
+                occurredAt = timestamp.plusSeconds(120),
+                outputClass = "BLUETOOTH",
+                offlineOnly = true,
+            ))
+        }
+        val samples = CausalTrainingDataset.build(old + later, tracks)
+        assertEquals(2, samples.size)
+        val first = samples.first().features
+        val second = samples.last().features
+        assertEquals(0.0, first[RecommendationFeature.SESSION_ELAPSED.ordinal], 0.0)
+        assertEquals(0.0, first[RecommendationFeature.OUTPUT_AVAILABLE.ordinal], 0.0)
+        assertEquals(0.0, first[RecommendationFeature.OFFLINE_KNOWN.ordinal], 0.0)
+        assertEquals(120_000.0 / (4 * 3_600_000.0),
+            second[RecommendationFeature.SESSION_ELAPSED.ordinal], 1e-12)
+        assertEquals(1.0, second[RecommendationFeature.OUTPUT_BLUETOOTH.ordinal], 0.0)
+        assertEquals(1.0, second[RecommendationFeature.OFFLINE_ONLY.ordinal], 0.0)
+    }
+
+    @Test fun canonicalMetadataIsIncludedWithoutDependingOnProviderOrFutureLibraryEntry() {
+        val metadata = CanonicalTrackMetadata.fromLibrary(
+            trackId, "Test Track", "artist", "album", 200_000,
+            timestamp.minusSeconds(3600).toEpochMilli(),
+        )
+        val sample = CausalTrainingDataset.build(
+            playback(1, 10),
+            mapOf(trackId to tracks.getValue(trackId).copy(metadata = metadata)),
+        ).single()
+        assertEquals(1.0, sample.features[RecommendationFeature.TITLE_AVAILABLE.ordinal], 0.0)
+        assertEquals(2.0 / 16.0, sample.features[RecommendationFeature.TITLE_TOKEN_COUNT.ordinal], 0.0)
+        assertEquals(1.0, sample.features[RecommendationFeature.LIBRARY_ADDED_AVAILABLE.ordinal], 0.0)
+        assertEquals(trackId, sample.trackId)
+    }
+
     @Test fun tiedTimestampsStillHaveDistinctMonotonicDataVersions() {
         val samples = CausalTrainingDataset.build(playback(1, 10) + playback(4, 11), tracks)
         assertEquals(listOf(3L, 6L), samples.map { it.dataVersion })

@@ -18,25 +18,44 @@ enum class RecommendationFeature(val min: Double = 0.0, val max: Double = 1.0) {
     SESSION_AVAILABLE, SESSION_POSITION, SKIP_STREAK, SAME_PREVIOUS_ARTIST, PREVIOUS_ARTIST_AVAILABLE, ARTIST_DISTANCE, RECENTLY_PLAYED,
     DURATION, DURATION_AVAILABLE, OUTPUT_AVAILABLE, OUTPUT_SPEAKER, OUTPUT_WIRED, OUTPUT_BLUETOOTH,
     AUDIO_AVAILABLE, AUDIO_RMS, AUDIO_ZCR, AUDIO_SILENCE, AUDIO_DYNAMIC_RANGE, AUDIO_CENTROID, AUDIO_ROLLOFF,
+    // v3 extension: append only so the historical 57-feature v2 contract stays immutable.
+    SESSION_ELAPSED, SESSION_RECENT_TRACK_COUNT, OFFLINE_KNOWN, OFFLINE_ONLY,
+    TITLE_AVAILABLE, TITLE_TOKEN_COUNT, ARTIST_TOKEN_COUNT, ALBUM_METADATA_AVAILABLE, ALBUM_TOKEN_COUNT,
+    LIBRARY_ADDED_AVAILABLE, LIBRARY_AGE,
 }
 
 object RecommendationFeatureSchemaV2 {
     const val VERSION = 2
-    val names: List<String> = RecommendationFeature.entries.map { it.name.lowercase(java.util.Locale.ROOT) }
-    val size: Int get() = names.size
+    private const val ORIGINAL_SIZE = 57
+    val names: List<String> = RecommendationFeature.entries.take(ORIGINAL_SIZE).map { it.name.lowercase(java.util.Locale.ROOT) }
+    val size: Int get() = ORIGINAL_SIZE
     fun validate(values: DoubleArray) {
-        require(values.size == size) { "Incompatible feature dimension" }
-        RecommendationFeature.entries.forEach { feature ->
+        require(values.size == size) { "Incompatible v2 feature dimension" }
+        RecommendationFeature.entries.take(ORIGINAL_SIZE).forEach { feature ->
             val value = values[feature.ordinal]
             require(value.isFinite() && value >= feature.min && value <= feature.max) { "Invalid ${feature.name}" }
         }
     }
 }
 
+/** The current persisted model contract; older v2 artifacts are rebuilt, never misread. */
+object RecommendationFeatureSchemaV3 {
+    const val VERSION = 3
+    val names: List<String> = RecommendationFeature.entries.map { it.name.lowercase(java.util.Locale.ROOT) }
+    val size: Int get() = names.size
+    fun validate(values: DoubleArray) {
+        require(values.size == size) { "Incompatible v3 feature dimension" }
+        RecommendationFeature.entries.forEach { feature ->
+            val value = values[feature.ordinal]
+            require(value.isFinite() && value in feature.min..feature.max) { "Invalid ${feature.name}" }
+        }
+    }
+}
+
 /** No Track/artist hash buckets: learned parameters generalize across meaningful statistics. */
 object PersonalizationFeatureVectorizer {
-    const val SCHEMA_VERSION = RecommendationFeatureSchemaV2.VERSION
-    val FEATURE_COUNT: Int get() = RecommendationFeatureSchemaV2.size
+    const val SCHEMA_VERSION = RecommendationFeatureSchemaV3.VERSION
+    val FEATURE_COUNT: Int get() = RecommendationFeatureSchemaV3.size
 
     fun affinity(stats: PreferenceSnapshot, favorite: Boolean = false): Double {
         val n = stats.starts.coerceAtLeast(0).toDouble()
@@ -105,7 +124,27 @@ object PersonalizationFeatureVectorizer {
         flag(RecommendationFeature.OUTPUT_SPEAKER, context.outputClass == OutputClass.SPEAKER)
         flag(RecommendationFeature.OUTPUT_WIRED, context.outputClass == OutputClass.WIRED)
         flag(RecommendationFeature.OUTPUT_BLUETOOTH, context.outputClass == OutputClass.BLUETOOTH)
-        // Recommendation schema v2 intentionally consumes the original six acoustic descriptors.
+        val elapsed = context.sessionElapsedMs?.takeIf { context.sessionId != null && it >= 0L }
+        elapsed?.let { put(RecommendationFeature.SESSION_ELAPSED, it.toDouble() / (4.0 * 3_600_000.0)) }
+        put(RecommendationFeature.SESSION_RECENT_TRACK_COUNT, context.recentTrackIds.size.coerceIn(0, 20) / 20.0)
+        flag(RecommendationFeature.OFFLINE_KNOWN, context.offlineOnlyKnown)
+        flag(RecommendationFeature.OFFLINE_ONLY, context.offlineOnlyKnown && context.offlineOnly)
+
+        // Metadata is strictly canonical local library data: never inferred genre/year/popularity.
+        // Token identities stay outside the shared numeric model for future sequence architectures.
+        track.metadata?.let { item ->
+            flag(RecommendationFeature.TITLE_AVAILABLE, item.titleTokens.isNotEmpty())
+            put(RecommendationFeature.TITLE_TOKEN_COUNT, item.titleTokens.size / 16.0)
+            put(RecommendationFeature.ARTIST_TOKEN_COUNT, item.artistTokens.size / 16.0)
+            flag(RecommendationFeature.ALBUM_METADATA_AVAILABLE, item.albumTokens.isNotEmpty())
+            put(RecommendationFeature.ALBUM_TOKEN_COUNT, item.albumTokens.size / 16.0)
+            item.addedAt?.takeIf { !it.isAfter(context.timestamp) }?.let { added ->
+                flag(RecommendationFeature.LIBRARY_ADDED_AVAILABLE, true)
+                val ageMs = (context.timestamp.toEpochMilli() - added.toEpochMilli()).coerceAtLeast(0L)
+                put(RecommendationFeature.LIBRARY_AGE, ageMs.toDouble() / (365.0 * 86_400_000.0))
+            }
+        }
+        // Existing six acoustic descriptors remain source-agnostic and independently versioned.
         // Extractor schema v3 appends tempo/confidence, so accept both legacy/core six-value vectors
         // and newer vectors with additional descriptors while keeping the learned model dimension
         // immutable. Cache/storage compatibility remains governed separately by AudioFeatureSchema.
@@ -113,7 +152,7 @@ object PersonalizationFeatureVectorizer {
             flag(RecommendationFeature.AUDIO_AVAILABLE, true)
             audioFeatures.forEachIndexed { index, feature -> put(feature, audio[index]) }
         }
-        RecommendationFeatureSchemaV2.validate(values)
+        RecommendationFeatureSchemaV3.validate(values)
         return values
     }
 
