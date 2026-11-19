@@ -152,7 +152,7 @@ fun HomeRoute(
                     },
                 )
             } else {
-                GlassLazyColumn(
+            GlassLazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
