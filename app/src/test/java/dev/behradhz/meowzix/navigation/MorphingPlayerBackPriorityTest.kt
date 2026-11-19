@@ -44,6 +44,32 @@ class MorphingPlayerBackPriorityTest {
     }
 
     @Test
+    fun swipeCollapseAfterArtworkCollapseDoesNotSkipAnimation() {
+        val player = MorphingPlayerState()
+        player.expand()
+        player.updateOverlayVisibility(true)
+        player.collapse() // Artwork recognizer finished first.
+        assertFalse(player.finishCollapseImmediately)
+
+        player.settleCollapseFromGesture() // Outer surface finishes the same swipe.
+        assertFalse(player.targetExpanded)
+        assertFalse(player.finishCollapseImmediately)
+        assertTrue(player.blocksBackgroundBack)
+
+        // The explicit second Back still snaps a stalled collapse closed.
+        player.collapse()
+        assertTrue(player.finishCollapseImmediately)
+    }
+
+    @Test
+    fun swipeEndSettlesTowardTheExpectedSide() {
+        assertFalse(shouldSettlePlayerExpanded(1f, 100f, 72f))
+        assertTrue(shouldSettlePlayerExpanded(1f, 30f, 72f))
+        assertTrue(shouldSettlePlayerExpanded(0f, -100f, 72f))
+        assertFalse(shouldSettlePlayerExpanded(0f, -30f, 72f))
+    }
+
+    @Test
     fun partiallyDraggedPlayerBlocksBackgroundNavigationWithoutExpansionCommit() {
         val player = MorphingPlayerState()
         player.updateOverlayVisibility(true)
