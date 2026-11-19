@@ -15,6 +15,7 @@ import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import kotlinx.coroutines.withTimeoutOrNull
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
 import java.time.Instant
@@ -73,9 +74,16 @@ class HomeViewModel @Inject constructor(
     private val recommendationEngine: RecommendationEngine,
     private val playback: PlaybackController,
     private val queueRepository: QueueRepository,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(cachedState ?: HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
+    val initialSourceChoiceCompleted = settingsRepository.initialSourceChoiceCompleted
+
+    suspend fun completeInitialSourceChoice() {
+        settingsRepository.setInitialSourceChoiceCompleted()
+    }
+
     private var homePlayGeneration = 0L
 
     /** Explicit reload remains possible; routine updates happen once per foreground session. */
