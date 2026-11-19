@@ -218,6 +218,7 @@ fun NowPlayingRoute(
     onMoreActionsButtonBoundsChanged: (Rect) -> Unit = {},
     onInlineQueueExpandedChange: (Boolean) -> Unit = {},
     lockScreenMode: Boolean = false,
+    canRemoveOffline: Boolean = false,
     viewModel: NowPlayingViewModel = hiltViewModel(),
     lyricsViewModel: NowPlayingLyricsViewModel = hiltViewModel(),
     libraryTools: LibraryToolsViewModel = hiltViewModel(),
@@ -227,6 +228,7 @@ fun NowPlayingRoute(
     val spectrum by viewModel.spectrum.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val forwardState by viewModel.forwardState.collectAsStateWithLifecycle()
+    val trackRemovalError by viewModel.trackRemovalError.collectAsStateWithLifecycle()
     val lyricsState by lyricsViewModel.state.collectAsStateWithLifecycle()
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val sleepTimerPreferences by viewModel.sleepTimerPreferences.collectAsStateWithLifecycle()
@@ -359,6 +361,10 @@ fun NowPlayingRoute(
                 onContinueVibe = {
                     state.currentTrack?.id?.let { trackId -> recommendationActions.continueVibe(trackId) }
                 },
+                canRemoveOffline = canRemoveOffline,
+                onRemoveFromLocations = { trackId, offline, library ->
+                    viewModel.removeTrackFromLocations(trackId, offline, library)
+                },
                 onLyricsImport = lyricsViewModel::importLrc,
                 onLyricsPaste = lyricsViewModel::pastePlainLyrics,
                 onLyricsDelay = lyricsViewModel::adjustDelay,
@@ -411,6 +417,16 @@ fun NowPlayingRoute(
         )
     }
 
+    trackRemovalError?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissTrackRemovalError,
+            title = { Text("Remove song") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissTrackRemovalError) { Text("OK") }
+            },
+        )
+    }
     lyricsState.errorMessage?.let { message ->
         AlertDialog(
             onDismissRequest = lyricsViewModel::clearError,
@@ -460,6 +476,8 @@ private fun NowPlayingScreen(
     onGoToArtist: (String) -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
+    canRemoveOffline: Boolean,
+    onRemoveFromLocations: (UUID, Boolean, Boolean) -> Unit,
     onLyricsImport: (android.net.Uri) -> Unit,
     onLyricsPaste: (String) -> Unit,
     onLyricsDelay: (Long) -> Unit,
@@ -504,6 +522,7 @@ private fun NowPlayingScreen(
                 Column(Modifier.fillMaxSize()) {
                     PlayerHeader(
                         currentTrackId = track.id,
+                        currentTrackTitle = track.title,
                         hazeState = landscapeHaze,
                         lockScreenMode = lockScreenMode,
                         lyricsExpanded = lyricsExpanded,
@@ -524,6 +543,10 @@ private fun NowPlayingScreen(
                         playbackSpeed = state.playbackSpeed,
                         onWhyThisSong = onWhyThisSong,
                         onContinueVibe = onContinueVibe,
+                        canRemoveOffline = canRemoveOffline,
+                        onRemoveFromLocations = if (lockScreenMode) null else { offline, library ->
+                            onRemoveFromLocations(track.id, offline, library)
+                        },
                         onOpenLyrics = onExpandLyrics,
                         lyricsState = lyricsState,
                         onLyricsImport = onLyricsImport,
@@ -1000,6 +1023,7 @@ private fun NowPlayingScreen(
             Box(Modifier.fillMaxWidth().then(queueDragGesture)) {
                 PlayerHeader(
                 currentTrackId = track.id,
+                        currentTrackTitle = track.title,
                 hazeState = hazeState,
                 lockScreenMode = lockScreenMode,
                 lyricsExpanded = lyricsExpanded,
@@ -1023,6 +1047,10 @@ private fun NowPlayingScreen(
                 playbackSpeed = state.playbackSpeed,
                 onWhyThisSong = onWhyThisSong,
                 onContinueVibe = onContinueVibe,
+                canRemoveOffline = canRemoveOffline,
+                onRemoveFromLocations = if (lockScreenMode) null else { offline, library ->
+                    onRemoveFromLocations(track.id, offline, library)
+                },
                 onOpenLyrics = onExpandLyrics,
                 lyricsState = lyricsState,
                 onLyricsImport = onLyricsImport,
@@ -1389,6 +1417,7 @@ internal fun backdropSourceArtwork(settledRef: String?, transition: ArtworkBackd
 @Composable
 private fun PlayerHeader(
     currentTrackId: UUID,
+    currentTrackTitle: String,
     hazeState: HazeState,
     lockScreenMode: Boolean,
     lyricsExpanded: Boolean,
@@ -1409,6 +1438,8 @@ private fun PlayerHeader(
     playbackSpeed: Float,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
+    canRemoveOffline: Boolean,
+    onRemoveFromLocations: ((Boolean, Boolean) -> Unit)?,
     onOpenLyrics: () -> Unit,
     lyricsState: NowPlayingLyricsState,
     onLyricsImport: (android.net.Uri) -> Unit,
@@ -1584,6 +1615,7 @@ private fun PlayerHeader(
                 PlayerActionsMenu(
                     expanded = menuExpanded,
                     trackId = currentTrackId,
+                    trackTitle = currentTrackTitle,
                     lyricsState = lyricsState,
                     lyricsExpanded = lyricsExpanded,
                     sleepTimerLabel = if (sleepTimer.active) sleepTimerStatusLabel(sleepTimer)
@@ -1612,6 +1644,8 @@ private fun PlayerHeader(
                     onViewInChat = if (chatActions != null && viewInChatOrigin != null) ::openChatMessage else null,
                     viewInChatOrigin = viewInChatOrigin,
                     isLocalSource = chatOriginLoaded && viewInChatOrigin == null,
+                    canRemoveOffline = canRemoveOffline,
+                    onRemoveFromLocations = onRemoveFromLocations,
                     onOpenLyrics = onOpenLyrics,
                     onImportLrc = { importLauncher.launch(arrayOf("*/*")) },
                     onPasteLyrics = { pasteDialog = true },
