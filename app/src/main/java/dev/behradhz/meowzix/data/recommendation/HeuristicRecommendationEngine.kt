@@ -137,8 +137,10 @@ class HeuristicRecommendationEngine @Inject constructor(
         }?.sessionId
         val sessionStarts = starts.filter { it.sessionId == sessionId }.take(20)
         val outcomes = recent.filter { it.sessionId == sessionId && it.type in CausalTrainingDataset.finalTypes }
-        val elapsedMs = sessionId?.let(historyDao::sessionStartedAt)
-            ?.let { startedAt -> (now.toEpochMilli() - startedAt).coerceAtLeast(0L) }
+        val sessionStartedAt = if (sessionId != null) historyDao.sessionStartedAt(sessionId) else null
+        val elapsedMs = sessionStartedAt?.let { startedAt ->
+            (now.toEpochMilli() - startedAt).coerceAtLeast(0L)
+        }
         val context = RecommendationContext(time.localHour, time.dayOfWeek.value, time.isWeekend, bucket, now,
             sessionId?.uuid(), sessionId?.let { historyDao.sessionPosition(it, state.historyFloorVersion) } ?: 0,
             sessionStarts.mapNotNull { it.trackId.uuid() }, sessionStarts.map { trackById[it.trackId]?.normalizedArtist ?: "" },
