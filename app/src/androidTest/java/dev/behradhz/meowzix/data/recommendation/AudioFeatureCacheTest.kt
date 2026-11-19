@@ -34,6 +34,7 @@ class AudioFeatureCacheTest {
             RecommendationWorkScheduler(context),
             TestManagedStorageRepository,
             AudioAnalysisResourcePolicy(context),
+            dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(context),
             context,
         )
     }
