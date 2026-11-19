@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
@@ -16,11 +17,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
@@ -35,6 +39,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -54,10 +59,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.ui.components.GlassSurface
@@ -67,6 +75,8 @@ import dev.chrisbanes.haze.hazeSource
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.rememberHazeState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeRoute(
@@ -79,9 +89,31 @@ fun HomeRoute(
     foregroundSessionId: Long = 1L,
     reduceMotion: Boolean = false,
     isActive: Boolean = true,
+    isTelegramConnected: Boolean = false,
+    onConnectTelegram: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val initialSourceChoiceCompleted by viewModel.initialSourceChoiceCompleted.collectAsStateWithLifecycle(initialValue = false)
+    val hasExistingLibrary = currentTrack != null ||
+        state.recent.isNotEmpty() ||
+        state.recentlyAdded.isNotEmpty() ||
+        state.recommended.isNotEmpty() ||
+        state.playlists.isNotEmpty()
+    val showInitialSourceChoice = shouldShowInitialSourceChoice(
+        isReady = state.isReady,
+        isCompleted = initialSourceChoiceCompleted,
+        telegramConnected = isTelegramConnected,
+        hasExistingLibrary = hasExistingLibrary,
+    )
+    val sourceChoiceScope = rememberCoroutineScope()
+
+    LaunchedEffect(state.isReady, hasExistingLibrary, isTelegramConnected, initialSourceChoiceCompleted) {
+        if (!initialSourceChoiceCompleted && (isTelegramConnected || (state.isReady && hasExistingLibrary))) {
+            viewModel.completeInitialSourceChoice()
+        }
+    }
+
     val refreshContentAlpha by animateFloatAsState(
         targetValue = if (state.isRefreshing) 0.88f else 1f,
         animationSpec = tween(150),
@@ -103,115 +135,133 @@ fun HomeRoute(
         Box(Modifier.fillMaxSize().hazeSource(headerHazeState)) {
             SecondaryAmbientBackdrop(variation = 0)
     
+            if (showInitialSourceChoice) {
+                FirstLaunchSourcePicker(
+                    hazeState = hazeState,
+                    onConnectTelegram = {
+                        sourceChoiceScope.launch {
+                            viewModel.completeInitialSourceChoice()
+                            onConnectTelegram()
+                        }
+                    },
+                    onOpenLibrary = {
+                        sourceChoiceScope.launch {
+                            viewModel.completeInitialSourceChoice()
+                            onOpenLibrary()
+                        }
+                    },
+                )
+            } else {
             GlassLazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .graphicsLayer { alpha = refreshContentAlpha }
-                    .hazeSource(hazeState),
-                contentPadding = PaddingValues(
-                    start = 18.dp,
-                    end = 18.dp,
-                    top = 100.dp,
-                    bottom = dockAwareBottomPadding(198.dp),
-                ),
-                verticalArrangement = Arrangement.spacedBy(28.dp),
-            ) {
-                currentTrack?.let { track ->
-                    item("continue") {
-                        ContinueGlassHero(
-                            hazeState = hazeState,
-                            track = track,
-                            onClick = { viewModel.playFromHome(track.id) },
-                        )
-                    }
-                }
-    
-                if (state.recommended.isNotEmpty()) {
-                    item("recommended") {
-                        val recommendationIds = state.recommended.map(Track::id)
-                        Crossfade(
-                            targetState = recommendationIds,
-                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
-                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
-                            label = "homeRecommendations",
-                        ) { visibleIds ->
-                            // Artwork/title updates recompose in place; only a new selection crossfades.
-                            val previousTracks = remember(visibleIds) { state.recommended }
-                            FeaturedRecommendations(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .graphicsLayer { alpha = refreshContentAlpha }
+                        .hazeSource(hazeState),
+                    contentPadding = PaddingValues(
+                        start = 18.dp,
+                        end = 18.dp,
+                        top = 100.dp,
+                        bottom = dockAwareBottomPadding(198.dp),
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(28.dp),
+                ) {
+                    currentTrack?.let { track ->
+                        item("continue") {
+                            ContinueGlassHero(
                                 hazeState = hazeState,
-                                tracks = if (visibleIds == recommendationIds) state.recommended else previousTracks,
-                                onPlay = { track -> viewModel.playFromHome(track.id) },
+                                track = track,
+                                onClick = { viewModel.playFromHome(track.id) },
                             )
                         }
                     }
-                }
-    
-                if (state.recent.isNotEmpty()) {
-                    item("recent") {
-                        Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
-                            RecentGlassList(
-                                hazeState = hazeState,
-                                tracks = state.recent,
-                                reduceMotion = reduceMotion,
-                                onPlay = { track -> viewModel.playFromHome(track.id) },
-                            )
+        
+                    if (state.recommended.isNotEmpty()) {
+                        item("recommended") {
+                            val recommendationIds = state.recommended.map(Track::id)
+                            Crossfade(
+                                targetState = recommendationIds,
+                                modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                                animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
+                                label = "homeRecommendations",
+                            ) { visibleIds ->
+                                // Artwork/title updates recompose in place; only a new selection crossfades.
+                                val previousTracks = remember(visibleIds) { state.recommended }
+                                FeaturedRecommendations(
+                                    hazeState = hazeState,
+                                    tracks = if (visibleIds == recommendationIds) state.recommended else previousTracks,
+                                    onPlay = { track -> viewModel.playFromHome(track.id) },
+                                )
+                            }
                         }
                     }
-                }
-    
-                if (state.artists.isNotEmpty()) {
-                    item("artists") {
-                        Crossfade(
-                            targetState = state.artists,
-                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
-                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
-                            label = "homeArtists",
-                        ) { entries ->
-                            ArtistOrbit(
-                                hazeState = hazeState,
-                                artists = entries,
-                                onPlayArtist = { artist ->
-                                    viewModel.playArtist(artist.normalizedName, onPlayCollection)
-                                },
-                            )
+        
+                    if (state.recent.isNotEmpty()) {
+                        item("recent") {
+                            Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
+                                RecentGlassList(
+                                    hazeState = hazeState,
+                                    tracks = state.recent,
+                                    reduceMotion = reduceMotion,
+                                    onPlay = { track -> viewModel.playFromHome(track.id) },
+                                )
+                            }
                         }
                     }
-                }
-    
-                if (state.playlists.isNotEmpty()) {
-                    item("playlists") {
-                        Crossfade(
-                            targetState = state.playlists,
-                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
-                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
-                            label = "homePlaylists",
-                        ) { entries ->
-                            PlaylistGlassRail(
-                                hazeState = hazeState,
-                                playlists = entries,
-                                onOpenPlaylist = onOpenPlaylist,
-                            )
+        
+                    if (state.artists.isNotEmpty()) {
+                        item("artists") {
+                            Crossfade(
+                                targetState = state.artists,
+                                modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                                animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
+                                label = "homeArtists",
+                            ) { entries ->
+                                ArtistOrbit(
+                                    hazeState = hazeState,
+                                    artists = entries,
+                                    onPlayArtist = { artist ->
+                                        viewModel.playArtist(artist.normalizedName, onPlayCollection)
+                                    },
+                                )
+                            }
                         }
                     }
-                }
-    
-                if (state.recentlyAdded.isNotEmpty()) {
-                    item("recently-added") {
-                        Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
-                            RecentlyAddedGlassPanel(
-                                hazeState = hazeState,
-                                tracks = state.recentlyAdded,
-                                reduceMotion = reduceMotion,
-                                onPlay = { track -> viewModel.playFromHome(track.id) },
-                                onOpenLibrary = onOpenLibrary,
-                            )
+        
+                    if (state.playlists.isNotEmpty()) {
+                        item("playlists") {
+                            Crossfade(
+                                targetState = state.playlists,
+                                modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                                animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
+                                label = "homePlaylists",
+                            ) { entries ->
+                                PlaylistGlassRail(
+                                    hazeState = hazeState,
+                                    playlists = entries,
+                                    onOpenPlaylist = onOpenPlaylist,
+                                )
+                            }
                         }
                     }
-                } else if (state.isReady) {
-                    item("empty") {
-                        EmptyLibraryGlassCard(hazeState, onOpenLibrary)
+        
+                    if (state.recentlyAdded.isNotEmpty()) {
+                        item("recently-added") {
+                            Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
+                                RecentlyAddedGlassPanel(
+                                    hazeState = hazeState,
+                                    tracks = state.recentlyAdded,
+                                    reduceMotion = reduceMotion,
+                                    onPlay = { track -> viewModel.playFromHome(track.id) },
+                                    onOpenLibrary = onOpenLibrary,
+                                )
+                            }
+                        }
+                    } else if (state.isReady) {
+                        item("empty") {
+                            EmptyLibraryGlassCard(hazeState, onOpenLibrary)
+                        }
                     }
                 }
             }
@@ -219,11 +269,146 @@ fun HomeRoute(
 
         MeowzixStickyHeader(
             title = "Home",
-            subtitle = "Your listening, shaped for this moment.",
+            subtitle = if (showInitialSourceChoice) "Choose where your music comes from." else "Your listening, shaped for this moment.",
             hazeState = headerHazeState,
             tintAlpha = 0.28f,
             modifier = Modifier.align(Alignment.TopCenter),
         )
+    }
+}
+
+
+internal fun shouldShowInitialSourceChoice(
+    isReady: Boolean,
+    isCompleted: Boolean,
+    telegramConnected: Boolean,
+    hasExistingLibrary: Boolean,
+): Boolean = isReady && !isCompleted && !telegramConnected && !hasExistingLibrary
+
+@Composable
+private fun FirstLaunchSourcePicker(
+    hazeState: HazeState,
+    onConnectTelegram: () -> Unit,
+    onOpenLibrary: () -> Unit,
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(horizontal = 18.dp)
+            .padding(top = 100.dp, bottom = dockAwareBottomPadding(198.dp))
+            .testTag("first-launch-source-choice"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = maxHeight)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = "Your music, your way",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            Text(
+                text = "Choose a source to get started.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+            )
+            FirstLaunchSourceCard(
+                hazeState = hazeState,
+                title = "Connect Telegram",
+                description = "Access music from Saved Messages\\nand your selected Telegram chats.",
+                buttonLabel = "Connect Telegram",
+                testTagPrefix = "first-launch-telegram",
+                icon = {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_telegram_plane),
+                        contentDescription = "Telegram",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(26.dp),
+                    )
+                },
+                onClick = onConnectTelegram,
+            )
+            Spacer(Modifier.height(14.dp))
+            FirstLaunchSourceCard(
+                hazeState = hazeState,
+                title = "Library",
+                description = "Play audio files stored on your device.\\nNo Telegram connection is needed.",
+                buttonLabel = "Open Library",
+                testTagPrefix = "first-launch-library",
+                icon = {
+                    Icon(
+                        Icons.Rounded.LibraryMusic,
+                        contentDescription = "Library",
+                        modifier = Modifier.size(26.dp),
+                    )
+                },
+                onClick = onOpenLibrary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FirstLaunchSourceCard(
+    hazeState: HazeState,
+    title: String,
+    description: String,
+    buttonLabel: String,
+    testTagPrefix: String,
+    icon: @Composable () -> Unit,
+    onClick: () -> Unit,
+) {
+    GlassSurface(
+        hazeState = hazeState,
+        modifier = Modifier.fillMaxWidth().testTag("$testTagPrefix-card"),
+        shape = RoundedCornerShape(28.dp),
+        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Surface(
+                modifier = Modifier.size(48.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.13f),
+                contentColor = MaterialTheme.colorScheme.primary,
+            ) {
+                Box(contentAlignment = Alignment.Center) { icon() }
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Button(
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("$testTagPrefix-button"),
+                shape = RoundedCornerShape(20.dp),
+            ) {
+                Text(buttonLabel, fontWeight = FontWeight.SemiBold)
+            }
+        }
     }
 }
 
