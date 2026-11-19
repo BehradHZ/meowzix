@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.LookaheadScope
@@ -129,15 +130,18 @@ fun HomeRoute(
     
                 if (state.recommended.isNotEmpty()) {
                     item("recommended") {
+                        val recommendationIds = state.recommended.map(Track::id)
                         Crossfade(
-                            targetState = state.recommended,
+                            targetState = recommendationIds,
                             modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
                             animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
                             label = "homeRecommendations",
-                        ) { entries ->
+                        ) { visibleIds ->
+                            // Artwork/title updates recompose in place; only a new selection crossfades.
+                            val previousTracks = remember(visibleIds) { state.recommended }
                             FeaturedRecommendations(
                                 hazeState = hazeState,
-                                tracks = entries,
+                                tracks = if (visibleIds == recommendationIds) state.recommended else previousTracks,
                                 onPlay = { track -> viewModel.playFromHome(track.id) },
                             )
                         }
