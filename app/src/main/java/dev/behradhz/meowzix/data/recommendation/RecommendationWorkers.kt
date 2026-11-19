@@ -9,6 +9,8 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.behradhz.meowzix.domain.recommendation.TrainingScheduler
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import kotlinx.coroutines.flow.first
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -70,8 +72,10 @@ class RecommendationWorkScheduler @Inject constructor(
 
 class PersonalizationTrainingWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = try {
-        EntryPointAccessors.fromApplication(applicationContext, RecommendationWorkerEntryPoint::class.java)
-            .trainer().trainPending(inputData.getBoolean("rebuild", false))
+        val services = EntryPointAccessors.fromApplication(applicationContext, RecommendationWorkerEntryPoint::class.java)
+        if (!services.settings().recommendationPreferenceSettings.first().smartRecommendationsEnabled ||
+            !services.settings().networkPlaybackSettings.first().listeningHistoryEnabled) return Result.success()
+        services.trainer().trainPending(inputData.getBoolean("rebuild", false))
         Result.success()
     } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {
         if (runAttemptCount < 3) Result.retry() else Result.failure()
@@ -80,7 +84,10 @@ class PersonalizationTrainingWorker(context: Context, params: WorkerParameters) 
 
 class AudioFeatureExtractionWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = try {
-        val coordinator = EntryPointAccessors.fromApplication(applicationContext, RecommendationWorkerEntryPoint::class.java).audioCoordinator()
+        val services = EntryPointAccessors.fromApplication(applicationContext, RecommendationWorkerEntryPoint::class.java)
+        val policy = services.settings().recommendationPreferenceSettings.first()
+        if (!policy.smartRecommendationsEnabled || !policy.audioAnalysisEnabled) return Result.success()
+        val coordinator = services.audioCoordinator()
         for (id in inputData.getStringArray("tracks").orEmpty()) {
             currentCoroutineContext().ensureActive()
             coordinator.extractIfNeeded(UUID.fromString(id))
@@ -96,4 +103,5 @@ class AudioFeatureExtractionWorker(context: Context, params: WorkerParameters) :
 interface RecommendationWorkerEntryPoint {
     fun trainer(): PersonalizationTrainer
     fun audioCoordinator(): AudioFeatureExtractionCoordinator
+    fun settings(): SettingsRepository
 }
