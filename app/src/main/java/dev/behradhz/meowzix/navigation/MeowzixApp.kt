@@ -859,6 +859,39 @@ private fun RetainedTopLevelTab(
     ) { content() }
 }
 
+/**
+ * NavHost transitions can advance while Telegram's expensive first composition
+ * is being prepared. Start this GPU-only entrance after the destination has
+ * actually been laid out, so opening Telegram never appears as an instant swap.
+ */
+@Composable
+internal fun TelegramDestinationEntrance(
+    reduceMotion: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val progress = remember(reduceMotion) { Animatable(if (reduceMotion) 1f else 0f) }
+    var measured by remember { mutableStateOf(false) }
+    val entryOffsetPx = with(LocalDensity.current) { 30.dp.toPx() }
+    LaunchedEffect(measured, reduceMotion, progress) {
+        if (!reduceMotion && measured) {
+            withFrameNanos { }
+            progress.animateTo(1f, tween(TELEGRAM_ENTRY_DURATION_MS, easing = FastOutSlowInEasing))
+        }
+    }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onSizeChanged { if (it.width > 0 && it.height > 0) measured = true }
+            .graphicsLayer {
+                alpha = progress.value
+                translationX = (1f - progress.value) * entryOffsetPx
+            }
+            .testTag("telegram-destination-entrance"),
+    ) {
+        content()
+    }
+}
+
 @Composable
 internal fun MorphingDock(
     hazeState: HazeState,
