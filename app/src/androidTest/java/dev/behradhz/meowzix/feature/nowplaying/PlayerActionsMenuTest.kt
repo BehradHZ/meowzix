@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -175,6 +176,49 @@ class PlayerActionsMenuTest {
         compose.onNodeWithText("View in Chat").assertDoesNotExist()
         compose.onNodeWithTag("player-action-view-in-chat").performClick()
         compose.runOnIdle { assertEquals(1, opened) }
+    }
+
+    @Test fun removeSongMorphsIntoSelectionPanelAndRequiresConfirmation() {
+        val id = UUID.randomUUID()
+        var expanded by mutableStateOf(true)
+        var removal: Pair<Boolean, Boolean>? = null
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                Box {
+                    Button(onClick = { expanded = true }) { Text("Open menu") }
+                    PlayerActionsMenu(
+                        expanded = expanded,
+                        trackId = id,
+                        trackTitle = "Test track",
+                        lyricsState = NowPlayingLyricsState(id, TrackLyrics(id)),
+                        lyricsExpanded = false,
+                        sleepTimerLabel = "Off",
+                        onDismiss = { expanded = false },
+                        onWhyThisSong = {},
+                        onContinueVibe = {},
+                        onOpenLyrics = {},
+                        onImportLrc = {},
+                        onPasteLyrics = {},
+                        onAdjustDelay = {},
+                        onSelectVersion = {},
+                        onDeleteVersion = {},
+                        canRemoveOffline = false,
+                        onRemoveFromLocations = { offline, library -> removal = offline to library },
+                    )
+                }
+            }
+        }
+        compose.onNodeWithTag("player-action-remove-song").performClick()
+        compose.onNodeWithTag("player-removal-panel").assertIsDisplayed()
+        compose.onNodeWithText("Test track").assertIsDisplayed()
+        compose.onNodeWithTag("player-removal-confirm").assertIsNotEnabled()
+        compose.onNodeWithTag("player-removal-library").performClick()
+        compose.onNodeWithTag("player-removal-confirm").assertIsEnabled()
+        compose.onNodeWithTag("player-removal-confirm").performClick()
+        compose.runOnIdle {
+            assertEquals(false to true, removal)
+            assertEquals(false, expanded)
+        }
     }
 
     @Test fun primaryMenuUsesRowsWithInlineTimerStatusAndPreservesActions() {
