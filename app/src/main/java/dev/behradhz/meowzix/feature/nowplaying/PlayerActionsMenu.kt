@@ -42,6 +42,8 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,6 +78,7 @@ import androidx.compose.ui.window.PopupProperties
 import dev.behradhz.meowzix.domain.playback.SleepTimerState
 import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
 import dev.behradhz.meowzix.ui.components.ChatAvatar
+import dev.behradhz.meowzix.feature.telegram.ForwardOptionPill
 import dev.behradhz.meowzix.ui.components.WhyThisSongLink
 import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.ui.components.SleepTimerMenuContent
@@ -92,13 +95,14 @@ internal fun draggedPlayerAction(screenPoint: Offset, rowBounds: Map<Int, Rect>,
             screenPoint.x <= rect.right + horizontalTolerancePx
     }?.key
 
-internal enum class PlayerActionsPage { ACTIONS, LYRICS, PLAYBACK_SPEED, SLEEP_TIMER }
+internal enum class PlayerActionsPage { ACTIONS, LYRICS, PLAYBACK_SPEED, SLEEP_TIMER, REMOVE }
 
 /** Two-page anchored glass popup, matching Library's track-actions menu. */
 @Composable
 internal fun PlayerActionsMenu(
     expanded: Boolean,
     trackId: UUID?,
+    trackTitle: String = "",
     lyricsState: NowPlayingLyricsState,
     lyricsExpanded: Boolean,
     sleepTimerLabel: String,
@@ -135,10 +139,20 @@ internal fun PlayerActionsMenu(
     onViewInChat: (() -> Unit)? = null,
     viewInChatOrigin: TelegramTrackOrigin? = null,
     isLocalSource: Boolean = false,
+    canRemoveOffline: Boolean = false,
+    onRemoveFromLocations: ((offline: Boolean, fromLibrary: Boolean) -> Unit)? = null,
 ) {
     var page by remember(trackId) { mutableStateOf(PlayerActionsPage.ACTIONS) }
+    var removeOffline by remember(trackId) { mutableStateOf(false) }
+    var removeLibrary by remember(trackId) { mutableStateOf(false) }
     var pendingDelete by remember(trackId) { mutableStateOf<LyricsVersion?>(null) }
-    LaunchedEffect(expanded) { if (!expanded) page = PlayerActionsPage.ACTIONS }
+    LaunchedEffect(expanded) {
+        if (!expanded) {
+            page = PlayerActionsPage.ACTIONS
+            removeOffline = false
+            removeLibrary = false
+        }
+    }
     LaunchedEffect(draggedLyricsRequest) {
         if (draggedLyricsRequest > 0) page = PlayerActionsPage.LYRICS
     }
@@ -256,6 +270,21 @@ internal fun PlayerActionsMenu(
                                     onClick = { onDismiss(); open() },
                                 )
                             }
+                        }
+                        if (onRemoveFromLocations != null && trackId != null) {
+                            PlayerMenuOptionRow(
+                                icon = Icons.Rounded.DeleteOutline,
+                                title = "Remove song",
+                                subtitle = "Offline / Library",
+                                actionTag = "player-action-remove-song",
+                                highlighted = draggedAction == 6,
+                                onBoundsChanged = { onActionBoundsChanged(6, it) },
+                                onClick = {
+                                    removeOffline = false
+                                    removeLibrary = false
+                                    page = PlayerActionsPage.REMOVE
+                                },
+                            )
                         }
                         WhyThisSongLink(
                             tag = "player-action-why-this-song",
@@ -425,6 +454,89 @@ internal fun PlayerActionsMenu(
                             ) {
                                 onDismiss()
                                 onRestoreAutomaticLyrics()
+                            }
+                        }
+                    }
+                }
+                PlayerActionsPage.REMOVE -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 10.dp)
+                            .testTag("player-removal-panel"),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        PlayerSubpageHeader("Remove song", "player-remove-back") {
+                            page = PlayerActionsPage.ACTIONS
+                        }
+                        Text(
+                            text = trackTitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                        )
+                        Text(
+                            "Remove from",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 10.dp),
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            ForwardOptionPill(
+                                title = "Offline",
+                                selected = removeOffline,
+                                onSelectedChange = { removeOffline = it },
+                                modifier = Modifier.weight(1f),
+                                enabled = canRemoveOffline,
+                                tag = "player-removal-offline",
+                            )
+                            ForwardOptionPill(
+                                title = "Library",
+                                selected = removeLibrary,
+                                onSelectedChange = { removeLibrary = it },
+                                modifier = Modifier.weight(1f),
+                                tag = "player-removal-library",
+                            )
+                        }
+                        Text(
+                            "Offline removes only Meowzix-saved copies; Library hides the song. " +
+                                "Original device files and Telegram messages are never deleted.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                        )
+                        if (!canRemoveOffline) {
+                            Text(
+                                "No Meowzix offline copy to remove.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 10.dp),
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        ) {
+                            TextButton(onClick = { page = PlayerActionsPage.ACTIONS }) { Text("Back") }
+                            Button(
+                                enabled = removeLibrary || (removeOffline && canRemoveOffline),
+                                onClick = {
+                                    val removeCopy = removeOffline && canRemoveOffline
+                                    val removeFromLibrary = removeLibrary
+                                    onDismiss()
+                                    onRemoveFromLocations?.invoke(removeCopy, removeFromLibrary)
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError,
+                                ),
+                                modifier = Modifier.testTag("player-removal-confirm"),
+                            ) {
+                                Text("Remove selected")
                             }
                         }
                     }
