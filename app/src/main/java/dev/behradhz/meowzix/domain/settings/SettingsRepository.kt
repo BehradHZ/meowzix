@@ -206,8 +206,6 @@ interface SettingsRepository {
     val telegramForwardSettings: Flow<TelegramForwardSettings>
     val libraryDisplaySettings: Flow<LibraryDisplaySettings>
     val collapsedTelegramPlaylistSections: Flow<Set<String>> get() = flowOf(emptySet())
-    /** Whether the user has chosen an initial music source on the first Home visit. */
-    val initialSourceChoiceCompleted: Flow<Boolean> get() = flowOf(false)
     /** A dismissed Home Telegram reminder stays dismissed across app restarts. */
     val telegramConnectReminderDismissed: Flow<Boolean> get() = flowOf(false)
     val appearanceSettings: Flow<AppearanceSettings>
@@ -220,7 +218,6 @@ interface SettingsRepository {
     suspend fun setPrefetchEnabled(enabled: Boolean)
     suspend fun setPrefetchOnMetered(enabled: Boolean)
     suspend fun setListeningHistoryEnabled(enabled: Boolean)
-    suspend fun setInitialSourceChoiceCompleted() {}
     suspend fun dismissTelegramConnectReminder() {}
     suspend fun setTemporaryCacheBudgetBytes(bytes: Long)
     suspend fun setTelegramForwardDefaults(includeSourceAttribution: Boolean, keepCaption: Boolean)
