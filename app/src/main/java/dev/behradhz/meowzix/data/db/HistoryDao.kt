@@ -14,19 +14,6 @@ interface HistoryDao {
     @Query("SELECT * FROM listening_events ORDER BY occurredAtEpochMs DESC")
     fun observeEvents(): Flow<List<ListeningEventEntity>>
 
-    /** Only finalized listening choices and explicit favorites can refresh Home recommendations. */
-    @Query(
-        """
-        SELECT
-            COALESCE(SUM(CASE WHEN type IN ('PLAY_COMPLETED', 'SKIPPED_EARLY', 'SKIPPED_LATE', 'REPLAYED')
-                THEN 1 ELSE 0 END), 0) AS finalizedOutcomes,
-            COALESCE(SUM(CASE WHEN type IN ('FAVORITED', 'UNFAVORITED')
-                THEN 1 ELSE 0 END), 0) AS favoriteChanges
-        FROM listening_events
-        """,
-    )
-    fun observeHomeRecommendationSignals(): Flow<HomeRecommendationSignalCounts>
-
     @Query(
         """
         SELECT e.trackId AS trackId,
@@ -195,10 +182,4 @@ data class ListeningHistoryDisplayRow(
     val title: String,
     val type: String,
     val occurredAtEpochMs: Long,
-)
-
-/** Small, stable Home projection; no listening-event rows need to be loaded. */
-data class HomeRecommendationSignalCounts(
-    val finalizedOutcomes: Long,
-    val favoriteChanges: Long,
 )

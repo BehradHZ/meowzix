@@ -6,7 +6,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.core.common.TextNormalizer
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.repository.HomeHistoryReader
-import dev.behradhz.meowzix.data.repository.HomeRecommendationSignals
+import dev.behradhz.meowzix.data.repository.HomeRecommendationSnapshot
+import dev.behradhz.meowzix.data.repository.HomeRecommendationSnapshotStore
 import dev.behradhz.meowzix.data.repository.ArtistSummary
 import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
@@ -14,7 +15,6 @@ import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueRepository
-import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import kotlinx.coroutines.withTimeoutOrNull
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
 import java.time.Instant
@@ -69,19 +69,13 @@ class HomeViewModel @Inject constructor(
     private val library: LibraryQueryRepository,
     private val playlists: PlaylistRepository,
     private val history: HomeHistoryReader,
+    private val recommendationSnapshotStore: HomeRecommendationSnapshotStore,
     private val recommendationEngine: RecommendationEngine,
     private val playback: PlaybackController,
     private val queueRepository: QueueRepository,
-    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(cachedState ?: HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
-    val initialSourceChoiceCompleted = settingsRepository.initialSourceChoiceCompleted
-
-    suspend fun completeInitialSourceChoice() {
-        settingsRepository.setInitialSourceChoiceCompleted()
-    }
-
     private var homePlayGeneration = 0L
 
     /** Explicit reload remains possible; routine updates happen once per foreground session. */
@@ -122,7 +116,6 @@ class HomeViewModel @Inject constructor(
     private var activeRefreshJob: Job? = null
     private var visibleSessionId: Long = 0L
     private var homeChangesJob: Job? = null
-    private var homeSignalsJob: Job? = null
     private var homeSlotJob: Job? = null
 
     /** Refresh once for each app foreground session; switching tabs never starts a new session. */
@@ -150,20 +143,6 @@ class HomeViewModel @Inject constructor(
                     }
                 }
         }
-        // Playback progress and artwork updates do not affect these counts.
-        // A group of finalized plays/skips or an explicit favorite change does.
-        homeSignalsJob?.cancel()
-        homeSignalsJob = viewModelScope.launch {
-            history.recommendationSignals().distinctUntilChanged().collect { signals ->
-                val nowSlot = HomeRecommendationRefreshPolicy.slot(Instant.now(), ZoneId.systemDefault())
-                if (visibleSessionId == sessionId && _state.value.isReady &&
-                    HomeRecommendationRefreshPolicy.needsRefresh(
-                        cachedRecommendationSlot, cachedRecommendationSignals, nowSlot, signals,
-                        cachedState?.recommended?.isNotEmpty() == true,
-                    )
-                ) refreshForSession(sessionId, force = true)
-            }
-        }
         // Wake up at the next time-bucket boundary rather than polling each second.
         homeSlotJob?.cancel()
         homeSlotJob = viewModelScope.launch {
@@ -179,8 +158,6 @@ class HomeViewModel @Inject constructor(
         activeRefreshJob = null
         homeChangesJob?.cancel()
         homeChangesJob = null
-        homeSignalsJob?.cancel()
-        homeSignalsJob = null
         homeSlotJob?.cancel()
         homeSlotJob = null
         visibleSessionId = 0L
@@ -196,69 +173,57 @@ class HomeViewModel @Inject constructor(
 
     private suspend fun refreshForSession(sessionId: Long, force: Boolean = false) {
         refreshMutex.withLock {
-            val zone = ZoneId.systemDefault()
-            val slot = HomeRecommendationRefreshPolicy.slot(Instant.now(), zone)
-            val signals = history.recommendationSignals().first()
-            val regenerate = HomeRecommendationRefreshPolicy.needsRefresh(
-                cachedRecommendationSlot,
-                cachedRecommendationSignals,
-                slot,
-                signals,
-                cachedState?.recommended?.isNotEmpty() == true,
-            )
-            if (!force && !regenerate && !HomeSessionRefreshPolicy.needsRefresh(
-                    sessionId, cachedSessionId, cachedState?.isReady == true
-                )) {
+            val slot = HomeRecommendationRefreshPolicy.slot(Instant.now(), ZoneId.systemDefault())
+            if (!force && !HomeRecommendationRefreshPolicy.needsRefresh(cachedRecommendationSlotKey, slot) &&
+                !HomeSessionRefreshPolicy.needsRefresh(sessionId, cachedSessionId, cachedState?.isReady == true)
+            ) {
                 cachedState?.let { _state.value = it }
                 return@withLock
             }
-
-            // Metadata and playlist changes can refresh cards without shuffling their IDs.
-            if (regenerate && _state.value.isReady) {
-                _state.update { it.copy(isRefreshing = true) }
-            }
             try {
-                val reusedIds = if (regenerate) null else cachedState?.recommended?.map(Track::id)
-                val snapshot = buildHomeFeed(reusedIds, HomeRecommendationRefreshPolicy.seed(slot, signals))
-                if (regenerate || reusedIds == null || snapshot.recommended.isEmpty()) {
-                    cachedRecommendationSlot = slot
-                    cachedRecommendationSignals = signals
+                // Read a tiny persisted snapshot only on Home refresh, never on playback events.
+                val stored = recommendationSnapshotStore.read()
+                val recommendationIds = if (stored?.slotKey == slot.key) {
+                    stored.trackIds
+                } else {
+                    // The ONLY Home recommendation inference point. When the app was closed at
+                    // the scheduled hour, the current slot is calculated on the next Home visit.
+                    val rankedIds = recommendationEngine
+                        .forYouNow(playback.state.value.currentTrack?.id, HomeRecommendationRefreshPolicy.seed(slot))
+                        .map { it.trackId }.distinct().take(14)
+                    val available = library.tracks(rankedIds)
+                    val selectedIds = if (available.isNotEmpty()) {
+                        available.map(Track::id)
+                    } else {
+                        library.homeFallback(14).map(Track::id)
+                    }
+                    recommendationSnapshotStore.save(HomeRecommendationSnapshot(slot.key, selectedIds))
+                    selectedIds
                 }
+                // Only metadata and bounded rows are rehydrated during ordinary library refresh.
+                val snapshot = buildHomeFeed(recommendationIds)
+                cachedRecommendationSlotKey = slot.key
                 cachedState = snapshot
                 cachedSessionId = sessionId
                 _state.value = snapshot
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                // A failed attempt is not cached as a completed session.
+                // Failed inference is not marked complete; retry on a later Home visit.
                 if (cachedState == null) _state.value = HomeUiState(isReady = true)
-            } finally {
-                _state.update { if (it.isRefreshing) it.copy(isRefreshing = false) else it }
             }
         }
     }
 
-    private suspend fun buildHomeFeed(reusedRecommendationIds: List<UUID>?, recommendationSeed: Long): HomeUiState =
+    private suspend fun buildHomeFeed(recommendationIds: List<UUID>): HomeUiState =
         withContext(Dispatchers.Default) {
         val playlistRows = playlists.observePlaylists().first()
         val recentTrackIds = history.recentTrackIds().first()
 
-        // The bounded track lookup already enforces source availability.
-        // Do not enumerate the entire music library merely to show 12 recent rows.
         val recent = library.tracks(recentTrackIds).take(12)
         val recentlyAdded = library.recentlyAdded(12)
-
-        // Select only the content Home actually displays; the other recommendation
-        // sections are computed on demand by their respective screens.
-        val reused = reusedRecommendationIds?.let { library.tracks(it) }.orEmpty()
-        val recommended = if (reused.isNotEmpty()) {
-            reused
-        } else {
-            val recommendedIds = recommendationEngine
-                .forYouNow(playback.state.value.currentTrack?.id, seed = recommendationSeed)
-                .map { it.trackId }
-            library.tracks(recommendedIds.take(14)).ifEmpty { library.homeFallback(14) }
-        }
+        // No ranking or fallback here: the scheduled snapshot owns the selected IDs.
+        val recommended = library.tracks(recommendationIds)
         val artistKeys = homeArtistKeys(recommended + recent + recentlyAdded)
         val artists = homeArtistCards(
             artistKeys,
@@ -273,8 +238,6 @@ class HomeViewModel @Inject constructor(
             playlists = playlistRows.sortedByDescending(PlaylistSummary::updatedAt).take(10),
             artists = artists,
             isReady = true,
-            // Other recommendation sections are not rendered by Home. Their full
-            // Track rows should only be hydrated if/when a visible surface needs them.
             sections = emptyList(),
         )
     }
@@ -284,8 +247,7 @@ class HomeViewModel @Inject constructor(
         val refreshMutex = Mutex()
         @Volatile var cachedState: HomeUiState? = null
         @Volatile var cachedSessionId: Long = 0L
-        @Volatile var cachedRecommendationSlot: HomeRecommendationSlot? = null
-        @Volatile var cachedRecommendationSignals: HomeRecommendationSignals? = null
+        @Volatile var cachedRecommendationSlotKey: String? = null
     }
 }
 
