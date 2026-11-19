@@ -129,7 +129,7 @@ class TelegramProxyLinkParserTest {
             "https://t.me/proxy?server=proxy.example.org&port=443&secret=${"a".repeat(22)}!",
         ))
         assertNull(TelegramProxyLinkParser.parse(
-            "https://t.me/proxy?server=proxy.example.org&port=443&secret=${"a".repeat(342)}",
+            "https://t.me/proxy?server=proxy.example.org&port=443&secret=${"a".repeat(345)}",
         ))
     }
 
