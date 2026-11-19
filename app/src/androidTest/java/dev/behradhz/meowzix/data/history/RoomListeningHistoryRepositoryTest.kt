@@ -54,6 +54,7 @@ class RoomListeningHistoryRepositoryTest {
             model = NoOpPersonalizationModel(),
             scheduler = object : dev.behradhz.meowzix.domain.recommendation.TrainingScheduler { override fun scheduleTraining(rebuild: Boolean) {} },
             adaptationBus = SmartQueueAdaptationBus(),
+            settings = dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(context),
         )
         repository = RoomListeningHistoryRepository(
             database = database,
