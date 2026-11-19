@@ -78,6 +78,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
     private val queueMutex = Mutex()
     private val activeSends = ConcurrentHashMap<String, ActiveSend>()
     private val folderLoadMutex = Mutex()
+    private val avatarDownloadSlots = Semaphore(4)
     private val folderCache = ForwardFolderMemoryCache<TelegramForwardFolder>()
     private val snapshots = ForwardDestinationSnapshotStore(context)
     private val folderRequestLock = Any()
@@ -111,7 +112,18 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 .map { it.step }
                 .distinctUntilChanged()
                 .collect { step ->
-                    if (step is TelegramAuthStep.Ready) processPendingSends()
+                    if (step is TelegramAuthStep.Ready) {
+                        scope.launch {
+                            try {
+                                prewarmForwardFolderSnapshots()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                // Warming is optional; the picker can always load on demand.
+                            }
+                        }
+                        processPendingSends()
+                    }
                     if (step is TelegramAuthStep.LoggingOut) {
                         snapshots.clearAll()
                         folderCache.clear()
@@ -123,6 +135,113 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
     override fun initialize() {
         scheduleProcessing()
+    }
+
+    override fun cachedRecentForwardChats(): List<TelegramChatSummary>? {
+        if (telegramRepository.authState.value.step !is TelegramAuthStep.Ready) return null
+        val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
+        val selected = telegramRepository.musicSourceState.value.selectedChatIds
+        return snapshots.recentChats(accountId)?.map { it.copy(selected = it.chatId in selected) }
+    }
+
+    override suspend fun resolveForwardChatPhoto(chatId: Long): String? =
+        avatarDownloadSlots.withPermit {
+            val client = TdLibClientAdapter.activeOrNull() ?: return@withPermit null
+            if (telegramRepository.authState.value.step !is TelegramAuthStep.Ready) return@withPermit null
+            val accountId = telegramRepository.musicSourceState.value.accountId ?: return@withPermit null
+            val chat = try {
+                withTimeoutOrNull(2_000L) { client.send(TdApi.GetChat(chatId)) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } ?: return@withPermit null
+            chat.localPhotoRef()?.let { return@withPermit it }
+            val small = chat.photo?.small ?: return@withPermit null
+            val downloaded = try {
+                withTimeoutOrNull(12_000L) {
+                    client.send(TdApi.DownloadFile(small.id, 2, 0L, 0L, true))
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } ?: return@withPermit null
+            if (TdLibClientAdapter.activeOrNull() !== client ||
+                telegramRepository.musicSourceState.value.accountId != accountId ||
+                telegramRepository.authState.value.step !is TelegramAuthStep.Ready
+            ) return@withPermit null
+            val path = downloaded.local.path
+            if (!downloaded.local.isDownloadingCompleted || path.isBlank()) return@withPermit null
+            File(path).takeIf(File::isFile)?.let { Uri.fromFile(it).toString() }
+        }
+
+    /**
+     * Warm the first screen of each Telegram folder once per authorization.
+     * The full folder remains paginated on demand; never crawl chat histories here.
+     */
+    private suspend fun prewarmForwardFolderSnapshots() {
+        val client = TdLibClientAdapter.activeOrNull() ?: return
+        val accountId = withTimeoutOrNull(8_000L) {
+            telegramRepository.musicSourceState.first { it.accountId != null }.accountId
+        } ?: return
+        val currentUserId = accountId.toLongOrNull() ?: return
+        val folders = loadForwardFolders()
+        val revision = client.chatFolderRevision
+        for (folder in folders.take(8)) {
+            if (TdLibClientAdapter.activeOrNull() !== client ||
+                telegramRepository.authState.value.step !is TelegramAuthStep.Ready ||
+                telegramRepository.musicSourceState.value.accountId != accountId ||
+                client.chatFolderRevision != revision
+            ) return
+            if (snapshots.folderChatSnapshot(accountId, folder.id) != null) continue
+            try {
+                val list = TdApi.ChatListFolder(folder.id)
+                var ids = withTimeoutOrNull(1_500L) {
+                    client.send(TdApi.GetChats(list, FOLDER_FIRST_SCREEN_COUNT)).chatIds.toList()
+                }.orEmpty()
+                if (ids.isEmpty()) {
+                    try {
+                        withTimeoutOrNull(2_500L) {
+                            client.send(TdApi.LoadChats(list, FOLDER_FIRST_SCREEN_COUNT))
+                        }
+                    } catch (error: TdLibException) {
+                        if (error.errorCode != 404) continue
+                    }
+                    delay(120L)
+                    ids = withTimeoutOrNull(1_500L) {
+                        client.send(TdApi.GetChats(list, FOLDER_FIRST_SCREEN_COUNT)).chatIds.toList()
+                    }.orEmpty()
+                }
+                val definition = withTimeoutOrNull(1_500L) {
+                    client.send(TdApi.GetChatFolder(folder.id))
+                }
+                val orderedIds = LinkedHashSet<Long>()
+                definition?.pinnedChatIds?.let { orderedIds.addAll(it.toList()) }
+                definition?.includedChatIds?.let { orderedIds.addAll(it.toList()) }
+                orderedIds.addAll(ids)
+                val excluded = definition?.excludedChatIds?.toSet().orEmpty()
+                val previews = resolveForwardChats(
+                    client,
+                    orderedIds.filterNot(excluded::contains).take(FOLDER_FIRST_SCREEN_COUNT),
+                    currentUserId,
+                    telegramRepository.musicSourceState.value.selectedChatIds,
+                )
+                if (previews.isNotEmpty() &&
+                    TdLibClientAdapter.activeOrNull() === client &&
+                    telegramRepository.authState.value.step is TelegramAuthStep.Ready &&
+                    telegramRepository.musicSourceState.value.accountId == accountId &&
+                    client.chatFolderRevision == revision &&
+                    snapshots.folderChatSnapshot(accountId, folder.id) == null
+                ) {
+                    snapshots.saveFolderChats(accountId, folder.id, previews)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A failed folder does not delay opening Forward or the next folder.
+            }
+        }
     }
 
     override suspend fun searchChats(query: String, limit: Int): List<TelegramChatSummary> {
@@ -139,9 +258,8 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val ids = LinkedHashSet<Long>()
 
         if (term.isEmpty()) {
-            snapshots.recentChats(accountId)?.takeIf { it.isNotEmpty() }?.let { cached ->
-                return cached.take(safeLimit).map { it.copy(selected = it.chatId in telegramRepository.musicSourceState.value.selectedChatIds) }
-            }
+            // Render the persisted preview immediately in the UI, but always
+            // reconcile real TDLib metadata rather than returning a photo-less snapshot.
             // The landing panel never walks Telegram's entire chat history.
             ids.addAll(client.send(TdApi.GetChats(null, safeLimit)).chatIds.toList())
             withTimeoutOrNull(400L) {
@@ -186,6 +304,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 }?.let { ids.add(it.id) }
             }
         }
+        if (term.isEmpty() && ids.isEmpty()) return cachedRecentForwardChats()?.take(safeLimit).orEmpty()
         val result = resolveForwardChats(
             client = client,
             chatIds = ids.take(safeLimit),
@@ -315,10 +434,9 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val memory = synchronized(folderRequestLock) {
             folderChatCaches[folderId]?.snapshot(
                 accountId, client, client.chatFolderRevision, SystemClock.elapsedRealtime(),
-            )?.takeIf { it.isNotEmpty() }
+            )
         }
         return (memory ?: snapshots.folderChats(accountId, folderId))
-            ?.takeIf { it.isNotEmpty() }
             ?.map { it.copy(selected = it.chatId in selectedIds) }
     }
 
@@ -338,7 +456,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
      * batches. A slow LoadChats(100) can no longer block the first visible rows.
      *
      * The cold flow is scoped to the selected folder: switching folders cancels unused
-     * work. Completed lists are retained in the existing account/revision-scoped cache.
+     * work. Completed lists are retained on disk for seven days, across restarts.
      */
     override fun streamForwardFolderChats(folderId: Int): Flow<List<TelegramChatSummary>> = flow {
         cachedForwardFolderChats(folderId)?.let { emit(it) }
@@ -357,7 +475,8 @@ class TdLibTelegramForwardRepository @Inject constructor(
         val freshMemory = synchronized(folderRequestLock) {
             folderChatCaches[folderId]?.snapshot(accountId, client, revision, SystemClock.elapsedRealtime())
         }
-        if (freshMemory != null) return@flow
+        // A completed disk index skips pagination until its seven-day TTL expires.
+        if (freshMemory != null || snapshots.completeFolderChats(accountId, folderId) != null) return@flow
         val chatList = TdApi.ChatListFolder(folderId)
         val orderedIds = LinkedHashSet<Long>()
         val resolved = LinkedHashMap<Long, TelegramChatSummary>()
@@ -499,24 +618,33 @@ class TdLibTelegramForwardRepository @Inject constructor(
             ) {
                 error("This Telegram folder hasn't finished loading. Tap Retry loading folder.")
             }
+            // Confirmed empty folders are complete and should not be rescanned.
+            snapshots.saveCompleteFolderChats(accountId, folderId, emptyList())
+            synchronized(folderRequestLock) {
+                folderChatCaches.getOrPut(folderId) { ForwardFolderMemoryCache() }.save(
+                    accountId, client, revision, SystemClock.elapsedRealtime(), emptyList(),
+                )
+            }
             emit(emptyList())
             return@flow
         }
 
-        // Partial previews are durable, but only complete in-memory snapshots skip further pagination.
-        snapshots.saveFolderChats(accountId, folderId, final)
-        if (shouldCacheForwardFolderChats(
-                knownChatCount = orderedIds.size,
-                resolvedChatCount = final.size,
-                reachedEnd = reachedEnd,
-                definitionLoaded = definitionResult.isSuccess,
-            )
-        ) {
+        val complete = shouldCacheForwardFolderChats(
+            knownChatCount = orderedIds.size,
+            resolvedChatCount = final.size,
+            reachedEnd = reachedEnd,
+            definitionLoaded = definitionResult.isSuccess,
+        )
+        if (complete) {
+            snapshots.saveCompleteFolderChats(accountId, folderId, final)
             synchronized(folderRequestLock) {
                 folderChatCaches.getOrPut(folderId) { ForwardFolderMemoryCache() }.save(
                     accountId, client, revision, SystemClock.elapsedRealtime(), final,
                 )
             }
+        } else {
+            // Incomplete results remain a preview, never a seven-day index.
+            snapshots.saveFolderChats(accountId, folderId, final)
         }
         emit(final)
     }

@@ -356,6 +356,7 @@ class NowPlayingViewModel @Inject constructor(
         forwardSearchJob?.cancel()
         forwardFoldersJob?.cancel()
         val cachedFolders = telegramForwardRepository.cachedForwardFolders()
+        val cachedChats = telegramForwardRepository.cachedRecentForwardChats().orEmpty()
         forwardTrackId = selectedTrack.id
         forwardTrackIds = trackIds.distinct()
         _forwardState.update {
@@ -364,7 +365,7 @@ class NowPlayingViewModel @Inject constructor(
                 track = selectedTrack,
                 trackIds = forwardTrackIds,
                 query = "",
-                chats = emptyList(),
+                chats = cachedChats,
                 folders = cachedFolders.orEmpty(),
                 foldersLoading = cachedFolders == null,
                 foldersError = if (cachedFolders?.isEmpty() == true) "No Telegram folders found" else null,

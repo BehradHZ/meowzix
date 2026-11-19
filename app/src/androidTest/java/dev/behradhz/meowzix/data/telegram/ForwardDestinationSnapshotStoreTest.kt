@@ -20,6 +20,41 @@ class ForwardDestinationSnapshotStoreTest {
     @Before fun setUp() { store.clearAll() }
     @After fun tearDown() { store.clearAll() }
 
+    @Test fun completedIndexSurvivesRecreationAndHasSevenDayTtl() {
+        val chat = TelegramChatSummary(100L, "Music", TelegramChatKind.PRIVATE, false)
+        val created = System.currentTimeMillis()
+        store.saveCompleteFolderChats("a", 10, listOf(chat), created)
+        val restored = ForwardDestinationSnapshotStore(context)
+        assertEquals(listOf(100L), restored.completeFolderChats("a", 10)?.map { it.chatId })
+        assertEquals(true, restored.folderChatSnapshot("a", 10, created + FORWARD_FOLDER_INDEX_TTL_MS - 1)?.complete)
+        assertNull(restored.completeFolderChats("b", 10))
+    }
+
+    @Test fun previewNeverOverridesCompletedIndex() {
+        val chat = TelegramChatSummary(100L, "Music", TelegramChatKind.PRIVATE, false)
+        val created = System.currentTimeMillis()
+        store.saveFolderChats("a", 10, listOf(chat), created)
+        assertNull(store.completeFolderChats("a", 10))
+        store.saveCompleteFolderChats("a", 10, listOf(chat), created)
+        store.saveFolderChats("a", 10, emptyList(), created + 1)
+        assertEquals(100L, store.completeFolderChats("a", 10)?.single()?.chatId)
+    }
+
+    @Test fun expiredIndexIsEvictedAndCanBeRebuilt() {
+        val chat = TelegramChatSummary(100L, "Old", TelegramChatKind.PRIVATE, false)
+        store.saveCompleteFolderChats("a", 10, listOf(chat), System.currentTimeMillis() - FORWARD_FOLDER_INDEX_TTL_MS)
+        assertNull(store.folderChatSnapshot("a", 10))
+        assertNull(ForwardDestinationSnapshotStore(context).completeFolderChats("a", 10))
+        store.saveCompleteFolderChats("a", 10, listOf(chat.copy(title = "New")))
+        assertEquals("New", store.completeFolderChats("a", 10)?.single()?.title)
+    }
+
+    @Test fun completedEmptyFolderIsPersistent() {
+        store.saveCompleteFolderChats("a", 10, emptyList())
+        assertEquals(emptyList<TelegramChatSummary>(),
+            ForwardDestinationSnapshotStore(context).completeFolderChats("a", 10))
+    }
+
     @Test fun snapshotsSurviveRecreationAndAreAccountScoped() {
         val chat = TelegramChatSummary(100L, "Music", TelegramChatKind.PRIVATE, true)
         store.saveFolders("a", listOf(TelegramForwardFolder(10, "Favorites", emptyList())))

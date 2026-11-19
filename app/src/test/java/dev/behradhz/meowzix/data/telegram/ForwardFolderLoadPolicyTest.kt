@@ -5,6 +5,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ForwardFolderLoadPolicyTest {
+    @Test fun fullIndexExpiresExactlyAfterSevenDays() {
+        val created = 1_700_000_000_000L
+        assertTrue(isForwardFolderIndexFresh(created, created))
+        assertTrue(isForwardFolderIndexFresh(created, created + FORWARD_FOLDER_INDEX_TTL_MS - 1))
+        assertFalse(isForwardFolderIndexFresh(created, created + FORWARD_FOLDER_INDEX_TTL_MS))
+        assertFalse(isForwardFolderIndexFresh(created, created - 1))
+        assertFalse(isForwardFolderIndexFresh(0L, created))
+    }
+
     @Test fun emptyGetChatsBeforeEndOfListIsNotAConfirmedEmptyFolder() {
         assertFalse(isConfirmedEmptyForwardFolder(0, 0, reachedEnd = false, definitionLoaded = true))
     }
