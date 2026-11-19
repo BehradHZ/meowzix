@@ -271,6 +271,9 @@ fun NowPlayingRoute(
     val closeOrCollapse = {
         if (!panels.collapseForeground()) onBack()
     }
+    val closeArtworkOrCollapse = {
+        if (!panels.collapseForeground()) onArtworkSwipeDown()
+    }
 
     var deletedSourceNotice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(viewModel) {
@@ -342,7 +345,7 @@ fun NowPlayingRoute(
                 reduceMotion = appearance.reduceMotion,
                 seekBarStyle = appearance.playerSeekBarStyle,
                 onBack = closeOrCollapse,
-                onArtworkSwipeDown = onArtworkSwipeDown,
+                onArtworkSwipeDown = closeArtworkOrCollapse,
                 onMoreActionsMenuExpandedChange = onMoreActionsMenuExpandedChange,
                 onMoreActionsButtonBoundsChanged = onMoreActionsButtonBoundsChanged,
                 onToggleLyrics = panels::toggleLyrics,
