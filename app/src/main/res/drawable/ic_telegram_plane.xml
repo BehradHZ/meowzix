@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Extracted from the white paper-plane silhouette of the supplied Telegram logo;
+     the blue background is intentionally omitted. Tint comes from the current theme. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M22.25,3.58 L21.94,3.36 L21.5,3.27 L21.03,3.3 L19.94,3.61 L16.41,4.99 L2.44,10.99 L1.91,11.3 L1.66,11.52 L1.5,11.8 L1.53,12.14 L1.78,12.43 L2.19,12.64 L4.75,13.46 L5.78,13.71 L6.47,13.8 L7.34,13.71 L8.31,13.27 L16.22,7.96 L16.75,7.64 L17.16,7.58 L17.31,7.71 L17.38,7.86 L17.38,8.02 L17.16,8.33 L15.0,10.49 L11.09,14.14 L10.66,14.77 L10.62,15.24 L10.88,15.71 L11.38,16.14 L16.25,19.39 L17.28,20.14 L17.88,20.46 L18.53,20.64 L19.03,20.64 L19.25,20.58 L19.69,20.21 L19.88,19.93 L20.25,18.83 L21.12,13.89 L22.06,7.99 L22.47,4.71 L22.44,3.99 Z" />
+</vector>

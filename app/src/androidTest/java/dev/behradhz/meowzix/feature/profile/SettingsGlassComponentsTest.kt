@@ -174,6 +174,28 @@ class SettingsGlassComponentsTest {
     }
 
     @Test
+    fun telegramIsFirstSettingsOptionAndUsesThePaperPlaneIcon() {
+        assertEquals(SettingsCategory.TELEGRAM, SettingsCategory.entries.first())
+        assertEquals("Telegram", SettingsCategory.TELEGRAM.title)
+
+        compose.setContent {
+            MeowzixTheme {
+                PlaylistGlassBackdrop { haze ->
+                    SettingsCategoryIndex(haze) {}
+                }
+            }
+        }
+
+        val telegram = compose.onNodeWithTag("settings-category-telegram")
+            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val appearance = compose.onNodeWithTag("settings-category-appearance")
+            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("Telegram must be above all other settings", telegram.top < appearance.top)
+        compose.onNodeWithTag("settings-telegram-icon", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("Telegram").assertIsDisplayed()
+    }
+
+    @Test
     fun launcherShowsPackagedOldAppAndWallpaperIconsAndSelectionIsExplicit() {
         var requested: LauncherIconColorSource? = null
         compose.setContent {
