@@ -8,6 +8,8 @@ import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.*
 import dev.behradhz.meowzix.domain.downloads.ManagedStorageRepository
 import dev.behradhz.meowzix.domain.recommendation.*
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
@@ -30,6 +32,7 @@ class AudioFeatureExtractionCoordinator @Inject constructor(
     private val scheduler: RecommendationWorkScheduler,
     private val managedStorage: ManagedStorageRepository,
     private val resourcePolicy: AudioAnalysisResourcePolicy,
+    private val settings: SettingsRepository,
     @param:ApplicationContext private val context: Context,
 ) {
     private val gate = Mutex()
@@ -42,10 +45,14 @@ class AudioFeatureExtractionCoordinator @Inject constructor(
     }
 
     suspend fun extractIfNeeded(trackId: UUID) = withContext(Dispatchers.IO) {
+        val policy = settings.recommendationPreferenceSettings.first()
+        if (!policy.smartRecommendationsEnabled || !policy.audioAnalysisEnabled) return@withContext
         // Analysis is opportunistic. Low disk space must preserve playback/download headroom and
         // recovery is automatic: a later scheduled extraction rechecks current storage state.
         if (!resourcePolicy.mayAnalyze() || managedStorage.usage().lowSpace) return@withContext
         gate.withLock {
+            val current = settings.recommendationPreferenceSettings.first()
+            if (!current.smartRecommendationsEnabled || !current.audioAnalysisEnabled) return@withLock
             if (!resourcePolicy.mayAnalyze() || managedStorage.usage().lowSpace) return@withLock
             val sources = libraryDao.sourcesForTrack(trackId.toString()).filter {
                 it.trainingEligible && it.availability == SourceAvailability.AVAILABLE_LOCAL &&
