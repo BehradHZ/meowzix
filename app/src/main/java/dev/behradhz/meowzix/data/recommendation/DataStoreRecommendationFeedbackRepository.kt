@@ -12,6 +12,7 @@ import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedback
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackRepository
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackScope
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.io.IOException
 import java.time.Duration
 import java.time.Instant
@@ -29,6 +30,7 @@ private val Context.recommendationFeedbackDataStore by preferencesDataStore("rec
 class DataStoreRecommendationFeedbackRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val adaptationBus: SmartQueueAdaptationBus,
+    private val settings: SettingsRepository,
 ) : RecommendationFeedbackRepository {
     private val safeData = context.recommendationFeedbackDataStore.data.catch { error ->
         if (error is IOException) emit(emptyPreferences()) else throw error
@@ -39,7 +41,9 @@ class DataStoreRecommendationFeedbackRepository @Inject constructor(
     }
 
     override suspend fun snapshot(now: Instant): List<RecommendationFeedback> =
-        feedback.first().filter { it.isActive(now) }
+        if (settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled)
+            feedback.first().filter { it.isActive(now) }
+        else emptyList()
 
     override suspend fun set(
         trackId: UUID,
@@ -47,6 +51,8 @@ class DataStoreRecommendationFeedbackRepository @Inject constructor(
         now: Instant,
         snoozeDuration: Duration,
     ) {
+        // Explicit feedback is also behavioral profiling, never persisted while disabled.
+        if (!settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled) return
         val replacement = RecommendationFeedback(
             trackId = trackId,
             action = action,
