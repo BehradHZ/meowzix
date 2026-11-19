@@ -570,11 +570,9 @@ fun MeowzixApp(
             enterTransition = {
                 when {
                     !reduceMotion && targetState.destination.route == TELEGRAM_AUTH_ROUTE ->
-                        // Enter from either Settings or the Home Telegram source card.
-                        fadeIn(tween(275, easing = FastOutSlowInEasing)) + slideInHorizontally(
-                            tween(365, easing = FastOutSlowInEasing),
-                            initialOffsetX = { it / 4 },
-                        )
+                        // The destination animates itself after layout; the host only
+                        // crossfades so it cannot finish its slide before first draw.
+                        fadeIn(tween(125))
                     !reduceMotion && targetState.destination.route == SETTINGS_ROUTE ->
                         fadeIn(tween(260)) + slideInHorizontally(tween(300), initialOffsetX = { it / 6 })
                     else -> fadeIn(tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS))
@@ -584,9 +582,9 @@ fun MeowzixApp(
                 when {
                     !reduceMotion && initialState.destination.route == SETTINGS_ROUTE &&
                         targetState.destination.route == TELEGRAM_AUTH_ROUTE ->
-                        fadeOut(tween(245)) + slideOutHorizontally(
-                            tween(365, easing = FastOutSlowInEasing),
-                            targetOffsetX = { -it / 10 },
+                        fadeOut(tween(155)) + slideOutHorizontally(
+                            tween(TELEGRAM_NAV_DURATION_MS, easing = FastOutSlowInEasing),
+                            targetOffsetX = { -it / 12 },
                         )
                     !reduceMotion && initialState.destination.route == SETTINGS_ROUTE ->
                         fadeOut(tween(210)) + slideOutHorizontally(tween(250), targetOffsetX = { it / 6 })
@@ -597,9 +595,9 @@ fun MeowzixApp(
                 when {
                     !reduceMotion && initialState.destination.route == TELEGRAM_AUTH_ROUTE &&
                         targetState.destination.route == SETTINGS_ROUTE ->
-                        fadeIn(tween(275)) + slideInHorizontally(
-                            tween(365, easing = FastOutSlowInEasing),
-                            initialOffsetX = { -it / 10 },
+                        fadeIn(tween(155)) + slideInHorizontally(
+                            tween(TELEGRAM_NAV_DURATION_MS, easing = FastOutSlowInEasing),
+                            initialOffsetX = { -it / 12 },
                         )
                     !reduceMotion && targetState.destination.route == SETTINGS_ROUTE ->
                         fadeIn(tween(260)) + slideInHorizontally(tween(300), initialOffsetX = { it / 6 })
@@ -609,9 +607,9 @@ fun MeowzixApp(
             popExitTransition = {
                 when {
                     !reduceMotion && initialState.destination.route == TELEGRAM_AUTH_ROUTE ->
-                        fadeOut(tween(245)) + slideOutHorizontally(
-                            tween(365, easing = FastOutSlowInEasing),
-                            targetOffsetX = { it / 4 },
+                        fadeOut(tween(155)) + slideOutHorizontally(
+                            tween(TELEGRAM_NAV_DURATION_MS, easing = FastOutSlowInEasing),
+                            targetOffsetX = { it / 8 },
                         )
                     !reduceMotion && initialState.destination.route == SETTINGS_ROUTE ->
                         fadeOut(tween(210)) + slideOutHorizontally(tween(250), targetOffsetX = { it / 6 })
