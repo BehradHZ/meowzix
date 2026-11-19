@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.feature.home
 
+import dev.behradhz.meowzix.data.repository.HomeRecommendationSignals
 import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals

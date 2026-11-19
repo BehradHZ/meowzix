@@ -1,16 +1,12 @@
 package dev.behradhz.meowzix.feature.home
 
+import dev.behradhz.meowzix.data.repository.HomeRecommendationSignals
 import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
 import dev.behradhz.meowzix.domain.history.TimeBucket
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-
-internal data class HomeRecommendationSignals(
-    val finalizedOutcomes: Long,
-    val favoriteChanges: Long,
-)
 
 internal data class HomeRecommendationSlot(
     val date: LocalDate,

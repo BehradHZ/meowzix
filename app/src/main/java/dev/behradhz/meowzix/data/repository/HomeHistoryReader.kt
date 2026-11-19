@@ -1,12 +1,17 @@
 package dev.behradhz.meowzix.data.repository
 
 import dev.behradhz.meowzix.data.db.HistoryDao
-import dev.behradhz.meowzix.feature.home.HomeRecommendationSignals
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+
+/** Behavioral revision independent of metadata, playback ticks, and download progress. */
+data class HomeRecommendationSignals(
+    val finalizedOutcomes: Long,
+    val favoriteChanges: Long,
+)
 
 /** Lightweight Home-only history projection; never materializes the complete listening log. */
 @Singleton
