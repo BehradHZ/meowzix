@@ -113,6 +113,7 @@ import dev.behradhz.meowzix.feature.search.SearchViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramProxyPanel
+import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.telegramProxyBadge
 import dev.behradhz.meowzix.ui.theme.LocalMeowzixLogoBackground
 import dev.behradhz.meowzix.ui.components.FloatingChromeGlassSurface
@@ -443,6 +444,11 @@ fun MeowzixApp(
                         )
                     },
                     onOpenLibrary = { navigateTopLevel(LIBRARY_ROUTE) },
+                    isTelegramConnected = telegramAuthState.step is TelegramAuthStep.Ready,
+                    onConnectTelegram = {
+                        clearSearchState()
+                        navController.navigate(TELEGRAM_AUTH_ROUTE) { launchSingleTop = true }
+                    },
                     onOpenPlaylist = { id ->
                         pendingPlaylistId = id
                         navigateTopLevel(PLAYLISTS_ROUTE)
