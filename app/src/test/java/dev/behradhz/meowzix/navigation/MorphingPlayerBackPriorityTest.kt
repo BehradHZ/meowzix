@@ -62,6 +62,33 @@ class MorphingPlayerBackPriorityTest {
     }
 
     @Test
+    fun artworkAndOuterRecognizerSettlingSameSwipeNeverSnaps() {
+        for (artworkFinishesFirst in listOf(true, false)) {
+            val player = MorphingPlayerState()
+            player.expand()
+            player.updateOverlayVisibility(true)
+
+            val artworkRelease = { player.settleCollapseFromGesture() }
+            val outerRelease = { player.settleCollapseFromGesture() }
+            if (artworkFinishesFirst) {
+                artworkRelease()
+                outerRelease()
+            } else {
+                outerRelease()
+                artworkRelease()
+            }
+
+            assertFalse(player.targetExpanded)
+            assertFalse(player.finishCollapseImmediately)
+            assertTrue(player.blocksBackgroundBack)
+
+            // A separate explicit second Back retains its original fast-finish behavior.
+            player.collapse()
+            assertTrue(player.finishCollapseImmediately)
+        }
+    }
+
+    @Test
     fun swipeEndSettlesTowardTheExpectedSide() {
         assertFalse(shouldSettlePlayerExpanded(1f, 100f, 72f))
         assertTrue(shouldSettlePlayerExpanded(1f, 30f, 72f))
