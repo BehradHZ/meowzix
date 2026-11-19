@@ -226,6 +226,14 @@ class RoomListeningHistoryRepository @Inject constructor(
         }
     }
 
+    override suspend fun discardActiveTracking() = mutex.withLock {
+        active.clear()
+        currentSession = null
+        lastCompletion = null
+        lastFinalized = null
+        lastDirectionalSeek = null
+    }
+
     override suspend fun clear() = mutex.withLock {
         active.clear()
         currentSession = null
