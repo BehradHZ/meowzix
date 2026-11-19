@@ -56,6 +56,7 @@ class RoomLocalBackupRepositoryTest {
             BackupNoOpModel(),
             scheduler,
             bus,
+            DataStoreSettingsRepository(context),
         )
         repository = RoomLocalBackupRepository(
             database = db,
