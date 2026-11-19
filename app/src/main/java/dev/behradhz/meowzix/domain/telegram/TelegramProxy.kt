@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.domain.telegram
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.util.Base64
 
 enum class TelegramProxyKind { MTPROTO, SOCKS5, HTTP }
 
@@ -22,14 +23,38 @@ data class TelegramProxyDraft(
         require(port in 1..65535) { "Proxy port must be between 1 and 65535." }
         require(username.length <= 256 && password.length <= 256) { "Proxy credentials are too long." }
         if (kind == TelegramProxyKind.MTPROTO) {
-            val value = secret.trim()
-            require(value.length in 32..512 && value.length % 2 == 0 &&
-                value.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
-                "MTProto secret must be an even-length hexadecimal value (at least 32 characters)."
-            }
-            return copy(server = host, secret = value.lowercase())
+            return copy(server = host, secret = normalizeMtprotoSecret(secret))
         }
         return copy(server = host)
+    }
+}
+
+/** TDLib receives canonical hexadecimal secrets; Telegram links can also carry Base64URL. */
+private fun normalizeMtprotoSecret(raw: String): String {
+    val value = raw.trim()
+    val isHex = value.length in 32..512 && value.length % 2 == 0 &&
+        value.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+    if (isHex) return value.lowercase()
+
+    // Base64 (both URL-safe and standard, padded or unpadded) represents the same bytes.
+    // Bound the input before decoding; do not include credentials in validation errors.
+    val encoded = value.takeIf {
+        it.length in 22..344 && it.matches(Regex("[A-Za-z0-9+/_-]+={0,2}"))
+    }
+    val bytes = encoded?.let {
+        runCatching { Base64.getUrlDecoder().decode(it) }.getOrNull()
+            ?: runCatching { Base64.getDecoder().decode(it) }.getOrNull()
+    }
+    require(bytes != null && bytes.size in 16..256) {
+        "MTProto secret must be hexadecimal or Base64 (at least 16 bytes)."
+    }
+    val digits = "0123456789abcdef"
+    return buildString(bytes.size * 2) {
+        bytes.forEach { byte ->
+            val unsigned = byte.toInt() and 0xff
+            append(digits[unsigned ushr 4])
+            append(digits[unsigned and 0x0f])
+        }
     }
 }
 
@@ -97,7 +122,7 @@ object TelegramProxyLinkParser {
         candidate.findAll(text).firstNotNullOfOrNull { parse(it.value) }
 
     fun parse(text: String): TelegramProxyDraft? = runCatching {
-        val value = text.trim().trimEnd('.', ',', ')', ']', '}')
+        val value = text.trim().replace("\\&", "&").trimEnd('.', ',', ')', ']', '}')
         val url = if (value.startsWith("tg://", ignoreCase = true) ||
             value.startsWith("http://", ignoreCase = true) ||
             value.startsWith("https://", ignoreCase = true)) value else "https://$value"

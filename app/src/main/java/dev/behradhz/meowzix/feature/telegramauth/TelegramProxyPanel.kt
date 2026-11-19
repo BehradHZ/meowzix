@@ -94,8 +94,10 @@ internal fun TelegramProxyPanel(
     var open by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
     var pendingRemoval by remember { mutableStateOf<Int?>(null) }
-    var clipboardSuggestion by remember { mutableStateOf<String?>(null) }
-    var lastSeenClipboard by remember { mutableStateOf<String?>(null) }
+    // An ignored suggestion stays dismissed for this opening, but a later opening
+    // should inspect the current clipboard again, even if its text is unchanged.
+    var clipboardSuggestion by remember(open) { mutableStateOf<String?>(null) }
+    var lastSeenClipboard by remember(open) { mutableStateOf<String?>(null) }
     val currentProxy = state.proxies.firstOrNull { it.enabled }
     val sortedProxies = rankTelegramProxiesByLatency(state.proxies)
     val isConnecting = connectionStatus in setOf(
@@ -392,6 +394,7 @@ private fun AddTelegramProxyDialog(
     var password by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    val parsedLink = remember(link) { TelegramProxyLinkParser.findIn(link) }
     Dialog(onDismissRequest = onDismiss) {
         val shape = RoundedCornerShape(28.dp)
         Surface(
@@ -415,7 +418,14 @@ private fun AddTelegramProxyDialog(
                     }
                 }
                 HorizontalDivider(color = TelegramGlassChrome.stroke.copy(alpha = 0.55f))
-                TelegramGlassInput(link, { link = it }, "Telegram proxy link", Modifier.fillMaxWidth())
+                TelegramGlassInput(link, { link = it; error = null }, "Telegram proxy link", Modifier.fillMaxWidth())
+                parsedLink?.let { draft ->
+                    Text(
+                        "${if (draft.kind == TelegramProxyKind.MTPROTO) "MTProto" else "SOCKS5"} proxy recognized: ${draft.server}:${draft.port}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 OutlinedButton(
                     onClick = { link = readProxyClipboard(context).orEmpty() },
                     modifier = Modifier.fillMaxWidth(),
@@ -426,7 +436,7 @@ private fun AddTelegramProxyDialog(
                 }
                 Button(
                     onClick = {
-                        if (TelegramProxyLinkParser.findIn(link) == null) {
+                        if (parsedLink == null) {
                             error = "Enter a valid Telegram proxy link."
                         } else onImport(link)
                     },

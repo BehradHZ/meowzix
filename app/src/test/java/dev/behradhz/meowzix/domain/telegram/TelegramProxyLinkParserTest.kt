@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.domain.telegram
 
+import java.util.Base64
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
@@ -76,6 +77,60 @@ class TelegramProxyLinkParserTest {
         assertNull(TelegramProxyLinkParser.parse("https://t.me/proxy?server=x&port=443&secret=NOT-HEX"))
         assertNull(TelegramProxyLinkParser.parse("tg://socks?server=a%2Fb&port=1080"))
         assertNull(TelegramProxyLinkParser.parse("tg://proxy?server=host&port=65536&secret=" + "ab".repeat(16)))
+    }
+
+
+    @Test fun base64MtprotoSecretsAreNormalizedForTdlibInBothImportPaths() {
+        val rawSecret = ByteArray(16) { it.toByte() }
+        val expectedHex = "000102030405060708090a0b0c0d0e0f"
+        val urlEncoded = Base64.getUrlEncoder().withoutPadding().encodeToString(rawSecret)
+        val padded = Base64.getUrlEncoder().encodeToString(rawSecret)
+        listOf(urlEncoded, padded).forEach { secret ->
+            val link = "https://t.me/proxy?server=proxy.example.org&port=8443&secret=$secret"
+            val direct = TelegramProxyLinkParser.parse(link)
+            val clipboard = TelegramProxyLinkParser.findIn("Copied: ($link)")
+            assertNotNull("Direct paste must recognize $secret", direct)
+            assertNotNull("Clipboard scan must recognize $secret", clipboard)
+            assertEquals(TelegramProxyKind.MTPROTO, direct?.kind)
+            assertEquals("proxy.example.org", direct?.server)
+            assertEquals(8443, direct?.port)
+            assertEquals(expectedHex, direct?.secret)
+            assertEquals(direct, clipboard)
+        }
+        // The manual MTProto form shares the same normalization as the link parser.
+        assertEquals(expectedHex, TelegramProxyDraft(
+            TelegramProxyKind.MTPROTO, "proxy.example.org", 8443, secret = urlEncoded,
+        ).validated().secret)
+    }
+
+    @Test fun standardBase64AndMarkdownEscapedAmpersandsAreAccepted() {
+        val rawSecret = ByteArray(16) { 0xfb.toByte() }
+        val standard = Base64.getEncoder().encodeToString(rawSecret)
+        val expected = "fb".repeat(16)
+        assertEquals(expected, TelegramProxyLinkParser.parse(
+            "tg://proxy?server=proxy.example.org&port=443&secret=$standard",
+        )?.secret)
+
+        val urlSafe = Base64.getUrlEncoder().withoutPadding().encodeToString(rawSecret)
+        assertEquals(expected, TelegramProxyLinkParser.findIn(
+            "https://t.me/proxy?server=proxy.example.org\\&port=443\\&secret=$urlSafe",
+        )?.secret)
+        // Previously accepted hexadecimal secrets must retain their value.
+        assertEquals("ab".repeat(16), TelegramProxyLinkParser.parse(
+            "https://t.me/proxy?server=proxy.example.org&port=443&secret=${"AB".repeat(16)}",
+        )?.secret)
+    }
+
+    @Test fun malformedOrShortBase64SecretsRemainInvalid() {
+        assertNull(TelegramProxyLinkParser.findIn(
+            "https://t.me/proxy?server=proxy.example.org&port=443&secret=QUJDRA",
+        ))
+        assertNull(TelegramProxyLinkParser.parse(
+            "https://t.me/proxy?server=proxy.example.org&port=443&secret=${"a".repeat(22)}!",
+        ))
+        assertNull(TelegramProxyLinkParser.parse(
+            "https://t.me/proxy?server=proxy.example.org&port=443&secret=${"a".repeat(342)}",
+        ))
     }
 
     @Test fun manualHttpProxyAndPastedUrlShareValidation() {
