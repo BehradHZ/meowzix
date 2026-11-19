@@ -89,27 +89,23 @@ fun HomeRoute(
     foregroundSessionId: Long = 1L,
     reduceMotion: Boolean = false,
     isActive: Boolean = true,
+    isFirstAppLaunch: Boolean = false,
     isTelegramConnected: Boolean = false,
     onConnectTelegram: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val initialSourceChoiceCompleted by viewModel.initialSourceChoiceCompleted.collectAsStateWithLifecycle(initialValue = false)
-    val hasExistingLibrary = currentTrack != null ||
-        state.recent.isNotEmpty() ||
-        state.recentlyAdded.isNotEmpty() ||
-        state.recommended.isNotEmpty() ||
-        state.playlists.isNotEmpty()
     val showInitialSourceChoice = shouldShowInitialSourceChoice(
         isReady = state.isReady,
+        isFirstAppLaunch = isFirstAppLaunch,
         isCompleted = initialSourceChoiceCompleted,
         telegramConnected = isTelegramConnected,
-        hasExistingLibrary = hasExistingLibrary,
     )
     val sourceChoiceScope = rememberCoroutineScope()
 
-    LaunchedEffect(state.isReady, hasExistingLibrary, isTelegramConnected, initialSourceChoiceCompleted) {
-        if (!initialSourceChoiceCompleted && (isTelegramConnected || (state.isReady && hasExistingLibrary))) {
+    LaunchedEffect(isFirstAppLaunch, isTelegramConnected, initialSourceChoiceCompleted) {
+        if (isFirstAppLaunch && isTelegramConnected && !initialSourceChoiceCompleted) {
             viewModel.completeInitialSourceChoice()
         }
     }
@@ -280,10 +276,10 @@ fun HomeRoute(
 
 internal fun shouldShowInitialSourceChoice(
     isReady: Boolean,
+    isFirstAppLaunch: Boolean,
     isCompleted: Boolean,
     telegramConnected: Boolean,
-    hasExistingLibrary: Boolean,
-): Boolean = isReady && !isCompleted && !telegramConnected && !hasExistingLibrary
+): Boolean = isReady && isFirstAppLaunch && !isCompleted && !telegramConnected
 
 @Composable
 private fun FirstLaunchSourcePicker(
