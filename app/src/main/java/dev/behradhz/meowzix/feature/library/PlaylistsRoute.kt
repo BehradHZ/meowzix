@@ -311,6 +311,7 @@ fun PlaylistsRoute(
 
             PlaylistDetailScreenV3(
                 isActive = isActive,
+                smartRecommendationsEnabled = state.smartRecommendationsEnabled,
                 playlist = playlist,
                 title = if (favorites) "Favorites" else playlist?.title ?: "Playlist",
                 tracks = tracks,

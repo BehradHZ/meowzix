@@ -367,6 +367,7 @@ internal fun PlaylistDetailScreenV3(
     playlist: PlaylistSummary?,
     title: String,
     tracks: List<Track>,
+    smartRecommendationsEnabled: Boolean = true,
     artworkRef: String?,
     editable: Boolean,
     isFavorites: Boolean,
@@ -926,7 +927,7 @@ internal fun PlaylistDetailScreenV3(
                                 hazeState, "Shuffle", Icons.Rounded.Shuffle, hasTracks,
                             ) { onPlay(sortedTracks, PlaybackMode.PURE_SHUFFLE) }
                             PlaylistCircleAction(
-                                hazeState, "Smart Shuffle", Icons.Rounded.AutoAwesome, hasTracks,
+                                hazeState, "Smart Shuffle", Icons.Rounded.AutoAwesome, hasTracks && smartRecommendationsEnabled,
                             ) { onPlay(sortedTracks, PlaybackMode.SMART_SHUFFLE) }
                             PlaylistCircleAction(
                                 hazeState, "Play next", Icons.Rounded.QueuePlayNext, hasTracks,

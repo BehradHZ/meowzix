@@ -78,6 +78,7 @@ data class LibraryUiState(
     val playlistRefreshStatus: String? = null,
     val lastRefresh: LocalLibraryRefreshResult? = null,
     val errorMessage: String? = null,
+    val smartRecommendationsEnabled: Boolean = false,
     val playback: PlaybackState = PlaybackState(),
 )
 
@@ -109,6 +110,15 @@ class LibraryViewModel @Inject constructor(
     private var playlistTracksJob: Job? = null
 
     init {
+        // Share Smart consent with playlist UI; no per-row settings subscriptions.
+        viewModelScope.launch {
+            settingsRepository.recommendationPreferenceSettings
+                .map { it.smartRecommendationsEnabled }
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    _state.update { it.copy(smartRecommendationsEnabled = enabled) }
+                }
+        }
         // Do not subscribe to observeLibraryTracks() here. That materialized every Track and every
         // availability entry even while the V4 screen rendered only a Paging window. Keep only the
         // two tiny compatibility slices still required by shared/legacy UI code.

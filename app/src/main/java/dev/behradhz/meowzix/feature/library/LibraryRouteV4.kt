@@ -265,6 +265,7 @@ internal fun LibraryRouteV4(
         key("favorites") {
             PlaylistDetailScreenV3(
                 isActive = isActive,
+                smartRecommendationsEnabled = state.smartRecommendationsEnabled,
                 playlist = null,
                 title = "Favorites",
                 tracks = aggregateTracks,
