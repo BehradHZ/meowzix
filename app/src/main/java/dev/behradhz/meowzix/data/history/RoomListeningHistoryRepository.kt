@@ -41,6 +41,7 @@ class RoomListeningHistoryRepository @Inject constructor(
     private var currentSession: Session? = null
     private var lastFinalized: ActivePlayback? = null
     private var lastCompletion: Pair<UUID, Instant>? = null
+    private var lastDirectionalSeek: RecentSeek? = null
 
     override fun observeEvents(): Flow<List<ListeningEvent>> = dao.observeEvents().map { rows ->
         rows.map { row ->
@@ -132,6 +133,48 @@ class RoomListeningHistoryRepository @Inject constructor(
         database.withTransaction { insert(context, ListeningEventType.SEEKED, Instant.now(), positionMs, durationMs) }
     }
 
+    override suspend fun recordDirectionalSeek(
+        playbackInstanceId: UUID,
+        fromPositionMs: Long,
+        toPositionMs: Long,
+        durationMs: Long,
+    ) = mutex.withLock {
+        val delta = toPositionMs - fromPositionMs
+        if (delta in -999L..999L) return@withLock
+        val context = active[playbackInstanceId] ?: return@withLock
+        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        val now = System.currentTimeMillis()
+        val forward = delta > 0L
+        val previous = lastDirectionalSeek
+        // Continuous scrubbing should not write an event for every position discontinuity.
+        if (previous != null && previous.playbackId == playbackInstanceId &&
+            previous.forward == forward && now - previous.atEpochMs in 0L..500L) return@withLock
+        val type = if (forward) ListeningEventType.SEEKED_FORWARD else ListeningEventType.SEEKED_BACKWARD
+        database.withTransaction { insert(context, type, Instant.ofEpochMilli(now), toPositionMs, durationMs) }
+        lastDirectionalSeek = RecentSeek(playbackInstanceId, forward, now)
+    }
+
+    override suspend fun recordPlaybackPause(playbackInstanceId: UUID) =
+        recordPlaybackState(playbackInstanceId, ListeningEventType.PLAYBACK_PAUSED)
+
+    override suspend fun recordPlaybackResume(playbackInstanceId: UUID) =
+        recordPlaybackState(playbackInstanceId, ListeningEventType.PLAYBACK_RESUMED)
+
+    private suspend fun recordPlaybackState(playbackInstanceId: UUID, type: ListeningEventType) = mutex.withLock {
+        val context = active[playbackInstanceId] ?: return@withLock
+        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        database.withTransaction { insert(context, type, Instant.now(), null, null) }
+    }
+
+    override suspend fun recordQueueRequest(trackId: UUID, mode: PlaybackMode, playNext: Boolean) = mutex.withLock {
+        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
+        recordStandalone(
+            trackId,
+            if (playNext) ListeningEventType.PLAY_NEXT_REQUESTED else ListeningEventType.QUEUE_ADD_REQUESTED,
+            mode,
+        )
+    }
+
     override suspend fun recordFavorite(trackId: UUID, favorite: Boolean) = mutex.withLock {
         if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock
         val type = if (favorite) ListeningEventType.FAVORITED else ListeningEventType.UNFAVORITED
@@ -158,9 +201,15 @@ class RoomListeningHistoryRepository @Inject constructor(
         val context = ActivePlayback(UUID.randomUUID(), trackId, session.id, PlaybackInitiator.USER, mode, ListeningEventSemantics.timeContext(now, ZoneId.systemDefault()).bucket)
         database.withTransaction {
             insert(context, type, now, 0L, null)
-            if (type != ListeningEventType.QUEUE_REMOVED) insert(context, ListeningEventType.PLAY_STOPPED, now, 0L, null)
+            if (type == ListeningEventType.FAVORITED || type == ListeningEventType.UNFAVORITED) {
+                insert(context, ListeningEventType.PLAY_STOPPED, now, 0L, null)
+            }
         }
-        personalizationTrainer.onPlaybackFinalized(context.id)
+        // Queue intent is not a completed playback; it must not schedule training.
+        if (type == ListeningEventType.FAVORITED || type == ListeningEventType.UNFAVORITED ||
+            type == ListeningEventType.QUEUE_REMOVED) {
+            personalizationTrainer.onPlaybackFinalized(context.id)
+        }
     }
 
     override suspend fun clear() = mutex.withLock {
@@ -168,6 +217,7 @@ class RoomListeningHistoryRepository @Inject constructor(
         currentSession = null
         lastCompletion = null
         lastFinalized = null
+        lastDirectionalSeek = null
         database.withTransaction {
             dao.clearEvents()
             dao.clearTimeStats()
@@ -182,6 +232,7 @@ class RoomListeningHistoryRepository @Inject constructor(
         // The trainer clears aggregates and the model under the same lock used by rebuilds.
         lastCompletion = null
         lastFinalized = null
+        lastDirectionalSeek = null
         personalizationTrainer.resetLearningKeepHistory()
     }
 
@@ -229,7 +280,11 @@ class RoomListeningHistoryRepository @Inject constructor(
             ),
         )
         if (inserted == -1L) return
-        updateStats(context.trackId, context.timeBucket.name, type, now.toEpochMilli())
+        // Neutral events do not need two aggregate reads and writes.
+        if (type in AGGREGATED_EVENT_TYPES) {
+            updateStats(context.trackId, context.timeBucket.name, type, now.toEpochMilli())
+        }
+        currentSession?.takeIf { it.id == context.sessionId }?.lastActivityEpochMs = now.toEpochMilli()
     }
 
     private suspend fun updateStats(trackId: UUID, bucket: String, type: ListeningEventType, now: Long) {
@@ -258,10 +313,16 @@ class RoomListeningHistoryRepository @Inject constructor(
         )
     }
 
+    private data class RecentSeek(val playbackId: UUID, val forward: Boolean, val atEpochMs: Long)
     private data class ActivePlayback(val id: UUID, val trackId: UUID, val sessionId: UUID, val initiatedBy: PlaybackInitiator, val mode: PlaybackMode, val timeBucket: dev.behradhz.meowzix.domain.history.TimeBucket)
     private data class Session(val id: UUID, val startedAtEpochMs: Long, var lastActivityEpochMs: Long, val initialMode: PlaybackMode)
 
     private companion object {
         const val MAX_UI_HISTORY_ROWS = 500
+        val AGGREGATED_EVENT_TYPES = setOf(
+            ListeningEventType.PLAY_STARTED, ListeningEventType.PLAY_COMPLETED,
+            ListeningEventType.SKIPPED_EARLY, ListeningEventType.SKIPPED_LATE,
+            ListeningEventType.MANUAL_SELECTED, ListeningEventType.REPLAYED,
+        )
     }
 }
