@@ -465,7 +465,7 @@ class AndroidPlaybackController @Inject constructor(
                 val plan = progressiveQueue.start(
                     orderedTracks = listOf(first),
                     requestedStartIndex = 0,
-                    permittedMode = permittedMode,
+                    mode = permittedMode,
                     repeat = repeat,
                     sourceIds = listOf(first.id),
                 )
@@ -554,7 +554,7 @@ class AndroidPlaybackController @Inject constructor(
                     val window = progressiveQueue.start(
                         orderedTracks = initial,
                         requestedStartIndex = 0,
-                        permittedMode = permittedMode,
+                        mode = permittedMode,
                         repeat = RepeatMode.OFF,
                         sourceIds = distinctIds,
                         pendingIds = orderedIds.drop(headIds.size),
@@ -596,7 +596,7 @@ class AndroidPlaybackController @Inject constructor(
                 val window = progressiveQueue.start(
                     orderedTracks = listOf(first),
                     requestedStartIndex = 0,
-                    permittedMode = permittedMode,
+                    mode = permittedMode,
                     repeat = RepeatMode.OFF,
                     // A permittedMode switch during async ranking still needs the full candidate pool.
                     sourceIds = distinctIds,
