@@ -324,7 +324,7 @@ private fun FirstLaunchSourcePicker(
             FirstLaunchSourceCard(
                 hazeState = hazeState,
                 title = "Connect Telegram",
-                description = "Access music from Saved Messages\\nand your selected Telegram chats.",
+                description = "Access music from Saved Messages\nand your selected Telegram chats.",
                 buttonLabel = "Connect Telegram",
                 testTagPrefix = "first-launch-telegram",
                 icon = {
@@ -341,7 +341,7 @@ private fun FirstLaunchSourcePicker(
             FirstLaunchSourceCard(
                 hazeState = hazeState,
                 title = "Library",
-                description = "Play audio files stored on your device.\\nNo Telegram connection is needed.",
+                description = "Play audio files stored on your device.\nNo Telegram connection is needed.",
                 buttonLabel = "Open Library",
                 testTagPrefix = "first-launch-library",
                 icon = {
