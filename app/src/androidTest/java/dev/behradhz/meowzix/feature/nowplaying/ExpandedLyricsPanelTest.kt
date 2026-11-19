@@ -68,7 +68,7 @@ class ExpandedLyricsPanelTest {
             trackId = trackId,
             sourceType = LyricsSourceType.USER_PASTE,
             sourceLabel = "test",
-            rawText = "First line\\nSecond line\\nThird line",
+            rawText = "First line\nSecond line\nThird line",
             parsed = ParsedLyrics(
                 LyricsContentType.PLAIN,
                 plainLines = listOf("First line", "Second line", "Third line"),
