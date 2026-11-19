@@ -67,17 +67,24 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         val source = resolveSource(trackId) ?: return null
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
 
-        // Audio is the only critical path. This request merely accelerates the transfer; Media3's
-        // DataSource/LoadControl determines when enough playable duration exists. No fixed prefix
-        // must complete before a MediaItem can be prepared.
+        // For a cold Telegram file prioritize the small contiguous opening range first.
+        // Wait only for a small contiguous prefix on a cold start, never for the full file.
+        // Media3 can then start from those bytes while the retained unlimited download runs
+        // in the background. An already-active opening download stays non-blocking.
+        val openingState = client.fileStates.current(source.candidate.fileId)
+        val hasActiveOpeningDownload = openingState?.local?.let {
+            it.isDownloadingActive && it.downloadOffset == 0L
+        } == true
+        val initialLimit = if (hasActiveOpeningDownload) 0L else
+            initialStreamingPrefixLimit(source.candidate.fileSizeBytes)
         runCatching {
             client.send(
                 TdApi.DownloadFile(
                     source.candidate.fileId,
                     TdDownloadPriority.CURRENT_TRACK_AUDIO,
                     0L,
-                    0L,
-                    false,
+                    initialLimit,
+                    initialLimit > 0L,
                 ),
             )
         }.getOrNull()?.let(client.fileStates::publish)

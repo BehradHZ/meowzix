@@ -2,6 +2,8 @@ package dev.behradhz.meowzix.playback
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
@@ -92,6 +94,9 @@ private class RoutingDataSource(
             defaultFactory.createDataSource()
         }
         val resolvedSpec = localUri?.let(dataSpec::withUri) ?: dataSpec
+        if (isTelegramStream && localUri != null) {
+            Log.i("MeowzixStream", "Using verified local source instead of queued Telegram URI")
+        }
         listeners.forEach(source::addTransferListener)
         active = source
         try {
@@ -161,6 +166,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
 
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
+        val openingStartedAt = SystemClock.elapsedRealtime()
         closed = false
         val id = dataSpec.uri.lastPathSegment?.toIntOrNull()
             ?: throw IOException("Invalid Telegram playback URI: ${dataSpec.uri}")
@@ -209,6 +215,14 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
 
         checkOpen()
         opened = true
+        Log.i(
+            "MeowzixStream",
+            "Opened Telegram audio range; offset=$readPosition, " +
+                "waitMs=${SystemClock.elapsedRealtime() - openingStartedAt}, " +
+                "readableBytes=${(initialWindow.readableEnd - readPosition).coerceAtLeast(0L)}, " +
+                "downloadedBytes=${initialWindow.state.local.downloadedSize}, " +
+                "complete=${initialWindow.state.local.isDownloadingCompleted}",
+        )
         transferStarted(dataSpec)
         return bytesRemaining
     }
