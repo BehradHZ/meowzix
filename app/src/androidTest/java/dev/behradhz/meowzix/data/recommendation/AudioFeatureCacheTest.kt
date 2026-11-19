@@ -99,6 +99,24 @@ class AudioFeatureCacheTest {
         assertEquals(fallback.toString(), stored!!.sourceIdUsed)
         assertEquals(2, extractor.calls)
     }
+    @Test fun disabledSmartDoesNotExtractOrPersistAnyNewAudioFeatures() = runTest {
+        val settings = dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(context)
+        val id = track()
+        source(id, TrackSourceType.APP_OFFLINE_COPY, file(byteArrayOf(1, 2, 3)).path)
+        settings.setSmartRecommendationsEnabled(false)
+        try {
+            coordinator.extractIfNeeded(id)
+            assertEquals(0, extractor.calls)
+            assertNull(db.audioFeatureDao().compatibleVector(
+                id.toString(), extractor.extractorName, extractor.extractorVersion, extractor.schemaVersion,
+            ))
+        } finally {
+            settings.setSmartRecommendationsEnabled(true)
+        }
+        coordinator.extractIfNeeded(id)
+        assertEquals(1, extractor.calls)
+    }
+
     @Test fun remoteOnlySourcesDoNotTriggerNetworkOrExtraction() = runTest {
         val id = track()
         db.libraryDao().upsertSource(TrackSourceEntity(UUID.randomUUID().toString(), id.toString(), TrackSourceType.TELEGRAM_REMOTE,
