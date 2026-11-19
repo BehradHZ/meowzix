@@ -115,7 +115,7 @@ class LocalRecommendationPersistenceTest {
         )
         val trainer = PersonalizationTrainer(builder, model, object : TrainingScheduler {
             override fun scheduleTraining(rebuild: Boolean) {}
-        }, SmartQueueAdaptationBus())
+        }, SmartQueueAdaptationBus(), dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(context))
         val session = UUID.randomUUID().toString()
         db.historyDao().upsertSession(ListeningSessionEntity(session, 1, null, "ORDERED"))
         suspend fun outcome() {
@@ -200,7 +200,7 @@ class LocalRecommendationPersistenceTest {
         )
         val trainer = PersonalizationTrainer(builder, model, object : TrainingScheduler {
             override fun scheduleTraining(rebuild: Boolean) {}
-        }, SmartQueueAdaptationBus())
+        }, SmartQueueAdaptationBus(), dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(context))
         trainer.resetLearningKeepHistory()
         db.historyDao().clearTrackStats()
         db.historyDao().clearTimeStats()
@@ -247,7 +247,7 @@ class LocalRecommendationPersistenceTest {
         )
         val trainer = PersonalizationTrainer(builder, slowModel, object : TrainingScheduler {
             override fun scheduleTraining(rebuild: Boolean) {}
-        }, SmartQueueAdaptationBus())
+        }, SmartQueueAdaptationBus(), dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(context))
         val rebuilding = launch { trainer.trainPending(forceRebuild = true) }
         entered.await()
         val resetting = launch { trainer.resetLearningKeepHistory() }
