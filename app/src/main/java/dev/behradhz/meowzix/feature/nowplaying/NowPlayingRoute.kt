@@ -1504,7 +1504,7 @@ private fun PlayerHeader(
             Spacer(Modifier.weight(1f))
             if (!lockScreenMode) {
                 IconButton(onClick = onOpenForward) {
-                    Icon(painterResource(R.drawable.ic_forward_paper_plane), contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
+                    Icon(painterResource(R.drawable.ic_telegram_plane), contentDescription = "Forward track on Telegram", tint = PlayerPrimaryContent)
                 }
             }
             IconButton(onClick = onOpenQueue) {

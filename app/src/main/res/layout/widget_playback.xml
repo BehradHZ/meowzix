@@ -120,7 +120,7 @@
                     android:layout_weight="1"
                     android:contentDescription="Forward"
                     android:padding="4dp"
-                    android:src="@drawable/ic_forward_paper_plane" />
+                    android:src="@drawable/ic_telegram_plane" />
                 <ImageView
                     android:id="@+id/widget_shuffle"
                     android:layout_width="0dp"

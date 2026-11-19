@@ -1442,7 +1442,7 @@ class PlaybackService : MediaLibraryService() {
             .setSlots(CommandButton.SLOT_FORWARD)
             .build(),
         if (includeForward) CommandButton.Builder(CommandButton.ICON_UNDEFINED)
-            .setCustomIconResId(R.drawable.ic_forward_paper_plane)
+            .setCustomIconResId(R.drawable.ic_telegram_plane)
             .setDisplayName("Forward on Telegram")
             .setSessionCommand(forwardCommand)
             .setSlots(CommandButton.SLOT_OVERFLOW)

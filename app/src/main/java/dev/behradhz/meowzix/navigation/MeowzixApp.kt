@@ -505,24 +505,56 @@ fun MeowzixApp(
                 .fillMaxSize()
                 .hazeSource(hazeState),
             enterTransition = {
-                if (!reduceMotion && targetState.destination.route == SETTINGS_ROUTE)
-                    fadeIn(tween(260)) + slideInHorizontally(tween(300), initialOffsetX = { it / 6 })
-                else fadeIn(tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS))
+                when {
+                    !reduceMotion && initialState.destination.route == SETTINGS_ROUTE &&
+                        targetState.destination.route == TELEGRAM_AUTH_ROUTE ->
+                        fadeIn(tween(240)) + slideInHorizontally(
+                            tween(300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { it },
+                        )
+                    !reduceMotion && targetState.destination.route == SETTINGS_ROUTE ->
+                        fadeIn(tween(260)) + slideInHorizontally(tween(300), initialOffsetX = { it / 6 })
+                    else -> fadeIn(tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS))
+                }
             },
             exitTransition = {
-                if (!reduceMotion && initialState.destination.route == SETTINGS_ROUTE)
-                    fadeOut(tween(210)) + slideOutHorizontally(tween(250), targetOffsetX = { it / 6 })
-                else fadeOut(tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS))
+                when {
+                    !reduceMotion && initialState.destination.route == SETTINGS_ROUTE &&
+                        targetState.destination.route == TELEGRAM_AUTH_ROUTE ->
+                        fadeOut(tween(220)) + slideOutHorizontally(
+                            tween(300, easing = FastOutSlowInEasing),
+                            targetOffsetX = { -it },
+                        )
+                    !reduceMotion && initialState.destination.route == SETTINGS_ROUTE ->
+                        fadeOut(tween(210)) + slideOutHorizontally(tween(250), targetOffsetX = { it / 6 })
+                    else -> fadeOut(tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS))
+                }
             },
             popEnterTransition = {
-                if (!reduceMotion && targetState.destination.route == SETTINGS_ROUTE)
-                    fadeIn(tween(260)) + slideInHorizontally(tween(300), initialOffsetX = { it / 6 })
-                else fadeIn(tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS))
+                when {
+                    !reduceMotion && initialState.destination.route == TELEGRAM_AUTH_ROUTE &&
+                        targetState.destination.route == SETTINGS_ROUTE ->
+                        fadeIn(tween(240)) + slideInHorizontally(
+                            tween(300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { -it },
+                        )
+                    !reduceMotion && targetState.destination.route == SETTINGS_ROUTE ->
+                        fadeIn(tween(260)) + slideInHorizontally(tween(300), initialOffsetX = { it / 6 })
+                    else -> fadeIn(tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS))
+                }
             },
             popExitTransition = {
-                if (!reduceMotion && initialState.destination.route == SETTINGS_ROUTE)
-                    fadeOut(tween(210)) + slideOutHorizontally(tween(250), targetOffsetX = { it / 6 })
-                else fadeOut(tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS))
+                when {
+                    !reduceMotion && initialState.destination.route == TELEGRAM_AUTH_ROUTE &&
+                        targetState.destination.route == SETTINGS_ROUTE ->
+                        fadeOut(tween(220)) + slideOutHorizontally(
+                            tween(300, easing = FastOutSlowInEasing),
+                            targetOffsetX = { it },
+                        )
+                    !reduceMotion && initialState.destination.route == SETTINGS_ROUTE ->
+                        fadeOut(tween(210)) + slideOutHorizontally(tween(250), targetOffsetX = { it / 6 })
+                    else -> fadeOut(tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS))
+                }
             },
         ) {
             composable(HOME_ROUTE) { }

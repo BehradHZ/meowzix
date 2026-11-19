@@ -47,7 +47,6 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -70,6 +69,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
+import dev.behradhz.meowzix.R
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -331,7 +332,7 @@ internal fun TrackActionsMenu(
                             semanticLabel = if (favorite) "Unfavorite" else "Favorite",
                             actionTag = "favorite",
                         ) { onDismiss(); onFavorite() }
-                        ActionIcon(Icons.Rounded.Send, "Forward") { onDismiss(); onForward() }
+                        ActionIcon(ImageVector.vectorResource(R.drawable.ic_telegram_plane), "Forward") { onDismiss(); onForward() }
                         if (!isQueue) {
                             if (onRemoveFromLocations != null && (canRemoveOffline || canRemoveFromLibrary)) {
                                 ActionIcon(Icons.Rounded.DeleteOutline, "Remove", danger = true) {

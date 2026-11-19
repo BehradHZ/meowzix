@@ -14,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.PlaylistAdd
-import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Favorite
@@ -37,10 +36,13 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
+import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.domain.settings.selectionLabel
 
 /** Shared iconography between the live selection controls and the Settings preview. */
+@Composable
 internal fun selectionActionIcon(
     action: LibrarySelectionAction,
     allSelectedLiked: Boolean = false,
@@ -48,7 +50,7 @@ internal fun selectionActionIcon(
     LibrarySelectionAction.DELETE -> Icons.Rounded.DeleteOutline
     LibrarySelectionAction.PLAY_NEXT -> Icons.Rounded.PlaylistPlay
     LibrarySelectionAction.ADD_TO_PLAYLIST -> Icons.Rounded.PlaylistAdd
-    LibrarySelectionAction.SHARE -> Icons.Rounded.Send
+    LibrarySelectionAction.SHARE -> ImageVector.vectorResource(R.drawable.ic_telegram_plane)
     LibrarySelectionAction.ADD_TO_QUEUE -> Icons.Rounded.QueueMusic
     LibrarySelectionAction.DOWNLOAD -> Icons.Rounded.Download
     LibrarySelectionAction.LIKE ->
