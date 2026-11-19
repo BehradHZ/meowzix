@@ -58,6 +58,72 @@ class RecommendationUiTest {
         compose.onNodeWithText("Continue the Vibe").assertIsDisplayed()
         compose.onNodeWithText("More music or listening history will help us find a matching mix.").assertIsDisplayed()
     }
+    @Test fun inlineWhyShowsReasonsAndKeepsFeedbackActionsInThePanel() {
+        val trackId = UUID(0, 42)
+        var more = 0
+        var less = 0
+        var snoozed = 0
+        var undo = 0
+        var insights = 0
+        compose.setContent {
+            MaterialTheme {
+                RecommendationInlineWhyContent(
+                    state = RecommendationActionState(
+                        trackId = trackId,
+                        title = "Sample song",
+                        why = true,
+                        inlineWhy = true,
+                        reasons = listOf(RecommendationReason.FAVORITE),
+                        feedbackNotice = "More like this saved",
+                        feedbackTrackId = trackId,
+                    ),
+                    moreLikeThis = { if (it == trackId) more++ },
+                    suggestLess = { if (it == trackId) less++ },
+                    snooze = { if (it == trackId) snoozed++ },
+                    undoFeedback = { if (it == trackId) undo++ },
+                    openInsights = { insights++ },
+                )
+            }
+        }
+        compose.onNodeWithTag("player-why-content").assertIsDisplayed()
+        compose.onNodeWithText("It's one of your favorites", substring = true).assertIsDisplayed()
+        compose.onNodeWithTag("player-why-more-like").performClick()
+        compose.onNodeWithTag("player-why-suggest-less").performClick()
+        compose.onNodeWithTag("player-why-snooze").performScrollTo().performClick()
+        compose.onNodeWithTag("player-why-undo").performClick()
+        compose.onNodeWithTag("player-why-insights").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(1, more)
+            assertEquals(1, less)
+            assertEquals(1, snoozed)
+            assertEquals(1, undo)
+            assertEquals(1, insights)
+        }
+    }
+
+    @Test fun inlineInsightsStayInThePanelInsteadOfLaunchingAnotherWindow() {
+        compose.setContent {
+            MaterialTheme {
+                RecommendationInlineWhyContent(
+                    state = RecommendationActionState(
+                        trackId = UUID(0, 2),
+                        why = true,
+                        inlineWhy = true,
+                        showInsights = true,
+                        insightsText = "Local metrics report",
+                    ),
+                    moreLikeThis = {},
+                    suggestLess = {},
+                    snooze = {},
+                    undoFeedback = {},
+                    openInsights = {},
+                )
+            }
+        }
+        compose.onNodeWithText("Local metrics report").assertIsDisplayed()
+        compose.onNodeWithTag("player-why-more-like").assertDoesNotExist()
+    }
+
     @Test fun timeMixTitlesUseExistingBuckets() {
         assertEquals("Late Night Mix", RecommendationSection(RecommendationSectionKind.TIME_MIX, emptyList(), TimeBucket.LATE_NIGHT).title())
         assertEquals("Morning Mix", RecommendationSection(RecommendationSectionKind.TIME_MIX, emptyList(), TimeBucket.MORNING).title())

@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.feature.nowplaying
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -80,6 +81,9 @@ import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.feature.telegram.ForwardOptionPill
 import dev.behradhz.meowzix.ui.components.WhyThisSongLink
+import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
+import dev.behradhz.meowzix.feature.recommendation.RecommendationInlineWhyContent
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.ui.components.SleepTimerMenuContent
 import dev.behradhz.meowzix.domain.lyrics.LyricsContentType
@@ -95,7 +99,7 @@ internal fun draggedPlayerAction(screenPoint: Offset, rowBounds: Map<Int, Rect>,
             screenPoint.x <= rect.right + horizontalTolerancePx
     }?.key
 
-internal enum class PlayerActionsPage { ACTIONS, LYRICS, PLAYBACK_SPEED, SLEEP_TIMER, REMOVE }
+internal enum class PlayerActionsPage { ACTIONS, WHY_THIS_SONG, LYRICS, PLAYBACK_SPEED, SLEEP_TIMER, REMOVE }
 
 /** Two-page anchored glass popup, matching Library's track-actions menu. */
 @Composable
@@ -109,6 +113,7 @@ internal fun PlayerActionsMenu(
     onDismiss: () -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
+    recommendationActions: RecommendationActionsViewModel? = null,
     onOpenLyrics: () -> Unit,
     onImportLrc: () -> Unit,
     onPasteLyrics: () -> Unit,
@@ -132,6 +137,7 @@ internal fun PlayerActionsMenu(
     dragInProgress: Boolean = false,
     draggedAction: Int? = null,
     draggedLyricsRequest: Int = 0,
+    draggedWhyRequest: Int = 0,
     draggedSpeedRequest: Int = 0,
     draggedTimerRequest: Int = 0,
     draggedRemoveRequest: Int = 0,
@@ -149,9 +155,22 @@ internal fun PlayerActionsMenu(
     var pendingDelete by remember(trackId) { mutableStateOf<LyricsVersion?>(null) }
     LaunchedEffect(expanded) {
         if (!expanded) {
+            // An inline explanation must not outlive its originating popup or song.
+            if (recommendationActions?.state?.value?.inlineWhy == true) recommendationActions.dismiss()
             page = PlayerActionsPage.ACTIONS
             removeOffline = false
             removeLibrary = false
+        }
+    }
+    LaunchedEffect(trackId) {
+        val inline = recommendationActions?.state?.value
+        if (inline?.inlineWhy == true && inline.trackId != trackId) {
+            recommendationActions?.dismiss()
+        }
+    }
+    LaunchedEffect(draggedWhyRequest) {
+        if (draggedWhyRequest > 0 && recommendationActions != null) {
+            page = PlayerActionsPage.WHY_THIS_SONG
         }
     }
     LaunchedEffect(draggedLyricsRequest) {
@@ -173,12 +192,18 @@ internal fun PlayerActionsMenu(
     val accent = MaterialTheme.colorScheme.primary
     val glass = MaterialTheme.colorScheme.surface
     val shape = RoundedCornerShape(18.dp)
+    val popupWidth by animateDpAsState(
+        targetValue = if (page == PlayerActionsPage.WHY_THIS_SONG ||
+            page == PlayerActionsPage.SLEEP_TIMER) 336.dp else 288.dp,
+        animationSpec = tween(durationMillis = 300),
+        label = "player-menu-width-morph",
+    )
     val versions = lyricsState.trackLyrics?.versions.orEmpty()
 
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
-        modifier = Modifier.width(if (page == PlayerActionsPage.SLEEP_TIMER) 336.dp else 288.dp),
+        modifier = Modifier.width(popupWidth),
         offset = DpOffset(x = (-8).dp, y = 0.dp),
         containerColor = Color.Transparent,
         tonalElevation = 0.dp,
@@ -307,7 +332,51 @@ internal fun PlayerActionsMenu(
                                 }
                             },
                         ) {
-                            onDismiss(); onWhyThisSong()
+                            if (recommendationActions != null && trackId != null) {
+                                page = PlayerActionsPage.WHY_THIS_SONG
+                                onWhyThisSong()
+                            } else {
+                                onDismiss()
+                                onWhyThisSong()
+                            }
+                        }
+                    }
+                }
+                PlayerActionsPage.WHY_THIS_SONG -> {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
+                            .testTag("player-why-page"),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (recommendationActions != null && trackId != null) {
+                            val whyState by recommendationActions.state.collectAsStateWithLifecycle()
+                            PlayerSubpageHeader(
+                                if (whyState.showInsights) "Local insights" else "Why this song?",
+                                "player-why-back",
+                            ) {
+                                if (whyState.showInsights) {
+                                    recommendationActions.closeInlineInsights()
+                                } else {
+                                    recommendationActions.dismiss()
+                                    page = PlayerActionsPage.ACTIONS
+                                }
+                            }
+                            RecommendationInlineWhyContent(
+                                state = whyState.takeIf { it.inlineWhy && it.trackId == trackId }
+                                    ?: dev.behradhz.meowzix.feature.recommendation.RecommendationActionState(
+                                        trackId = trackId, loading = true, inlineWhy = true,
+                                    ),
+                                moreLikeThis = recommendationActions::moreLikeThis,
+                                suggestLess = recommendationActions::suggestLess,
+                                snooze = recommendationActions::snooze,
+                                undoFeedback = recommendationActions::undoFeedback,
+                                openInsights = recommendationActions::openInsights,
+                            )
+                        } else {
+                            PlayerSubpageHeader("Why this song?", "player-why-back") {
+                                page = PlayerActionsPage.ACTIONS
+                            }
+                            Text("Recommendation details unavailable.", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }

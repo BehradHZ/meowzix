@@ -29,6 +29,8 @@ data class RecommendationActionState(
     val title: String = "",
     val loading: Boolean = false,
     val why: Boolean = false,
+    /** True only for the morphing player-menu panel; it must not open a second dialog. */
+    val inlineWhy: Boolean = false,
     val reasons: List<RecommendationReason> = emptyList(),
     val tracks: List<Track> = emptyList(),
     val error: String? = null,
@@ -52,28 +54,47 @@ class RecommendationActionsViewModel @Inject constructor(
     val state = _state.asStateFlow()
     private var load: Job? = null
 
-    fun why(trackId: UUID, reasons: List<RecommendationReason>? = null) = open(trackId, true, reasons)
+    fun why(trackId: UUID, reasons: List<RecommendationReason>? = null, inlineMenu: Boolean = false) =
+        open(trackId, true, reasons, inlineWhy = inlineMenu)
     fun continueVibe(trackId: UUID) = open(trackId, false)
 
     fun openInsights() {
         load?.cancel()
-        _state.value = RecommendationActionState(showInsights = true, insightsLoading = true)
+        val previous = _state.value
+        _state.value = if (previous.inlineWhy) {
+            previous.copy(showInsights = true, insightsLoading = true, insightsText = null, error = null)
+        } else {
+            RecommendationActionState(showInsights = true, insightsLoading = true)
+        }
         load = viewModelScope.launch {
             _state.value = try {
-                RecommendationActionState(showInsights = true, insightsText = maintenance.debugReport())
+                _state.value.copy(insightsLoading = false, insightsText = maintenance.debugReport())
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                RecommendationActionState(showInsights = true, error = "Unable to build local insights.")
+                _state.value.copy(insightsLoading = false, error = "Unable to build local insights.")
             }
         }
     }
 
+    fun closeInlineInsights() {
+        if (!_state.value.inlineWhy) return
+        load?.cancel()
+        _state.value = _state.value.copy(showInsights = false, insightsLoading = false, insightsText = null, error = null)
+    }
+
     fun moreLikeThis(trackId: UUID) {
         viewModelScope.launch {
+            val fromInline = isInlineFor(trackId)
             if (!canSaveFeedback()) return@launch
             feedback.set(trackId, RecommendationFeedbackAction.MORE_LIKE_THIS)
-            open(trackId, false, feedbackNotice = "More like this saved", feedbackTrackId = trackId)
+            if (fromInline) {
+                if (isInlineFor(trackId)) {
+                    _state.value = _state.value.copy(feedbackNotice = "More like this saved", feedbackTrackId = trackId)
+                }
+            } else {
+                open(trackId, false, feedbackNotice = "More like this saved", feedbackTrackId = trackId)
+            }
         }
     }
 
@@ -82,26 +103,48 @@ class RecommendationActionsViewModel @Inject constructor(
 
     fun undoFeedback(trackId: UUID) {
         viewModelScope.launch {
+            val fromInline = isInlineFor(trackId)
             feedback.undo(trackId)
-            _state.value = RecommendationActionState(feedbackNotice = "Recommendation feedback removed")
+            if (fromInline) {
+                if (isInlineFor(trackId)) {
+                    _state.value = _state.value.copy(
+                        feedbackNotice = "Recommendation feedback removed", feedbackTrackId = null,
+                    )
+                }
+            } else {
+                _state.value = RecommendationActionState(feedbackNotice = "Recommendation feedback removed")
+            }
         }
     }
 
     private suspend fun canSaveFeedback(): Boolean {
         if (settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled) return true
-        _state.value = RecommendationActionState(
-            feedbackNotice = "Enable Smart recommendations in Settings to save recommendation feedback."
-        )
+        val notice = "Enable Smart recommendations in Settings to save recommendation feedback."
+        _state.value = if (_state.value.inlineWhy) {
+            _state.value.copy(feedbackNotice = notice, feedbackTrackId = null)
+        } else {
+            RecommendationActionState(feedbackNotice = notice)
+        }
         return false
     }
 
     private fun setFeedback(trackId: UUID, action: RecommendationFeedbackAction, notice: String) {
         viewModelScope.launch {
+            val fromInline = isInlineFor(trackId)
             if (!canSaveFeedback()) return@launch
             feedback.set(trackId, action)
-            _state.value = RecommendationActionState(feedbackNotice = notice, feedbackTrackId = trackId)
+            if (fromInline) {
+                if (isInlineFor(trackId)) {
+                    _state.value = _state.value.copy(feedbackNotice = notice, feedbackTrackId = trackId)
+                }
+            } else {
+                _state.value = RecommendationActionState(feedbackNotice = notice, feedbackTrackId = trackId)
+            }
         }
     }
+
+    private fun isInlineFor(trackId: UUID) =
+        _state.value.inlineWhy && _state.value.trackId == trackId
 
     private fun open(
         trackId: UUID,
@@ -109,9 +152,11 @@ class RecommendationActionsViewModel @Inject constructor(
         knownReasons: List<RecommendationReason>? = null,
         feedbackNotice: String? = null,
         feedbackTrackId: UUID? = null,
+        inlineWhy: Boolean = false,
     ) {
         load?.cancel()
-        _state.value = RecommendationActionState(trackId = trackId, loading = true, why = why, feedbackNotice = feedbackNotice, feedbackTrackId = feedbackTrackId)
+        _state.value = RecommendationActionState(trackId = trackId, loading = true, why = why,
+            inlineWhy = inlineWhy, feedbackNotice = feedbackNotice, feedbackTrackId = feedbackTrackId)
         load = viewModelScope.launch {
             try {
                 val libraryTracks = withContext(Dispatchers.Default) { library.observeTracks().first().associateBy { it.id } }
@@ -120,6 +165,7 @@ class RecommendationActionsViewModel @Inject constructor(
                     trackId = trackId,
                     title = title,
                     why = true,
+                    inlineWhy = inlineWhy,
                     reasons = knownReasons ?: engine.whyThisSong(trackId),
                     feedbackNotice = feedbackNotice,
                     feedbackTrackId = feedbackTrackId,
@@ -136,7 +182,8 @@ class RecommendationActionsViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                _state.value = RecommendationActionState(trackId = trackId, why = why, error = "Unable to load suggestions. Try again.", feedbackNotice = feedbackNotice, feedbackTrackId = feedbackTrackId)
+                _state.value = RecommendationActionState(trackId = trackId, why = why, inlineWhy = inlineWhy,
+                    error = "Unable to load suggestions. Try again.", feedbackNotice = feedbackNotice, feedbackTrackId = feedbackTrackId)
             }
         }
     }

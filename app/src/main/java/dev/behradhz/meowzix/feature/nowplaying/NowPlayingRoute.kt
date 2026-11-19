@@ -327,6 +327,7 @@ fun NowPlayingRoute(
                 state = state,
                 queueState = queueState,
                 inlineQueueViewModel = inlineQueueViewModel,
+                recommendationActions = recommendationActions,
                 lockScreenMode = lockScreenMode,
                 liveBands = spectrum.bands,
                 isFavorite = isFavorite,
@@ -361,7 +362,9 @@ fun NowPlayingRoute(
                 onOpenQueue = panels::toggleQueue,
                 onGoToArtist = onGoToArtist,
                 onWhyThisSong = {
-                    state.currentTrack?.id?.let { trackId -> recommendationActions.why(trackId) }
+                    state.currentTrack?.id?.let { trackId ->
+                        recommendationActions.why(trackId, inlineMenu = true)
+                    }
                 },
                 onContinueVibe = {
                     state.currentTrack?.id?.let { trackId -> recommendationActions.continueVibe(trackId) }
@@ -447,6 +450,7 @@ private fun NowPlayingScreen(
     state: PlaybackState,
     queueState: QueueState,
     inlineQueueViewModel: QueueViewModel,
+    recommendationActions: RecommendationActionsViewModel? = null,
     lockScreenMode: Boolean,
     liveBands: FloatArray,
     isFavorite: Boolean,
@@ -482,6 +486,7 @@ private fun NowPlayingScreen(
     onGoToArtist: (String) -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
+    recommendationActions: RecommendationActionsViewModel? = null,
     canRemoveOffline: Boolean,
     onRemoveFromLocations: (UUID, Boolean, Boolean) -> Unit,
     onLyricsImport: (android.net.Uri) -> Unit,
@@ -548,6 +553,7 @@ private fun NowPlayingScreen(
                         onOpenQueue = onOpenQueue,
                         playbackSpeed = state.playbackSpeed,
                         onWhyThisSong = onWhyThisSong,
+                        recommendationActions = recommendationActions,
                         onContinueVibe = onContinueVibe,
                         canRemoveOffline = canRemoveOffline,
                         onRemoveFromLocations = if (lockScreenMode) null else { offline, library ->
@@ -1053,6 +1059,7 @@ private fun NowPlayingScreen(
                 onOpenQueue = onOpenQueue,
                 playbackSpeed = state.playbackSpeed,
                 onWhyThisSong = onWhyThisSong,
+                recommendationActions = recommendationActions,
                 onContinueVibe = onContinueVibe,
                 canRemoveOffline = canRemoveOffline,
                 onRemoveFromLocations = if (lockScreenMode) null else { offline, library ->
@@ -1445,6 +1452,7 @@ private fun PlayerHeader(
     playbackSpeed: Float,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
+    recommendationActions: RecommendationActionsViewModel? = null,
     canRemoveOffline: Boolean,
     onRemoveFromLocations: ((Boolean, Boolean) -> Unit)?,
     onOpenLyrics: () -> Unit,
@@ -1461,6 +1469,7 @@ private fun PlayerHeader(
     var dragInProgress by remember { mutableStateOf(false) }
     var dragSelection by remember { mutableStateOf<Int?>(null) }
     var draggedLyricsRequest by remember { mutableIntStateOf(0) }
+    var draggedWhyRequest by remember { mutableIntStateOf(0) }
     var draggedSpeedRequest by remember { mutableIntStateOf(0) }
     var draggedTimerRequest by remember { mutableIntStateOf(0) }
     var draggedRemoveRequest by remember { mutableIntStateOf(0) }
@@ -1601,7 +1610,15 @@ private fun PlayerHeader(
                                     when (selected) {
                                         0 -> { draggedSpeedRequest++ }
                                         1 -> { draggedTimerRequest++ }
-                                        2 -> { menuExpanded = false; onWhyThisSong() }
+                                        2 -> {
+                                            if (recommendationActions != null) {
+                                                draggedWhyRequest++
+                                                onWhyThisSong()
+                                            } else {
+                                                menuExpanded = false
+                                                onWhyThisSong()
+                                            }
+                                        }
                                         3 -> { menuExpanded = false; onContinueVibe() }
                                         4 -> { draggedLyricsRequest++ }
                                         6 -> { draggedRemoveRequest++ }
@@ -1649,6 +1666,7 @@ private fun PlayerHeader(
                     onDismiss = { menuExpanded = false },
                     playbackSpeed = playbackSpeed,
                     onWhyThisSong = onWhyThisSong,
+                    recommendationActions = recommendationActions,
                     onContinueVibe = onContinueVibe,
                     onViewInChat = if (chatActions != null && viewInChatOrigin != null) ::openChatMessage else null,
                     viewInChatOrigin = viewInChatOrigin,
@@ -1666,6 +1684,7 @@ private fun PlayerHeader(
                     dragInProgress = dragInProgress,
                     draggedAction = dragSelection,
                     draggedLyricsRequest = draggedLyricsRequest,
+                    draggedWhyRequest = draggedWhyRequest,
                     draggedSpeedRequest = draggedSpeedRequest,
                     draggedTimerRequest = draggedTimerRequest,
                     draggedRemoveRequest = draggedRemoveRequest,

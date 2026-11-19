@@ -1,6 +1,10 @@
 package dev.behradhz.meowzix.feature.recommendation
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.*
 import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
@@ -65,6 +69,8 @@ fun RecommendationActionButtons(trackId: UUID, modifier: Modifier = Modifier, vi
 @Composable
 fun RecommendationActionDialogs(viewModel: RecommendationActionsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // The anchored player menu owns inline explanations. Never stack an AlertDialog on top.
+    if (state.inlineWhy) return
     RecommendationActionContent(
         state = state,
         dismiss = viewModel::dismiss,
@@ -76,6 +82,124 @@ fun RecommendationActionDialogs(viewModel: RecommendationActionsViewModel = hilt
         undoFeedback = viewModel::undoFeedback,
         openInsights = viewModel::openInsights,
     )
+}
+
+/** Inline content for the morphing glass popup in Now Playing; no dialog or second window. */
+@Composable
+fun RecommendationInlineWhyContent(
+    state: RecommendationActionState,
+    moreLikeThis: (UUID) -> Unit,
+    suggestLess: (UUID) -> Unit,
+    snooze: (UUID) -> Unit,
+    undoFeedback: (UUID) -> Unit,
+    openInsights: () -> Unit,
+) {
+    val trackId = state.trackId
+    Column(
+        modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .testTag("player-why-content"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (state.showInsights) {
+            Text(
+                "Calculated only from data stored on this device. These observational metrics do not establish causality.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            when {
+                state.insightsLoading -> CircularProgressIndicator(Modifier.padding(12.dp))
+                state.error != null -> Text(state.error, color = MaterialTheme.colorScheme.error)
+                state.insightsText != null -> Text(state.insightsText, style = MaterialTheme.typography.bodySmall)
+            }
+        } else {
+            if (state.title.isNotBlank()) {
+                Text(
+                    state.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+            }
+            when {
+                state.loading || trackId == null -> CircularProgressIndicator(Modifier.padding(12.dp))
+                state.error != null -> Text(state.error, color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 8.dp))
+                else -> {
+                    state.reasons.ifEmpty { listOf(RecommendationReason.INSUFFICIENT_EVIDENCE) }
+                        .take(4).forEach { reason ->
+                            Text("• " + reason.label(), style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(horizontal = 8.dp))
+                        }
+                }
+            }
+            Text(
+                "Based on your listening on this device.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            state.feedbackNotice?.let { notice ->
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 10.dp, end = 4.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        Text(notice, modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall)
+                        state.feedbackTrackId?.takeIf { it == trackId }?.let { id ->
+                            TextButton(onClick = { undoFeedback(id) },
+                                modifier = Modifier.testTag("player-why-undo")) {
+                                Text("Undo")
+                            }
+                        }
+                    }
+                }
+            }
+            if (trackId != null && !state.loading && state.error == null) {
+                InlineWhyAction(
+                    "More like this",
+                    "Prioritize similar suggestions",
+                    "player-why-more-like",
+                ) { moreLikeThis(trackId) }
+                InlineWhyAction(
+                    "Suggest less",
+                    "Reduce this song's recommendation score",
+                    "player-why-suggest-less",
+                ) { suggestLess(trackId) }
+                InlineWhyAction(
+                    "Don't suggest for 24 hours",
+                    "Temporarily exclude this song",
+                    "player-why-snooze",
+                ) { snooze(trackId) }
+            }
+            TextButton(
+                onClick = openInsights,
+                modifier = Modifier.fillMaxWidth().testTag("player-why-insights"),
+            ) { Text("Local insights") }
+        }
+    }
+}
+
+@Composable
+private fun InlineWhyAction(title: String, subtitle: String, tag: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().testTag(tag),
+        shape = RoundedCornerShape(13.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.54f),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+            Text(title, style = MaterialTheme.typography.labelLarge)
+            Text(subtitle, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }
 
 @Composable
