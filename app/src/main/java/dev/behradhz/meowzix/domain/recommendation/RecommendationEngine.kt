@@ -115,7 +115,7 @@ object BehavioralPreferenceModel {
         val replay = stats.replays.toDouble() / max(1, starts)
         return (0.35 * completion - 0.30 * earlySkip - 0.08 * lateSkip.coerceAtMost(1.0) +
             0.20 * manual.coerceAtMost(1.0) + 0.10 * replay.coerceAtMost(1.0) +
-            if (favorite) 0.05 else 0.0).coerceIn(0.0, 1.0)
+            (if (favorite) 0.05 else 0.0)).coerceIn(0.0, 1.0)
     }
 
     fun global(candidate: SmartCandidate): Double {
@@ -162,8 +162,6 @@ class AdaptiveScorer(private val weights: AdaptiveScoreWeights = AdaptiveScoreWe
             BehavioralPreferenceModel.recentAdjustment(candidate)
         return ScoreBreakdown(total, global, time, exploration, recency, artist, sessionSkip, learnedPreference)
     }
-
-
 }
 
 object SmartSelector {
