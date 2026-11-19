@@ -152,118 +152,118 @@ fun HomeRoute(
                     },
                 )
             } else {
-            GlassLazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .graphicsLayer { alpha = refreshContentAlpha }
-                        .hazeSource(hazeState),
-                    contentPadding = PaddingValues(
-                        start = 18.dp,
-                        end = 18.dp,
-                        top = 100.dp,
-                        bottom = dockAwareBottomPadding(198.dp),
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(28.dp),
-                ) {
-                    currentTrack?.let { track ->
-                        item("continue") {
-                            ContinueGlassHero(
+                GlassLazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .graphicsLayer { alpha = refreshContentAlpha }
+                    .hazeSource(hazeState),
+                contentPadding = PaddingValues(
+                    start = 18.dp,
+                    end = 18.dp,
+                    top = 100.dp,
+                    bottom = dockAwareBottomPadding(198.dp),
+                ),
+                verticalArrangement = Arrangement.spacedBy(28.dp),
+            ) {
+                currentTrack?.let { track ->
+                    item("continue") {
+                        ContinueGlassHero(
+                            hazeState = hazeState,
+                            track = track,
+                            onClick = { viewModel.playFromHome(track.id) },
+                        )
+                    }
+                }
+    
+                if (state.recommended.isNotEmpty()) {
+                    item("recommended") {
+                        val recommendationIds = state.recommended.map(Track::id)
+                        Crossfade(
+                            targetState = recommendationIds,
+                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
+                            label = "homeRecommendations",
+                        ) { visibleIds ->
+                            // Artwork/title updates recompose in place; only a new selection crossfades.
+                            val previousTracks = remember(visibleIds) { state.recommended }
+                            FeaturedRecommendations(
                                 hazeState = hazeState,
-                                track = track,
-                                onClick = { viewModel.playFromHome(track.id) },
+                                tracks = if (visibleIds == recommendationIds) state.recommended else previousTracks,
+                                onPlay = { track -> viewModel.playFromHome(track.id) },
                             )
                         }
                     }
-        
-                    if (state.recommended.isNotEmpty()) {
-                        item("recommended") {
-                            val recommendationIds = state.recommended.map(Track::id)
-                            Crossfade(
-                                targetState = recommendationIds,
-                                modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
-                                animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
-                                label = "homeRecommendations",
-                            ) { visibleIds ->
-                                // Artwork/title updates recompose in place; only a new selection crossfades.
-                                val previousTracks = remember(visibleIds) { state.recommended }
-                                FeaturedRecommendations(
-                                    hazeState = hazeState,
-                                    tracks = if (visibleIds == recommendationIds) state.recommended else previousTracks,
-                                    onPlay = { track -> viewModel.playFromHome(track.id) },
-                                )
-                            }
-                        }
-                    }
-        
-                    if (state.recent.isNotEmpty()) {
-                        item("recent") {
-                            Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
-                                RecentGlassList(
-                                    hazeState = hazeState,
-                                    tracks = state.recent,
-                                    reduceMotion = reduceMotion,
-                                    onPlay = { track -> viewModel.playFromHome(track.id) },
-                                )
-                            }
-                        }
-                    }
-        
-                    if (state.artists.isNotEmpty()) {
-                        item("artists") {
-                            Crossfade(
-                                targetState = state.artists,
-                                modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
-                                animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
-                                label = "homeArtists",
-                            ) { entries ->
-                                ArtistOrbit(
-                                    hazeState = hazeState,
-                                    artists = entries,
-                                    onPlayArtist = { artist ->
-                                        viewModel.playArtist(artist.normalizedName, onPlayCollection)
-                                    },
-                                )
-                            }
-                        }
-                    }
-        
-                    if (state.playlists.isNotEmpty()) {
-                        item("playlists") {
-                            Crossfade(
-                                targetState = state.playlists,
-                                modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
-                                animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
-                                label = "homePlaylists",
-                            ) { entries ->
-                                PlaylistGlassRail(
-                                    hazeState = hazeState,
-                                    playlists = entries,
-                                    onOpenPlaylist = onOpenPlaylist,
-                                )
-                            }
-                        }
-                    }
-        
-                    if (state.recentlyAdded.isNotEmpty()) {
-                        item("recently-added") {
-                            Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
-                                RecentlyAddedGlassPanel(
-                                    hazeState = hazeState,
-                                    tracks = state.recentlyAdded,
-                                    reduceMotion = reduceMotion,
-                                    onPlay = { track -> viewModel.playFromHome(track.id) },
-                                    onOpenLibrary = onOpenLibrary,
-                                )
-                            }
-                        }
-                    } else if (state.isReady) {
-                        item("empty") {
-                            EmptyLibraryGlassCard(hazeState, onOpenLibrary)
+                }
+    
+                if (state.recent.isNotEmpty()) {
+                    item("recent") {
+                        Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
+                            RecentGlassList(
+                                hazeState = hazeState,
+                                tracks = state.recent,
+                                reduceMotion = reduceMotion,
+                                onPlay = { track -> viewModel.playFromHome(track.id) },
+                            )
                         }
                     }
                 }
+    
+                if (state.artists.isNotEmpty()) {
+                    item("artists") {
+                        Crossfade(
+                            targetState = state.artists,
+                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
+                            label = "homeArtists",
+                        ) { entries ->
+                            ArtistOrbit(
+                                hazeState = hazeState,
+                                artists = entries,
+                                onPlayArtist = { artist ->
+                                    viewModel.playArtist(artist.normalizedName, onPlayCollection)
+                                },
+                            )
+                        }
+                    }
+                }
+    
+                if (state.playlists.isNotEmpty()) {
+                    item("playlists") {
+                        Crossfade(
+                            targetState = state.playlists,
+                            modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                            animationSpec = tween(durationMillis = if (reduceMotion) 0 else 420),
+                            label = "homePlaylists",
+                        ) { entries ->
+                            PlaylistGlassRail(
+                                hazeState = hazeState,
+                                playlists = entries,
+                                onOpenPlaylist = onOpenPlaylist,
+                            )
+                        }
+                    }
+                }
+    
+                if (state.recentlyAdded.isNotEmpty()) {
+                    item("recently-added") {
+                        Box(if (reduceMotion) Modifier else Modifier.animateItem()) {
+                            RecentlyAddedGlassPanel(
+                                hazeState = hazeState,
+                                tracks = state.recentlyAdded,
+                                reduceMotion = reduceMotion,
+                                onPlay = { track -> viewModel.playFromHome(track.id) },
+                                onOpenLibrary = onOpenLibrary,
+                            )
+                        }
+                    }
+                } else if (state.isReady) {
+                    item("empty") {
+                        EmptyLibraryGlassCard(hazeState, onOpenLibrary)
+                    }
+                }
+            }
             }
         }
 
