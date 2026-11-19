@@ -420,17 +420,26 @@ private fun FirstLaunchSourcePicker(
     onConnectTelegram: () -> Unit,
     onOpenLibrary: () -> Unit,
 ) {
+    // The dock is 72dp tall and anchored 10dp above the navigation inset.
+    // Reserve only the dock + a small visual gap, not the scroll-feed's 198dp.
+    val bottomDockClearance = WindowInsets.navigationBars.asPaddingValues()
+        .calculateBottomPadding() + 94.dp
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .hazeSource(hazeState)
             .statusBarsPadding()
             .padding(horizontal = 18.dp)
-            .padding(top = 100.dp, bottom = dockAwareBottomPadding(198.dp))
+            .padding(top = 100.dp, bottom = bottomDockClearance)
             .testTag("first-launch-source-choice"),
     ) {
-        val compactHeight = maxHeight < 500.dp
-        val iconSize = if (compactHeight) 56.dp else 72.dp
+        val compactHeight = maxHeight < 520.dp
+        val veryCompactHeight = maxHeight < 380.dp
+        val iconSize = when {
+            veryCompactHeight -> 40.dp
+            compactHeight -> 48.dp
+            else -> 72.dp
+        }
         val telegramAccent = Color(0xFF24A8E0)
         val libraryAccent = Color(0xFFC47C5C)
 
@@ -447,6 +456,8 @@ private fun FirstLaunchSourcePicker(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 accent = telegramAccent,
                 iconSize = iconSize,
+                compact = compactHeight,
+                veryCompact = veryCompactHeight,
                 icon = {
                     Icon(
                         painter = painterResource(R.drawable.ic_telegram_plane),
@@ -466,6 +477,8 @@ private fun FirstLaunchSourcePicker(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 accent = libraryAccent,
                 iconSize = iconSize,
+                compact = compactHeight,
+                veryCompact = veryCompactHeight,
                 icon = {
                     Icon(
                         Icons.Rounded.LibraryMusic,
@@ -490,6 +503,8 @@ private fun FirstLaunchSourceCard(
     modifier: Modifier,
     accent: Color,
     iconSize: androidx.compose.ui.unit.Dp,
+    compact: Boolean,
+    veryCompact: Boolean,
     icon: @Composable () -> Unit,
     onClick: () -> Unit,
 ) {
@@ -502,7 +517,7 @@ private fun FirstLaunchSourceCard(
         tint = accent.copy(alpha = 0.075f),
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(if (veryCompact) 9.dp else if (compact) 12.dp else 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(
@@ -520,24 +535,24 @@ private fun FirstLaunchSourceCard(
                 }
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = if (veryCompact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = accent,
-                    modifier = Modifier.padding(top = 8.dp),
+                    modifier = Modifier.padding(top = if (compact) 4.dp else 8.dp),
                 )
                 Text(
                     text = description,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    maxLines = 2,
+                    maxLines = if (veryCompact) 1 else 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = if (compact) 4.dp else 8.dp),
                 )
             }
             OutlinedButton(
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth().height(50.dp)
+                modifier = Modifier.fillMaxWidth().height(if (veryCompact) 40.dp else if (compact) 44.dp else 50.dp)
                     .testTag("$testTagPrefix-button"),
                 shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(1.5.dp, accent.copy(alpha = 0.9f)),
