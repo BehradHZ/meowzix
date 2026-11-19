@@ -1,10 +1,17 @@
 package dev.behradhz.meowzix.feature.home
 
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateBounds
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +57,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -74,6 +82,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -82,6 +91,7 @@ import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.core.model.Track
+import dev.behradhz.meowzix.core.permissions.AudioPermission
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
@@ -90,8 +100,6 @@ import dev.chrisbanes.haze.hazeSource
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.rememberHazeState
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
 
 @Composable
 fun HomeRoute(
@@ -104,19 +112,39 @@ fun HomeRoute(
     foregroundSessionId: Long = 1L,
     reduceMotion: Boolean = false,
     isActive: Boolean = true,
-    isFirstAppLaunch: Boolean = false,
     isTelegramConnected: Boolean = false,
     isTelegramStatusInitializing: Boolean = false,
     onConnectTelegram: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val initialSourceChoiceCompleted by viewModel.initialSourceChoiceCompleted.collectAsStateWithLifecycle(initialValue = false)
+    // Always derive access from the OS permission rather than the previous
+    // first-launch choice. A denied permission must not dismiss Home onboarding.
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val audioPermission = remember { AudioPermission.requiredPermission() }
+    fun hasAudioAccess() = ContextCompat.checkSelfPermission(context, audioPermission) ==
+        PackageManager.PERMISSION_GRANTED
+    var localAudioPermissionGranted by remember(context, audioPermission) {
+        mutableStateOf(hasAudioAccess())
+    }
+    val permissionCheckRequests by AudioPermission.permissionCheckRequests.collectAsStateWithLifecycle()
+    LaunchedEffect(permissionCheckRequests, isActive) {
+        if (isActive) localAudioPermissionGranted = hasAudioAccess()
+    }
+    // Also catch changes in Android Settings when the Activity returns to foreground.
+    DisposableEffect(lifecycleOwner, context, audioPermission) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                localAudioPermissionGranted = hasAudioAccess()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val showInitialSourceChoice = shouldShowInitialSourceChoice(
-        isReady = state.isReady,
-        isFirstAppLaunch = isFirstAppLaunch,
-        isCompleted = initialSourceChoiceCompleted,
         telegramConnected = isTelegramConnected,
+        localAudioPermissionGranted = localAudioPermissionGranted,
     )
     val telegramReminderDismissed by viewModel.telegramConnectReminderDismissed
         .collectAsStateWithLifecycle(initialValue = true)
@@ -128,14 +156,6 @@ fun HomeRoute(
         isDismissed = telegramReminderDismissed || dismissedInSession,
         isFirstLaunchChoiceVisible = showInitialSourceChoice,
     )
-    val sourceChoiceScope = rememberCoroutineScope()
-
-    LaunchedEffect(isFirstAppLaunch, isTelegramConnected, initialSourceChoiceCompleted) {
-        if (isFirstAppLaunch && isTelegramConnected && !initialSourceChoiceCompleted) {
-            viewModel.completeInitialSourceChoice()
-        }
-    }
-
     val refreshContentAlpha by animateFloatAsState(
         targetValue = if (state.isRefreshing) 0.88f else 1f,
         animationSpec = tween(150),
@@ -173,18 +193,8 @@ fun HomeRoute(
             if (showInitialSourceChoice) {
                 FirstLaunchSourcePicker(
                     hazeState = hazeState,
-                    onConnectTelegram = {
-                        sourceChoiceScope.launch {
-                            viewModel.completeInitialSourceChoice()
-                            onConnectTelegram()
-                        }
-                    },
-                    onOpenLibrary = {
-                        sourceChoiceScope.launch {
-                            viewModel.completeInitialSourceChoice()
-                            onOpenLibrary()
-                        }
-                    },
+                    onConnectTelegram = onConnectTelegram,
+                    onOpenLibrary = onOpenLibrary,
                 )
             } else {
             GlassLazyColumn(
@@ -336,11 +346,9 @@ fun HomeRoute(
 
 
 internal fun shouldShowInitialSourceChoice(
-    isReady: Boolean,
-    isFirstAppLaunch: Boolean,
-    isCompleted: Boolean,
     telegramConnected: Boolean,
-): Boolean = isReady && isFirstAppLaunch && !isCompleted && !telegramConnected
+    localAudioPermissionGranted: Boolean,
+): Boolean = !telegramConnected && !localAudioPermissionGranted
 
 /** Keep the Telegram reminder anchored immediately below the Home header. */
 internal fun shouldShowTelegramConnectReminder(
@@ -439,12 +447,12 @@ private fun FirstLaunchSourcePicker(
             compactHeight -> 48.dp
             else -> 72.dp
         }
-        val telegramAccent = Color(0xFF24A8E0)
+        val telegramAccent = Color(0xFF2AABEE)
         val libraryAccent = Color(0xFFC47C5C)
 
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             FirstLaunchSourceCard(
                 hazeState = hazeState,
@@ -510,11 +518,19 @@ private fun FirstLaunchSourceCard(
     val shape = RoundedCornerShape(28.dp)
     GlassSurface(
         hazeState = hazeState,
-        modifier = modifier.clip(shape).testTag("$testTagPrefix-card"),
+        modifier = modifier
+            .clip(shape)
+            .border(1.dp, accent.copy(alpha = 0.30f), shape)
+            .testTag("$testTagPrefix-card"),
         shape = shape,
-        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
-        tint = accent.copy(alpha = 0.075f),
+        fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.60f),
+        tint = accent.copy(alpha = 0.10f),
     ) {
+        Box(
+            Modifier.matchParentSize().background(
+                MaterialTheme.colorScheme.surface.copy(alpha = 0.22f),
+            ),
+        )
         Column(
             modifier = Modifier.fillMaxSize().padding(if (veryCompact) 9.dp else if (compact) 12.dp else 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
