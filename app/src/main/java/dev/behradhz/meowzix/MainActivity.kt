@@ -1,6 +1,5 @@
 package dev.behradhz.meowzix
 
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.os.Build
@@ -54,17 +53,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         openNowPlaying = intent?.action == ACTION_OPEN_NOW_PLAYING
-        val firstLaunchPreferences = getSharedPreferences(
-            "meowzix_first_launch_permissions",
-            Context.MODE_PRIVATE,
-        )
-        if (!firstLaunchPreferences.contains("source_choice_eligible")) {
-            // The permission flow's persisted stage distinguishes existing installs from a fresh install.
-            firstLaunchPreferences.edit()
-                .putBoolean("source_choice_eligible", firstLaunchPreferences.getString("stage", null) == null)
-                .apply()
-        }
-        val isFirstAppLaunch = firstLaunchPreferences.getBoolean("source_choice_eligible", false)
         enableEdgeToEdge()
         setContent {
             // Do not publish a temporary default icon before saved settings have loaded.
@@ -107,7 +95,6 @@ class MainActivity : ComponentActivity() {
                     contentColor = MaterialTheme.colorScheme.onBackground,
                 ) {
                     MeowzixApp(
-                        isFirstAppLaunch = isFirstAppLaunch,
                         openNowPlayingRequest = openNowPlaying,
                         onNowPlayingRequestConsumed = { openNowPlaying = false },
                         onApplyLauncherIcon = { source ->
