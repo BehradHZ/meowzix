@@ -206,6 +206,8 @@ interface SettingsRepository {
     val telegramForwardSettings: Flow<TelegramForwardSettings>
     val libraryDisplaySettings: Flow<LibraryDisplaySettings>
     val collapsedTelegramPlaylistSections: Flow<Set<String>> get() = flowOf(emptySet())
+    /** Whether the user has chosen an initial music source on the first Home visit. */
+    val initialSourceChoiceCompleted: Flow<Boolean> get() = flowOf(false)
     val appearanceSettings: Flow<AppearanceSettings>
     val playbackPreferenceSettings: Flow<PlaybackPreferenceSettings>
     val recentShuffleTrackIds: Flow<List<UUID>> get() = flowOf(emptyList())
@@ -216,6 +218,7 @@ interface SettingsRepository {
     suspend fun setPrefetchEnabled(enabled: Boolean)
     suspend fun setPrefetchOnMetered(enabled: Boolean)
     suspend fun setListeningHistoryEnabled(enabled: Boolean)
+    suspend fun setInitialSourceChoiceCompleted() {}
     suspend fun setTemporaryCacheBudgetBytes(bytes: Long)
     suspend fun setTelegramForwardDefaults(includeSourceAttribution: Boolean, keepCaption: Boolean)
     suspend fun setLibrarySortMode(mode: LibrarySortMode)
