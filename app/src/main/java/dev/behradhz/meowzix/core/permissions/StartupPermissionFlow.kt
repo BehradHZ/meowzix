@@ -60,7 +60,10 @@ internal fun StartupPermissionFlow() {
 
     val localAudioRequest = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { advance(StartupPermissionStage.LIVE_SPECTRUM) }
+    ) {
+        AudioPermission.notifyPermissionResult()
+        advance(StartupPermissionStage.LIVE_SPECTRUM)
+    }
     val visualizerRequest = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { advance(StartupPermissionStage.OVERLAY) }
