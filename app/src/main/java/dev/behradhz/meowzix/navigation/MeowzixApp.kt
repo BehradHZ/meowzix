@@ -6,6 +6,10 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Transition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -137,7 +141,24 @@ private const val DOWNLOADS_ROUTE = "downloads"
 private const val HISTORY_ROUTE = "history"
 private const val TOP_LEVEL_ENTER_DURATION_MS = 120
 private const val TOP_LEVEL_EXIT_DURATION_MS = 90
-private val RETAINED_TAB_ROUTES = setOf(HOME_ROUTE, LIBRARY_ROUTE, PLAYLISTS_ROUTE, QUEUE_ROUTE)
+private val RETAINED_TAB_ORDER = listOf(HOME_ROUTE, LIBRARY_ROUTE, PLAYLISTS_ROUTE, QUEUE_ROUTE)
+private val RETAINED_TAB_ROUTES = RETAINED_TAB_ORDER.toSet()
+private const val TAB_MOTION_DURATION_MS = 340
+private const val TAB_FADE_DURATION_MS = 265
+
+/**
+ * Directional positions for tab transitions: an incoming right-hand tab starts
+ * to the right and the outgoing tab moves left (and vice versa).
+ */
+internal fun retainedTabOffsetFraction(tabRoute: String, selectedRoute: String): Float {
+    val tabIndex = RETAINED_TAB_ORDER.indexOf(tabRoute)
+    val selectedIndex = RETAINED_TAB_ORDER.indexOf(selectedRoute)
+    return when {
+        tabIndex < 0 || selectedIndex < 0 || tabIndex == selectedIndex -> 0f
+        tabIndex > selectedIndex -> 1f
+        else -> -1f
+    }
+}
 private val SETTINGS_CHILD_ROUTES = setOf(DOWNLOADS_ROUTE, HISTORY_ROUTE, TELEGRAM_AUTH_ROUTE)
 
 internal enum class DockTabTapAction { CLOSE_SETTINGS, SWITCH_FROM_SETTINGS, RESELECT, SWITCH }
@@ -201,6 +222,12 @@ fun MeowzixApp(
     val searchPlaylists by searchViewModel.playlists.collectAsStateWithLifecycle()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: HOME_ROUTE
+    // Animate the real, retained tab surfaces. NavHost destinations for these
+    // routes are empty and cannot animate the cached content themselves.
+    val retainedTabTransition = updateTransition(
+        targetState = currentRoute,
+        label = "retained-tab-navigation",
+    )
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
@@ -429,7 +456,13 @@ fun MeowzixApp(
         // Keeping it on NavHost alone misses all top-level tab scroll gestures.
         Box(Modifier.fillMaxSize().nestedScroll(dockScrollConnection)) {
         // Keep visited destinations in composition; inactive tabs are not placed, painted, or hit-tested.
-            if (HOME_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == HOME_ROUTE, hazeState = hazeState) {
+            if (HOME_ROUTE in visitedTabRoutes) RetainedTopLevelTab(
+                route = HOME_ROUTE,
+                currentRoute = currentRoute,
+                transition = retainedTabTransition,
+                reduceMotion = reduceMotion,
+                hazeState = hazeState,
+            ) {
                 HomeRoute(
                     isActive = currentRoute == HOME_ROUTE,
                     hazeState = hazeState,
@@ -456,7 +489,13 @@ fun MeowzixApp(
                     },
                 )
             }
-            if (LIBRARY_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == LIBRARY_ROUTE, hazeState = hazeState) {
+            if (LIBRARY_ROUTE in visitedTabRoutes) RetainedTopLevelTab(
+                route = LIBRARY_ROUTE,
+                currentRoute = currentRoute,
+                transition = retainedTabTransition,
+                reduceMotion = reduceMotion,
+                hazeState = hazeState,
+            ) {
                 LibraryRoute(
                     isActive = currentRoute == LIBRARY_ROUTE && !playerBlocksBackgroundBack,
                     onOpenNowPlaying = {
@@ -473,7 +512,13 @@ fun MeowzixApp(
                     onAlbumRequestConsumed = { pendingAlbum = null },
                 )
             }
-            if (PLAYLISTS_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == PLAYLISTS_ROUTE, hazeState = hazeState) {
+            if (PLAYLISTS_ROUTE in visitedTabRoutes) RetainedTopLevelTab(
+                route = PLAYLISTS_ROUTE,
+                currentRoute = currentRoute,
+                transition = retainedTabTransition,
+                reduceMotion = reduceMotion,
+                hazeState = hazeState,
+            ) {
                 PlaylistsRoute(
                     isActive = currentRoute == PLAYLISTS_ROUTE && !playerBlocksBackgroundBack,
                     selectionController = playlistSelectionController,
@@ -491,7 +536,13 @@ fun MeowzixApp(
                     reduceMotion = reduceMotion,
                 )
             }
-            if (QUEUE_ROUTE in visitedTabRoutes) RetainedTopLevelTab(active = currentRoute == QUEUE_ROUTE, hazeState = hazeState) {
+            if (QUEUE_ROUTE in visitedTabRoutes) RetainedTopLevelTab(
+                route = QUEUE_ROUTE,
+                currentRoute = currentRoute,
+                transition = retainedTabTransition,
+                reduceMotion = reduceMotion,
+                hazeState = hazeState,
+            ) {
                 QueueRoute(
                     isActive = currentRoute == QUEUE_ROUTE && !playerBlocksBackgroundBack,
                     selectionController = queueSelectionController,
@@ -752,20 +803,53 @@ fun MeowzixApp(
     }
 }
 
-/** Retains LazyListState, artwork caches and subpage state without off-screen drawing or touch handling. */
+/**
+ * Animate already-composed top-level tabs instead of replacing their content.
+ * The outgoing and incoming tabs are temporarily both placed; inactive tabs
+ * remain composed but are neither painted nor hit-tested once settled.
+ */
 @Composable
 private fun RetainedTopLevelTab(
-    active: Boolean,
+    route: String,
+    currentRoute: String,
+    transition: Transition<String>,
+    reduceMotion: Boolean,
     hazeState: HazeState,
     content: @Composable () -> Unit,
 ) {
+    val opacity by transition.animateFloat(
+        transitionSpec = {
+            if (reduceMotion) snap()
+            else tween(TAB_FADE_DURATION_MS, easing = FastOutSlowInEasing)
+        },
+        label = "$route-tab-opacity",
+    ) { selected -> if (selected == route) 1f else 0f }
+    val offsetFraction by transition.animateFloat(
+        transitionSpec = {
+            if (reduceMotion) snap()
+            else tween(TAB_MOTION_DURATION_MS, easing = FastOutSlowInEasing)
+        },
+        label = "$route-tab-offset",
+    ) { selected -> retainedTabOffsetFraction(route, selected) }
+    // Do not mount another tab instance: retain the same LazyListState and
+    // Compose saveables while only changing placement during the transition.
+    val placeTab = currentRoute in RETAINED_TAB_ROUTES &&
+        (transition.currentState == route || transition.targetState == route || opacity > 0.001f)
+    val slideDistancePx = with(LocalDensity.current) { 42.dp.toPx() }
     Box(
-        Modifier.fillMaxSize().layout { measurable, constraints ->
-            val child = measurable.measure(constraints)
-            layout(child.width, child.height) {
-                if (active) child.place(0, 0)
+        Modifier
+            .fillMaxSize()
+            .layout { measurable, constraints ->
+                val child = measurable.measure(constraints)
+                layout(child.width, child.height) {
+                    if (placeTab) child.place(0, 0)
+                }
             }
-        }.hazeSource(hazeState),
+            .graphicsLayer {
+                alpha = opacity
+                translationX = offsetFraction * slideDistancePx
+            }
+            .hazeSource(hazeState),
     ) { content() }
 }
 
