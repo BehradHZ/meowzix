@@ -284,13 +284,16 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun togglePlaybackMode() {
-        val nextMode = when (state.value.playbackMode) {
-            PlaybackMode.ORDERED -> PlaybackMode.PURE_SHUFFLE
-            PlaybackMode.PURE_SHUFFLE -> PlaybackMode.SMART_SHUFFLE
-            PlaybackMode.SMART_SHUFFLE -> PlaybackMode.ORDERED
+        viewModelScope.launch {
+            val smartEnabled = settingsRepository.recommendationPreferenceSettings.first().smartRecommendationsEnabled
+            val nextMode = when (state.value.playbackMode) {
+                PlaybackMode.ORDERED -> PlaybackMode.PURE_SHUFFLE
+                PlaybackMode.PURE_SHUFFLE -> if (smartEnabled) PlaybackMode.SMART_SHUFFLE else PlaybackMode.ORDERED
+                PlaybackMode.SMART_SHUFFLE -> PlaybackMode.ORDERED
+            }
+            queueRepository.setPlaybackMode(nextMode)
+            playbackContextPolicyStore.savePlaybackModeForActiveContext(nextMode)
         }
-        queueRepository.setPlaybackMode(nextMode)
-        playbackContextPolicyStore.savePlaybackModeForActiveContext(nextMode)
     }
 
     fun cycleRepeatMode() {
