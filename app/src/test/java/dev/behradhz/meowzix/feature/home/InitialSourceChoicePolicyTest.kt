@@ -6,21 +6,33 @@ import org.junit.Test
 
 class InitialSourceChoicePolicyTest {
     @Test
-    fun newInstallShowsChoiceAfterHomeIsReady() {
+    fun freshInstallShowsChoiceOnlyAfterHomeIsReady() {
         assertFalse(
             shouldShowInitialSourceChoice(
                 isReady = false,
+                isFirstAppLaunch = true,
                 isCompleted = false,
                 telegramConnected = false,
-                hasExistingLibrary = false,
             ),
         )
         assertTrue(
             shouldShowInitialSourceChoice(
                 isReady = true,
+                isFirstAppLaunch = true,
                 isCompleted = false,
                 telegramConnected = false,
-                hasExistingLibrary = false,
+            ),
+        )
+    }
+
+    @Test
+    fun existingInstallDoesNotShowFirstLaunchChoice() {
+        assertFalse(
+            shouldShowInitialSourceChoice(
+                isReady = true,
+                isFirstAppLaunch = false,
+                isCompleted = false,
+                telegramConnected = false,
             ),
         )
     }
@@ -30,29 +42,21 @@ class InitialSourceChoicePolicyTest {
         assertFalse(
             shouldShowInitialSourceChoice(
                 isReady = true,
+                isFirstAppLaunch = true,
                 isCompleted = true,
                 telegramConnected = false,
-                hasExistingLibrary = false,
             ),
         )
     }
 
     @Test
-    fun existingLibraryOrTelegramAccountSkipsFirstLaunchChoice() {
+    fun alreadyConnectedTelegramAccountSkipsTheChoice() {
         assertFalse(
             shouldShowInitialSourceChoice(
                 isReady = true,
-                isCompleted = false,
-                telegramConnected = false,
-                hasExistingLibrary = true,
-            ),
-        )
-        assertFalse(
-            shouldShowInitialSourceChoice(
-                isReady = true,
+                isFirstAppLaunch = true,
                 isCompleted = false,
                 telegramConnected = true,
-                hasExistingLibrary = false,
             ),
         )
     }
