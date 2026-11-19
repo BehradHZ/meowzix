@@ -6,59 +6,35 @@ import org.junit.Test
 
 class InitialSourceChoicePolicyTest {
     @Test
-    fun freshInstallShowsChoiceOnlyAfterHomeIsReady() {
-        assertFalse(
-            shouldShowInitialSourceChoice(
-                isReady = false,
-                isFirstAppLaunch = true,
-                isCompleted = false,
-                telegramConnected = false,
-            ),
-        )
-        assertTrue(
-            shouldShowInitialSourceChoice(
-                isReady = true,
-                isFirstAppLaunch = true,
-                isCompleted = false,
-                telegramConnected = false,
-            ),
-        )
+    fun pickerRemainsVisibleWhileBothSourcesAreUnavailable() {
+        assertTrue(shouldShowInitialSourceChoice(
+            telegramConnected = false,
+            localAudioPermissionGranted = false,
+        ))
     }
 
     @Test
-    fun existingInstallDoesNotShowFirstLaunchChoice() {
-        assertFalse(
-            shouldShowInitialSourceChoice(
-                isReady = true,
-                isFirstAppLaunch = false,
-                isCompleted = false,
-                telegramConnected = false,
-            ),
-        )
+    fun connectingTelegramHidesThePickerWithoutLocalAudioAccess() {
+        assertFalse(shouldShowInitialSourceChoice(
+            telegramConnected = true,
+            localAudioPermissionGranted = false,
+        ))
     }
 
     @Test
-    fun completedChoiceIsNeverShownAgain() {
-        assertFalse(
-            shouldShowInitialSourceChoice(
-                isReady = true,
-                isFirstAppLaunch = true,
-                isCompleted = true,
-                telegramConnected = false,
-            ),
-        )
+    fun grantingLocalAudioAccessHidesThePickerWithoutTelegram() {
+        assertFalse(shouldShowInitialSourceChoice(
+            telegramConnected = false,
+            localAudioPermissionGranted = true,
+        ))
     }
 
     @Test
-    fun alreadyConnectedTelegramAccountSkipsTheChoice() {
-        assertFalse(
-            shouldShowInitialSourceChoice(
-                isReady = true,
-                isFirstAppLaunch = true,
-                isCompleted = false,
-                telegramConnected = true,
-            ),
-        )
+    fun bothSourcesReadyKeepNormalHomeVisible() {
+        assertFalse(shouldShowInitialSourceChoice(
+            telegramConnected = true,
+            localAudioPermissionGranted = true,
+        ))
     }
 
     @Test
