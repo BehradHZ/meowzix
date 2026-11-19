@@ -53,6 +53,7 @@ class TrackMergeIntegrationTest {
             MergeNoOpModel(),
             object : TrainingScheduler { override fun scheduleTraining(rebuild: Boolean) = Unit },
             bus,
+            DataStoreSettingsRepository(context),
         )
         searchIndexer = EffectiveTrackSearchIndexer(db, db.libraryDao(), db.libraryToolsDao())
         repository = RoomLibraryToolsRepository(
