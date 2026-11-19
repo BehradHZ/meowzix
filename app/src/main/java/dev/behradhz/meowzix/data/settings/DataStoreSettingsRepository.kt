@@ -85,10 +85,6 @@ class DataStoreSettingsRepository @Inject constructor(
         values[COLLAPSED_TELEGRAM_PLAYLIST_SECTIONS].orEmpty()
     }
 
-    override val initialSourceChoiceCompleted: Flow<Boolean> = safeData.map { values ->
-        values[INITIAL_SOURCE_CHOICE_COMPLETED] ?: false
-    }
-
     override val telegramConnectReminderDismissed: Flow<Boolean> = safeData.map { values ->
         values[TELEGRAM_CONNECT_REMINDER_DISMISSED] ?: false
     }
@@ -184,7 +180,6 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setPrefetchEnabled(enabled: Boolean) = set(PREFETCH, enabled)
     override suspend fun setPrefetchOnMetered(enabled: Boolean) = set(PREFETCH_METERED, enabled)
     override suspend fun setListeningHistoryEnabled(enabled: Boolean) = set(LISTENING_HISTORY, enabled)
-    override suspend fun setInitialSourceChoiceCompleted() = set(INITIAL_SOURCE_CHOICE_COMPLETED, true)
     override suspend fun dismissTelegramConnectReminder() = set(TELEGRAM_CONNECT_REMINDER_DISMISSED, true)
     override suspend fun setReduceMotion(enabled: Boolean) = set(REDUCE_MOTION, enabled)
     override suspend fun setPlayerAccentSource(source: PlayerAccentSource) = setEnum(PLAYER_ACCENT_SOURCE, source)
@@ -297,7 +292,6 @@ class DataStoreSettingsRepository @Inject constructor(
         val PREFETCH = booleanPreferencesKey("prefetch_enabled")
         val PREFETCH_METERED = booleanPreferencesKey("prefetch_on_metered")
         val LISTENING_HISTORY = booleanPreferencesKey("listening_history_enabled")
-        val INITIAL_SOURCE_CHOICE_COMPLETED = booleanPreferencesKey("initial_source_choice_completed")
         val TELEGRAM_CONNECT_REMINDER_DISMISSED = booleanPreferencesKey("telegram_connect_reminder_dismissed")
         val TEMPORARY_CACHE_BUDGET_BYTES = longPreferencesKey("temporary_cache_budget_bytes")
         val FORWARD_INCLUDE_SOURCE = booleanPreferencesKey("telegram_forward_include_source")
