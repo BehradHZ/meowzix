@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -254,6 +255,18 @@ internal class MorphingPlayerState internal constructor(initiallyExpanded: Boole
 internal fun rememberMorphingPlayerState(): MorphingPlayerState =
     remember { MorphingPlayerState() }
 
+/**
+ * Installed only while the player covers the background, after the NavHost's
+ * Back callback has been registered. This gives the player priority over route
+ * navigation without stealing Back from its own lyrics/inline-queue subpanels.
+ */
+@Composable
+internal fun MorphingPlayerBackHandler(morphState: MorphingPlayerState) {
+    if (morphState.blocksBackgroundBack) {
+        BackHandler { morphState.collapse() }
+    }
+}
+
 @Composable
 internal fun MorphingPlayerOverlay(
     hazeState: HazeState,
@@ -267,6 +280,10 @@ internal fun MorphingPlayerOverlay(
     modifier: Modifier = Modifier,
 ) {
     val track = state.currentTrack ?: return
+    // NavHost and background destinations are composed before this overlay.
+    // Register only when expanded/partially visible so Back collapses the player
+    // before popping Settings, switching tabs, or returning to Home.
+    MorphingPlayerBackHandler(morphState)
     DisposableEffect(Unit) {
         onDispose { onMiniPlayerTopInWindow(Float.POSITIVE_INFINITY) }
     }
