@@ -28,7 +28,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -118,7 +117,7 @@ class RoomListeningHistoryRepositoryTest {
         assertEquals(emptyList<Any>(), database.telegramDao().observeUnheardTrackRows().first())
     }
 
-    @Test fun manualSelectionStartsFreshSessionWhileAutomaticNextStaysInTheSameSession() = runTest {
+    @Test fun manualSelectionsAndAutomaticNextShareAnActiveListeningSession() = runTest {
         database.libraryDao().upsertTrack(track())
         val chosen = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.PURE_SHUFFLE)
         repository.finalizePlayback(chosen, 95_000, 100_000, false)
@@ -134,7 +133,7 @@ class RoomListeningHistoryRepositoryTest {
 
         assertEquals(3, starts.size)
         assertEquals(sessionFor(chosen), sessionFor(automatic))
-        assertNotEquals(sessionFor(chosen), sessionFor(chosenAgain))
+        assertEquals(sessionFor(chosen), sessionFor(chosenAgain))
     }
 
     @Test fun repeatedIntentionalSeeksAreStoredWithoutCreatingDuplicateOutcomes() = runTest {
@@ -161,6 +160,39 @@ class RoomListeningHistoryRepositoryTest {
         assertEquals(0.60, dev.behradhz.meowzix.domain.recommendation.PersonalizationRewardBuilder.reward(setOf("AUTO_SELECTED", "PLAY_COMPLETED", "QUEUE_OVERRIDDEN")), 0.0)
     }
 
+    @Test fun queueRequestsAndPauseResumeAreRecordedWithoutPhantomPlaybackOrAggregateUpdates() = runTest {
+        database.libraryDao().upsertTrack(track())
+        val id = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.SMART_SHUFFLE)
+        val before = repository.observeTrackStats().first().single()
+        repository.recordPlaybackPause(id)
+        repository.recordPlaybackResume(id)
+        repository.recordQueueRequest(trackId, PlaybackMode.SMART_SHUFFLE, playNext = true)
+        repository.recordQueueRequest(trackId, PlaybackMode.SMART_SHUFFLE, playNext = false)
+        val events = repository.observeEvents().first()
+        assertEquals(1, events.count { it.type == ListeningEventType.PLAYBACK_PAUSED })
+        assertEquals(1, events.count { it.type == ListeningEventType.PLAYBACK_RESUMED })
+        assertEquals(1, events.count { it.type == ListeningEventType.PLAY_NEXT_REQUESTED })
+        assertEquals(1, events.count { it.type == ListeningEventType.QUEUE_ADD_REQUESTED })
+        assertEquals(0, events.count { it.type == ListeningEventType.PLAY_STOPPED })
+        assertEquals(0, events.count { it.type == ListeningEventType.QUEUE_REMOVED })
+        assertEquals(before, repository.observeTrackStats().first().single())
+        repository.finalizePlayback(id, 92_000, 100_000, false)
+        assertEquals(1, repository.observeTrackStats().first().single().totalCompletions)
+    }
+
+    @Test fun directionalSeekCapturesDirectionWithoutChangingPreferenceAggregates() = runTest {
+        database.libraryDao().upsertTrack(track())
+        val id = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.ORDERED)
+        val before = repository.observeTrackStats().first().single()
+        repository.recordDirectionalSeek(id, 10_000, 55_000, 100_000)
+        repository.recordDirectionalSeek(id, 55_000, 4_000, 100_000)
+        repository.recordDirectionalSeek(id, 4_000, 4_500, 100_000)
+        val events = repository.observeEvents().first()
+        assertEquals(1, events.count { it.type == ListeningEventType.SEEKED_FORWARD })
+        assertEquals(1, events.count { it.type == ListeningEventType.SEEKED_BACKWARD })
+        assertEquals(before, repository.observeTrackStats().first().single())
+    }
+
     @Test fun disabledHistoryBlocksNewLearningEvents() = runTest {
         database.libraryDao().upsertTrack(track())
         val settings = dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(
@@ -172,6 +204,9 @@ class RoomListeningHistoryRepositoryTest {
             repository.recordSeek(playbackId, 20_000, 100_000)
             repository.recordFavorite(trackId, favorite = true)
             repository.recordQueueRemoval(trackId, PlaybackMode.SMART_SHUFFLE)
+            repository.recordQueueRequest(trackId, PlaybackMode.SMART_SHUFFLE, playNext = true)
+            repository.recordPlaybackPause(playbackId)
+            repository.recordDirectionalSeek(playbackId, 1_000, 30_000, 100_000)
             repository.finalizePlayback(playbackId, 10_000, 100_000, intentionalSkip = true)
 
             assertEquals(emptyList<Any>(), repository.observeEvents().first())
