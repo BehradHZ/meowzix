@@ -28,7 +28,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -118,7 +117,7 @@ class RoomListeningHistoryRepositoryTest {
         assertEquals(emptyList<Any>(), database.telegramDao().observeUnheardTrackRows().first())
     }
 
-    @Test fun manualSelectionStartsFreshSessionWhileAutomaticNextStaysInTheSameSession() = runTest {
+    @Test fun manualSelectionsAndAutomaticNextShareAnActiveListeningSession() = runTest {
         database.libraryDao().upsertTrack(track())
         val chosen = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.PURE_SHUFFLE)
         repository.finalizePlayback(chosen, 95_000, 100_000, false)
@@ -134,7 +133,7 @@ class RoomListeningHistoryRepositoryTest {
 
         assertEquals(3, starts.size)
         assertEquals(sessionFor(chosen), sessionFor(automatic))
-        assertNotEquals(sessionFor(chosen), sessionFor(chosenAgain))
+        assertEquals(sessionFor(chosen), sessionFor(chosenAgain))
     }
 
     @Test fun repeatedIntentionalSeeksAreStoredWithoutCreatingDuplicateOutcomes() = runTest {
@@ -192,6 +191,39 @@ class RoomListeningHistoryRepositoryTest {
         assertEquals(1, events.count { it.type == ListeningEventType.SEEKED_FORWARD })
         assertEquals(1, events.count { it.type == ListeningEventType.SEEKED_BACKWARD })
         assertEquals(before, repository.observeTrackStats().first().single())
+    }
+
+
+    @Test fun smartRecommendationsOffPreventsNewEventsEvenWhenHistoryIsEnabled() = runTest {
+        database.libraryDao().upsertTrack(track())
+        val settings = dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(
+            ApplicationProvider.getApplicationContext<Context>(),
+        )
+        settings.setSmartRecommendationsEnabled(true)
+        settings.setListeningHistoryEnabled(true)
+        try {
+            val first = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.ORDERED)
+            val baseline = repository.observeEvents().first()
+            val baselineStats = repository.observeTrackStats().first()
+
+            settings.setSmartRecommendationsEnabled(false)
+            repository.recordPlaybackPause(first)
+            repository.recordPlaybackResume(first)
+            repository.recordDirectionalSeek(first, 1_000, 30_000, 100_000)
+            repository.recordSeek(first, 25_000, 100_000)
+            repository.recordQueueRequest(trackId, PlaybackMode.ORDERED, playNext = true)
+            repository.recordQueueRemoval(trackId, PlaybackMode.ORDERED)
+            repository.recordQueueOverride(first)
+            repository.recordFavorite(trackId, favorite = true)
+            repository.finalizePlayback(first, 95_000, 100_000, false)
+
+            val second = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.ORDERED)
+            repository.finalizePlayback(second, 98_000, 100_000, false)
+            assertEquals(baseline, repository.observeEvents().first())
+            assertEquals(baselineStats, repository.observeTrackStats().first())
+        } finally {
+            settings.setSmartRecommendationsEnabled(true)
+        }
     }
 
     @Test fun disabledHistoryBlocksNewLearningEvents() = runTest {
