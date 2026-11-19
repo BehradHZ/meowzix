@@ -447,6 +447,7 @@ fun MeowzixApp(
                     onOpenLibrary = { navigateTopLevel(LIBRARY_ROUTE) },
                     isFirstAppLaunch = isFirstAppLaunch,
                     isTelegramConnected = telegramAuthState.step is TelegramAuthStep.Ready,
+                    isTelegramStatusInitializing = telegramAuthState.step is TelegramAuthStep.Initializing,
                     onConnectTelegram = {
                         clearSearchState()
                         navController.navigate(TELEGRAM_AUTH_ROUTE) { launchSingleTop = true }
