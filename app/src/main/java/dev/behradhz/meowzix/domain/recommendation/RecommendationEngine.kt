@@ -27,6 +27,11 @@ data class SmartCandidate(
     val lastPlayedAt: Instant? = null,
     val recentArtistDistance: Int? = null,
     val sessionEarlySkips: Int = 0,
+    val artistStats: PreferenceSnapshot? = null,
+    val albumStats: PreferenceSnapshot? = null,
+    /** Time-decayed interaction strengths, computed from an already bounded history window. */
+    val recentPositive: Double = 0.0,
+    val recentNegative: Double = 0.0,
 )
 
 data class ScoreBreakdown(
@@ -92,11 +97,51 @@ data class AdaptiveScoreWeights(
     val timeConfidenceK: Double = 5.0,
 )
 
+/**
+ * Phase 2: empirical-Bayes preference estimates. Sparse tracks borrow a weak prior from
+ * their artist/album, with confidence rising as direct observations accumulate.
+ * Pure arithmetic on already fetched statistics; no database, audio or UI-thread work.
+ */
+object BehavioralPreferenceModel {
+    fun confidence(starts: Int, k: Double): Double =
+        starts.coerceAtLeast(0) / (starts.coerceAtLeast(0) + k)
+
+    fun affinity(stats: PreferenceSnapshot, favorite: Boolean = false): Double {
+        val starts = max(0, stats.starts)
+        val completion = (stats.completions + 2.0) / (starts + 4.0)
+        val earlySkip = (stats.earlySkips + 1.0) / (starts + 4.0)
+        val lateSkip = stats.lateSkips.toDouble() / max(1, starts)
+        val manual = stats.manualSelections.toDouble() / max(1, starts)
+        val replay = stats.replays.toDouble() / max(1, starts)
+        return (0.35 * completion - 0.30 * earlySkip - 0.08 * lateSkip.coerceAtMost(1.0) +
+            0.20 * manual.coerceAtMost(1.0) + 0.10 * replay.coerceAtMost(1.0) +
+            if (favorite) 0.05 else 0.0).coerceIn(0.0, 1.0)
+    }
+
+    fun global(candidate: SmartCandidate): Double {
+        val direct = affinity(candidate.global, candidate.favorite)
+        val artist = candidate.artistStats?.takeIf { it.starts > 0 }
+        val album = candidate.albumStats?.takeIf { it.starts > 0 }
+        val artistWeight = artist?.let { 0.35 * confidence(it.starts, 12.0) } ?: 0.0
+        val albumWeight = album?.let { 0.65 * confidence(it.starts, 8.0) } ?: 0.0
+        val evidence = artistWeight + albumWeight
+        if (evidence <= 0.0) return direct
+        val prior = ((artistWeight * (artist?.let { affinity(it) } ?: 0.0) +
+            albumWeight * (album?.let { affinity(it) } ?: 0.0)) / evidence)
+        val directConfidence = confidence(candidate.global.starts, 5.0)
+        return (directConfidence * direct + (1.0 - directConfidence) * prior).coerceIn(0.0, 1.0)
+    }
+
+    fun recentAdjustment(candidate: SmartCandidate): Double =
+        (0.08 * candidate.recentPositive.coerceIn(0.0, 1.0) -
+            0.10 * candidate.recentNegative.coerceIn(0.0, 1.0)).coerceIn(-0.10, 0.08)
+}
+
 class AdaptiveScorer(private val weights: AdaptiveScoreWeights = AdaptiveScoreWeights()) {
     fun score(candidate: SmartCandidate, now: Instant, learnedPreference: Double? = null): ScoreBreakdown {
-        val global = affinity(candidate.global, candidate.favorite)
-        val observedTime = affinity(candidate.time, candidate.favorite)
-        val confidence = candidate.time.starts / (candidate.time.starts + weights.timeConfidenceK)
+        val global = BehavioralPreferenceModel.global(candidate)
+        val observedTime = BehavioralPreferenceModel.affinity(candidate.time, candidate.favorite)
+        val confidence = BehavioralPreferenceModel.confidence(candidate.time.starts, weights.timeConfidenceK)
         val time = confidence * observedTime + (1.0 - confidence) * global
         val exploration = (1.0 / (1.0 + candidate.global.starts)).coerceIn(0.0, 1.0)
         val elapsedMinutes = candidate.lastPlayedAt?.let { (now.toEpochMilli() - it.toEpochMilli()).coerceAtLeast(0) / 60_000.0 }
@@ -113,19 +158,12 @@ class AdaptiveScorer(private val weights: AdaptiveScoreWeights = AdaptiveScoreWe
         val diversity = 1.0 - (artist * 4).coerceIn(0.0, 1.0)
         val learnedNudge = learnedPreference?.let { weights.learned * (it.coerceIn(0.0, 1.0) - 0.5) } ?: 0.0
         val total = weights.global * global + weights.time * time + weights.exploration * exploration +
-            weights.freshness * freshness + weights.diversity * diversity + learnedNudge - recency - artist - sessionSkip
+            weights.freshness * freshness + weights.diversity * diversity + learnedNudge - recency - artist - sessionSkip +
+            BehavioralPreferenceModel.recentAdjustment(candidate)
         return ScoreBreakdown(total, global, time, exploration, recency, artist, sessionSkip, learnedPreference)
     }
 
-    private fun affinity(stats: PreferenceSnapshot, favorite: Boolean): Double {
-        val starts = max(0, stats.starts)
-        val completion = (stats.completions + 2.0) / (starts + 4.0)
-        val earlySkip = (stats.earlySkips + 1.0) / (starts + 4.0)
-        val manual = stats.manualSelections.toDouble() / max(1, starts)
-        val replay = stats.replays.toDouble() / max(1, starts)
-        return (0.35 * completion - 0.30 * earlySkip + 0.20 * manual.coerceAtMost(1.0) +
-            0.10 * replay.coerceAtMost(1.0) + if (favorite) 0.05 else 0.0).coerceIn(0.0, 1.0)
-    }
+
 }
 
 object SmartSelector {
