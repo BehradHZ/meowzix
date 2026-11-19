@@ -37,6 +37,17 @@ class DockTabSelectionTest {
         }
     }
 
+    @Test fun switchingBackToHomeIsNotAHomeReselection() {
+        assertEquals(
+            DockTabTapAction.SWITCH,
+            dockTabTapAction(currentRoute = "library", activeTab = "library", tappedTab = "home"),
+        )
+        assertEquals(
+            DockTabTapAction.RESELECT,
+            dockTabTapAction(currentRoute = "home", activeTab = "home", tappedTab = "home"),
+        )
+    }
+
     @Test fun regularDockReselectionDoesNotBehaveAsSettingsBack() {
         assertEquals(DockTabTapAction.RESELECT, dockTabTapAction("library", "library", "library"))
         assertEquals(DockTabTapAction.SWITCH, dockTabTapAction("queue", "queue", "home"))
