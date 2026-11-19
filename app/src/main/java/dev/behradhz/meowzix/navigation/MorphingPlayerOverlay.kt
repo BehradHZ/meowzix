@@ -542,6 +542,9 @@ internal fun MorphingPlayerOverlay(
                 ) {
                     NowPlayingRoute(
                         onBack = morphState::collapse,
+                        // Cover-art gestures and the outer drag recognizer belong to
+                        // the same swipe; do not count the cover callback as a second Back.
+                        onArtworkSwipeDown = morphState::settleCollapseFromGesture,
                         canRemoveOffline = canRemoveOffline,
                         onOpenQueue = {
                             morphState.collapse()
