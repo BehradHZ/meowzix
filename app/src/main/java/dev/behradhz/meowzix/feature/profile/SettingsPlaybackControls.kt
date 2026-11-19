@@ -70,7 +70,11 @@ internal fun nextRepeatMode(current: RepeatMode): RepeatMode = when (current) {
 }
 
 @Composable
-internal fun SettingsPlaybackModeSelector(selected: PlaybackMode, onSelect: (PlaybackMode) -> Unit) {
+internal fun SettingsPlaybackModeSelector(
+    selected: PlaybackMode,
+    onSelect: (PlaybackMode) -> Unit,
+    smartEnabled: Boolean = true,
+) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -83,13 +87,18 @@ internal fun SettingsPlaybackModeSelector(selected: PlaybackMode, onSelect: (Pla
                 Triple(PlaybackMode.SMART_SHUFFLE, "Smart Shuffle", Icons.Rounded.AutoAwesome),
             ).forEach { (mode, name, icon) ->
                 val active = selected == mode
+                val enabled = smartEnabled || mode != PlaybackMode.SMART_SHUFFLE
                 Surface(
                     onClick = { onSelect(mode) },
+                    enabled = enabled,
                     modifier = Modifier.weight(1f).heightIn(min = 90.dp)
                         .testTag("settings-playback-mode-${mode.name}")
-                        .semantics { stateDescription = if (active) "Selected" else "Not selected" },
+                        .semantics {
+                            stateDescription = if (!enabled) "Enable Smart recommendations to use this mode"
+                                else if (active) "Selected" else "Not selected"
+                        },
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = if (active) 0.20f else 0.06f),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = if (!enabled) 0.025f else if (active) 0.20f else 0.06f),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = if (active) 0.55f else 0.12f)),
                 ) {
                     Column(
@@ -98,9 +107,10 @@ internal fun SettingsPlaybackModeSelector(selected: PlaybackMode, onSelect: (Pla
                         verticalArrangement = Arrangement.spacedBy(9.dp),
                     ) {
                         Icon(icon, contentDescription = null, modifier = Modifier.size(26.dp),
-                            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            tint = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                else if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(name, textAlign = TextAlign.Center, fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.40f),
                             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                             maxLines = 2, lineHeight = 14.sp)
                     }
