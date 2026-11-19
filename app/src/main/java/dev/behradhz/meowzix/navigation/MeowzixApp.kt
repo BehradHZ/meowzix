@@ -159,6 +159,7 @@ internal data class DockDestination(
 
 @Composable
 fun MeowzixApp(
+    isFirstAppLaunch: Boolean = false,
     openNowPlayingRequest: Boolean = false,
     onNowPlayingRequestConsumed: () -> Unit = {},
     onApplyLauncherIcon: (dev.behradhz.meowzix.domain.settings.LauncherIconColorSource) -> Unit = {},
@@ -444,6 +445,7 @@ fun MeowzixApp(
                         )
                     },
                     onOpenLibrary = { navigateTopLevel(LIBRARY_ROUTE) },
+                    isFirstAppLaunch = isFirstAppLaunch,
                     isTelegramConnected = telegramAuthState.step is TelegramAuthStep.Ready,
                     onConnectTelegram = {
                         clearSearchState()
