@@ -80,7 +80,6 @@ import dev.behradhz.meowzix.domain.playback.SleepTimerState
 import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.feature.telegram.ForwardOptionPill
-import dev.behradhz.meowzix.ui.components.WhyThisSongLink
 import dev.behradhz.meowzix.feature.recommendation.RecommendationActionsViewModel
 import dev.behradhz.meowzix.feature.recommendation.RecommendationInlineWhyContent
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -319,27 +318,23 @@ internal fun PlayerActionsMenu(
                                 },
                             )
                         }
-                        WhyThisSongLink(
-                            tag = "player-action-why-this-song",
-                            modifier = Modifier.onGloballyPositioned { coordinates ->
-                                val topLeft = coordinates.positionOnScreen()
-                                if (topLeft != Offset.Unspecified) {
-                                    onActionBoundsChanged(2, Rect(
-                                        topLeft.x, topLeft.y,
-                                        topLeft.x + coordinates.size.width.toFloat(),
-                                        topLeft.y + coordinates.size.height.toFloat(),
-                                    ))
+                        PlayerMenuOptionRow(
+                            icon = Icons.Rounded.HelpOutline,
+                            title = "Why this song?",
+                            subtitle = "How this track was recommended",
+                            highlighted = draggedAction == 2,
+                            onBoundsChanged = { onActionBoundsChanged(2, it) },
+                            actionTag = "player-action-why-this-song",
+                            onClick = {
+                                if (recommendationActions != null && trackId != null) {
+                                    page = PlayerActionsPage.WHY_THIS_SONG
+                                    onWhyThisSong()
+                                } else {
+                                    onDismiss()
+                                    onWhyThisSong()
                                 }
                             },
-                        ) {
-                            if (recommendationActions != null && trackId != null) {
-                                page = PlayerActionsPage.WHY_THIS_SONG
-                                onWhyThisSong()
-                            } else {
-                                onDismiss()
-                                onWhyThisSong()
-                            }
-                        }
+                        )
                     }
                 }
                 PlayerActionsPage.WHY_THIS_SONG -> {
