@@ -71,7 +71,7 @@ class RecommendationFeatureSchemaTest {
         val extreme = track.copy(durationMs = Long.MAX_VALUE, lastPlayedAt = Instant.EPOCH,
             global = PreferenceSnapshot(Int.MAX_VALUE, Int.MAX_VALUE, Int.MAX_VALUE, Int.MAX_VALUE, Int.MAX_VALUE, Int.MAX_VALUE))
         val vector = PersonalizationFeatureVectorizer.vectorize(context.copy(sessionPosition = Int.MAX_VALUE, recentSkipStreak = Int.MAX_VALUE), extreme)
-        RecommendationFeatureSchemaV2.validate(vector)
+        RecommendationFeatureSchemaV3.validate(vector)
         assertArrayEquals(vector, PersonalizationFeatureVectorizer.vectorize(context.copy(sessionPosition = Int.MAX_VALUE, recentSkipStreak = Int.MAX_VALUE), extreme), 0.0)
         assertEquals(1.0, vector[RecommendationFeature.PLAY_COUNT.ordinal], 0.0)
         assertEquals(1.0, vector[RecommendationFeature.DURATION.ordinal], 0.0)
