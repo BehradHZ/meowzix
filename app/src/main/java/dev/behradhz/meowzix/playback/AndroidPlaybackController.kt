@@ -115,7 +115,7 @@ class AndroidPlaybackController @Inject constructor(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            updateState(controller, error.message ?: "Unable to play this track")
+            updateState(controller, userFacingPlaybackError(error))
         }
     }
 
@@ -1232,7 +1232,7 @@ class AndroidPlaybackController @Inject constructor(
         updateQueuePolicyMetadata(connected, mode, repeatMode)
     }
 
-    private fun updateState(player: Player?, errorMessage: String? = player?.playerError?.message) {
+    private fun updateState(player: Player?, errorMessage: String? = player?.playerError?.let(::userFacingPlaybackError)) {
         if (player == null) return
         val mediaItem = player.currentMediaItem
         val trackId = mediaItem?.mediaId?.let { mediaId ->

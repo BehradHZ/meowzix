@@ -16,6 +16,8 @@ import java.io.IOException
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -33,6 +35,9 @@ class TdLibClientAdapter {
     private val _authorizationStates = MutableStateFlow<TdApi.AuthorizationState?>(null)
     val authorizationStates: StateFlow<TdApi.AuthorizationState?> = _authorizationStates.asStateFlow()
     internal val fileStates = TdFileStateRegistry()
+    // TDLib changes an active file's byte window when DownloadFile is sent.
+    // Serialize commands targeting the same file; awaiting bytes remains outside the lock.
+    private val downloadCommandLocks = Array(64) { Mutex() }
 
     private val readyGate = AuthorizationReadyGate()
     private val closed = CompletableDeferred<Unit>()
@@ -92,7 +97,10 @@ class TdLibClientAdapter {
                 physicalKey = key,
                 priority = transferPriority(function.priority),
                 begin = {
-                    target.sendDirect(request).also(target.fileStates::publish)
+                    val lock = target.downloadCommandLocks[(request.fileId and Int.MAX_VALUE) % target.downloadCommandLocks.size]
+                    lock.withLock {
+                        target.sendDirect(request).also(target.fileStates::publish)
+                    }
                 },
                 await = { started ->
                     if (function.synchronous) target.awaitDownloadCompletion(function, started)

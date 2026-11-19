@@ -5,6 +5,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TelegramStreamIdentityTest {
+    @Test fun `only complete file identities become queue streaming sources`() {
+        assertTrue(canBuildTelegramStream(42, "stable-identity"))
+        assertFalse(canBuildTelegramStream(42, null))
+        assertFalse(canBuildTelegramStream(42, ""))
+        assertFalse(canBuildTelegramStream(null, "stable-identity"))
+        assertFalse(canBuildTelegramStream(0, "stable-identity"))
+    }
+
     @Test fun `accepts the original file despite a new numeric TDLib id`() {
         assertTrue(matchesTelegramFileIdentity("stable-file-1", "stable-file-1"))
     }

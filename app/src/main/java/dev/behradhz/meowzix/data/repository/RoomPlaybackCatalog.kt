@@ -10,6 +10,7 @@ import dev.behradhz.meowzix.data.db.RecommendationDao
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
 import dev.behradhz.meowzix.data.telegram.telegramStreamUri
+import dev.behradhz.meowzix.data.telegram.canBuildTelegramStream
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.domain.playback.BrowseAlbum
@@ -292,7 +293,7 @@ class RoomPlaybackCatalog @Inject constructor(
                         it.availability == SourceAvailability.REMOTE_ONLY
                 }
                 .mapNotNull { source -> telegramBySource[source.id] }
-                .firstOrNull { it.tdFileId != null }
+                .firstOrNull { canBuildTelegramStream(it.tdFileId, it.tdPersistentFileId) }
                 ?.let { source ->
                     telegramStreamUri(
                         requireNotNull(source.tdFileId),

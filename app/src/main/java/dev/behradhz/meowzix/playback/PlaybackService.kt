@@ -1408,7 +1408,11 @@ class PlaybackService : MediaLibraryService() {
 
     private fun buildPlayer(handleAudioFocus: Boolean): ExoPlayer {
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(MeowzixDataSourceFactory(this))
+            .setDataSourceFactory(
+                MeowzixDataSourceFactory(this) { trackId ->
+                    remotePlaybackResolver.cachedLocalForPlayback(trackId)?.contentUri
+                },
+            )
         return ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
             // Start with a small playable-duration buffer, not a percentage of
@@ -1613,6 +1617,11 @@ class PlaybackService : MediaLibraryService() {
         val mediaId = currentItem?.mediaId
         val uri = currentItem?.localConfiguration?.uri
         val isTelegramStream = uri?.scheme == TDLIB_SCHEME
+        Log.w(
+            TAG,
+            "Media3 failure: ${error.errorCodeName} (${error.errorCode}), source=${uri?.scheme}",
+            error,
+        )
         if (isTelegramStream && mediaId != null && uri != null) {
             investigateDeletedTelegramSource(mediaId, uri)
         }

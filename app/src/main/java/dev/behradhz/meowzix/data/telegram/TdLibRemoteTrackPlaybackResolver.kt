@@ -53,6 +53,9 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     override suspend fun prepareForPlayback(trackId: UUID): PlayableTrack? =
         prepare(trackId, bypassLocalCache = false)
 
+    override suspend fun cachedLocalForPlayback(trackId: UUID): PlayableTrack? =
+        cachedLocalTrack(trackId)
+
     override suspend fun prepareRemoteForPlayback(trackId: UUID): PlayableTrack? =
         prepare(trackId, bypassLocalCache = true)
 
@@ -272,7 +275,9 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
             } else {
                 refreshSourceFromMessage(trackId, telegramSource, remoteSource, client)
             }
-            if (refreshed != null) return refreshed
+            if (refreshed != null &&
+                canBuildTelegramStream(refreshed.candidate.fileId, refreshed.candidate.persistentFileId)
+            ) return refreshed
         }
         return null
     }

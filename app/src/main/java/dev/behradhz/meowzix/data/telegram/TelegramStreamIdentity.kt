@@ -8,6 +8,10 @@ internal const val TELEGRAM_FILE_UNIQUE_ID_QUERY = "fileUniqueId"
 internal fun matchesTelegramFileIdentity(expectedUniqueId: String?, actualUniqueId: String?): Boolean =
     !expectedUniqueId.isNullOrBlank() && expectedUniqueId == actualUniqueId
 
+/** A stream must never reach Media3 without the identity its DataSource requires. */
+internal fun canBuildTelegramStream(fileId: Int?, fileUniqueId: String?): Boolean =
+    fileId != null && fileId > 0 && !fileUniqueId.isNullOrBlank()
+
 /** Carry the stable Telegram file identity all the way to Media3's byte reader. */
 internal fun telegramStreamUri(
     fileId: Int,

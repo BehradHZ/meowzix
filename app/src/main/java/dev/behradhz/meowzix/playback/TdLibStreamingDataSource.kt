@@ -20,6 +20,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.io.RandomAccessFile
+import java.util.UUID
 import kotlin.math.min
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -28,17 +29,27 @@ import org.drinkless.tdlib.TdApi
 
 private const val TDLIB_SCHEME = "meowzix-tdlib"
 
+/** Only local URI schemes may replace a Telegram stream; never redirect to remote URLs. */
+internal fun isSupportedLocalPlaybackUri(uri: String): Boolean =
+    uri.startsWith("file://", ignoreCase = true) ||
+        uri.startsWith("content://", ignoreCase = true)
+
 @OptIn(UnstableApi::class)
-class MeowzixDataSourceFactory(context: Context) : DataSource.Factory {
+class MeowzixDataSourceFactory(
+    context: Context,
+    private val verifiedLocalSource: suspend (UUID) -> String? = { null },
+) : DataSource.Factory {
     private val appContext = context.applicationContext
     private val defaultFactory = DefaultDataSource.Factory(appContext)
 
-    override fun createDataSource(): DataSource = RoutingDataSource(defaultFactory)
+    override fun createDataSource(): DataSource =
+        RoutingDataSource(defaultFactory, verifiedLocalSource)
 }
 
 @OptIn(UnstableApi::class)
 private class RoutingDataSource(
     private val defaultFactory: DataSource.Factory,
+    private val verifiedLocalSource: suspend (UUID) -> String?,
 ) : DataSource {
     private val listeners = mutableListOf<TransferListener>()
     private var active: DataSource? = null
@@ -51,21 +62,57 @@ private class RoutingDataSource(
     override fun open(dataSpec: DataSpec): Long {
         check(active == null) { "DataSource is already open" }
 
-        // A Telegram URI must use TDLib's verified byte ranges. Directory scanning used
-        // to accept any nonempty orphan cache file as a fully downloaded track.
-        val source: DataSource = if (dataSpec.uri.scheme == TDLIB_SCHEME) {
+        val isTelegramStream = dataSpec.uri.scheme == TDLIB_SCHEME
+        // A queued/restored MediaItem can retain an old TDLib URI after the user saved the
+        // audio. Resolve the *verified* local source at read time, before contacting Telegram.
+        // This runs on Media3's loader thread, never on the UI thread.
+        val localUri = if (isTelegramStream) {
+            val trackId = dataSpec.uri.getQueryParameter("trackId")
+                ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            val candidate = trackId?.let { id ->
+                try {
+                    runBlocking { verifiedLocalSource(id) }
+                } catch (interrupted: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw InterruptedIOException("Offline source lookup was interrupted").apply {
+                        initCause(interrupted)
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null // The verified cache is optional; TDLib remains the fallback.
+                }
+            }
+            candidate?.takeIf(::isSupportedLocalPlaybackUri)?.let(Uri::parse)
+        } else null
+
+        val source = if (isTelegramStream && localUri == null) {
             TdLibStreamingDataSource()
         } else {
             defaultFactory.createDataSource()
         }
-
+        val resolvedSpec = localUri?.let(dataSpec::withUri) ?: dataSpec
         listeners.forEach(source::addTransferListener)
         active = source
         try {
-            return source.open(dataSpec)
+            return source.open(resolvedSpec)
         } catch (failure: Throwable) {
             runCatching { source.close() }
             active = null
+            if (localUri != null && failure is IOException) {
+                // Local file could disappear between verification and opening. Retry the
+                // original TDLib stream rather than turning a cache race into a hard error.
+                val remote = TdLibStreamingDataSource()
+                listeners.forEach(remote::addTransferListener)
+                active = remote
+                try {
+                    return remote.open(dataSpec)
+                } catch (remoteFailure: Throwable) {
+                    runCatching { remote.close() }
+                    active = null
+                    throw remoteFailure
+                }
+            }
             throw failure
         }
     }
