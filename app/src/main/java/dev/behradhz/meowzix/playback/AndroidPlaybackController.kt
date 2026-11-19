@@ -120,12 +120,27 @@ class AndroidPlaybackController @Inject constructor(
     }
 
     init {
+        // An already-running Smart queue must stop using personalization as soon as the
+        // user disables it, including when the change comes from another settings screen.
+        scope.launch {
+            settings.recommendationPreferenceSettings.collect { policy ->
+                if (!policy.smartRecommendationsEnabled &&
+                    (_state.value.playbackMode == PlaybackMode.SMART_SHUFFLE ||
+                        _queueState.value.playbackMode == PlaybackMode.SMART_SHUFFLE)
+                ) setPlaybackMode(PlaybackMode.ORDERED)
+            }
+        }
         scope.launch {
             runCatching { controllerFuture.await() }
                 .onSuccess { connected ->
                     controller = connected
                     connected.addListener(listener)
                     updateState(connected)
+                    scope.launch {
+                        if (!settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled &&
+                            _state.value.playbackMode == PlaybackMode.SMART_SHUFFLE
+                        ) setPlaybackMode(PlaybackMode.ORDERED)
+                    }
                 }
                 .onFailure { error ->
                     _state.value = PlaybackState(
@@ -440,6 +455,9 @@ class AndroidPlaybackController @Inject constructor(
     ) {
         libraryStartupJob?.cancel()
         libraryStartupJob = scope.launch {
+            val permittedMode = if (mode == PlaybackMode.SMART_SHUFFLE &&
+                !settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled
+            ) PlaybackMode.ORDERED else mode
             var selectedOccurrence: UUID? = null
             withConnectedController { connected ->
                 playbackOccurrenceId = UUID.randomUUID()
@@ -447,7 +465,7 @@ class AndroidPlaybackController @Inject constructor(
                 val plan = progressiveQueue.start(
                     orderedTracks = listOf(first),
                     requestedStartIndex = 0,
-                    mode = mode,
+                    permittedMode = permittedMode,
                     repeat = repeat,
                     sourceIds = listOf(first.id),
                 )
@@ -476,9 +494,9 @@ class AndroidPlaybackController @Inject constructor(
                     if (ids.isNotEmpty()) break
                     if (attempt < 3) delay(450L)
                 }
-                val ordered = buildLibraryPlaybackQueue(ids, first.id, mode, fromSearch)
+                val ordered = buildLibraryPlaybackQueue(ids, first.id, permittedMode, fromSearch)
                 if (ordered.size > 1) {
-                    attachFutureToSingleTrack(first.id, ordered, mode, occurrence)
+                    attachFutureToSingleTrack(first.id, ordered, permittedMode, occurrence)
                 }
             }
         }
@@ -501,6 +519,9 @@ class AndroidPlaybackController @Inject constructor(
         prepared: PlayableTrack? = null,
     ) {
         scope.launch {
+            val permittedMode = if (mode == PlaybackMode.SMART_SHUFFLE &&
+                !settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled
+            ) PlaybackMode.ORDERED else mode
             // Every direct Library selection begins a fresh listening session,
             // even when the selected track belongs to the active collection.
             // Next/Previous navigation continues to use the existing committed order.
@@ -509,7 +530,7 @@ class AndroidPlaybackController @Inject constructor(
             // the initial batch before preparing Media3. Keep all IDs for later refills.
             val distinctIds = trackIds.distinct()
             if (distinctIds.isEmpty()) return@launch showError("No playlist tracks are available")
-            if (mode == PlaybackMode.ORDERED) {
+            if (permittedMode == PlaybackMode.ORDERED) {
                 if (startTrackId != null && startTrackId !in distinctIds) {
                     return@launch showError("Selected track is no longer available")
                 }
@@ -533,7 +554,7 @@ class AndroidPlaybackController @Inject constructor(
                     val window = progressiveQueue.start(
                         orderedTracks = initial,
                         requestedStartIndex = 0,
-                        mode = mode,
+                        permittedMode = permittedMode,
                         repeat = RepeatMode.OFF,
                         sourceIds = distinctIds,
                         pendingIds = orderedIds.drop(headIds.size),
@@ -555,7 +576,7 @@ class AndroidPlaybackController @Inject constructor(
             if (startTrackId != null && startTrackId !in distinctIds) {
                 return@launch showError("Selected track is no longer available")
             }
-            val selectedId = startTrackId ?: when (mode) {
+            val selectedId = startTrackId ?: when (permittedMode) {
                 PlaybackMode.PURE_SHUFFLE -> withContext(Dispatchers.Default) {
                     PureShuffleEngine.newCycle(distinctIds).order.first()
                 }
@@ -575,9 +596,9 @@ class AndroidPlaybackController @Inject constructor(
                 val window = progressiveQueue.start(
                     orderedTracks = listOf(first),
                     requestedStartIndex = 0,
-                    mode = mode,
+                    permittedMode = permittedMode,
                     repeat = RepeatMode.OFF,
-                    // A mode switch during async ranking still needs the full candidate pool.
+                    // A permittedMode switch during async ranking still needs the full candidate pool.
                     sourceIds = distinctIds,
                 )
                 connected.setMediaItems(
@@ -590,7 +611,7 @@ class AndroidPlaybackController @Inject constructor(
                 connected.play()
             }
             // This runs in a separate coroutine and must never re-prepare the current item.
-            attachFutureToSingleTrack(selectedId, distinctIds, mode)
+            attachFutureToSingleTrack(selectedId, distinctIds, permittedMode)
         }
     }
 
@@ -861,6 +882,8 @@ class AndroidPlaybackController @Inject constructor(
         // Latest request wins, including while artist lookup or Smart ranking is suspended.
         modeChangeJob?.cancel()
         modeChangeJob = scope.launch {
+            if (mode == PlaybackMode.SMART_SHUFFLE &&
+                !settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled) return@launch
             val connected = runCatching { controller ?: controllerFuture.await().also { controller = it } }
                 .getOrElse { error ->
                     if (error is kotlinx.coroutines.CancellationException) throw error
@@ -1251,7 +1274,10 @@ class AndroidPlaybackController @Inject constructor(
             lastRecordedExposureOccurrence != playbackOccurrenceId
         ) {
             lastRecordedExposureOccurrence = playbackOccurrenceId
-            scope.launch { settings.recordShuffleExposure(trackId) }
+            scope.launch {
+                if (settings.recommendationPreferenceSettings.first().smartRecommendationsEnabled)
+                    settings.recordShuffleExposure(trackId)
+            }
         }
         _state.value = PlaybackState(
             status = when {
