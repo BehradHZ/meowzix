@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.data.db
 import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TelegramDao {
@@ -33,6 +34,71 @@ interface TelegramDao {
     @Upsert
     suspend fun upsertTelegramTrackSource(source: TelegramTrackSourceEntity)
 
+    /**
+     * The TDLib remote unique ID represents identical bytes across forwarded/reuploaded
+     * messages. It is a content identity, not a chat/file-id identity.
+     */
+    @Query("""
+        SELECT DISTINCT s.trackId
+        FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND tg.tdPersistentFileId = :persistentFileId
+    """)
+    suspend fun trackIdsForPersistentTelegramFile(
+        accountId: String,
+        persistentFileId: String,
+    ): List<String>
+
+    /** All playable occurrences, ordered for retry if a message disappears. */
+    @Query("""
+        SELECT tg.* FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND s.trackId = :trackId
+          AND s.availability != 'MISSING'
+        ORDER BY tg.messageId DESC
+    """)
+    suspend fun telegramSourcesForTrack(
+        accountId: String,
+        trackId: String,
+    ): List<TelegramTrackSourceEntity>
+
+    /** Includes missing occurrences so deletion can be distinguished from an unknown track. */
+    @Query("""
+        SELECT tg.* FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND s.trackId = :trackId
+        ORDER BY tg.messageId DESC
+    """)
+    suspend fun allTelegramSourcesForTrack(
+        accountId: String,
+        trackId: String,
+    ): List<TelegramTrackSourceEntity>
+
+    @Query("""
+        SELECT DISTINCT tg.chatId FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND s.trackId = :trackId
+          AND s.availability != 'MISSING'
+    """)
+    suspend fun availableChatIdsForTrack(accountId: String, trackId: String): List<Long>
+
+    @Query("""
+        SELECT DISTINCT tg.accountId, tg.chatId, s.trackId
+        FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+        WHERE tg.isUnheardNew = 1 AND s.availability != 'MISSING'
+    """)
+    fun observeUnheardTrackRows(): Flow<List<UnheardTelegramTrackRow>>
+
+    /** First explicit user interaction clears this canonical track's badge across every chat. */
+    @Query("""
+        UPDATE telegram_track_sources SET isUnheardNew = 0
+        WHERE isUnheardNew = 1 AND trackSourceId IN
+            (SELECT id FROM track_sources WHERE trackId = :trackId)
+    """)
+    suspend fun markTrackSeen(trackId: String)
+
     @Query("SELECT * FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId AND messageId = :messageId LIMIT 1")
     suspend fun telegramSourceForMessage(
         accountId: String,
@@ -58,6 +124,34 @@ interface TelegramDao {
 
     @Query("SELECT DISTINCT chatId FROM telegram_track_sources WHERE accountId = :accountId")
     suspend fun knownChatIds(accountId: String): List<Long>
+
+    @Query("SELECT * FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId AND messageId > 0")
+    suspend fun telegramMessageSourcesForChat(accountId: String, chatId: Long): List<TelegramTrackSourceEntity>
+
+    @Query("SELECT * FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId AND messageId < 0")
+    suspend fun telegramProfileSourcesForChat(accountId: String, chatId: Long): List<TelegramTrackSourceEntity>
+
+    @Query("""
+        SELECT DISTINCT s.trackId FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND tg.chatId = :chatId
+          AND tg.messageId < 0 AND s.availability != 'MISSING'
+    """)
+    suspend fun activeProfileTrackIdsForChat(accountId: String, chatId: Long): List<String>
+
+    @Query("""
+        SELECT DISTINCT s.trackId FROM telegram_track_sources tg
+        INNER JOIN track_sources s ON s.id = tg.trackSourceId
+        WHERE tg.accountId = :accountId AND tg.chatId = :chatId
+          AND tg.messageId > 0 AND s.availability != 'MISSING'
+    """)
+    suspend fun activeMessageTrackIdsForChat(accountId: String, chatId: Long): List<String> 
+
+    @Query("SELECT tg.* FROM telegram_track_sources tg INNER JOIN track_sources s ON s.id = tg.trackSourceId WHERE tg.accountId = :accountId AND s.trackId = :trackId AND tg.messageId > 0 AND s.availability != 'MISSING' ORDER BY tg.messageId DESC LIMIT 1")
+    suspend fun telegramMessageSourceForTrack(accountId: String, trackId: String): TelegramTrackSourceEntity?
+
+    @Query("SELECT tg.* FROM telegram_track_sources tg INNER JOIN track_sources s ON s.id = tg.trackSourceId WHERE s.trackId = :trackId AND tg.messageId > 0 AND s.availability != 'MISSING' ORDER BY tg.messageId DESC LIMIT 1")
+    suspend fun telegramMessageSourceForAnyAccountTrack(trackId: String): TelegramTrackSourceEntity?
 
     @Query("SELECT * FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId")
     suspend fun telegramSourcesForChat(accountId: String, chatId: Long): List<TelegramTrackSourceEntity>
@@ -92,10 +186,16 @@ interface TelegramDao {
     @Query("SELECT * FROM telegram_track_sources")
     suspend fun allTelegramTrackSources(): List<TelegramTrackSourceEntity>
 
-    @Query("SELECT trackSourceId FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId AND messageId IN (:messageIds)")
+    @Query("SELECT trackSourceId FROM telegram_track_sources WHERE accountId = :accountId AND chatId = :chatId AND messageId > 0 AND messageId IN (:messageIds)")
     suspend fun trackSourceIdsForMessages(
         accountId: String,
         chatId: Long,
         messageIds: List<Long>,
     ): List<String>
 }
+
+data class UnheardTelegramTrackRow(
+    val accountId: String,
+    val chatId: Long,
+    val trackId: String,
+)

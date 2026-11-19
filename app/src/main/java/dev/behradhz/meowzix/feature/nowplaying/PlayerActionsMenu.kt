@@ -1,6 +1,8 @@
 package dev.behradhz.meowzix.feature.nowplaying
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -32,12 +35,15 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -69,6 +75,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
+import dev.behradhz.meowzix.domain.playback.SleepTimerState
+import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
+import dev.behradhz.meowzix.ui.components.ChatAvatar
+import dev.behradhz.meowzix.feature.telegram.ForwardOptionPill
+import dev.behradhz.meowzix.ui.components.WhyThisSongLink
+import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
+import dev.behradhz.meowzix.ui.components.SleepTimerMenuContent
 import dev.behradhz.meowzix.domain.lyrics.LyricsContentType
 import dev.behradhz.meowzix.domain.lyrics.LyricsSourceType
 import dev.behradhz.meowzix.domain.lyrics.LyricsVersion
@@ -82,44 +95,80 @@ internal fun draggedPlayerAction(screenPoint: Offset, rowBounds: Map<Int, Rect>,
             screenPoint.x <= rect.right + horizontalTolerancePx
     }?.key
 
-internal enum class PlayerActionsPage { ACTIONS, LYRICS }
+internal enum class PlayerActionsPage { ACTIONS, LYRICS, PLAYBACK_SPEED, SLEEP_TIMER, REMOVE }
 
 /** Two-page anchored glass popup, matching Library's track-actions menu. */
 @Composable
 internal fun PlayerActionsMenu(
     expanded: Boolean,
     trackId: UUID?,
+    trackTitle: String = "",
     lyricsState: NowPlayingLyricsState,
     lyricsExpanded: Boolean,
     sleepTimerLabel: String,
     onDismiss: () -> Unit,
-    onOpenSleepTimer: () -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
-    onToggleLyrics: () -> Unit,
+    onOpenLyrics: () -> Unit,
     onImportLrc: () -> Unit,
     onPasteLyrics: () -> Unit,
     onAdjustDelay: (Long) -> Unit,
     onSelectVersion: (UUID) -> Unit,
     onDeleteVersion: (UUID) -> Unit,
-    onRemoveAllLyrics: () -> Unit = {},
+    onShowLyricsChange: (Boolean) -> Unit = {},
     onRestoreAutomaticLyrics: () -> Unit = {},
     sleepTimerActive: Boolean = false,
     sleepTimerCanEnable: Boolean = true,
     onSleepTimerEnabledChange: (Boolean) -> Unit = {},
+    sleepTimerState: SleepTimerState = SleepTimerState.Off,
+    sleepTimerLastMinutes: Int = 30,
+    sleepTimerLastMode: SleepTimerPresetMode = SleepTimerPresetMode.DURATION,
+    sleepTimerEndOfTrackEnabled: Boolean = true,
+    onSetSleepTimerMinutes: (Int) -> Unit = {},
+    onSetSleepTimerEndOfTrack: () -> Unit = {},
+    onExtendSleepTimer: () -> Unit = {},
+    onShortenSleepTimer: () -> Unit = {},
+    onChangePlaybackSpeed: (Float) -> Unit = {},
     dragInProgress: Boolean = false,
     draggedAction: Int? = null,
     draggedLyricsRequest: Int = 0,
+    draggedSpeedRequest: Int = 0,
+    draggedTimerRequest: Int = 0,
+    draggedRemoveRequest: Int = 0,
     onActionBoundsChanged: (Int, Rect) -> Unit = { _, _ -> },
-    onOpenPlaybackSpeed: () -> Unit = {},
     playbackSpeed: Float = 1f,
+    onViewInChat: (() -> Unit)? = null,
+    viewInChatOrigin: TelegramTrackOrigin? = null,
+    isLocalSource: Boolean = false,
+    canRemoveOffline: Boolean = false,
+    onRemoveFromLocations: ((offline: Boolean, fromLibrary: Boolean) -> Unit)? = null,
 ) {
     var page by remember(trackId) { mutableStateOf(PlayerActionsPage.ACTIONS) }
+    var removeOffline by remember(trackId) { mutableStateOf(false) }
+    var removeLibrary by remember(trackId) { mutableStateOf(false) }
     var pendingDelete by remember(trackId) { mutableStateOf<LyricsVersion?>(null) }
-    var pendingRemoveAll by remember(trackId) { mutableStateOf(false) }
-    LaunchedEffect(expanded) { if (!expanded) page = PlayerActionsPage.ACTIONS }
+    LaunchedEffect(expanded) {
+        if (!expanded) {
+            page = PlayerActionsPage.ACTIONS
+            removeOffline = false
+            removeLibrary = false
+        }
+    }
     LaunchedEffect(draggedLyricsRequest) {
         if (draggedLyricsRequest > 0) page = PlayerActionsPage.LYRICS
+    }
+    LaunchedEffect(draggedSpeedRequest) {
+        if (draggedSpeedRequest > 0) page = PlayerActionsPage.PLAYBACK_SPEED
+    }
+    LaunchedEffect(draggedTimerRequest) {
+        if (draggedTimerRequest > 0) page = PlayerActionsPage.SLEEP_TIMER
+    }
+    LaunchedEffect(draggedRemoveRequest) {
+        if (draggedRemoveRequest > 0 && onRemoveFromLocations != null) {
+            removeOffline = false
+            removeLibrary = false
+            page = PlayerActionsPage.REMOVE
+        }
     }
     val accent = MaterialTheme.colorScheme.primary
     val glass = MaterialTheme.colorScheme.surface
@@ -129,7 +178,7 @@ internal fun PlayerActionsMenu(
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
-        modifier = Modifier.width(288.dp),
+        modifier = Modifier.width(if (page == PlayerActionsPage.SLEEP_TIMER) 336.dp else 288.dp),
         offset = DpOffset(x = (-8).dp, y = 0.dp),
         containerColor = Color.Transparent,
         tonalElevation = 0.dp,
@@ -149,10 +198,14 @@ internal fun PlayerActionsMenu(
         ) {
             AnimatedContent(
                 targetState = page,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                transitionSpec = {
+                    (fadeIn(tween(200)) togetherWith fadeOut(tween(140)))
+                        .using(SizeTransform(clip = false))
+                },
                 label = "player-actions-page",
             ) { currentPage ->
-                if (currentPage == PlayerActionsPage.ACTIONS) {
+                when (currentPage) {
+                PlayerActionsPage.ACTIONS -> {
                     Column(
                         modifier = Modifier.fillMaxWidth()
                             .padding(horizontal = 10.dp, vertical = 10.dp)
@@ -172,7 +225,7 @@ internal fun PlayerActionsMenu(
                             highlighted = draggedAction == 0,
                             onBoundsChanged = { onActionBoundsChanged(0, it) },
                             subtitle = speedLabel(playbackSpeed),
-                            onClick = { onDismiss(); onOpenPlaybackSpeed() },
+                            onClick = { page = PlayerActionsPage.PLAYBACK_SPEED },
                         )
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.Schedule,
@@ -183,24 +236,9 @@ internal fun PlayerActionsMenu(
                             switchChecked = sleepTimerActive,
                             switchEnabled = sleepTimerCanEnable,
                             onSwitchCheckedChange = { enabled ->
-                                onDismiss()
                                 onSleepTimerEnabledChange(enabled)
                             },
-                            onClick = { onDismiss(); onOpenSleepTimer() },
-                        )
-                        PlayerMenuOptionRow(
-                            icon = Icons.Rounded.HelpOutline,
-                            title = "Why this song?",
-                            highlighted = draggedAction == 2,
-                            onBoundsChanged = { onActionBoundsChanged(2, it) },
-                            onClick = { onDismiss(); onWhyThisSong() },
-                        )
-                        PlayerMenuOptionRow(
-                            icon = Icons.Rounded.AutoAwesome,
-                            title = "Continue the vibe",
-                            highlighted = draggedAction == 3,
-                            onBoundsChanged = { onActionBoundsChanged(3, it) },
-                            onClick = { onDismiss(); onContinueVibe() },
+                            onClick = { page = PlayerActionsPage.SLEEP_TIMER },
                         )
                         PlayerMenuOptionRow(
                             icon = Icons.Rounded.MusicNote,
@@ -211,8 +249,69 @@ internal fun PlayerActionsMenu(
                                 versions.size.toString() + " version" + (if (versions.size == 1) "" else "s"),
                             onClick = { page = PlayerActionsPage.LYRICS },
                         )
+                        PlayerMenuOptionRow(
+                            icon = Icons.Rounded.AutoAwesome,
+                            title = "Continue the vibe",
+                            highlighted = draggedAction == 3,
+                            onBoundsChanged = { onActionBoundsChanged(3, it) },
+                            onClick = { onDismiss(); onContinueVibe() },
+                        )
+                        if (isLocalSource) {
+                            PlayerMenuOptionRow(
+                                icon = Icons.Rounded.MusicNote,
+                                title = "Local",
+                                enabled = false,
+                                actionTag = "player-action-view-in-chat",
+                                onClick = {},
+                            )
+                        } else {
+                            onViewInChat?.let { open ->
+                                PlayerMenuOptionRow(
+                                    icon = Icons.Rounded.OpenInNew,
+                                    title = if (viewInChatOrigin?.isProfileMusic == true) "View Profile" else "View in Chat",
+                                    subtitle = viewInChatOrigin?.title,
+                                    showChatAvatar = true,
+                                    chatAvatarRef = viewInChatOrigin?.profilePhotoRef,
+                                    actionTag = "player-action-view-in-chat",
+                                    highlighted = draggedAction == 5,
+                                    onBoundsChanged = { onActionBoundsChanged(5, it) },
+                                    onClick = { onDismiss(); open() },
+                                )
+                            }
+                        }
+                        if (onRemoveFromLocations != null && trackId != null) {
+                            PlayerMenuOptionRow(
+                                icon = Icons.Rounded.DeleteOutline,
+                                title = "Remove song",
+                                subtitle = "Offline / Library",
+                                actionTag = "player-action-remove-song",
+                                highlighted = draggedAction == 6,
+                                onBoundsChanged = { onActionBoundsChanged(6, it) },
+                                onClick = {
+                                    removeOffline = false
+                                    removeLibrary = false
+                                    page = PlayerActionsPage.REMOVE
+                                },
+                            )
+                        }
+                        WhyThisSongLink(
+                            tag = "player-action-why-this-song",
+                            modifier = Modifier.onGloballyPositioned { coordinates ->
+                                val topLeft = coordinates.positionOnScreen()
+                                if (topLeft != Offset.Unspecified) {
+                                    onActionBoundsChanged(2, Rect(
+                                        topLeft.x, topLeft.y,
+                                        topLeft.x + coordinates.size.width.toFloat(),
+                                        topLeft.y + coordinates.size.height.toFloat(),
+                                    ))
+                                }
+                            },
+                        ) {
+                            onDismiss(); onWhyThisSong()
+                        }
                     }
-                } else {
+                }
+                PlayerActionsPage.LYRICS -> {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
                         .testTag("player-lyrics-page")) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -230,9 +329,10 @@ internal fun PlayerActionsMenu(
                         ) {
                             PlayerActionLine(Icons.Rounded.Add, "Import .lrc") { onDismiss(); onImportLrc() }
                             PlayerActionLine(Icons.Rounded.Description, "Paste lyrics") { onDismiss(); onPasteLyrics() }
-                            PlayerActionLine(Icons.Rounded.Visibility,
-                                if (lyricsExpanded) "Back to player" else "Show lyrics",
-                            ) { onDismiss(); onToggleLyrics() }
+                            PlayerActionLine(Icons.Rounded.Visibility, "OPEN LYRICS") {
+                                onDismiss()
+                                onOpenLyrics()
+                            }
                         }
                         Spacer(Modifier.heightIn(min = 10.dp))
                         Text("SYNC TIMING", style = MaterialTheme.typography.labelSmall,
@@ -333,17 +433,27 @@ internal fun PlayerActionsMenu(
                             }
                         }
                         Spacer(Modifier.heightIn(min = 10.dp))
-                        if (versions.isNotEmpty()) {
-                            PlayerActionLine(
-                                icon = Icons.Rounded.DeleteOutline,
-                                title = "Remove lyrics from track",
-                            ) { pendingRemoveAll = true }
+                        val showLyrics = lyricsState.trackLyrics?.showInPlayer ?: true
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .toggleable(
+                                    value = showLyrics,
+                                    role = Role.Switch,
+                                    onValueChange = onShowLyricsChange,
+                                )
+                                .heightIn(min = 52.dp)
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                                .testTag("player-lyrics-show-toggle"),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                "Removes all lyrics in Meowzix, not files on your device.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 8.dp, bottom = 3.dp),
+                                "SHOW",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
                             )
+                            Switch(checked = showLyrics, onCheckedChange = null)
                         }
                         if (lyricsState.trackLyrics?.automaticDiscoveryDisabled == true) {
                             PlayerActionLine(
@@ -356,27 +466,131 @@ internal fun PlayerActionsMenu(
                         }
                     }
                 }
+                PlayerActionsPage.REMOVE -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 10.dp)
+                            .testTag("player-removal-panel"),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        PlayerSubpageHeader("Remove song", "player-remove-back") {
+                            page = PlayerActionsPage.ACTIONS
+                        }
+                        Text(
+                            text = trackTitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                        )
+                        Text(
+                            "Remove from",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 10.dp),
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            ForwardOptionPill(
+                                title = "Offline",
+                                selected = removeOffline,
+                                onSelectedChange = { removeOffline = it },
+                                modifier = Modifier.weight(1f),
+                                enabled = canRemoveOffline,
+                                tag = "player-removal-offline",
+                            )
+                            ForwardOptionPill(
+                                title = "Library",
+                                selected = removeLibrary,
+                                onSelectedChange = { removeLibrary = it },
+                                modifier = Modifier.weight(1f),
+                                tag = "player-removal-library",
+                            )
+                        }
+                        Text(
+                            "Offline removes only Meowzix-saved copies; Library hides the song. " +
+                                "Original device files and Telegram messages are never deleted.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                        )
+                        if (!canRemoveOffline) {
+                            Text(
+                                "No Meowzix offline copy to remove.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 10.dp),
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        ) {
+                            TextButton(onClick = { page = PlayerActionsPage.ACTIONS }) { Text("Back") }
+                            Button(
+                                enabled = removeLibrary || (removeOffline && canRemoveOffline),
+                                onClick = {
+                                    val removeCopy = removeOffline && canRemoveOffline
+                                    val removeFromLibrary = removeLibrary
+                                    onDismiss()
+                                    onRemoveFromLocations?.invoke(removeCopy, removeFromLibrary)
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError,
+                                ),
+                                modifier = Modifier.testTag("player-removal-confirm"),
+                            ) {
+                                Text("Remove selected")
+                            }
+                        }
+                    }
+                }
+                PlayerActionsPage.PLAYBACK_SPEED -> {
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .testTag("player-speed-page"),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        PlayerSubpageHeader("Playback speed", "player-speed-back") {
+                            page = PlayerActionsPage.ACTIONS
+                        }
+                        PlaybackSpeedMenuContent(
+                            currentSpeed = playbackSpeed,
+                            onSpeedChange = onChangePlaybackSpeed,
+                        )
+                    }
+                }
+                PlayerActionsPage.SLEEP_TIMER -> {
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .testTag("player-timer-page"),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        PlayerSubpageHeader("Sleep timer", "player-timer-back") {
+                            page = PlayerActionsPage.ACTIONS
+                        }
+                        SleepTimerMenuContent(
+                            state = sleepTimerState,
+                            endOfTrackEnabled = sleepTimerEndOfTrackEnabled,
+                            lastMinutes = sleepTimerLastMinutes,
+                            lastMode = sleepTimerLastMode,
+                            onSetMinutes = onSetSleepTimerMinutes,
+                            onEndOfTrack = onSetSleepTimerEndOfTrack,
+                            onExtend = onExtendSleepTimer,
+                            onShorten = onShortenSleepTimer,
+                            onSetEnabled = onSleepTimerEnabledChange,
+                        )
+                    }
+                }
+                }
             }
         }
-    }
-
-    if (pendingRemoveAll) {
-        AlertDialog(
-            onDismissRequest = { pendingRemoveAll = false },
-            title = { Text("Remove lyrics from track?") },
-            text = { Text("All lyrics versions will be removed from Meowzix. The song and any original .lrc files on your device will remain untouched. Auto-detection will be disabled for this track until restored.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingRemoveAll = false
-                    onRemoveAllLyrics()
-                }) {
-                    Text("Remove", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingRemoveAll = false }) { Text("Cancel") }
-            },
-        )
     }
 
     pendingDelete?.let { version ->
@@ -391,6 +605,16 @@ internal fun PlayerActionsMenu(
             },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun PlayerSubpageHeader(title: String, backTag: String, onBack: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack, modifier = Modifier.testTag(backTag)) {
+            Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to player actions")
+        }
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -429,7 +653,11 @@ private fun PlayerMenuOptionRow(
     highlighted: Boolean = false,
     onBoundsChanged: ((Rect) -> Unit)? = null,
     switchChecked: Boolean? = null,
+    showChatAvatar: Boolean = false,
+    chatAvatarRef: String? = null,
+    actionTag: String = "player-action-" + title.lowercase().replace(' ', '-').replace("?", ""),
     switchEnabled: Boolean = true,
+    enabled: Boolean = true,
     onSwitchCheckedChange: ((Boolean) -> Unit)? = null,
     onClick: () -> Unit,
 ) {
@@ -451,10 +679,10 @@ private fun PlayerMenuOptionRow(
                     )
                 }
             }
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .heightIn(min = 56.dp)
             .padding(horizontal = 10.dp, vertical = 7.dp)
-            .testTag("player-action-" + title.lowercase().replace(' ', '-').replace("?", "")),
+            .testTag(actionTag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -462,12 +690,21 @@ private fun PlayerMenuOptionRow(
                 .background(colors.primary.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = colors.primary,
-                modifier = Modifier.size(20.dp),
-            )
+            if (showChatAvatar) {
+                ChatAvatar(
+                    artworkRef = chatAvatarRef,
+                    description = subtitle ?: "Telegram chat",
+                    size = 40.dp,
+                    shape = RoundedCornerShape(12.dp),
+                )
+            } else {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = colors.primary.copy(alpha = if (enabled) 1f else 0.38f),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
         Column(
             modifier = Modifier.weight(1f).padding(start = 12.dp, end = 4.dp),
@@ -477,7 +714,7 @@ private fun PlayerMenuOptionRow(
                 title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = colors.onSurface,
+                color = colors.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
             )
             if (subtitle != null) {
                 Text(

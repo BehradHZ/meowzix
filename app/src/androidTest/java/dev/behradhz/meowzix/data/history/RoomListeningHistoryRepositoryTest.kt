@@ -6,6 +6,11 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.TrackEntity
+import dev.behradhz.meowzix.data.db.TrackSourceEntity
+import dev.behradhz.meowzix.data.db.TelegramSelectedSourceEntity
+import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
+import dev.behradhz.meowzix.core.model.SourceAvailability
+import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
 import dev.behradhz.meowzix.data.recommendation.TrainingDatasetBuilder
 import dev.behradhz.meowzix.domain.history.ListeningEventType
@@ -23,6 +28,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -73,6 +79,62 @@ class RoomListeningHistoryRepositoryTest {
 
         repository.clear()
         assertEquals(emptyList<Any>(), repository.observeEvents().first())
+    }
+
+    @Test fun automaticPlaybackDoesNotConsumeNewBadgeButManualStartDoes() = runTest {
+        database.libraryDao().upsertTrack(track())
+        database.libraryDao().upsertSource(
+            TrackSourceEntity(
+                id = "telegram-source", trackId = trackId.toString(),
+                type = TrackSourceType.TELEGRAM_REMOTE,
+                availability = SourceAvailability.REMOTE_ONLY,
+                contentUri = "tg://test/777", localPath = null, mimeType = "audio/mpeg",
+                fileSizeBytes = 1, contentHashSha256 = null, trainingEligible = true,
+                createdAtEpochMs = 1L, lastVerifiedAtEpochMs = 1L,
+            ),
+        )
+        database.telegramDao().upsertSelectedSource(
+            TelegramSelectedSourceEntity(
+                accountId = "account", chatId = 777L, title = "Channel",
+                kind = "SUPERGROUP_OR_CHANNEL", newestMessageId = null,
+                initialScanComplete = true, lastSyncedAtEpochMs = null,
+            ),
+        )
+        database.telegramDao().upsertTelegramTrackSource(
+            TelegramTrackSourceEntity(
+                trackSourceId = "telegram-source", accountId = "account", chatId = 777L,
+                messageId = 777L shl 20, tdFileId = null, tdPersistentFileId = null,
+                fileName = null, telegramTitle = null, telegramPerformer = null,
+                remoteRevisionKey = null, isUnheardNew = true,
+            ),
+        )
+        val auto = repository.startPlayback(trackId, PlaybackInitiator.QUEUE, PlaybackMode.ORDERED)
+        repository.finalizePlayback(auto, 100_000, 100_000, false)
+        assertEquals(1, database.telegramDao().observeUnheardTrackRows().first().size)
+
+        val manual = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.ORDERED)
+        assertEquals(emptyList<Any>(), database.telegramDao().observeUnheardTrackRows().first())
+        repository.finalizePlayback(manual, 1_000, 100_000, intentionalSkip = true)
+        assertEquals(emptyList<Any>(), database.telegramDao().observeUnheardTrackRows().first())
+    }
+
+    @Test fun manualSelectionStartsFreshSessionWhileAutomaticNextStaysInTheSameSession() = runTest {
+        database.libraryDao().upsertTrack(track())
+        val chosen = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.PURE_SHUFFLE)
+        repository.finalizePlayback(chosen, 95_000, 100_000, false)
+
+        val automatic = repository.startPlayback(trackId, PlaybackInitiator.PURE_SHUFFLE, PlaybackMode.PURE_SHUFFLE)
+        repository.finalizePlayback(automatic, 95_000, 100_000, false)
+
+        val chosenAgain = repository.startPlayback(trackId, PlaybackInitiator.USER, PlaybackMode.PURE_SHUFFLE)
+        repository.finalizePlayback(chosenAgain, 95_000, 100_000, false)
+
+        val starts = repository.observeEvents().first().filter { it.type == ListeningEventType.PLAY_STARTED }
+        fun sessionFor(playback: UUID) = starts.single { it.playbackInstanceId == playback }.sessionId
+
+        assertEquals(3, starts.size)
+        assertEquals(sessionFor(chosen), sessionFor(automatic))
+        assertNotEquals(sessionFor(chosen), sessionFor(chosenAgain))
     }
 
     @Test fun repeatedIntentionalSeeksAreStoredWithoutCreatingDuplicateOutcomes() = runTest {

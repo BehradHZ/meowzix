@@ -11,6 +11,7 @@ enum class QueueActionKind {
     ADD_TO_END,
     REMOVED,
     CLEARED,
+    SOURCE_DELETED,
 }
 
 data class QueueActionFeedback(

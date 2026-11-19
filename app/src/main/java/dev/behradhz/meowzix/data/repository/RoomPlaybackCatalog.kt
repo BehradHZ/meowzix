@@ -9,6 +9,8 @@ import dev.behradhz.meowzix.data.db.PlaylistDao
 import dev.behradhz.meowzix.data.db.RecommendationDao
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
+import dev.behradhz.meowzix.data.telegram.telegramStreamUri
+import dev.behradhz.meowzix.data.telegram.canBuildTelegramStream
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
 import dev.behradhz.meowzix.domain.playback.BrowseAlbum
@@ -71,6 +73,12 @@ class RoomPlaybackCatalog @Inject constructor(
 
     override suspend fun playableTrack(trackId: UUID): PlayableTrack? =
         availableTracks(listOf(trackId)).firstOrNull()
+
+    override suspend fun shuffleArtists(trackIds: List<UUID>): Map<UUID, String?> = withContext(Dispatchers.Default) {
+        trackIds.distinct().chunked(QUERY_CHUNK_SIZE).flatMap { ids ->
+            libraryDao.shuffleArtists(ids.map(UUID::toString))
+        }.associate { UUID.fromString(it.id) to it.artist }
+    }
 
     override suspend fun availableTracks(trackIds: List<UUID>): List<PlayableTrack> = withContext(Dispatchers.Default) {
         val orderedIds = trackIds.distinct()
@@ -285,9 +293,14 @@ class RoomPlaybackCatalog @Inject constructor(
                         it.availability == SourceAvailability.REMOTE_ONLY
                 }
                 .mapNotNull { source -> telegramBySource[source.id] }
-                .firstOrNull { it.tdFileId != null }
-                ?.tdFileId
-                ?.let { fileId -> "meowzix-tdlib://audio/$fileId?trackId=${track.id}" }
+                .firstOrNull { canBuildTelegramStream(it.tdFileId, it.tdPersistentFileId) }
+                ?.let { source ->
+                    telegramStreamUri(
+                        requireNotNull(source.tdFileId),
+                        track.id,
+                        source.tdPersistentFileId,
+                    )
+                }
         } ?: return null
 
         return PlayableTrack(

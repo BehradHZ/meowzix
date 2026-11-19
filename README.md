@@ -1,124 +1,136 @@
 <p align="center">
-  <img src="app/src/main/res/drawable/meowzix_logo.jpg" alt="Meowzix logo" width="112">
+  <img src="app/src/main/res/drawable/meowzix_logo.jpg" alt="Meowzix logo" width="120">
 </p>
 
 <h1 align="center">Meowzix</h1>
-
 <p align="center"><strong>Your music, wherever it lives.</strong></p>
-
-<p align="center">A local-first Android music player that brings device audio and music from your chosen Telegram chats into one library.</p>
-
 <p align="center">
-  <a href="https://github.com/BehradHZ/meowzix/actions/workflows/android.yml"><img alt="Android CI" src="https://github.com/BehradHZ/meowzix/actions/workflows/android.yml/badge.svg"></a>
-  <a href="https://github.com/BehradHZ/meowzix/releases/latest"><img alt="Latest release: v0.7" src="https://img.shields.io/badge/release-v0.7-FFB38A"></a>
-  <img alt="Android 8+" src="https://img.shields.io/badge/platform-Android%208%2B-3DDC84">
-  <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
+  A local-first Android music player combining your phone's audio with music from Telegram.<br>
+  Beautiful playback, offline access, and personalized discovery — all in one app.
 </p>
 
 <p align="center">
-  <a href="https://github.com/BehradHZ/meowzix/releases/latest">Download</a> ·
+  <a href="https://github.com/BehradHZ/meowzix/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/BehradHZ/meowzix?logo=github&label=Release&style=for-the-badge"></a>
+  <img alt="Android 8+" src="https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&style=for-the-badge">
+  <a href="LICENSE"><img alt="AGPL-3.0" src="https://img.shields.io/badge/License-AGPL--3.0-blue?style=for-the-badge"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/BehradHZ/meowzix/releases/latest"><strong>Download APK</strong></a> ·
   <a href="#features">Features</a> ·
-  <a href="#build-from-source">Build</a> ·
-  <a href="#architecture">Architecture</a>
+  <a href="#installation">Installation</a> ·
+  <a href="#build-from-source">Build from source</a>
 </p>
 
-## Overview
-
-Meowzix is designed for people who keep music both on their phone and in Telegram. It combines those sources without making Telegram a prerequisite for local playback. Your queue, playlists, listening history, and recommendations are managed on the device.
+<p align="center">
+  <a href="assets/screenshots/01-home.png"><img src="assets/screenshots/01-home.png" alt="Meowzix Home screen" width="31%"></a>
+  <a href="assets/screenshots/02-now-playing.png"><img src="assets/screenshots/02-now-playing.png" alt="Meowzix Now Playing screen" width="31%"></a>
+  <a href="assets/screenshots/08-telegram-playlist.png"><img src="assets/screenshots/08-telegram-playlist.png" alt="Meowzix Telegram playlist screen" width="31%"></a>
+</p>
+<p align="center"><sub>Home · Now Playing · Telegram Playlist</sub></p>
+---
 
 ## Features
 
-| | |
-| --- | --- |
-| **Unified music library** | Browse local audio and tracks imported from selected Telegram chats, channels, and Saved Messages. |
-| **Offline playback** | Play device files, keep Telegram tracks available offline, and manage downloads. |
-| **Reliable queue** | Play Next, reorder, repeat, recover playback sessions, and use a separate no-repeat **Pure Shuffle**. |
-| **Smart Shuffle** | Personalized on-device ranking that learns from listening behavior and context, with a non-personalized fallback. |
-| **Modern player** | Glass-inspired interface, artwork-led Now Playing, synchronized lyrics, and playback gestures. |
-| **Audio controls** | Equalizer, playback visualization, loudness handling, and gapless/crossfade controls where supported. |
-| **Library tools** | Search, favorites, playlists, history, backup/restore, and duplicate management. |
-| **Android integration** | Background playback, media notification, home-screen widget, and Android Auto browsing. |
+### Music from your phone and Telegram
 
-Availability of some audio effects, Telegram behavior, and automotive features depends on the Android device and environment. See [implementation and verification status](docs/PRODUCT_IMPROVEMENTS_STATUS.md) for remaining device-validation work.
+Meowzix unifies music indexed from your Android device with audio from **Telegram Saved Messages, selected chats, groups, and channels**. Each chosen Telegram chat can act as a playlist — you don't have to copy every song into your phone's music folder or keep the Telegram app open.
 
-## Download
+- **Persistent library:** Imported tracks remain organized across app restarts, with cloud/offline availability shown per track.
+- **Offline downloads:** Save Telegram music for later listening, track download progress, and retry failed transfers.
+- **Telegram sharing:** Send or forward tracks using an in-app chat picker, including chat folders and search.
+- **Source-independent playback:** Local audio continues working when Telegram or the network isn't available.
 
-Get the latest signed Android package from [GitHub Releases](https://github.com/BehradHZ/meowzix/releases/latest).
+<p align="center"><img src="assets/screenshots/05-telegram-sources.png" alt="Telegram chat source selector with selected music sources" width="285"><br><sub><b>Telegram source management</b></sub></p>
 
-1. Download the `Meowzix-v*.apk` file from the release assets.
-2. Optionally verify its SHA-256 checksum against `SHA256SUMS.txt`.
-3. Install the APK on an Android device running **Android 8.0 (API 26) or newer**.
+### Playback and queue
 
-Installation outside a store may require enabling installation from the file manager/browser you use. Do not install APKs from untrusted mirrors.
+Built on **Media3 / ExoPlayer**, Meowzix supports uninterrupted background listening with lock-screen controls, media notifications, Bluetooth/headset buttons, and audio-focus handling.
 
-## Android Auto
+- **Editable queue:** Play Next, add, remove, and reorder tracks; resume the previous session.
+- **Playback modes:** Ordered play, repeat options, and separate Pure/Smart Shuffle modes.
+- **Sleep Timer:** Stop at a selected time or at the end of the track, with optional fade.
+- **Seamless transitions:** Gapless and configurable crossfade, plus loudness handling where supported.
 
-Connect a compatible Android Auto head unit to the phone running Meowzix: no separate
-in-car APK, Telegram login, or second music library is required. Android Auto renders
-the driver-safe UI using the existing Media3 library service.
+<p align="center"><img src="assets/screenshots/03-queue.png" alt="Up Next queue with playback controls and draggable tracks" width="285"><br><sub><b>Editable playback queue</b></sub></p>
 
-The four navigation tabs are **Listen Now** (Favorites, Available Offline, Smart Mixes
-when enabled), **Playlists**, **Artists**, and **Library** (Tracks and Albums).
-Only tracks visible in selected sources are browsable; downloaded music remains
-accessible offline. The shared media session provides voice search and playback
-controls. Phone-only Telegram forwarding is not advertised to the car.
+### Smart Shuffle and personalized listening
 
-For validation, use the [Android Auto Desktop Head Unit](https://developer.android.com/training/cars/testing/dhu)
-and run `./gradlew :app:connectedDebugAndroidTest` on a device or emulator.
-A full Android Auto host/device check is still required before release.
+**Pure Shuffle** randomly orders eligible tracks without repeats inside a cycle. It never uses your preferences. **Smart Shuffle** is different: it learns locally from skips, completions, favorites, listening time, and recent history to help choose what plays next.
+
+Personalized mixes and exploration help surface less-played music instead of only replaying the same favorites. The source-agnostic recommendation pipeline can learn from local and Telegram tracks; it does **not** need a cloud AI service.
+
+
+
+### Lyrics and a more expressive player
+
+- **Synchronized lyrics:** A compact three-line view highlights the current lyric while fading adjacent lines; expand it to scroll through the full song.
+- **Follow along:** Lyrics automatically follow playback and support manual scrolling.
+- **Artwork-led design:** Glass-inspired surfaces, animated transitions, album-art accents, and customizable light/dark colors.
+- **Personal themes:** Preset or custom accents, with Material You integration on supported Android versions.
+
+<p align="center">
+  <a href="assets/screenshots/06-synced-lyrics.png"><img src="assets/screenshots/06-synced-lyrics.png" alt="Synced lyrics and waveform in Now Playing" width="48%"></a>
+  <a href="assets/screenshots/04-expanded-lyrics.png"><img src="assets/screenshots/04-expanded-lyrics.png" alt="Expanded synchronized lyrics" width="48%"></a>
+</p>
+<p align="center"><sub>Synced lyrics + waveform · Expanded lyrics</sub></p>
+
+### Sound and visual controls
+
+- **Equalizer:** Adjust the audio session with presets and available device-supported effects.
+- **Audio visualizer:** Live spectrum/waveform views and selectable seekbar styles.
+- **Output controls:** Integration with Android audio routing and connected playback devices.
+
+Effect availability varies with Android hardware and the audio route.
+
+
+
+### Library, search, and organization
+
+Browse songs, artists, albums, favorites, playlists, and recent listening history. Search works across the unified library, with normalization designed to handle Persian and English text.
+
+There are also tools for **duplicate management**, locally stored library data, and **backup/restore**. Your playlists, queue, and preferences are managed within Meowzix.
+
+<p align="center"><img src="assets/screenshots/07-library-search.png" alt="Music library with filters and the contextual search field" width="285"><br><sub><b>Library filters + contextual search</b></sub></p>
+
+### Music beyond the app
+
+Control playback from the **animated vinyl home-screen widget**, complete with a spinning record and moving tonearm. The Android media notification can show track metadata, progress, and configurable controls. An **Android Auto** media-library integration is also implemented for compatible hosts.
+
+
+
+> **Compatibility:** Some audio effects and Android integrations depend on the device. Source-code checks do not replace physical-device and Android Auto host testing. See [verification status](docs/PRODUCT_IMPROVEMENTS_STATUS.md).
+
+## Installation
+
+Download the latest release-signed APK from **[GitHub Releases](https://github.com/BehradHZ/meowzix/releases/latest)**.
+
+1. Install on **Android 8.0 (API 26) or newer**.
+2. Allow access to device audio for local music.
+3. Optionally connect Telegram and select the chats containing your music.
+
+The release also includes a checksum file for APK verification.
 
 ## Build from source
 
-**Requirements:** Android SDK (compile SDK 37), JDK 17, and the included Gradle wrapper.
+Requires **JDK 17**, **Android SDK 37**, and the included Gradle wrapper.
 
-```bash
+~~~bash
 git clone https://github.com/BehradHZ/meowzix.git
 cd meowzix
 ./gradlew :app:assembleDebug
-```
+~~~
 
-On Windows, use `gradlew.bat` instead of `./gradlew`.
+On Windows, use <code>gradlew.bat</code>. For Telegram-enabled builds, supply your own API credentials outside version control using the [setup guide](docs/setup/TELEGRAM_CREDENTIALS.md).
 
-To use Telegram integration in local builds, obtain your own Telegram API credentials and configure them **outside version control**. Follow [Telegram credentials setup](docs/setup/TELEGRAM_CREDENTIALS.md). The local music player can be built without Telegram credentials.
+## Architecture and privacy
 
-For automated validation:
+**Kotlin · Jetpack Compose · Material 3 · Media3 · Room · Hilt · Coroutines / Flow · TDLib**
 
-```bash
-./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-```
+The library models a song separately from its device, Telegram, or downloaded sources. Listening history, recommendation training, and personalization state are kept **on-device by default**; the player does not require a developer-operated backend.
 
-Android instrumentation tests require a connected device or emulator:
+[System specification](docs/MEOWZIX_SYSTEM_SPEC.md) · [Recommendation architecture](docs/architecture/ADR_012_LOCAL_RECOMMENDATIONS.md) · [Contributing](CONTRIBUTING.md) · [AGPL-3.0 License](LICENSE)
 
-```bash
-./gradlew :app:connectedDebugAndroidTest
-```
+---
 
-## Architecture
-
-Meowzix is built with **Kotlin**, **Jetpack Compose**, **Media3 / ExoPlayer**, **Room**, **Hilt**, **Coroutines / Flow**, and **TDLib**.
-
-```text
-Device media ─────┐
-                  ├── Unified track library ── Queue / Playback
-Telegram / TDLib ─┘              │
-                                └── On-device listening model
-```
-
-The music model distinguishes a logical track from its underlying local, offline, or Telegram sources. **Pure Shuffle** remains random; **Smart Shuffle** can use local listening signals to adapt track selection. Personalization does not require a cloud model service.
-
-See [system specification](docs/MEOWZIX_SYSTEM_SPEC.md) and [architecture notes](docs/architecture/ADR_012_LOCAL_RECOMMENDATIONS.md) for details.
-
-## Privacy and security
-
-- Listening history and preference models are stored locally by default.
-- Telegram connectivity is optional; local playback continues without a Telegram session.
-- Telegram API keys and release signing credentials are supplied outside the repository.
-- The app does not require a developer-operated backend for core playback or personalization.
-
-## Contributing
-
-Development and testing guidelines are in [CONTRIBUTING.md](CONTRIBUTING.md). Please include clear reproduction steps for bug reports and describe how changes were verified in pull requests.
-
-## License
-
-Licensed under the [GNU Affero General Public License v3.0](LICENSE).
+<p align="center"><sub>Made for music that lives everywhere.</sub></p>

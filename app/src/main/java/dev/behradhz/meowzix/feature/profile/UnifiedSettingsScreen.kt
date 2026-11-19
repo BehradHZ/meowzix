@@ -1,6 +1,24 @@
 package dev.behradhz.meowzix.feature.profile
 
 import android.Manifest
+import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.net.Uri
+import android.provider.Settings
+import dev.behradhz.meowzix.LockScreenPlayerPreferences
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
@@ -25,23 +43,21 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BugReport
-import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.DownloadForOffline
-import androidx.compose.material.icons.rounded.Downloading
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Explore
-import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PrivacyTip
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
@@ -50,11 +66,9 @@ import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Wifi
@@ -63,7 +77,7 @@ import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
 import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -73,9 +87,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -83,8 +101,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.backup.BackupPreview
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -93,11 +115,16 @@ import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.settings.ThemePreference
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
+import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
+import dev.behradhz.meowzix.BuildConfig
 import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
-import dev.behradhz.meowzix.ui.components.SleepTimerGlassDialog
+import dev.behradhz.meowzix.playback.VolumeButtonAccessibilityService
+import dev.behradhz.meowzix.ui.components.SleepTimerMenuContent
 import dev.behradhz.meowzix.ui.components.sleepTimerStatusLabel
+import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -107,9 +134,9 @@ fun UnifiedSettingsScreen(
     onBack: () -> Unit,
     onOpenBrand: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
-    onOpenEqualizer: () -> Unit = {},
     onOpenTelegram: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
+    onApplyLauncherIcon: (LauncherIconColorSource) -> Unit = {},
     viewModel: UnifiedSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -121,10 +148,39 @@ fun UnifiedSettingsScreen(
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val hasCurrentTrack by viewModel.hasCurrentTrack.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var volumeButtonAccess by remember(context) {
+        mutableStateOf(VolumeButtonAccessibilityService.hasAccess(context))
+    }
+    var showVolumeButtonAccessDialog by rememberSaveable { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        volumeButtonAccess = VolumeButtonAccessibilityService.hasAccess(context)
+    }
+    val volumeButtonAccessLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        volumeButtonAccess = VolumeButtonAccessibilityService.hasAccess(context)
+        if (volumeButtonAccess) viewModel.setVolumeButtonTrackNavigationEnabled(true)
+    }
+    var lockScreenEnabled by remember(context) {
+        mutableStateOf(LockScreenPlayerPreferences.isEnabled(context))
+    }
+    val lockScreenPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        val granted = Settings.canDrawOverlays(context)
+        LockScreenPlayerPreferences.setEnabled(context, granted)
+        lockScreenEnabled = granted
+        if (!granted) {
+            Toast.makeText(context, "Overlay permission is required for the lock screen player", Toast.LENGTH_LONG).show()
+        }
+    }
     val scope = rememberCoroutineScope()
     var includeHistoryInBackup by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<Pair<ByteArray, BackupPreview>?>(null) }
-    var showSleepTimer by remember { mutableStateOf(false) }
+    var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
+    var pendingIconSource by remember { mutableStateOf<LauncherIconColorSource?>(null) }
+    var versionTaps by rememberSaveable { mutableIntStateOf(0) }
+    BackHandler(enabled = selectedCategory != null) { selectedCategory = null }
     val telegramConnected = telegramAuth.step is TelegramAuthStep.Ready
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -177,117 +233,141 @@ fun UnifiedSettingsScreen(
 
     PlaylistGlassBackdrop(variation = 2) { hazeState ->
         Box(Modifier.fillMaxSize()) {
-        LazyColumn(
+        CompositionLocalProvider(LocalSettingsCompactMode provides true) {
+        AnimatedContent(
+            targetState = selectedCategory,
+            transitionSpec = {
+                if (state.appearance.reduceMotion) {
+                    fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                } else {
+                    // Match the main Settings push/pop: open from right and exit
+                    // left, then reverse the direction for Back.
+                    if (targetState != null) {
+                        slideInHorizontally(tween(300), initialOffsetX = { it }) togetherWith
+                            slideOutHorizontally(tween(300), targetOffsetX = { -it })
+                    } else {
+                        slideInHorizontally(tween(300), initialOffsetX = { -it }) togetherWith
+                            slideOutHorizontally(tween(300), targetOffsetX = { it })
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+            label = "settings-category-transition",
+        ) { page ->
+        GlassLazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 196.dp),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = dockAwareBottomPadding(196.dp)),
             verticalArrangement = Arrangement.spacedBy(25.dp),
         ) {
-            item(key = "hero") {
-                SettingsGlassHero(
-                    hazeState,
-                    telegramConnected,
-                    state.recommendations.smartRecommendationsEnabled,
-                    downloadSummary,
-                    onOpenBrand = onOpenBrand,
-                )
-            }
-            item(key = "appearance") {
-                        SettingsGlassSection(hazeState, "Appearance", "Color, typography and motion", Icons.Rounded.Palette) {
-                            SettingsChoiceRow("Theme", null, Icons.Rounded.DarkMode,
-                                state.appearance.theme.name.lowercase().replaceFirstChar(Char::uppercase),
-                                ThemePreference.entries.map { it.name }) { viewModel.setTheme(ThemePreference.valueOf(it)) }
-                            SettingsRowDivider()
-                            SettingsColorPicker(state.appearance, viewModel::setColorTheme, viewModel::setCustomColorSeed)
-                            SettingsRowDivider()
-                            SettingsChoiceRow(
-                                "Full player accent", "Choose the track cover's color or the global app accent",
-                                Icons.Rounded.Palette,
-                                if (state.appearance.playerAccentSource == PlayerAccentSource.TRACK) "Track artwork" else "Global accent",
-                                listOf("Global accent", "Track artwork"),
-                            ) { viewModel.setPlayerAccentSource(if (it == "Track artwork") PlayerAccentSource.TRACK else PlayerAccentSource.GLOBAL) }
-                            SettingsRowDivider()
-                            SettingsSliderRow("Lyrics text size", null, Icons.Rounded.TextFields,
-                                "${state.appearance.lyricsTextScalePercent}%", state.appearance.lyricsTextScalePercent.toFloat(),
-                                80f..160f, 7, { viewModel.setLyricsScale(it.toInt()) })
-                            SettingsRowDivider()
-                            SettingsToggleRow("Reduced motion", "Shorter, more restrained lyric and UI animations",
-                                Icons.Rounded.Animation, state.appearance.reduceMotion, viewModel::setReduceMotion)
+            if (page == null) {
+                item(key = "categories") {
+                    SettingsCategoryIndex(hazeState) { category ->
+                        when (category) {
+                            SettingsCategory.TELEGRAM -> onOpenTelegram()
+                            SettingsCategory.DOWNLOADS -> onOpenDownloads()
+                            else -> selectedCategory = category
                         }
                     }
-                    item(key = "playback") {
-                        SettingsGlassSection(hazeState, "Playback & sound", "Fine-tune every listening session", Icons.Rounded.PlayCircle) {
-                            SettingsChoiceRow("Default playback mode", null, Icons.AutoMirrored.Rounded.QueueMusic,
-                                state.playback.defaultMode.name, PlaybackMode.entries.map { it.name }) { viewModel.setDefaultMode(PlaybackMode.valueOf(it)) }
-                            SettingsRowDivider()
-                            SettingsChoiceRow("Default repeat", null, Icons.Rounded.Repeat,
-                                state.playback.defaultRepeat.name, RepeatMode.entries.map { it.name }) { viewModel.setDefaultRepeat(RepeatMode.valueOf(it)) }
-                            SettingsRowDivider()
-                            SettingsToggleRow("Resume playback state", "Restore the previous queue and position",
-                                Icons.Rounded.Restore, state.playback.resumeOnLaunch, viewModel::setResume)
-                            SettingsRowDivider()
-                            SettingsToggleRow(
-                                "Resume after other apps",
-                                "Restart music when an audio-focus interruption ends; manual pauses never resume automatically",
-                                Icons.Rounded.PlayCircle,
-                                state.playback.resumeAfterExternalAudio,
-                                viewModel::setResumeAfterExternalAudio,
-                            )
-                            SettingsRowDivider()
-                            SettingsToggleRow(
-                                "Pause when microphone starts",
-                                "Pause when microphone recording starts, then resume automatically when it ends. Manual Play remains available.",
-                                Icons.Rounded.Mic,
-                                state.playback.pauseOnMicrophoneRecording,
-                                viewModel::setPauseOnMicrophoneRecording,
-                            )
-                            SettingsRowDivider()
-                            SettingsToggleRow(
-                                "Live song card",
-                                "Show a separate track-and-artist card on the lock screen and, if supported, AOD. Requires notification permission; Android controls prominence.",
-                                Icons.Rounded.MusicNote,
-                                state.playback.liveSongCardEnabled,
-                                onChecked = { enabled ->
-                                    when {
-                                        !enabled -> viewModel.setLiveSongCardEnabled(false)
-                                        Build.VERSION.SDK_INT >= 33 &&
-                                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ->
-                                            liveCardPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                        else -> viewModel.setLiveSongCardEnabled(true)
-                                    }
-                                },
-                            )
-                            if (state.playback.liveSongCardEnabled) {
-                                SettingsRowDivider()
-                                SettingsChoiceRow(
-                                    "Live Update layout",
-                                    "Minimal chip or three playback buttons in the expanded card",
-                                    Icons.Rounded.PlayCircle,
-                                    if (state.playback.liveSongCardStyle == LiveSongCardStyle.MINIMAL) "Minimal" else "Playback controls",
-                                    listOf("Minimal", "Playback controls"),
-                                ) { value ->
-                                    viewModel.setLiveSongCardStyle(
-                                        if (value == "Minimal") LiveSongCardStyle.MINIMAL else LiveSongCardStyle.CONTROLS
-                                    )
-                                }
-                                if (state.playback.liveSongCardStyle == LiveSongCardStyle.CONTROLS) {
-                                    SettingsRowDivider()
-                                    SettingsChoiceRow(
-                                        "Left Live Update button",
-                                        "The middle button is always Pause",
-                                        Icons.Rounded.MusicNote,
-                                        state.playback.liveSongLeftAction.name,
-                                        LiveSongSideAction.entries.map { it.name },
-                                    ) { viewModel.setLiveSongLeftAction(LiveSongSideAction.valueOf(it)) }
-                                    SettingsRowDivider()
-                                    SettingsChoiceRow(
-                                        "Right Live Update button",
-                                        "Previous, Next, Favorite, Shuffle, or Repeat",
-                                        Icons.Rounded.MusicNote,
-                                        state.playback.liveSongRightAction.name,
-                                        LiveSongSideAction.entries.map { it.name },
-                                    ) { viewModel.setLiveSongRightAction(LiveSongSideAction.valueOf(it)) }
+                }
+                item(key = "settings-version") {
+                    Text(
+                        text = "Version " + BuildConfig.VERSION_NAME +
+                            if (state.appearance.spermerModeEnabled) " · Spermer" else "",
+                        modifier = Modifier.fillMaxWidth()
+                            .testTag("settings-version")
+                            .clickable {
+                                versionTaps++
+                                val remaining = 7 - versionTaps
+                                if (remaining <= 0) {
+                                    val enabled = !state.appearance.spermerModeEnabled
+                                    viewModel.setSpermerModeEnabled(enabled)
+                                    Toast.makeText(
+                                        context,
+                                        if (enabled) "Spermer mode enabled" else "Spermer mode disabled",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                    versionTaps = 0
+                                } else if (remaining <= 3) {
+                                    Toast.makeText(
+                                        context,
+                                        "$remaining taps to " +
+                                            if (state.appearance.spermerModeEnabled) "disable" else "unlock",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
                                 }
                             }
+                            .padding(vertical = 8.dp),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (page == SettingsCategory.APPEARANCE) {
+                item(key = "appearance") {
+                    SettingsGlassSection(
+                        hazeState, "Appearance", "Color and motion",
+                        Icons.Rounded.Palette, showHeading = false,
+                    ) {
+                        SettingsChoiceRow(
+                            "Theme", null, Icons.Rounded.DarkMode,
+                            state.appearance.theme.name.lowercase().replaceFirstChar(Char::uppercase),
+                            ThemePreference.entries.map { it.name },
+                        ) { viewModel.setTheme(ThemePreference.valueOf(it)) }
+                        SettingsRowDivider()
+                        SettingsColorPicker(
+                            state.appearance, viewModel::setColorTheme, viewModel::setCustomColorSeed,
+                        )
+                        SettingsRowDivider()
+                        LauncherIconPreviews(state.appearance) { source ->
+                            pendingIconSource = source
+                        }
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Reduced motion",
+                            "Shorter, more restrained lyric and UI animations",
+                            Icons.Rounded.Animation,
+                            state.appearance.reduceMotion,
+                            viewModel::setReduceMotion,
+                        )
+                    }
+                }
+                item(key = "appearance-full-player") {
+                    SettingsGlassSection(
+                        hazeState,
+                        "Full player",
+                        "Appearance of the expanded now-playing screen",
+                        Icons.Rounded.PlayCircle,
+                    ) {
+                        SettingsPlayerPreview(state.appearance)
+                        SettingsRowDivider()
+                        SettingsChoiceRow(
+                            "Accent",
+                            "Choose the color used for the full-screen player",
+                            Icons.Rounded.Palette,
+                            if (state.appearance.playerAccentSource == PlayerAccentSource.TRACK)
+                                "Track artwork" else "Global accent",
+                            listOf("Global accent", "Track artwork"),
+                            centerOptions = true,
+                        ) {
+                            viewModel.setPlayerAccentSource(
+                                if (it == "Track artwork") PlayerAccentSource.TRACK
+                                else PlayerAccentSource.GLOBAL,
+                            )
+                        }
+                        SettingsRowDivider()
+                        SettingsSliderRow(
+                            "Lyrics text size",
+                            "Changes the lyrics displayed in the full-screen player",
+                            Icons.Rounded.TextFields,
+                            "${state.appearance.lyricsTextScalePercent}%",
+                            state.appearance.lyricsTextScalePercent.toFloat(),
+                            80f..160f, 7,
+                            { viewModel.setLyricsScale(it.toInt()) },
+                            showSubtitle = true,
+                            subtitleMaxLines = 2,
+                        )
+                        if (state.appearance.spermerModeEnabled) {
                             SettingsRowDivider()
                             val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()
                             SettingsSeekBarStylePicker(
@@ -298,19 +378,233 @@ fun UnifiedSettingsScreen(
                                 reduceMotion = state.appearance.reduceMotion,
                                 onPreviewCaptureChange = viewModel::setSettingsPreviewCaptureEnabled,
                             )
+                        }
+                    }
+                }
+            }
+            // Library selection belongs at the end of Appearance, not in a separate category.
+            if (page == SettingsCategory.APPEARANCE) {
+                item(key = "library-selection") {
+                    SettingsGlassSection(
+                        hazeState, "Library selection", "Configure the selection dock and More menu",
+                        Icons.Rounded.LibraryMusic,
+                    ) {
+                        SettingsSelectionConfigurator(
+                            settings = state.libraryDisplay.selection,
+                            reduceMotion = state.appearance.reduceMotion,
+                            onDockSlot = viewModel::setLibrarySelectionDockSlot,
+                            onMoreEnabled = viewModel::setLibrarySelectionMore,
+                            onMoreMove = viewModel::moveLibrarySelectionMore,
+                        )
+                    }
+                }
+            }
+            if (page == SettingsCategory.PLAYBACK) {
+                item(key = "playback") {
+                    val previewPlayback by viewModel.seekBarPreviewPlayback.collectAsStateWithLifecycle()
+                    SettingsGlassSection(hazeState, "Playback", "", Icons.Rounded.PlayCircle, showHeading = false) {
+                        SettingsPlaybackModeSelector(
+                            selected = state.playback.defaultMode,
+                            onSelect = viewModel::setDefaultMode,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Artist-balanced Shuffle",
+                            "Spread playback across artists. Turn off for uniform song-level random.",
+                            Icons.Rounded.Shuffle,
+                            state.playback.artistBalancedShuffle,
+                            viewModel::setArtistBalancedShuffle,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        if (state.playback.artistBalancedShuffle) {
+                            SettingsSliderRow(
+                                "Artist balance",
+                                "Lower values reduce artists' library-size advantage. Applies to new queues.",
+                                Icons.Rounded.Shuffle,
+                                String.format(java.util.Locale.US, "%.2f", state.playback.artistShuffleAlpha),
+                                state.playback.artistShuffleAlpha,
+                                0.7f..1f, 5, { viewModel.setArtistShuffleAlpha(it) },
+                                showSubtitle = true,
+                                subtitleMaxLines = 3,
+                            )
+                        }
+                        SettingsRowDivider()
+                        SettingsRepeatCycleRow(
+                            selected = state.playback.defaultRepeat,
+                            onSelect = viewModel::setDefaultRepeat,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Resume playback state",
+                            "Restore your last queue and playback position.",
+                            Icons.Rounded.Restore,
+                            state.playback.resumeOnLaunch,
+                            viewModel::setResume,
+                            showSubtitle = true,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Resume after other apps",
+                            "Resume after another app finishes, unless you paused.",
+                            Icons.Rounded.PlayCircle,
+                            state.playback.resumeAfterExternalAudio,
+                            viewModel::setResumeAfterExternalAudio,
+                            showSubtitle = true,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Hold volume buttons to skip tracks",
+                            "Works during Meowzix playback. Lock screen support varies by device.",
+                            Icons.AutoMirrored.Rounded.VolumeUp,
+                            state.playback.volumeButtonTrackNavigationEnabled && volumeButtonAccess,
+                            onChecked = { wanted ->
+                                volumeButtonAccess = VolumeButtonAccessibilityService.hasAccess(context)
+                                if (wanted && !volumeButtonAccess) showVolumeButtonAccessDialog = true
+                                else viewModel.setVolumeButtonTrackNavigationEnabled(wanted)
+                            },
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Pause when microphone starts",
+                            "Pause for microphone use and resume when it ends.",
+                            Icons.Rounded.Mic,
+                            state.playback.pauseOnMicrophoneRecording,
+                            viewModel::setPauseOnMicrophoneRecording,
+                            showSubtitle = true,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Full-screen lock screen player",
+                            "While music is playing, show the player when you wake a locked phone. Scroll up for the queue.",
+                            Icons.Rounded.MusicNote,
+                            lockScreenEnabled && Settings.canDrawOverlays(context),
+                            onChecked = { enabled ->
+                                when {
+                                    !enabled -> {
+                                        LockScreenPlayerPreferences.setEnabled(context, false)
+                                        lockScreenEnabled = false
+                                    }
+                                    Settings.canDrawOverlays(context) -> {
+                                        LockScreenPlayerPreferences.setEnabled(context, true)
+                                        lockScreenEnabled = true
+                                    }
+                                    else -> {
+                                        val intent = Intent(
+                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            Uri.parse("package:${context.packageName}"),
+                                        )
+                                        lockScreenPermissionLauncher.launch(intent)
+                                    }
+                                }
+                            },
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Live song card",
+                            "Show the current song on the lock screen and supported AODs.",
+                            Icons.Rounded.MusicNote,
+                            state.playback.liveSongCardEnabled,
+                            onChecked = { enabled ->
+                                when {
+                                    !enabled -> viewModel.setLiveSongCardEnabled(false)
+                                    Build.VERSION.SDK_INT >= 33 &&
+                                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ->
+                                        liveCardPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    else -> viewModel.setLiveSongCardEnabled(true)
+                                }
+                            },
+                            showSubtitle = true,
+                        )
+                        AnimatedVisibility(
+                            visible = state.playback.liveSongCardEnabled,
+                            enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(190)),
+                            exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(140)),
+                        ) {
+                            Column {
                             SettingsRowDivider()
-                            SettingsActionRow("Equalizer", "Device-aware audio controls", Icons.Rounded.Equalizer, "Open", onOpenEqualizer)
-                            SettingsRowDivider()
-                            SettingsActionRow("Sleep timer", sleepTimerStatusLabel(sleepTimer), Icons.Rounded.Bedtime, "Configure", { showSleepTimer = true })
-                            SettingsRowDivider()
-                            SettingsToggleRow(
-                                "Sleep timer fade",
-                                "Fade playback over the final 5 seconds (enabled by default)",
-                                Icons.Rounded.Bedtime,
-                                state.playback.sleepTimerFadeEnabled,
-                                viewModel::setSleepTimerFadeEnabled,
+                            SettingsLiveUpdateLayoutPicker(
+                                selected = state.playback.liveSongCardStyle,
+                                onSelect = viewModel::setLiveSongCardStyle,
+                            )
+                            SettingsLiveUpdatePreview(
+                                playback = previewPlayback,
+                                style = state.playback.liveSongCardStyle,
+                                leftAction = state.playback.liveSongLeftAction,
+                                rightAction = state.playback.liveSongRightAction,
+                            )
+                            AnimatedVisibility(
+                                visible = state.playback.liveSongCardStyle == LiveSongCardStyle.CONTROLS,
+                                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(190)),
+                                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(140)),
+                            ) {
+                                Column {
+                                SettingsRowDivider()
+                                SettingsChoiceRow(
+                                    "Left Live Update button",
+                                    "The middle button is always Pause",
+                                    livePreviewActionIcon(state.playback.liveSongLeftAction),
+                                    state.playback.liveSongLeftAction.name,
+                                    LiveSongSideAction.entries.map { it.name },
+                                    optionIcon = { livePreviewActionIcon(LiveSongSideAction.valueOf(it)) },
+                                ) { viewModel.setLiveSongLeftAction(LiveSongSideAction.valueOf(it)) }
+                                SettingsRowDivider()
+                                SettingsChoiceRow(
+                                    "Right Live Update button",
+                                    "Previous, Next, Favorite, Shuffle, or Repeat",
+                                    livePreviewActionIcon(state.playback.liveSongRightAction),
+                                    state.playback.liveSongRightAction.name,
+                                    LiveSongSideAction.entries.map { it.name },
+                                    optionIcon = { livePreviewActionIcon(LiveSongSideAction.valueOf(it)) },
+                                ) { viewModel.setLiveSongRightAction(LiveSongSideAction.valueOf(it)) }
+                                }
+                            }
+                            }
+                        }
+                        SettingsRowDivider()
+                        SettingsSleepTimerHeader(
+                            state = sleepTimer,
+                            lastMode = state.playback.sleepTimerLastMode,
+                            lastMinutes = state.playback.sleepTimerLastMinutes,
+                            endOfTrackEnabled = hasCurrentTrack,
+                            onToggle = viewModel::setSleepTimerEnabled,
+                        )
+                        Column {
+                            SleepTimerMenuContent(
+                                    state = sleepTimer,
+                                    endOfTrackEnabled = hasCurrentTrack,
+                                    lastMinutes = state.playback.sleepTimerLastMinutes,
+                                    lastMode = state.playback.sleepTimerLastMode,
+                                    onSetMinutes = viewModel::setSleepTimerMinutes,
+                                    onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
+                                    onExtend = { viewModel.extendSleepTimer(15) },
+                                    onShorten = { viewModel.shortenSleepTimer(15) },
+                                    onSetEnabled = viewModel::setSleepTimerEnabled,
+                                    showStatusHeader = false,
                             )
                             SettingsRowDivider()
+                            SettingsToggleRow(
+                                    "Fade out",
+                                    "Fade music during the final 5 seconds of the timer.",
+                                    Icons.Rounded.Bedtime,
+                                    state.playback.sleepTimerFadeEnabled,
+                                    viewModel::setSleepTimerFadeEnabled,
+                                    showSubtitle = true,
+                            )
+                        }
+                    }
+                }
+            }
+            if (page == SettingsCategory.SOUND) {
+                item(key = "sound") {
+                    SettingsGlassSection(hazeState, "Sound", "", Icons.Rounded.GraphicEq, showHeading = false) {
+                            SettingsInfoRow("Equalizer", "", Icons.Rounded.Equalizer)
+                            SettingsEqualizerControls()
+                        SettingsRowDivider()
                             SettingsToggleRow("Loudness normalization",
                                 "ReplayGain first; readable local audio may use conservative RMS dBFS, not LUFS.",
                                 Icons.AutoMirrored.Rounded.VolumeUp, state.playback.loudnessNormalizationEnabled, viewModel::setLoudnessNormalization)
@@ -319,101 +613,98 @@ fun UnifiedSettingsScreen(
                                 if (state.playback.crossfadeDurationSeconds == 0) "Off" else "${state.playback.crossfadeDurationSeconds} s",
                                 state.playback.crossfadeDurationSeconds.toFloat(), 0f..12f, 11,
                                 { viewModel.setCrossfadeSeconds(it.toInt().coerceIn(0, 12)) })
+                    }
+                }
+            }
+            if (page == SettingsCategory.DISCOVERY) {
+                item(key = "recommendations") {
+                    SettingsGlassSection(hazeState, "Discovery", "", Icons.Rounded.AutoAwesome, showHeading = false) {
+                        SettingsToggleRow(
+                            "Highlight new Telegram songs",
+                            "Tint new songs and chat playlists until listened to. Each chat playlist can override this.",
+                            Icons.Rounded.MusicNote,
+                            state.libraryDisplay.highlightNewTelegramTracks,
+                            viewModel::setHighlightNewTelegramTracks,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Smart recommendations",
+                            "Personalize music suggestions from your listening habits. Your data stays on this device.",
+                            Icons.Rounded.AutoAwesome,
+                            state.recommendations.smartRecommendationsEnabled,
+                            viewModel::setSmart,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        SettingsRowDivider()
+                        SettingsSliderRow(
+                            "Exploration",
+                            if (state.recommendations.smartRecommendationsEnabled)
+                                "Give rarely played songs more chances in Smart recommendations. Higher values encourage discovery."
+                            else
+                                "Give rarely played songs more chances in Smart recommendations. Enable Smart recommendations to adjust.",
+                            Icons.Rounded.Explore,
+                            "${state.recommendations.explorationPercent}%",
+                            state.recommendations.explorationPercent.toFloat(),
+                            0f..50f,
+                            9,
+                            { viewModel.setExploration(it.toInt()) },
+                            enabled = state.recommendations.smartRecommendationsEnabled,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Local audio analysis",
+                            "Analyze readable audio files on this device to improve recommendations. Your music is not uploaded.",
+                            Icons.Rounded.AutoAwesome,
+                            state.recommendations.audioAnalysisEnabled,
+                            viewModel::setAudioAnalysis,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        SettingsRowDivider()
+                        SettingsToggleRow(
+                            "Diagnostics",
+                            "Show local model details and evaluation metrics. Use them to understand how recommendations perform.",
+                            Icons.Rounded.BugReport,
+                            state.recommendations.diagnosticsVisible,
+                            viewModel::setDiagnostics,
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        feedbackRows.forEach { row ->
                             SettingsRowDivider()
-                            SettingsInfoRow("Gapless & crossfade limits",
-                                "Gapless is automatic where supported. Progressive Telegram is not guaranteed gapless. EQ, sleep timer, repeat-one, short tracks, queue changes or preload failure may prevent crossfade.",
-                                Icons.Rounded.Tune)
+                            SettingsActionRow(
+                                row.title,
+                                "Remove your '${feedbackActionLabel(row.action)}' feedback for this song.",
+                                Icons.AutoMirrored.Rounded.Undo,
+                                "Undo",
+                                { viewModel.undoRecommendationFeedback(row.trackId, row.action) },
+                                showSubtitle = true,
+                                subtitleMaxLines = 3,
+                            )
                         }
                     }
-                    item(key = "recommendations") {
-                        SettingsGlassSection(hazeState, "Discovery", "Private recommendations, made for you", Icons.Rounded.AutoAwesome) {
-                            SettingsToggleRow("Smart recommendations", "Enable learned recommendation surfaces",
-                                Icons.Rounded.AutoAwesome, state.recommendations.smartRecommendationsEnabled, viewModel::setSmart)
-                            SettingsRowDivider()
-                            SettingsSliderRow("Exploration",
-                                if (state.recommendations.smartRecommendationsEnabled) "Chance to try unheard or rarely played tracks" else "Enable Smart recommendations to adjust",
-                                Icons.Rounded.Explore, "${state.recommendations.explorationPercent}%",
-                                state.recommendations.explorationPercent.toFloat(), 0f..50f, 9,
-                                { viewModel.setExploration(it.toInt()) }, enabled = state.recommendations.smartRecommendationsEnabled)
-                            SettingsRowDivider()
-                            SettingsToggleRow("Local audio analysis", "Analyze readable local audio only",
-                                Icons.Rounded.AutoAwesome, state.recommendations.audioAnalysisEnabled, viewModel::setAudioAnalysis)
-                            SettingsRowDivider()
-                            if (feedbackRows.isEmpty()) {
-                                SettingsInfoRow("Active feedback", "No active recommendation feedback", Icons.Rounded.ThumbUp)
-                            } else {
-                                SettingsInfoRow("Active feedback", "${feedbackRows.size} current preferences", Icons.Rounded.ThumbUp)
-                                feedbackRows.forEach { row ->
-                                    SettingsRowDivider()
-                                    SettingsActionRow(
-                                        row.title, feedbackActionLabel(row.action), Icons.AutoMirrored.Rounded.Undo, "Undo",
-                                        { viewModel.undoRecommendationFeedback(row.trackId, row.action) },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    item(key = "telegram") {
-                        SettingsGlassSection(hazeState, "Telegram", "Connection and selected music sources", Icons.Rounded.Cloud) {
-                            SettingsInfoRow("Connection",
-                                if (telegramConnected) "Connected · ${telegramSources.selectedChatIds.size} selected music source(s)" else "Disconnected · local and offline music remain available",
-                                Icons.Rounded.CloudDone)
-                            SettingsRowDivider()
-                            SettingsActionRow("Music sources",
-                                if (telegramConnected) "Manage selected chats" else "Connect Telegram to choose music chats",
-                                Icons.Rounded.FolderOpen, "Manage", onOpenTelegram)
-                            SettingsRowDivider()
-                            SettingsActionRow("Sync selected sources",
-                                if (!telegramConnected) "Connect Telegram to sync" else if (telegramSources.isSyncing) "Sync in progress" else "Refresh selected sources",
-                                Icons.Rounded.Sync, if (telegramSources.isSyncing) "Syncing" else "Sync",
-                                viewModel::syncTelegram, enabled = telegramConnected && !telegramSources.isSyncing)
-                            SettingsRowDivider()
-                            SettingsToggleRow("Wi-Fi only cloud downloads", "Applies to Telegram-backed downloads",
-                                Icons.Rounded.Wifi, state.network.wifiOnlyDownloads, viewModel::setWifiOnly)
-                        }
-                    }
-                    item(key = "storage") {
-                        SettingsGlassSection(hazeState, "Downloads & storage", "Keep listening, even offline", Icons.Rounded.Download) {
-                            SettingsInfoRow("Managed storage",
-                                storageUsage?.let { usage ->
-                                    "Temporary ${formatBytes(usage.temporaryPlaybackBytes)} · Pinned ${formatBytes(usage.pinnedOfflineBytes)} · Other ${formatBytes(usage.otherManagedBytes)}"
-                                } ?: "Calculating storage usage…",
-                                Icons.Rounded.Storage)
-                            SettingsRowDivider()
-                            SettingsActionRow("Offline files & downloads",
-                                "${downloadSummary.activeCount} active · ${downloadSummary.pinnedCount} pinned/offline",
-                                Icons.Rounded.DownloadForOffline, "Manage", onOpenDownloads)
-                            SettingsRowDivider()
-                            SettingsToggleRow("Prefetch", "Prepare likely next tracks when policy allows",
-                                Icons.Rounded.Downloading, state.network.prefetchEnabled, viewModel::setPrefetch)
-                            SettingsRowDivider()
-                            SettingsToggleRow("Prefetch on metered networks",
-                                "Available when prefetch is on and Wi-Fi-only downloads are off",
-                                Icons.Rounded.Wifi, state.network.prefetchOnMetered, viewModel::setPrefetchOnMetered,
-                                enabled = state.network.prefetchEnabled && !state.network.wifiOnlyDownloads)
-                            SettingsRowDivider()
-                            SettingsSliderRow("Temporary cache budget", "Maximum app-managed temporary playback storage", Icons.Rounded.Storage,
-                                formatBytes(state.storage.temporaryCacheBudgetBytes),
-                                state.storage.temporaryCacheBudgetBytes / MIB.toFloat(), 64f..2048f, 30,
-                                { viewModel.setCacheBudget(it.toLong() * MIB) })
-                        }
-                    }
-                    item(key = "privacy") {
+                }
+            }
+            if (page == SettingsCategory.DATA) {
+                item(key = "privacy") {
                         SettingsGlassSection(hazeState, "Privacy & history", "Your listening, under your control", Icons.Rounded.Shield) {
                             SettingsActionRow(
-                                "Listening history", "Browse recently played music",
+                                "Browse history", "",
                                 Icons.Rounded.History, "Open", onOpenHistory,
                             )
                             SettingsRowDivider()
-                            SettingsToggleRow("Listening history", "Turning this off stops new learning-event capture",
+                            SettingsToggleRow("Save listening history", null,
                                 Icons.Rounded.History, state.network.listeningHistoryEnabled, viewModel::setHistory)
-                            SettingsRowDivider()
-                            SettingsInfoRow("Personalization controls",
-                                "Use Manage data below to clear raw history or reset learned state separately.",
-                                Icons.Rounded.PrivacyTip)
                         }
                     }
-                    item(key = "backup") {
+            }
+            if (page == SettingsCategory.DATA) {
+                item(key = "backup") {
                         SettingsGlassSection(hazeState, "Backup & restore", "Take your preferences with you", Icons.Rounded.Backup) {
                             SettingsToggleRow("Include listening history", "Off by default; trained model weights are never exported",
                                 Icons.Rounded.History, includeHistoryInBackup, { includeHistoryInBackup = it })
@@ -430,17 +721,10 @@ fun UnifiedSettingsScreen(
                             }
                         }
                     }
-                    item(key = "advanced") {
-                        SettingsGlassSection(hazeState, "Advanced", "Diagnostics and local models", Icons.Rounded.Tune) {
-                            SettingsToggleRow("Diagnostics", "Show local model and evaluation details",
-                                Icons.Rounded.BugReport, state.recommendations.diagnosticsVisible, viewModel::setDiagnostics)
-                        }
-                    }
-                    item(key = "manage-data") {
+            }
+            if (page == SettingsCategory.DATA) {
+                item(key = "manage-data") {
                         SettingsGlassSection(hazeState, "Data controls", "Changes that deserve a second look", Icons.Rounded.DeleteOutline) {
-                            SettingsDangerRow("Clear temporary cache", "Pinned offline and MediaStore files are preserved",
-                                Icons.Rounded.DeleteSweep) { pendingDanger = SettingsDangerAction.CLEAR_CACHE }
-                            SettingsRowDivider()
                             SettingsDangerRow("Clear listening history", "Delete raw listening events",
                                 Icons.Rounded.History) { pendingDanger = SettingsDangerAction.CLEAR_HISTORY }
                             SettingsRowDivider()
@@ -458,16 +742,91 @@ fun UnifiedSettingsScreen(
                             }
                         }
                     }
+            }
+            if (page == SettingsCategory.INFORMATION) {
+                item(key = "information") {
+                    SettingsInformationContent(
+                        hazeState = hazeState,
+                        telegramStatus = if (telegramConnected)
+                            "Telegram connected · " + telegramSources.selectedChatIds.size + " selected sources"
+                        else "Telegram disconnected · offline music remains available",
+                        downloadsStatus = downloadSummary.activeCount.toString() +
+                            " active downloads · " + downloadSummary.pinnedCount + " saved offline",
+                        managedStorage = storageUsage?.let { usage ->
+                            "Managed storage: saved audio " + formatBytes(usage.pinnedOfflineBytes) +
+                                ", artwork " + formatBytes(usage.otherManagedBytes)
+                        } ?: "Managed storage is being calculated",
+                        onOpenBrand = onOpenBrand,
+                    )
+                }
+            }
+        }
+        }
         }
         MeowzixStickyHeader(
-            title = "Settings",
-            subtitle = "Make Meowzix yours.",
+            showProxyAction = true,
+            title = selectedCategory?.title ?: "Settings",
+            subtitle = "",
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            MeowzixHeaderAction("Back to Home", Icons.AutoMirrored.Rounded.ArrowBack, onBack)
+            leadingActions = {
+                MeowzixHeaderAction(
+                    "Back",
+                    Icons.AutoMirrored.Rounded.ArrowBack,
+                    onClick = {
+                        if (selectedCategory == null) onBack() else selectedCategory = null
+                    },
+                )
+            },
+        )
         }
-        }
+    }
+
+    if (showVolumeButtonAccessDialog) {
+        AlertDialog(
+            onDismissRequest = { showVolumeButtonAccessDialog = false },
+            title = { Text("Enable Meowzix volume buttons") },
+            text = {
+                Text(
+                    "In Android Accessibility settings, enable Meowzix volume buttons. " +
+                        "It handles volume buttons during Meowzix playback and does not read your screen.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showVolumeButtonAccessDialog = false
+                    try {
+                        volumeButtonAccessLauncher.launch(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    } catch (_: ActivityNotFoundException) {
+                        Toast.makeText(context, "Accessibility settings are unavailable", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("Open Settings") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showVolumeButtonAccessDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    pendingIconSource?.let { chosen ->
+        AlertDialog(
+            onDismissRequest = { pendingIconSource = null },
+            title = { Text("Change app icon?") },
+            text = {
+                Text("Apply the " +
+                    (if (chosen == LauncherIconColorSource.WALLPAPER) "Wallpaper" else "App theme") +
+                    " icon without restarting. Your launcher may take a moment to refresh.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingIconSource = null
+                    onApplyLauncherIcon(chosen)
+                }) { Text("Apply") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingIconSource = null }) { Text("Cancel") }
+            },
+        )
     }
 
     pendingDanger?.let { action ->
@@ -479,7 +838,6 @@ fun UnifiedSettingsScreen(
                 TextButton(onClick = {
                     pendingDanger = null
                     when (action) {
-                        SettingsDangerAction.CLEAR_CACHE -> viewModel.clearTemporaryCache()
                         SettingsDangerAction.CLEAR_HISTORY -> viewModel.clearHistory()
                         SettingsDangerAction.RESET_PERSONALIZATION -> viewModel.resetPersonalization()
                         SettingsDangerAction.DISCONNECT_TELEGRAM -> viewModel.disconnectTelegram()
@@ -488,20 +846,6 @@ fun UnifiedSettingsScreen(
                 }) { Text(action.confirm, color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { pendingDanger = null }) { Text("Cancel") } },
-        )
-    }
-
-    if (showSleepTimer) {
-        SleepTimerGlassDialog(
-            state = sleepTimer,
-            endOfTrackEnabled = hasCurrentTrack,
-            lastMinutes = state.playback.sleepTimerLastMinutes,
-            lastMode = state.playback.sleepTimerLastMode,
-            onDismiss = { showSleepTimer = false },
-            onSetMinutes = viewModel::setSleepTimerMinutes,
-            onEndOfTrack = viewModel::setSleepTimerEndOfTrack,
-            onExtend = { viewModel.extendSleepTimer(15) },
-            onSetEnabled = viewModel::setSleepTimerEnabled,
         )
     }
 

@@ -38,6 +38,8 @@ class ProgressiveQueue @Inject constructor() {
     private val groupIds = mutableListOf<UUID?>()
     private val groups = linkedMapOf<UUID, QueueGroup>()
     private val fixedOccurrences = linkedSetOf<UUID>()
+    // A consumed Play Next occurrence must never be reused as a fresh Next entry.
+    private val consumedFixedOccurrences = hashSetOf<UUID>()
     private val trackIds = hashSetOf<UUID>()
     private var currentIndex = -1
     private var materializedStartIndex = 0
@@ -49,6 +51,11 @@ class ProgressiveQueue @Inject constructor() {
     private var sourceTrackIds: List<UUID> = emptyList()
     private var pendingGeneratedIds: List<UUID> = emptyList()
     private var generatedStarted = 0
+    // Generated tracks before (or at) the originally selected song do not count
+    // toward the 90-song continuation threshold.
+    private var generatedStartBaseline = 0
+    // A new Smart cycle may accept an initial ranking; automatic advancement commits it.
+    private var smartRerankAllowed = false
     private var nextGenerationAt = 90
     private var generationEpoch = 0L
     private var generatedRefillInFlight: GeneratedQueueBatch? = null
@@ -78,7 +85,10 @@ class ProgressiveQueue @Inject constructor() {
         // selection. Regenerating UUIDs for every row made the UI animate the entire
         // list as though its order had changed, even when the order was identical.
         val previousNextOccurrences = tracks.indices
-            .filter { origins[it] == QueueItemOrigin.GENERATED }
+            .filter {
+                it > currentIndex && origins[it] == QueueItemOrigin.GENERATED &&
+                    occurrenceIds[it] !in consumedFixedOccurrences
+            }
             .groupBy({ tracks[it].id }, { occurrenceIds[it] })
             .mapValues { (_, ids) -> ids.toMutableList() }
         val before = orderedTracks.take(requestedStartIndex.coerceIn(orderedTracks.indices) + 1)
@@ -110,8 +120,12 @@ class ProgressiveQueue @Inject constructor() {
         groups.putAll(savedGroups)
         fixedOccurrences.clear()
         fixedOccurrences.addAll(fixed.map { it.occurrenceId })
+        consumedFixedOccurrences.clear()
         origins.clear()
-        origins.addAll(List(before.size) { QueueItemOrigin.GENERATED })
+        origins.addAll(List(before.size) { index ->
+            if (index == before.lastIndex && mode == PlaybackMode.SMART_SHUFFLE)
+                QueueItemOrigin.MANUAL else QueueItemOrigin.GENERATED
+        })
         origins.addAll(List(fixed.size) { QueueItemOrigin.MANUAL })
         origins.addAll(List(after.size) { QueueItemOrigin.GENERATED })
         generationEnabled = sourceIds.isNotEmpty()
@@ -124,7 +138,9 @@ class ProgressiveQueue @Inject constructor() {
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
         currentIndex = before.lastIndex
-        // Playback selection is not a manual Queue insertion.
+        generatedStartBaseline = (0..currentIndex).count { origins[it] == QueueItemOrigin.GENERATED }
+        smartRerankAllowed = mode == PlaybackMode.SMART_SHUFFLE
+        // Playback selection is not a pending manual Queue insertion.
         playbackMode = mode
         repeatMode = repeat
         shuffleSeed = seed
@@ -154,9 +170,11 @@ class ProgressiveQueue @Inject constructor() {
         val restoredOrigins = requestedOrigins ?: QueueProvenanceRestoreHints.consume(orderedTrackIds)
         // Missing provenance must never mark all future tracks as manually queued.
         val fallbackOrigin = QueueItemOrigin.GENERATED
-        val restored = orderedTrackIds.mapIndexedNotNull { index, id ->
+        // Missing earlier songs must not silently shift the restored cursor
+        // to a different Queue occurrence.
+        val indexedRestored = orderedTrackIds.mapIndexedNotNull { index, id ->
             availableTracks[id]?.let { track ->
-                RestoredEntry(
+                index to RestoredEntry(
                     track,
                     restoredOrigins?.getOrNull(index) ?: fallbackOrigin,
                     requestedOccurrenceIds?.getOrNull(index) ?: UUID.randomUUID(),
@@ -164,6 +182,7 @@ class ProgressiveQueue @Inject constructor() {
                 )
             }
         }
+        val restored = indexedRestored.map { it.second }
         if (restored.isEmpty()) {
             clearLocked()
             return false
@@ -173,6 +192,7 @@ class ProgressiveQueue @Inject constructor() {
         origins.clear()
         origins.addAll(restored.map { it.origin })
         fixedOccurrences.clear()
+        consumedFixedOccurrences.clear()
         occurrenceIds.clear()
         occurrenceIds.addAll(restored.map { it.occurrenceId })
         groupIds.clear()
@@ -181,14 +201,19 @@ class ProgressiveQueue @Inject constructor() {
         requestedGroups.filter { it.id in groupIds }.forEach { groups[it.id] = it }
         trackIds.clear()
         trackIds.addAll(tracks.map(PlayableTrack::id))
-        currentIndex = requestedCurrentIndex.coerceIn(tracks.indices)
+        val requested = requestedCurrentIndex.coerceIn(orderedTrackIds.indices)
+        currentIndex = indexedRestored.indexOfFirst { it.first == requested }.takeIf { it >= 0 }
+            ?: indexedRestored.indexOfFirst { it.first > requested }.takeIf { it >= 0 }
+            ?: tracks.lastIndex
         for (index in currentIndex + 1 until tracks.size) {
             if (origins[index] == QueueItemOrigin.MANUAL) fixedOccurrences += occurrenceIds[index]
         }
-        // Selected and previous entries belong to history, not pending Queue.
-        for (index in 0..currentIndex) origins[index] = QueueItemOrigin.GENERATED
-        materializedStartIndex = requestedMaterializedStartIndex.coerceIn(0, currentIndex)
-        materializedEndExclusive = requestedMaterializedEndExclusive
+        // Previous entries belong to history. Preserve explicit provenance on
+        // the selected entry, but never treat it as a pending fixed occurrence.
+        for (index in 0 until currentIndex) origins[index] = QueueItemOrigin.GENERATED
+        materializedStartIndex = indexedRestored.count { it.first < requestedMaterializedStartIndex }
+            .coerceIn(0, currentIndex)
+        materializedEndExclusive = indexedRestored.count { it.first < requestedMaterializedEndExclusive }
             .coerceIn(currentIndex + 1, tracks.size)
         playbackMode = mode
         repeatMode = repeat
@@ -197,6 +222,10 @@ class ProgressiveQueue @Inject constructor() {
         sourceTrackIds = sourceIds.toList()
         pendingGeneratedIds = pendingIds.toList()
         generatedStarted = generatedStartedCount.coerceAtLeast(0)
+        generatedStartBaseline = ((0..currentIndex).count {
+            origins[it] == QueueItemOrigin.GENERATED
+        } - generatedStarted).coerceAtLeast(0)
+        smartRerankAllowed = false // Restored cycles already have a committed Next order.
         nextGenerationAt = nextGenerationThreshold.coerceAtLeast(90)
         generationEpoch++
         generatedRefillInFlight = null
@@ -220,6 +249,7 @@ class ProgressiveQueue @Inject constructor() {
     @Synchronized
     fun consumeFixedOccurrence(occurrenceId: UUID?): Boolean {
         if (occurrenceId == null || !fixedOccurrences.remove(occurrenceId)) return false
+        consumedFixedOccurrences += occurrenceId
         val index = occurrenceIds.indexOf(occurrenceId)
         if (index >= 0) {
             origins[index] = QueueItemOrigin.GENERATED
@@ -548,15 +578,38 @@ class ProgressiveQueue @Inject constructor() {
         return true
     }
 
+    /**
+     * A verified missing Telegram source must not linger in Next/Queue as another
+     * occurrence, nor be regenerated from a stale source candidate list.
+     */
     @Synchronized
-    fun move(fromIndex: Int, toIndex: Int): Boolean {
+    fun removeUnavailableTrack(trackId: UUID): Boolean {
+        val matches = tracks.indices.filter { tracks[it].id == trackId }
+            .map { occurrenceIds[it] }
+        matches.forEach { removeOccurrence(it) }
+        val oldSources = sourceTrackIds.size
+        val oldPending = pendingGeneratedIds.size
+        sourceTrackIds = sourceTrackIds.filterNot { it == trackId }
+        pendingGeneratedIds = pendingGeneratedIds.filterNot { it == trackId }
+        if (matches.isEmpty() && (oldSources != sourceTrackIds.size ||
+                oldPending != pendingGeneratedIds.size)) bumpRevision()
+        return matches.isNotEmpty()
+    }
+
+    @Synchronized
+    fun move(
+        fromIndex: Int,
+        toIndex: Int,
+        requestedOrigin: QueueItemOrigin? = null,
+    ): Boolean {
         if (fromIndex <= currentIndex || toIndex <= currentIndex ||
-            fromIndex !in tracks.indices || toIndex !in tracks.indices ||
-            fromIndex == toIndex
+            fromIndex !in tracks.indices || toIndex !in tracks.indices
         ) return false
-        // Reordering *inside* Next must not convert it to Queue. Changing sections is an
-        // explicit transfer of this one occurrence; track identity is not ownership.
-        val destinationOrigin = origins[toIndex]
+        // The drop lane is explicit: the first Next song may be promoted to the
+        // end of Queue without a positional move. Existing callers retain the
+        // destination row's lane when they omit requestedOrigin.
+        val destinationOrigin = requestedOrigin ?: origins[toIndex]
+        if (fromIndex == toIndex && origins[fromIndex] == destinationOrigin) return false
         val moved = tracks.removeAt(fromIndex)
         origins.removeAt(fromIndex)
         val occurrence = occurrenceIds.removeAt(fromIndex)
@@ -604,8 +657,44 @@ class ProgressiveQueue @Inject constructor() {
         generationEpoch++
         generatedRefillInFlight = null
         generatedStarted = 0
+        generatedStartBaseline = 1
+        smartRerankAllowed = false
+        consumedFixedOccurrences.clear()
         nextGenerationAt = 90
         bumpRevision()
+        return true
+    }
+
+    /**
+     * Fill a newly started one-track session after async catalog discovery. Unlike
+     * changing playback mode, this permits the SAME mode and never replaces the
+     * currently playing occurrence or any explicit manual Queue entries.
+     */
+    @Synchronized
+    fun attachFutureToSingleTrack(
+        expectedTrackId: UUID,
+        future: List<PlayableTrack>,
+        sourceIds: List<UUID>,
+        pendingIds: List<UUID>,
+        mode: PlaybackMode,
+        expectedOccurrenceId: UUID? = null,
+        seed: Long? = null,
+    ): Boolean {
+        if (currentIndex != 0 || tracks.firstOrNull()?.id != expectedTrackId ||
+            (sourceTrackIds != listOf(expectedTrackId) && sourceTrackIds != sourceIds) ||
+            playbackMode != mode ||
+            (expectedOccurrenceId != null && occurrenceIds.firstOrNull() != expectedOccurrenceId) ||
+            pendingGeneratedIds.isNotEmpty() ||
+            (currentIndex + 1 until tracks.size).any { origins[it] == QueueItemOrigin.GENERATED }
+        ) return false
+        replaceFuture(
+            future = future,
+            mode = mode,
+            seed = seed,
+            sourceIds = sourceIds,
+            pendingIds = pendingIds,
+            allowSameMode = true,
+        )
         return true
     }
 
@@ -616,12 +705,13 @@ class ProgressiveQueue @Inject constructor() {
         seed: Long? = null,
         sourceIds: List<UUID>? = null,
         pendingIds: List<UUID>? = null,
+        allowSameMode: Boolean = false,
     ) {
         if (tracks.isEmpty() || currentIndex < 0) return
         // A listening cycle commits the visible order of Next. A background
         // suggestion refresh must not rebuild it simply because the current
         // song advanced. Changing playback mode is the explicit reordering action.
-        if (mode == playbackMode) return
+        if (mode == playbackMode && !allowSameMode) return
         val fixedTracks = tracks.take(currentIndex + 1)
         val fixedOrigins = origins.take(currentIndex + 1)
         val currentAndHistoryOccurrences = occurrenceIds.take(currentIndex + 1)
@@ -660,6 +750,8 @@ class ProgressiveQueue @Inject constructor() {
         generationEpoch++
         generatedRefillInFlight = null
         generatedStarted = 0
+        generatedStartBaseline = (0..currentIndex).count { origins[it] == QueueItemOrigin.GENERATED }
+        smartRerankAllowed = mode == PlaybackMode.SMART_SHUFFLE
         nextGenerationAt = 90
         materializedStartIndex = materializedStartIndex.coerceIn(0, currentIndex)
         materializedEndExclusive = (currentIndex + 1 + INITIAL_FORWARD_COUNT).coerceAtMost(tracks.size)
@@ -667,17 +759,14 @@ class ProgressiveQueue @Inject constructor() {
     }
 
     /**
-     * Once a Next order is visible it is immutable for the listening cycle.
-     * Smart Shuffle may rank the candidates when building a NEW cycle via
-     * start()/an explicit mode switch, but listening to the next song must not
-     * reorder the rest of the already queued occurrences.
+     * Apply a fresh Smart ranking only before the first track transition of the
+     * listening cycle. Once playback advances, Next is committed and delayed
+     * rankings cannot silently shuffle the visible future.
      *
-     * Keep this interface for older recommendation callbacks: their delayed
-     * results are harmlessly ignored. In particular, neither the occurrence
-     * IDs nor the Smart Shuffle queue revision changes here.
+     * Reorder generated occurrences as units (track + occurrence id + group);
+     * fixed manual Queue entries and the current/history prefix never move.
      */
     @Synchronized
-    @Suppress("UNUSED_PARAMETER")
     fun rerankGeneratedFuture(
         rankedTrackIds: List<UUID>,
         expectedRevision: Long,
@@ -685,7 +774,74 @@ class ProgressiveQueue @Inject constructor() {
     ): SmartFutureRevisionResult {
         if (playbackMode != PlaybackMode.SMART_SHUFFLE) return SmartFutureRevisionResult.NOT_SMART
         if (revision != expectedRevision) return SmartFutureRevisionResult.STALE
-        return SmartFutureRevisionResult.NO_CHANGE
+        if (!smartRerankAllowed || windowLimit <= 1) return SmartFutureRevisionResult.NO_CHANGE
+
+        val eligible = (currentIndex + 1 until tracks.size)
+            .filter { origins[it] == QueueItemOrigin.GENERATED }
+            .take(windowLimit)
+        if (eligible.size <= 1) return SmartFutureRevisionResult.NO_CHANGE
+
+        val preference = rankedTrackIds.withIndex()
+            .associate { (index, id) -> id to index }
+        if (preference.isEmpty()) return SmartFutureRevisionResult.NO_CHANGE
+        val before = eligible.map { index ->
+            RestoredEntry(tracks[index], origins[index], occurrenceIds[index], groupIds[index])
+        }
+        val after = before.withIndex()
+            .sortedWith(compareBy<IndexedValue<RestoredEntry>>(
+                { preference[it.value.track.id] ?: Int.MAX_VALUE },
+                { it.index },
+            ))
+            .map { it.value }
+        if (before == after) return SmartFutureRevisionResult.NO_CHANGE
+
+        eligible.forEachIndexed { offset, index ->
+            val entry = after[offset]
+            tracks[index] = entry.track
+            origins[index] = entry.origin
+            occurrenceIds[index] = entry.occurrenceId
+            groupIds[index] = entry.groupId
+        }
+        bumpRevision()
+        return SmartFutureRevisionResult.APPLIED
+    }
+
+    /**
+     * Install an asynchronously ranked mode-change tail only in its original session.
+     * The caller changes mode immediately, then finishes ranking / bounded hydration
+     * without touching the current MediaItem. Late user Queue edits are retained.
+     */
+    @Synchronized
+    fun commitModeSwitch(
+        expectedCurrentOccurrenceId: UUID,
+        mode: PlaybackMode,
+        sourceIds: List<UUID>,
+        future: List<PlayableTrack>,
+        pendingIds: List<UUID>,
+        seed: Long?,
+    ): Boolean {
+        if (currentIndex !in tracks.indices ||
+            occurrenceIds[currentIndex] != expectedCurrentOccurrenceId ||
+            playbackMode != mode ||
+            (sourceTrackIds.isNotEmpty() && sourceTrackIds != sourceIds)
+        ) return false
+
+        val blocked = tracks.indices
+            .filter { it <= currentIndex || occurrenceIds[it] in fixedOccurrences }
+            .mapTo(hashSetOf()) { tracks[it].id }
+        val resolved = future.distinctBy { it.id }.filterNot { it.id in blocked }
+        val materializedIds = resolved.mapTo(hashSetOf()) { it.id }
+        val pending = pendingIds.distinct().filterNot { it in blocked || it in materializedIds }
+
+        replaceFuture(
+            future = resolved,
+            mode = mode,
+            seed = seed,
+            sourceIds = sourceIds,
+            pendingIds = pending,
+            allowSameMode = true,
+        )
+        return true
     }
 
     @Synchronized
@@ -702,17 +858,21 @@ class ProgressiveQueue @Inject constructor() {
             playbackMode = mode
             shuffleSeed = seed
             // Changing the playback mode must not promote automatic Next items into Queue.
+            smartRerankAllowed = mode == PlaybackMode.SMART_SHUFFLE
             bumpRevision()
         }
     }
 
     private fun noteGeneratedTransition(destination: Int) {
-        if (!generationEnabled || destination <= currentIndex ||
-            origins[destination] != QueueItemOrigin.GENERATED) return
-        // The threshold is based on position, not on how many transitions Media3 emitted.
-        // Jumping directly to item 95 must trigger the same refill as playing 1..95.
-        val generatedBefore = (0..destination).count { origins[it] == QueueItemOrigin.GENERATED }
-        generatedStarted = maxOf(generatedStarted, generatedBefore)
+        if (destination <= currentIndex) return
+        // Even a manual transition commits the Next ordering for this listening cycle.
+        smartRerankAllowed = false
+        if (!generationEnabled || origins[destination] != QueueItemOrigin.GENERATED) return
+        // Exclude the originally selected song and earlier history from the 90-song
+        // threshold, including when jumping directly past it or crossing manual Queue.
+        val completed = (0..destination).count { origins[it] == QueueItemOrigin.GENERATED } -
+            generatedStartBaseline
+        generatedStarted = maxOf(generatedStarted, completed.coerceAtLeast(0))
     }
 
     @Synchronized
@@ -935,6 +1095,8 @@ class ProgressiveQueue @Inject constructor() {
         occurrenceIds.clear()
         groupIds.clear()
         groups.clear()
+        fixedOccurrences.clear()
+        consumedFixedOccurrences.clear()
         trackIds.clear()
         currentIndex = -1
         materializedStartIndex = 0
@@ -948,6 +1110,8 @@ class ProgressiveQueue @Inject constructor() {
         generationEpoch++
         generatedRefillInFlight = null
         generatedStarted = 0
+        generatedStartBaseline = 0
+        smartRerankAllowed = false
         nextGenerationAt = 90
         QueueProvenanceRestoreHints.clear()
         if (hadState) bumpRevision() else invalidateSnapshot()

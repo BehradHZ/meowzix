@@ -100,6 +100,39 @@ class TransferSchedulerTest {
     }
 
     @Test
+    fun waitingForDownloadCompletionDoesNotStarvePlaybackRequests() = runTest {
+        val scheduler = TransferScheduler(maxConcurrentTransfers = 1, scope = this)
+        val finishDownload = CompletableDeferred<Unit>()
+        val pendingDownload = async {
+            scheduler.runAndAwait(
+                physicalKey = "telegram-pin",
+                priority = TransferPriority.USER_ACTION,
+                begin = { "started" },
+                await = { started ->
+                    finishDownload.await()
+                    started
+                },
+            )
+        }
+        testScheduler.runCurrent()
+        assertEquals(0, scheduler.snapshot().active)
+
+        // The current track must be able to start even though a full offline
+        // download has not finished.
+        val playback = async {
+            scheduler.run("telegram-playback", TransferPriority.IMMEDIATE_PLAYBACK) {
+                "playback-started"
+            }
+        }
+        testScheduler.runCurrent()
+        assertEquals("playback-started", playback.await())
+        assertTrue(!pendingDownload.isCompleted)
+
+        finishDownload.complete(Unit)
+        assertEquals("started", pendingDownload.await())
+    }
+
+    @Test
     fun queuedPriorityCanBePromotedBySharedConsumer() = runTest {
         val scheduler = TransferScheduler(maxConcurrentTransfers = 1, scope = this)
         val release = CompletableDeferred<Unit>()

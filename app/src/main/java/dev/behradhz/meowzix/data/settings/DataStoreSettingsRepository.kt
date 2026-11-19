@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -19,6 +20,10 @@ import dev.behradhz.meowzix.domain.settings.DEFAULT_TEMPORARY_CACHE_BUDGET_BYTES
 import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
 import dev.behradhz.meowzix.domain.settings.LibraryGroupMode
 import dev.behradhz.meowzix.domain.settings.LibrarySortMode
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionSettings
+import dev.behradhz.meowzix.domain.settings.librarySelectionActionFromName
+import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
@@ -30,8 +35,12 @@ import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
+import dev.behradhz.meowzix.domain.settings.TelegramPlaylistSection
+import dev.behradhz.meowzix.domain.settings.telegramPlaylistSectionKey
 import dev.behradhz.meowzix.domain.settings.ThemePreference
+import dev.behradhz.meowzix.domain.settings.WidgetThemeMode
 import java.io.IOException
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -72,31 +81,57 @@ class DataStoreSettingsRepository @Inject constructor(
         )
     }
 
+    override val collapsedTelegramPlaylistSections: Flow<Set<String>> = safeData.map { values ->
+        values[COLLAPSED_TELEGRAM_PLAYLIST_SECTIONS].orEmpty()
+    }
+
+    override val telegramConnectReminderDismissed: Flow<Boolean> = safeData.map { values ->
+        values[TELEGRAM_CONNECT_REMINDER_DISMISSED] ?: false
+    }
+
     override val libraryDisplaySettings: Flow<LibraryDisplaySettings> = safeData.map { values ->
         LibraryDisplaySettings(
             sortMode = values[LIBRARY_SORT_MODE].enumOrDefault(LibrarySortMode.RECENTLY_ADDED),
             groupMode = values[LIBRARY_GROUP_MODE].enumOrDefault(LibraryGroupMode.NONE),
+            highlightNewTelegramTracks = values[HIGHLIGHT_NEW_TELEGRAM_TRACKS] ?: true,
+            selection = LibrarySelectionSettings(
+                dock = values[LIBRARY_SELECTION_DOCK]?.split(",")?.mapNotNull { name ->
+                    librarySelectionActionFromName(name)
+                } ?: LibrarySelectionSettings().dock,
+                more = values[LIBRARY_SELECTION_MORE]?.split(",")?.mapNotNull { name ->
+                    librarySelectionActionFromName(name)
+                } ?: LibrarySelectionSettings().more,
+                moreOrder = values[LIBRARY_SELECTION_MORE_ORDER]?.split(",")?.mapNotNull(::librarySelectionActionFromName)
+                    ?: (values[LIBRARY_SELECTION_MORE]?.split(",")?.mapNotNull(::librarySelectionActionFromName)
+                        ?: LibrarySelectionSettings().more),
+            ).normalized(),
         )
     }
 
     override val appearanceSettings: Flow<AppearanceSettings> = safeData.map { values ->
         AppearanceSettings(
             theme = values[THEME].enumOrDefault(ThemePreference.SYSTEM),
+            widgetTheme = values[WIDGET_THEME].enumOrDefault(WidgetThemeMode.APP),
             colorTheme = values[COLOR_THEME].enumOrDefault(ColorThemePreference.MEOWZIX),
             customColorSeed = (values[CUSTOM_COLOR_SEED] ?: DEFAULT_CUSTOM_COLOR_SEED) or (0xFF shl 24),
             lyricsTextScalePercent = (values[LYRICS_TEXT_SCALE] ?: 100).coerceIn(80, 160),
             reduceMotion = values[REDUCE_MOTION] ?: false,
             playerAccentSource = values[PLAYER_ACCENT_SOURCE].enumOrDefault(PlayerAccentSource.GLOBAL),
             playerSeekBarStyle = values[PLAYER_SEEKBAR_STYLE].enumOrDefault(PlayerSeekBarStyle.WAVEFORM),
+            launcherIconSource = values[LAUNCHER_ICON_SOURCE].enumOrDefault(LauncherIconColorSource.APP_THEME),
+            spermerModeEnabled = values[SPERMER_MODE_ENABLED] ?: false,
         )
     }
 
     override val playbackPreferenceSettings: Flow<PlaybackPreferenceSettings> = safeData.map { values ->
         PlaybackPreferenceSettings(
             defaultMode = values[DEFAULT_PLAYBACK_MODE].enumOrDefault(PlaybackMode.ORDERED),
+            artistBalancedShuffle = values[ARTIST_BALANCED_SHUFFLE] ?: true,
+            artistShuffleAlpha = (values[ARTIST_SHUFFLE_ALPHA] ?: 0.8f).takeIf(Float::isFinite)?.coerceIn(0.7f, 1f) ?: 0.8f,
             defaultRepeat = values[DEFAULT_REPEAT_MODE].enumOrDefault(RepeatMode.OFF),
             resumeOnLaunch = values[RESUME_ON_LAUNCH] ?: true,
             resumeAfterExternalAudio = values[RESUME_AFTER_EXTERNAL_AUDIO] ?: false,
+            volumeButtonTrackNavigationEnabled = values[VOLUME_BUTTON_TRACK_NAVIGATION] ?: false,
             pauseOnMicrophoneRecording = values[PAUSE_ON_MICROPHONE_RECORDING] ?: false,
             playbackSpeed = (values[PLAYBACK_SPEED] ?: 1f).coerceIn(0.5f, 5f),
             liveSongCardEnabled = values[LIVE_SONG_CARD_ENABLED] ?: false,
@@ -120,16 +155,50 @@ class DataStoreSettingsRepository @Inject constructor(
         )
     }
 
+    override val recentShuffleTrackIds: Flow<List<UUID>> = safeData.map { values ->
+        (values[RECENT_SHUFFLE_TRACK_IDS] ?: "").split(',').mapNotNull {
+            runCatching { UUID.fromString(it) }.getOrNull()
+        }
+    }
+
+    override suspend fun recordShuffleExposure(trackId: UUID) {
+        context.settingsDataStore.edit { values ->
+            val recent = (values[RECENT_SHUFFLE_TRACK_IDS] ?: "").split(',')
+                .filter { it.isNotBlank() && it != trackId.toString() }
+            values[RECENT_SHUFFLE_TRACK_IDS] = (listOf(trackId.toString()) + recent.take(159)).joinToString(",")
+        }
+    }
+
+    override suspend fun setArtistBalancedShuffle(enabled: Boolean) = set(ARTIST_BALANCED_SHUFFLE, enabled)
+    override suspend fun setArtistShuffleAlpha(alpha: Float) {
+        if (!alpha.isFinite()) return
+        context.settingsDataStore.edit { it[ARTIST_SHUFFLE_ALPHA] = alpha.coerceIn(0.7f, 1f) }
+    }
+
     override suspend fun setOfflineMode(enabled: Boolean) = set(OFFLINE_MODE, enabled)
     override suspend fun setWifiOnlyDownloads(enabled: Boolean) = set(WIFI_ONLY, enabled)
     override suspend fun setPrefetchEnabled(enabled: Boolean) = set(PREFETCH, enabled)
     override suspend fun setPrefetchOnMetered(enabled: Boolean) = set(PREFETCH_METERED, enabled)
     override suspend fun setListeningHistoryEnabled(enabled: Boolean) = set(LISTENING_HISTORY, enabled)
+    override suspend fun dismissTelegramConnectReminder() = set(TELEGRAM_CONNECT_REMINDER_DISMISSED, true)
     override suspend fun setReduceMotion(enabled: Boolean) = set(REDUCE_MOTION, enabled)
     override suspend fun setPlayerAccentSource(source: PlayerAccentSource) = setEnum(PLAYER_ACCENT_SOURCE, source)
     override suspend fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle) = setEnum(PLAYER_SEEKBAR_STYLE, style)
+    override suspend fun setLauncherIconSource(source: LauncherIconColorSource) = setEnum(LAUNCHER_ICON_SOURCE, source)
+    override suspend fun setSpermerModeEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[SPERMER_MODE_ENABLED] = enabled
+            if (!enabled) {
+                // Exiting Spermer always restores the equalizer-style waveform
+                // in the same atomic transaction as disabling the mode.
+                preferences[PLAYER_SEEKBAR_STYLE] = PlayerSeekBarStyle.WAVEFORM.name
+            }
+        }
+    }
     override suspend fun setResumeOnLaunch(enabled: Boolean) = set(RESUME_ON_LAUNCH, enabled)
     override suspend fun setResumeAfterExternalAudio(enabled: Boolean) = set(RESUME_AFTER_EXTERNAL_AUDIO, enabled)
+    override suspend fun setVolumeButtonTrackNavigationEnabled(enabled: Boolean) =
+        set(VOLUME_BUTTON_TRACK_NAVIGATION, enabled)
     override suspend fun setPauseOnMicrophoneRecording(enabled: Boolean) = set(PAUSE_ON_MICROPHONE_RECORDING, enabled)
     override suspend fun setPlaybackSpeed(speed: Float) {
         if (!speed.isFinite()) return
@@ -167,6 +236,29 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setLibrarySortMode(mode: LibrarySortMode) = setEnum(LIBRARY_SORT_MODE, mode)
     override suspend fun setLibraryGroupMode(mode: LibraryGroupMode) = setEnum(LIBRARY_GROUP_MODE, mode)
+    override suspend fun setHighlightNewTelegramTracks(enabled: Boolean) = set(HIGHLIGHT_NEW_TELEGRAM_TRACKS, enabled)
+    override suspend fun setLibrarySelectionSettings(value: LibrarySelectionSettings) {
+        val safe = value.normalized()
+        context.settingsDataStore.edit { prefs ->
+            prefs[LIBRARY_SELECTION_DOCK] = safe.dock.joinToString(",") { it.name }
+            prefs[LIBRARY_SELECTION_MORE] = safe.more.joinToString(",") { it.name }
+            prefs[LIBRARY_SELECTION_MORE_ORDER] = safe.moreOrder.joinToString(",") { it.name }
+        }
+    }
+
+    override suspend fun setTelegramPlaylistSectionExpanded(
+        playlistId: UUID,
+        section: TelegramPlaylistSection,
+        expanded: Boolean,
+    ) {
+        val key = telegramPlaylistSectionKey(playlistId, section)
+        context.settingsDataStore.edit { prefs ->
+            val collapsed = prefs[COLLAPSED_TELEGRAM_PLAYLIST_SECTIONS].orEmpty().toMutableSet()
+            if (expanded) collapsed.remove(key) else collapsed.add(key)
+            prefs[COLLAPSED_TELEGRAM_PLAYLIST_SECTIONS] = collapsed
+        }
+    }
+    override suspend fun setWidgetTheme(mode: WidgetThemeMode) = setEnum(WIDGET_THEME, mode)
     override suspend fun setThemePreference(theme: ThemePreference) = setEnum(THEME, theme)
     override suspend fun setColorThemePreference(colorTheme: ColorThemePreference) = setEnum(COLOR_THEME, colorTheme)
     override suspend fun setCustomColorSeed(argb: Int) {
@@ -200,23 +292,37 @@ class DataStoreSettingsRepository @Inject constructor(
         val PREFETCH = booleanPreferencesKey("prefetch_enabled")
         val PREFETCH_METERED = booleanPreferencesKey("prefetch_on_metered")
         val LISTENING_HISTORY = booleanPreferencesKey("listening_history_enabled")
+        val TELEGRAM_CONNECT_REMINDER_DISMISSED = booleanPreferencesKey("telegram_connect_reminder_dismissed")
         val TEMPORARY_CACHE_BUDGET_BYTES = longPreferencesKey("temporary_cache_budget_bytes")
         val FORWARD_INCLUDE_SOURCE = booleanPreferencesKey("telegram_forward_include_source")
         val FORWARD_KEEP_CAPTION = booleanPreferencesKey("telegram_forward_keep_caption")
         val LIBRARY_SORT_MODE = stringPreferencesKey("library_sort_mode")
         val LIBRARY_GROUP_MODE = stringPreferencesKey("library_group_mode")
+        val HIGHLIGHT_NEW_TELEGRAM_TRACKS = booleanPreferencesKey("highlight_new_telegram_tracks")
+        val LIBRARY_SELECTION_DOCK = stringPreferencesKey("library_selection_dock")
+        val LIBRARY_SELECTION_MORE = stringPreferencesKey("library_selection_more")
+        val LIBRARY_SELECTION_MORE_ORDER = stringPreferencesKey("library_selection_more_order")
+        val COLLAPSED_TELEGRAM_PLAYLIST_SECTIONS =
+            stringSetPreferencesKey("collapsed_telegram_playlist_sections")
         val THEME = stringPreferencesKey("theme_preference")
+        val WIDGET_THEME = stringPreferencesKey("widget_theme_mode")
         val COLOR_THEME = stringPreferencesKey("color_theme_preference")
         val CUSTOM_COLOR_SEED = intPreferencesKey("custom_color_seed")
         val LYRICS_TEXT_SCALE = intPreferencesKey("lyrics_text_scale_percent")
         val REDUCE_MOTION = booleanPreferencesKey("reduce_motion")
         val PLAYER_ACCENT_SOURCE = stringPreferencesKey("player_accent_source")
         val PLAYER_SEEKBAR_STYLE = stringPreferencesKey("player_seekbar_style")
+        val LAUNCHER_ICON_SOURCE = stringPreferencesKey("launcher_icon_color_source")
+        val SPERMER_MODE_ENABLED = booleanPreferencesKey("spermer_mode_enabled")
         val DEFAULT_PLAYBACK_MODE = stringPreferencesKey("default_playback_mode")
+        val ARTIST_BALANCED_SHUFFLE = booleanPreferencesKey("artist_balanced_shuffle")
+        val ARTIST_SHUFFLE_ALPHA = floatPreferencesKey("artist_shuffle_alpha")
+        val RECENT_SHUFFLE_TRACK_IDS = stringPreferencesKey("recent_shuffle_track_ids")
         val DEFAULT_REPEAT_MODE = stringPreferencesKey("default_repeat_mode")
         val RESUME_ON_LAUNCH = booleanPreferencesKey("resume_on_launch")
         val RESUME_AFTER_EXTERNAL_AUDIO = booleanPreferencesKey("resume_after_external_audio")
         val PAUSE_ON_MICROPHONE_RECORDING = booleanPreferencesKey("pause_on_microphone_recording")
+        val VOLUME_BUTTON_TRACK_NAVIGATION = booleanPreferencesKey("volume_button_track_navigation")
         val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
         val LIVE_SONG_CARD_ENABLED = booleanPreferencesKey("live_song_card_enabled")
         val LIVE_SONG_CARD_STYLE = stringPreferencesKey("live_song_card_style")

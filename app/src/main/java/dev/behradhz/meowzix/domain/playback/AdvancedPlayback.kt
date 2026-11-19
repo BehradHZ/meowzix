@@ -106,9 +106,12 @@ object SleepTimerPolicy {
         additionalMs: Long,
         nowElapsedRealtimeMs: Long,
     ): SleepTimerState {
-        if (state.mode != SleepTimerMode.DURATION || additionalMs <= 0L) return state
-        val currentRemaining = (state.deadlineElapsedRealtimeMs ?: nowElapsedRealtimeMs) - nowElapsedRealtimeMs
-        val newRemaining = (currentRemaining.coerceAtLeast(0L) + additionalMs).coerceAtMost(MAX_DURATION_MS)
+        if (state.mode != SleepTimerMode.DURATION || additionalMs == 0L) return state
+        val currentRemaining = ((state.deadlineElapsedRealtimeMs ?: nowElapsedRealtimeMs) -
+            nowElapsedRealtimeMs).coerceAtLeast(0L)
+        // Never shorten to an immediate unexpected stop or increase a nearly-expired timer.
+        val lowerBound = minOf(currentRemaining, 60_000L)
+        val newRemaining = (currentRemaining + additionalMs).coerceIn(lowerBound, MAX_DURATION_MS)
         return state.copy(
             deadlineElapsedRealtimeMs = nowElapsedRealtimeMs + newRemaining,
             remainingMs = newRemaining,

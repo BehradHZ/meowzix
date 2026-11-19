@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.RepeatMode
+import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackItem
 import java.util.UUID
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -31,6 +32,19 @@ class MediaItemOccurrenceIdentityTest {
         assertEquals(first, itemA.queueOccurrenceId())
         assertEquals(second, itemB.queueOccurrenceId())
         assertNotEquals(itemA.queueOccurrenceId(), itemB.queueOccurrenceId())
+    }
+
+    @Test fun savedMediaItemRestoresItsOriginalOccurrenceAndPlaybackPolicy() {
+        val occurrence = UUID.randomUUID()
+        val saved = PersistedPlaybackItem(
+            track.id.toString(), track.contentUri, track.title, track.artist,
+            track.artworkRef, track.durationMs,
+        )
+        val restored = saved.toMediaItem(PlaybackMode.SMART_SHUFFLE, RepeatMode.ALL, occurrence)
+        assertEquals(track.id.toString(), restored.mediaId)
+        assertEquals(occurrence, restored.queueOccurrenceId())
+        assertEquals(PlaybackMode.SMART_SHUFFLE, restored.playbackMode())
+        assertEquals(RepeatMode.ALL, restored.repeatMode())
     }
 
     @Test fun changingQueuePlaybackPolicyNeverStripsOccurrenceIdentity() {

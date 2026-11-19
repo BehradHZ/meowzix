@@ -1,12 +1,13 @@
 package dev.behradhz.meowzix.feature.home
 
-import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.core.common.TextNormalizer
 import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.repository.HomeHistoryReader
+import dev.behradhz.meowzix.data.repository.HomeRecommendationSnapshot
+import dev.behradhz.meowzix.data.repository.HomeRecommendationSnapshotStore
 import dev.behradhz.meowzix.data.repository.ArtistSummary
 import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
@@ -14,24 +15,27 @@ import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import kotlinx.coroutines.withTimeoutOrNull
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
+import java.time.Instant
+import java.time.ZoneId
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -56,6 +60,8 @@ data class HomeUiState(
     val playlists: List<PlaylistSummary> = emptyList(),
     val artists: List<SuggestedArtist> = emptyList(),
     val isReady: Boolean = false,
+    val libraryRevision: Long = 0L,
+    val isRefreshing: Boolean = false,
     val sections: List<HomeRecommendationSection> = emptyList(),
 )
 
@@ -64,78 +70,93 @@ class HomeViewModel @Inject constructor(
     private val library: LibraryQueryRepository,
     private val playlists: PlaylistRepository,
     private val history: HomeHistoryReader,
+    private val recommendationSnapshotStore: HomeRecommendationSnapshotStore,
     private val recommendationEngine: RecommendationEngine,
     private val playback: PlaybackController,
     private val queueRepository: QueueRepository,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(cachedState ?: HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
+    val telegramConnectReminderDismissed = settingsRepository.telegramConnectReminderDismissed
 
-    fun refresh() = viewModelScope.launch {
-        cachedAtElapsedRealtime = 0L
-        refreshIfDue(forceWhenEmpty = true)
+    fun dismissTelegramConnectReminder() = viewModelScope.launch {
+        settingsRepository.dismissTelegramConnectReminder()
     }
 
-    /**
-     * Home is recommendation-first: tapping any track starts that track and immediately
-     * rebuilds the queue around its local Continue-the-Vibe recommendations.
-     */
+    private var homePlayGeneration = 0L
+
+    /** Explicit reload remains possible; routine updates happen once per foreground session. */
+    fun refresh() = viewModelScope.launch {
+        val sessionId = visibleSessionId
+        if (sessionId > 0L) refreshForSession(sessionId, force = true)
+    }
+
+    /** Start the selected song without waiting for model inference. */
     fun playFromHome(trackId: UUID) {
+        val generation = ++homePlayGeneration
+        queueRepository.replaceAndPlay(listOf(trackId), trackId, PlaybackMode.ORDERED)
         viewModelScope.launch {
             val vibeIds = runCatching {
                 recommendationEngine.continueTheVibe(trackId, HOME_VIBE_SIZE)
                     .map { it.trackId }
+                    .distinct()
+                    .filterNot { it == trackId }
             }.getOrDefault(emptyList())
-
-            val queueIds = buildList {
-                add(trackId)
-                addAll(vibeIds.filterNot { it == trackId })
-            }.distinct()
-
-            queueRepository.replaceAndPlay(
-                trackIds = queueIds,
-                startTrackId = trackId,
+            if (generation != homePlayGeneration || vibeIds.isEmpty()) return@launch
+            // A new play request can supersede this request while ML is evaluating.
+            val active = withTimeoutOrNull(5_000L) {
+                queueRepository.queueState.first { queue ->
+                    queue.items.getOrNull(queue.currentIndex)?.id == trackId
+                }
+            } ?: return@launch
+            if (generation != homePlayGeneration ||
+                active.items.getOrNull(active.currentIndex)?.id != trackId
+            ) return@launch
+            queueRepository.attachFutureToSingleTrack(
+                expectedTrackId = trackId,
+                fullOrderedTrackIds = listOf(trackId) + vibeIds,
                 mode = PlaybackMode.ORDERED,
             )
         }
     }
 
     private var activeRefreshJob: Job? = null
+    private var visibleSessionId: Long = 0L
+    private var homeChangesJob: Job? = null
+    private var homeSlotJob: Job? = null
 
-    /**
-     * Home data is only observed while Home is visible. Back-stack ViewModels must not
-     * keep polling or running recommendation queries while another screen is open.
-     */
-    @OptIn(FlowPreview::class)
-    fun onHomeVisible() {
-        if (activeRefreshJob?.isActive == true) return
-        activeRefreshJob = viewModelScope.launch {
-            coroutineScope {
-                launch {
-                    // A one-track history projection is enough to detect a new play.
-                    // Avoid observing and materializing every track's preference statistics.
-                    history.recentTrackIds(eventLimit = 4, trackLimit = 1)
-                        .distinctUntilChanged()
-                        .drop(1)
-                        .debounce(HOME_HISTORY_DEBOUNCE_MS)
-                        .collect {
-                            cachedAtElapsedRealtime = 0L
-                            refreshIfDue(forceWhenEmpty = true)
-                        }
-                }
-                launch {
-                    refreshIfDue(forceWhenEmpty = true)
-                    while (isActive) {
-                        val age = cacheAgeMs()
-                        val waitMs = if (age == Long.MAX_VALUE) {
-                            HOME_REFRESH_INTERVAL_MS
-                        } else {
-                            (HOME_REFRESH_INTERVAL_MS - age).coerceAtLeast(MIN_REFRESH_CHECK_MS)
-                        }
-                        delay(waitMs)
-                        refreshIfDue(forceWhenEmpty = false)
+    /** Refresh once for each app foreground session; switching tabs never starts a new session. */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    fun onHomeVisible(sessionId: Long) {
+        visibleSessionId = sessionId
+        if (sessionId <= 0L) return
+        if (activeRefreshJob?.isActive != true) {
+            activeRefreshJob = viewModelScope.launch { refreshForSession(sessionId) }
+        }
+        // Room invalidations drive changes only while Home is visible. Group bursts
+        // of imports so one Telegram sync does not recompute the feed per song.
+        homeChangesJob?.cancel()
+        homeChangesJob = viewModelScope.launch {
+            combine(library.observeTrackRevision(), playlists.observePlaylists()) { revision, entries ->
+                revision to entries.sortedByDescending(PlaylistSummary::updatedAt).take(10)
+            }
+                .distinctUntilChanged()
+                .debounce(650)
+                .collect { (revision, entries) ->
+                    if (visibleSessionId == sessionId && _state.value.isReady &&
+                        (revision != _state.value.libraryRevision || entries != _state.value.playlists)
+                    ) {
+                        refreshForSession(sessionId, force = true)
                     }
                 }
+        }
+        // Wake up at the next time-bucket boundary rather than polling each second.
+        homeSlotJob?.cancel()
+        homeSlotJob = viewModelScope.launch {
+            while (visibleSessionId == sessionId) {
+                delay(HomeRecommendationRefreshPolicy.millisUntilNextSlot(Instant.now(), ZoneId.systemDefault()))
+                if (visibleSessionId == sessionId) refreshForSession(sessionId, force = true)
             }
         }
     }
@@ -143,6 +164,11 @@ class HomeViewModel @Inject constructor(
     fun onHomeHidden() {
         activeRefreshJob?.cancel()
         activeRefreshJob = null
+        homeChangesJob?.cancel()
+        homeChangesJob = null
+        homeSlotJob?.cancel()
+        homeSlotJob = null
+        visibleSessionId = 0L
     }
 
     /** Load the entire catalog only when the listener actually selects an artist. */
@@ -153,64 +179,59 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private suspend fun refreshIfDue(forceWhenEmpty: Boolean) {
-        val now = SystemClock.elapsedRealtime()
-        val hasRenderableSnapshot = cachedState?.isReady == true
-        if (
-            hasRenderableSnapshot &&
-            now - cachedAtElapsedRealtime < HOME_REFRESH_INTERVAL_MS
-        ) {
-            cachedState?.let { snapshot ->
-                if (_state.value !== snapshot) _state.value = snapshot
-            }
-            return
-        }
-        if (!forceWhenEmpty && hasRenderableSnapshot && cacheAgeMs() < HOME_REFRESH_INTERVAL_MS) return
-
+    private suspend fun refreshForSession(sessionId: Long, force: Boolean = false) {
         refreshMutex.withLock {
-            val lockedNow = SystemClock.elapsedRealtime()
-            val lockedSnapshot = cachedState
-            if (
-                lockedSnapshot?.isReady == true &&
-                lockedNow - cachedAtElapsedRealtime < HOME_REFRESH_INTERVAL_MS
+            val slot = HomeRecommendationRefreshPolicy.slot(Instant.now(), ZoneId.systemDefault())
+            if (!force && !HomeRecommendationRefreshPolicy.needsRefresh(cachedRecommendationSlotKey, slot) &&
+                !HomeSessionRefreshPolicy.needsRefresh(sessionId, cachedSessionId, cachedState?.isReady == true)
             ) {
-                _state.value = lockedSnapshot
+                cachedState?.let { _state.value = it }
                 return@withLock
             }
-
-            runCatching { buildHomeFeed() }
-                .onSuccess { snapshot ->
-                    cachedState = snapshot
-                    cachedAtElapsedRealtime = SystemClock.elapsedRealtime()
-                    _state.value = snapshot
-                }
-                .onFailure { failure ->
-                    if (failure is kotlinx.coroutines.CancellationException) throw failure
-                    if (cachedState == null) {
-                        _state.update { current -> current.copy(isReady = true) }
+            try {
+                // Read a tiny persisted snapshot only on Home refresh, never on playback events.
+                val stored = recommendationSnapshotStore.read()
+                val recommendationIds = if (stored?.slotKey == slot.key) {
+                    stored.trackIds
+                } else {
+                    // The ONLY Home recommendation inference point. When the app was closed at
+                    // the scheduled hour, the current slot is calculated on the next Home visit.
+                    val rankedIds = recommendationEngine
+                        .forYouNow(playback.state.value.currentTrack?.id, HomeRecommendationRefreshPolicy.seed(slot))
+                        .map { it.trackId }.distinct().take(14)
+                    val available = library.tracks(rankedIds)
+                    val selectedIds = if (available.isNotEmpty()) {
+                        available.map(Track::id)
+                    } else {
+                        library.homeFallback(14).map(Track::id)
                     }
+                    recommendationSnapshotStore.save(HomeRecommendationSnapshot(slot.key, selectedIds))
+                    selectedIds
                 }
+                // Only metadata and bounded rows are rehydrated during ordinary library refresh.
+                val snapshot = buildHomeFeed(recommendationIds)
+                cachedRecommendationSlotKey = slot.key
+                cachedState = snapshot
+                cachedSessionId = sessionId
+                _state.value = snapshot
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Failed inference is not marked complete; retry on a later Home visit.
+                if (cachedState == null) _state.value = HomeUiState(isReady = true)
+            }
         }
     }
 
-    private suspend fun buildHomeFeed(): HomeUiState = withContext(Dispatchers.Default) {
+    private suspend fun buildHomeFeed(recommendationIds: List<UUID>): HomeUiState =
+        withContext(Dispatchers.Default) {
         val playlistRows = playlists.observePlaylists().first()
         val recentTrackIds = history.recentTrackIds().first()
 
-        // The bounded track lookup already enforces source availability.
-        // Do not enumerate the entire music library merely to show 12 recent rows.
         val recent = library.tracks(recentTrackIds).take(12)
-
-        // Select only the content Home actually displays; the other recommendation
-        // sections are computed on demand by their respective screens.
-        val recommendedIds = recommendationEngine
-            .forYouNow(playback.state.value.currentTrack?.id)
-            .map { it.trackId }
-
-        val recommended = library.tracks(recommendedIds.take(14))
-            .ifEmpty { library.homeFallback(14) }
         val recentlyAdded = library.recentlyAdded(12)
-
+        // No ranking or fallback here: the scheduled snapshot owns the selected IDs.
+        val recommended = library.tracks(recommendationIds)
         val artistKeys = homeArtistKeys(recommended + recent + recentlyAdded)
         val artists = homeArtistCards(
             artistKeys,
@@ -218,36 +239,34 @@ class HomeViewModel @Inject constructor(
         )
 
         HomeUiState(
+            libraryRevision = library.trackRevision(),
             recommended = recommended,
             recent = recent,
             recentlyAdded = recentlyAdded,
             playlists = playlistRows.sortedByDescending(PlaylistSummary::updatedAt).take(10),
             artists = artists,
             isReady = true,
-            // Other recommendation sections are not rendered by Home. Their full
-            // Track rows should only be hydrated if/when a visible surface needs them.
             sections = emptyList(),
         )
     }
 
-    private fun cacheAgeMs(): Long {
-        if (cachedState == null || cachedAtElapsedRealtime == 0L) return Long.MAX_VALUE
-        return (SystemClock.elapsedRealtime() - cachedAtElapsedRealtime).coerceAtLeast(0L)
-    }
-
     private companion object {
-        const val HOME_REFRESH_INTERVAL_MS = 5L * 60L * 1_000L
-        const val MIN_REFRESH_CHECK_MS = 30_000L
-        const val HOME_HISTORY_DEBOUNCE_MS = 1_500L
         const val HOME_VIBE_SIZE = 15
         val refreshMutex = Mutex()
-
-        @Volatile
-        var cachedState: HomeUiState? = null
-
-        @Volatile
-        var cachedAtElapsedRealtime: Long = 0L
+        @Volatile var cachedState: HomeUiState? = null
+        @Volatile var cachedSessionId: Long = 0L
+        @Volatile var cachedRecommendationSlotKey: String? = null
     }
+}
+
+internal object HomeSessionIds {
+    private val sequence = AtomicLong(0L)
+    fun next(): Long = sequence.incrementAndGet()
+}
+
+internal object HomeSessionRefreshPolicy {
+    fun needsRefresh(requestedSessionId: Long, cachedSessionId: Long, hasReadySnapshot: Boolean): Boolean =
+        requestedSessionId > 0L && (!hasReadySnapshot || requestedSessionId != cachedSessionId)
 }
 
 /** Preserve the existing Home artist order while limiting previews to eight distinct artists. */

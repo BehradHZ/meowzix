@@ -112,14 +112,62 @@ class TelegramSourceVisibilityIntegrationTest {
         assertEquals(listOf(local), orderedIds(LibraryAvailabilityFilter.ALL))
     }
 
+    @Test fun playlistOnlyDoesNotEnterLibraryUntilPromoted() = runTest {
+        val promoted = UUID.randomUUID()
+        val other = UUID.randomUUID()
+        selectChat(30, includeInLibrary = false)
+        addTrack(promoted, "Promote me")
+        addTrack(other, "Playlist only")
+        addTelegramSource(promoted, 30, 301)
+        addTelegramSource(other, 30, 302)
+        assertTrue(library.availableTrackIds().isEmpty())
+        assertTrue(orderedIds(LibraryAvailabilityFilter.ALL).isEmpty())
+        db.libraryDao().addToLibrary(promoted.toString())
+        assertEquals(listOf(promoted), library.availableTrackIds())
+        assertEquals(listOf(promoted), orderedIds(LibraryAvailabilityFilter.CLOUD))
+        db.telegramDao().deleteSelectedSource(account, 30)
+        assertEquals(listOf(promoted), library.availableTrackIds())
+        assertNotNull(db.libraryDao().trackById(other.toString()))
+    }
+
+    @Test fun profileAudioOriginsAreSeparateFromChatMessages() = runTest {
+        val profile = UUID.randomUUID()
+        val chat = UUID.randomUUID()
+        selectChat(55, includeInLibrary = false)
+        addTrack(profile, "Profile song")
+        addTrack(chat, "Chat song")
+        addTelegramSource(profile, 55, -1234)
+        addTelegramSource(chat, 55, 1234)
+
+        assertEquals(listOf(profile.toString()), db.telegramDao().activeProfileTrackIdsForChat(account, 55))
+        assertEquals(1, db.telegramDao().telegramProfileSourcesForChat(account, 55).size)
+        assertEquals(1, db.telegramDao().telegramMessageSourcesForChat(account, 55).size)
+        assertEquals(setOf(profile, chat).map(UUID::toString).toSet(),
+            db.telegramDao().activeTrackIdsForChat(account, 55).toSet())
+        assertTrue(library.availableTrackIds().isEmpty())
+    }
+
+    @Test fun switchingPlaylistOnlyToLibraryExposesAllSongs() = runTest {
+        val song = UUID.randomUUID()
+        selectChat(40, includeInLibrary = false)
+        addTrack(song, "Switching mode")
+        addTelegramSource(song, 40, 401)
+        assertTrue(library.availableTrackIds().isEmpty())
+        selectChat(40, includeInLibrary = true)
+        assertEquals(listOf(song), library.availableTrackIds())
+        selectChat(40, includeInLibrary = false)
+        assertTrue(library.availableTrackIds().isEmpty())
+    }
+
     private suspend fun orderedIds(filter: LibraryAvailabilityFilter): List<UUID> = paged.orderedTrackIds(
         LibrarySortMode.TITLE_ASC, LibraryGroupMode.NONE, filter,
     )
 
-    private suspend fun selectChat(chatId: Long) {
+    private suspend fun selectChat(chatId: Long, includeInLibrary: Boolean = true) {
         db.telegramDao().upsertSelectedSource(TelegramSelectedSourceEntity(
             accountId = account, chatId = chatId, title = "Chat $chatId",
-            kind = "CHANNEL", newestMessageId = null, initialScanComplete = true, lastSyncedAtEpochMs = null,
+            kind = "CHANNEL", includeInLibrary = includeInLibrary,
+            newestMessageId = null, initialScanComplete = true, lastSyncedAtEpochMs = null,
         ))
     }
 

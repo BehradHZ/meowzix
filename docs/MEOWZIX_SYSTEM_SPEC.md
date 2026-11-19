@@ -129,11 +129,11 @@ The application MUST therefore separate the logical `Track` entity from physical
 
 ## 3.5 Pure Shuffle and Smart Shuffle are separate features
 
-**Pure Shuffle MUST remain genuinely random and MUST NOT be personalized.**
+**Shuffle MUST remain genuinely randomized and MUST NOT use favorite status, listening affinity, skip counts, time-of-day preference, or ML scores.**
 
-No recommendation score, listening history, favorite status, time-of-day model, artist preference, or ML system may affect Pure Shuffle.
+The default Shuffle policy is **Artist-Balanced**, using seedable artist-weighted selection, per-artist randomized track bags, and a bounded log of actual-play exposure. Users can switch to **Standard Random**, the original uniform Fisher-Yates permutation, which ignores artist metadata and exposure memory.
 
-Smart Shuffle is a separate mode and may use personalized information.
+Smart Shuffle remains separate: only exploratory picks use the shared artist selector; exploitation is still model-ranked.
 
 ## 3.6 Offline playback is a first-class requirement
 
@@ -1225,11 +1225,11 @@ User intent: reduce repeated downloads and improve playback.
 
 Requirements:
 
-- app may evict automatically;
-- configurable size budget;
-- LRU-style cleanup is acceptable;
-- currently playing files must not be evicted;
-- pinned files must not count as evictable cache.
+- every completed audio download, including on-demand playback copies, MUST be retained until an explicit user removal;
+- no background worker, LRU policy, cache budget, startup reconciliation, integrity check, or low-storage handler may automatically delete completed audio;
+- incomplete files may be marked failed or unavailable without deleting their bytes; explicit cleanup of unused partial transfers is allowed;
+- downloaded files must remain under durable app-managed storage, not an Android-evictable cache directory;
+- on replacement or redownload, write a separate verified file and preserve the earlier copy. A user can explicitly remove owned copies from storage settings.
 
 ## 14.3 Local shared file
 
@@ -1249,13 +1249,13 @@ Additional storage: 0 B
 
 Settings should eventually provide:
 
-- cache size limit;
-- clear temporary cache;
+- retained audio storage usage and low-space warnings (never automatic eviction);
+- explicitly clear unused incomplete transfer files;
 - list offline downloads;
 - storage usage;
 - remove all app-managed offline copies.
 
-Never delete user-owned MediaStore files as part of cache cleanup.
+Never delete user-owned MediaStore files as part of cache cleanup. Never silently delete completed app-managed music, even if its integrity check fails; mark it unavailable and preserve its bytes. External user/OS deletion of source files or clearing app data is outside app control.
 
 ---
 
@@ -1270,8 +1270,8 @@ The queue is a first-class domain concept.
 - Play Next adds/promotes an occurrence at the start of the manual segment; Add to Queue adds/promotes at its end. The current track is never interrupted for a simple enqueue.
 - An Artist or Album can be queued atomically as a named group. Group-wide drag/removal acts on its remaining contiguous member occurrences, while members can be independently moved or removed.
 - Every appearance of a track has a stable occurrence identity; canonical Track IDs are not UI list keys.
-- A Library selection materializes at most 100 generated future tracks. On starting the 90th generated song, the next 100 candidates are reserved and appended. Manual songs do not count towards this threshold. The Media3 playback window remains a separate, smaller sliding window.
-- The full eligible selection remains a lightweight candidate pool for ordered, Pure Shuffle and Smart Shuffle generation. Pure Shuffle is an unbiased no-repeat cycle across the candidate pool; Smart uses local personalization.
+- A Library selection starts the chosen song immediately in the requested playback mode. After independent catalog discovery, it attaches up to 99 generated upcoming tracks (100 including current). On starting the 90th generated upcoming song, the next 100 candidates are reserved and appended. Manual songs do not count towards this threshold. The Media3 playback window remains a separate, smaller sliding window.
+- The full eligible selection remains a lightweight candidate pool for Ordered, Pure Shuffle and Smart Shuffle generation. Ordered Library playback wraps to the beginning after the last sorted song so all distinct eligible tracks are heard once per cycle. Catalog discovery/queue attachment must outlive Library screen navigation and must not delay the first song. Pure Shuffle is an unbiased no-repeat cycle across the candidate pool; Smart uses local personalization.
 - Switching modes preserves current playback and the manual queue/groups, replacing only the generated future.
 - Playback state persistence stores provenance, occurrence/group identity, candidate IDs and generation progress, and decodes older session formats.
 
@@ -1303,39 +1303,23 @@ This section is strict.
 
 ## 16.1 Definition
 
-Pure Shuffle means every eligible track appears exactly once in a randomized cycle before the cycle repeats.
+The Shuffle playback mode defaults to Artist-Balanced with an optional Standard Random setting. Neither policy uses personalized preference scores, listening history statistics, or ML. Both are source-agnostic and operate on canonical Track IDs.
 
-Do not select a random track independently on each Next press because that creates premature repeats.
+A source collection is shuffled into a **without-replacement finite cycle**, i.e. each eligible track occurs once before that cycle ends. Artist-Balanced reduces the concentration of popular-by-track-count artists in the beginning of the queue. Mathematically it **cannot** change the complete-cycle artist fraction while keeping this no-repeat guarantee. Do not promise a fixed 5–7.5% share over a complete 1,000-track cycle when one artist owns 100 tracks.
 
 ## 16.2 Algorithm
 
-For a source collection of `N` eligible tracks:
-
-1. copy track IDs into an array;
-2. generate a high-quality random seed;
-3. apply Fisher-Yates shuffle;
-4. persist the generated order or persist enough state to restore it;
-5. play sequentially through the shuffled permutation.
-
-When the cycle ends:
-
-1. generate a new shuffle;
-2. if `N > 1`, prevent the first item of the new cycle from being identical to the last item of the previous cycle;
-3. otherwise do not bias the order.
+- Artist-Balanced is default. The probability of choosing an artist is proportional to the number of its *remaining* eligible tracks raised to alpha (default 0.8; user may adjust from 0.7 to 1.0), with a soft cooldown over recent artists.
+- Each artist owns a separately seeded, randomized bag. A bounded recent-track cooldown avoids replaying the user's recent Shuffle starts early in a newly generated queue when alternatives remain.
+- Artist metadata is normalized; an unknown artist must not group unrelated tracks into a single artificial mega-artist.
+- Explicit song selections anchor that track at the start. The rest of the eligible tracks are shuffled without replacement.
+- Standard Random retains the existing Fisher-Yates algorithm and does not inspect artist names or exposure history.
+- Queue seed and generated order are persisted so restore does not reshuffle. Actual playback starts (not queued-but-unplayed songs) update a bounded, on-device 160-track exposure log independent of personalized listening-history controls.
+- Smart Exploration may call the same weighted artist selector; Smart exploitation remains governed by its existing scorer.
 
 ## 16.3 No personalization
 
-Pure Shuffle MUST NOT consider:
-
-- favorite status;
-- play count;
-- skip count;
-- artist;
-- album;
-- time;
-- day;
-- listening history;
-- recommendation score.
+Neither Shuffle policy may consult favorites, skip/play counts, ML scores, or time-of-day affinity. Artist-Balanced may use **static** artist metadata, eligible track counts and **non-preferential** actual-play exposure solely to control repetition. No storage provider is favored.
 
 ## 16.4 Queue mutation
 
@@ -2361,7 +2345,8 @@ Allow Telegram-hosted music to become reliably available offline.
 4. removing app offline copy does not delete Telegram message.
 5. local MediaStore tracks are recognized as already offline.
 6. cache cleanup never deletes user-owned MediaStore file.
-7. pinned files are never evicted by temporary-cache cleanup.
+7. no completed audio file is evicted automatically, whether pinned or played on demand.
+8. refresh or integrity failure never unlinks an existing completed file.
 
 ---
 
@@ -2805,7 +2790,7 @@ PlaylistTrack(playlistId, position)
 | DB record exists but file missing | Mark source missing, do not crash |
 | Unsupported codec | Show playback error and skip/recover |
 | Permission denied | Telegram/offline app-owned library may still work |
-| Low storage | Stop new nonessential downloads; never delete pinned/user files silently |
+| Low storage | Stop new nonessential downloads; never delete any completed music automatically |
 | Corrupt artwork | Ignore artwork error; audio remains playable |
 
 ---
@@ -2837,8 +2822,8 @@ Initial settings should eventually include:
 
 ## Offline
 
-- cache size;
-- clear cache;
+- retained audio storage usage;
+- explicit partial-transfer cleanup;
 - offline downloads;
 - prefetch enabled;
 - prefetch on metered networks.
@@ -2894,7 +2879,7 @@ Mandatory targets:
 - preference aggregation;
 - adaptive scoring;
 - candidate generation;
-- cache eviction decisions.
+- completed-file retention and explicit-removal safeguards.
 
 ## 31.2 Repository tests
 
@@ -3133,7 +3118,7 @@ Preparing / downloading
   ↓
 Play
   ↓
-Optionally retained in temporary cache
+Completed audio retained until explicit user removal
 ```
 
 ## Pinning offline

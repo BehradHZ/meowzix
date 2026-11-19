@@ -7,13 +7,16 @@ import dev.behradhz.meowzix.data.db.PlaylistDao
 import dev.behradhz.meowzix.data.db.PlaylistEntity
 import dev.behradhz.meowzix.data.db.PlaylistTrackEntity
 import dev.behradhz.meowzix.data.db.TrackEntity
+import dev.behradhz.meowzix.domain.library.LOCAL_PLAYLIST_ID
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 @Singleton
@@ -34,14 +37,39 @@ class RoomPlaylistRepository @Inject constructor(
                 titleOverridden = row.titleOverridden,
                 descriptionOverridden = row.descriptionOverridden,
                 artworkOverridden = row.artworkOverridden,
+                newTrackHighlightEnabled = row.newTrackHighlightEnabled,
             )
         }
     }
 
-    override fun observeTracks(playlistId: UUID): Flow<List<Track>> =
-        dao.observeTracks(playlistId.toString()).map { rows -> rows.map(TrackEntity::toPlaylistTrack) }
+    override fun observeUnheardNewTracks(): Flow<Map<UUID, Set<UUID>>> =
+        combine(
+            database.telegramDao().observeUnheardTrackRows(),
+            database.libraryDao().observeUnheardTrackIds(),
+        ) { telegramRows, localUnheard ->
+            val byPlaylist = telegramRows.groupBy { telegramPlaylistId(it.accountId, it.chatId) }
+                .mapValues { (_, rows) -> rows.mapTo(mutableSetOf()) { UUID.fromString(it.trackId) } }
+                .toMutableMap()
+            if (localUnheard.isNotEmpty()) {
+                byPlaylist[LOCAL_PLAYLIST_ID] = localUnheard.mapTo(mutableSetOf(), UUID::fromString)
+            }
+            byPlaylist
+        }
 
-    override suspend fun create(title: String): UUID {
+    override suspend fun setNewTrackHighlightEnabled(playlistId: UUID, enabled: Boolean) =
+        dao.setNewTrackHighlightEnabled(playlistId.toString(), enabled)
+
+    override suspend fun markNewTrackSeen(trackId: UUID) {
+        database.withTransaction {
+            database.libraryDao().markNewTrackPlayed(trackId.toString())
+            database.telegramDao().markTrackSeen(trackId.toString())
+        }
+    }
+
+    override fun observeTracks(playlistId: UUID): Flow<List<Track>> =
+        dao.observeTracks(playlistId.toString()).map { rows -> rows.map(TrackEntity::toDomain) }
+
+    override suspend fun create(title: String, description: String?, artworkRef: String?): UUID {
         val normalized = title.trim().takeIf(String::isNotEmpty) ?: "New playlist"
         val now = Instant.now().toEpochMilli()
         val id = UUID.randomUUID()
@@ -49,8 +77,8 @@ class RoomPlaylistRepository @Inject constructor(
             PlaylistEntity(
                 id = id.toString(),
                 title = normalized,
-                description = null,
-                artworkRef = null,
+                description = description?.trim()?.takeIf(String::isNotEmpty),
+                artworkRef = artworkRef?.trim()?.takeIf(String::isNotEmpty),
                 createdAtEpochMs = now,
                 updatedAtEpochMs = now,
             ),
@@ -153,19 +181,3 @@ class RoomPlaylistRepository @Inject constructor(
     }
 }
 
-private fun TrackEntity.toPlaylistTrack() = Track(
-    id = UUID.fromString(id),
-    title = title,
-    normalizedTitle = normalizedTitle,
-    artist = artist,
-    normalizedArtist = normalizedArtist,
-    album = album,
-    durationMs = durationMs,
-    trackNumber = trackNumber,
-    year = year,
-    artworkRef = artworkRef,
-    favorite = favorite,
-    hidden = hidden,
-    createdAt = Instant.ofEpochMilli(createdAtEpochMs),
-    updatedAt = Instant.ofEpochMilli(updatedAtEpochMs),
-)

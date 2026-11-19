@@ -65,9 +65,9 @@ internal object EmbeddedLyricsReader {
                     payload = undoUnsynchronization(payload)
                 }
                 when (id) {
-                    "USLT", "ULT" -> if (plain == null) plain = unsynchronised(payload)?.takeIf(::displayable)
-                    "SYLT", "SLT" -> if (timed == null) timed = synchronised(payload)?.takeIf(::displayable)
-                    "TXXX", "TXX" -> userTextLyrics(payload)?.takeIf(::displayable)?.let { value ->
+                    "USLT", "ULT" -> if (plain == null) plain = unsynchronised(payload)?.takeIf(::isDisplayableLyrics)
+                    "SYLT", "SLT" -> if (timed == null) timed = synchronised(payload)?.takeIf(::isDisplayableLyrics)
+                    "TXXX", "TXX" -> userTextLyrics(payload)?.takeIf(::isDisplayableLyrics)?.let { value ->
                         if (LrcParser.parse(value).contentType == LyricsContentType.TIMED) {
                             if (timed == null) timed = value
                         } else if (plain == null) plain = value
@@ -181,7 +181,7 @@ internal object EmbeddedLyricsReader {
             val comment = item() ?: return@repeat
             val key = comment.substringBefore('=', "").uppercase()
             val value = comment.substringAfter('=', "")
-            if (key in setOf("LYRICS", "UNSYNCEDLYRICS", "SYNCEDLYRICS", "LRC") && displayable(value)) {
+            if (key in setOf("LYRICS", "UNSYNCEDLYRICS", "SYNCEDLYRICS", "LRC") && isDisplayableLyrics(value)) {
                 if (LrcParser.parse(value).contentType == LyricsContentType.TIMED) timed = value
                 else if (plain == null) plain = value
             }
@@ -210,7 +210,7 @@ internal object EmbeddedLyricsReader {
                 type == "data" && inLyrics && payload in 8L..(MAX_TEXT + 8L) -> {
                     val bytes = exact(input, payload.toInt()) ?: return null
                     String(bytes, 8, bytes.size - 8, Charsets.UTF_8)
-                        .trim('\u0000', ' ', '\n', '\r').takeIf(::displayable)
+                        .trim('\u0000', ' ', '\n', '\r').takeIf(::isDisplayableLyrics)
                 }
                 type in setOf("moov", "udta", "meta", "ilst", "©lyr") -> {
                     val child = Limited(input, payload)
@@ -250,14 +250,6 @@ internal object EmbeddedLyricsReader {
         }
     }
 
-    private fun displayable(text: String): Boolean {
-        val parsed = LrcParser.parse(text)
-        return when (parsed.contentType) {
-            LyricsContentType.TIMED -> parsed.timedLines.any { it.text.isNotBlank() }
-            LyricsContentType.PLAIN -> parsed.plainLines.any(String::isNotBlank)
-            else -> false
-        }
-    }
     private fun unsigned(value: Byte): Int = value.toInt() and 255
     private fun syncSafe(bytes: ByteArray, index: Int): Int =
         (unsigned(bytes[index]) shl 21) or (unsigned(bytes[index + 1]) shl 14) or

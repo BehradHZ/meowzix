@@ -7,180 +7,236 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.os.SystemClock
-import android.view.KeyEvent
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import androidx.core.os.BundleCompat
+import android.util.SizeF
+import android.util.TypedValue
+import kotlin.math.min
+
 import android.widget.RemoteViews
+import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.session.MediaButtonReceiver
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
+import dev.behradhz.meowzix.MainActivity
 import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.playback.PlaybackService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.await
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
-/**
- * A SECOND optional home-screen widget; the existing compact Playback widget and in-app
- * artwork pager are unchanged. Only a live PlaybackService drives frames while playing:
- * Android's minimum periodic widget update interval cannot deliver smooth animation.
- */
-@UnstableApi
+/** Always fit a centered circle within the actual widget bounds, including 1x1 and 3x4. */
+internal fun vinylDiameter(widthDp: Float, heightDp: Float): Float =
+    (min(widthDp, heightDp) - 8f).coerceAtLeast(32f)
+
+@OptIn(markerClass = [UnstableApi::class])
 class VinylWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        if (ids.isEmpty()) return
+        val saved = PlaybackWidgetSnapshotStore.loadLastPlayed(context)
         val pending = goAsync()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         scope.launch {
             var controller: MediaController? = null
+            var future: ListenableFuture<MediaController>? = null
             try {
-                controller = MediaController.Builder(
-                    context, SessionToken(context, ComponentName(context, PlaybackService::class.java)),
-                ).buildAsync().await()
-                updateAll(context.applicationContext, PlaybackWidgetState.fromPlayer(controller))
+                // A settings change must redraw the cached record even when
+                // connecting a paused MediaController times out.
+                val palettes = ids.associateWith { id -> widgetPalette(context, id) }
+                latestPalettes = latestPalettes + palettes
+                // On a cold start the process has no in-memory record bitmap.
+                // Decode the saved track before the first widget update.
+                val cachedRecord = VinylRecordArtwork.prepare(context, saved.artworkRef)
+                ids.forEach { id ->
+                    manager.updateAppWidget(
+                        id, responsiveViews(context, id, saved, cachedRecord),
+                    )
+                }
+                val connecting = MediaController.Builder(
+                    context,
+                    SessionToken(context, ComponentName(context, PlaybackService::class.java)),
+                ).buildAsync()
+                future = connecting
+                controller = withTimeout(6_000L) { connecting.await() }
+                val state = PlaybackWidgetState.fromPlayer(controller)
+                if (state.hasTrack) {
+                    updateAll(context, state.copy(
+                        isFavorite = saved.mediaId == state.mediaId && saved.isFavorite,
+                    ))
+                }
             } catch (_: Exception) {
-                render(context.applicationContext, PlaybackWidgetState.Empty, 0f, 1f)
+                // Keep the last usable record instead of blanking the widget.
             } finally {
-                controller?.release()
+                if (controller != null) controller.release() else future?.let(MediaController::releaseFuture)
                 pending.finish()
                 scope.cancel()
             }
         }
     }
 
-    override fun onDisabled(context: Context) {
-        animationJob?.cancel()
-        animationJob = null
-        super.onDisabled(context)
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        WidgetInstancePreferences.remove(context, appWidgetIds)
+        super.onDeleted(context, appWidgetIds)
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle,
+    ) {
+        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
+        onUpdate(context, appWidgetManager, intArrayOf(appWidgetId))
     }
 
     companion object {
-        // Fewer pixels cross Binder per frame; the drawing is scaled to this size.
-        private const val FRAME_MS = 100L
-        private const val DEGREES_PER_MS = 360f / 5_600f
-        // Each frame uses its own Paint to avoid races between canceled and new renders.
-        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        private var animationJob: Job? = null
-        private var lastPlaying = false
-        private var lastTitle: String? = null
-        private var angle = 0f
-        private var spinningSinceMs = 0L
-        private val coverLock = Any()
-        private var cachedRef: String? = null
-        private var cachedCover: Bitmap? = null
+        @Volatile private var latestState = PlaybackWidgetState.Empty
+        @Volatile private var latestPalettes: Map<Int, WidgetPalette> = emptyMap()
 
-        fun hasWidgets(context: Context): Boolean = AppWidgetManager.getInstance(context)
-            .getAppWidgetIds(ComponentName(context, VinylWidgetProvider::class.java)).isNotEmpty()
+        private fun ids(context: Context) = AppWidgetManager.getInstance(context)
+            .getAppWidgetIds(ComponentName(context, VinylWidgetProvider::class.java))
 
-        suspend fun updateAll(context: Context, state: PlaybackWidgetState, reduceMotion: Boolean = false) {
-            animationJob?.cancel()
-            animationJob = null
-            if (!hasWidgets(context)) {
-                lastPlaying = false
-                return
-            }
-            val now = SystemClock.elapsedRealtime()
-            if (lastPlaying && spinningSinceMs > 0L) {
-                angle = ((now - spinningSinceMs) * DEGREES_PER_MS) % 360f
-            }
-            val wasPlaying = lastPlaying
-            lastPlaying = state.isPlaying
-            if (lastTitle != state.title) {
-                angle = 0f
-                lastTitle = state.title
-            }
-            if (state.isPlaying) {
-                spinningSinceMs = now - (angle / DEGREES_PER_MS).toLong()
-            } else {
-                spinningSinceMs = 0L
-            }
+        fun hasWidgets(context: Context) = ids(context).isNotEmpty()
 
-            // Full RemoteViews applied once per change in media/session state. In particular the
-            // click PendingIntent must be set once before partial frame updates are delivered.
-            render(context, state, angle, if (state.isPlaying) 0f else 1f, full = true)
-            if (reduceMotion) return
-            animationJob = scope.launch {
-                if (wasPlaying != state.isPlaying) {
-                    for (frame in 1..5) {
-                        if (!isActive || !hasWidgets(context)) return@launch
-                        delay(70L)
-                        val lift = if (state.isPlaying) 1f - frame / 5f else frame / 5f
-                        render(context, state, angle, lift, full = false)
-                    }
-                }
-                if (!state.isPlaying) return@launch
-                var nextFrameMs = SystemClock.elapsedRealtime()
-                while (isActive && hasWidgets(context)) {
-                    val elapsed = SystemClock.elapsedRealtime()
-                    // Derive the phase from monotonic clock: a slow launcher drops frames rather
-                    // than slowing and then jumping the rotation on each update.
-                    angle = ((elapsed - spinningSinceMs) * DEGREES_PER_MS) % 360f
-                    render(context, state, angle, 0f, full = false)
-                    nextFrameMs += FRAME_MS
-                    delay((nextFrameMs - SystemClock.elapsedRealtime()).coerceAtLeast(12L))
-                    // Never attempt to catch up by publishing a burst of stale frames.
-                    if (nextFrameMs < SystemClock.elapsedRealtime() - FRAME_MS) {
-                        nextFrameMs = SystemClock.elapsedRealtime()
-                    }
-                }
-            }
-        }
-
-        private suspend fun render(
-            context: Context,
-            state: PlaybackWidgetState,
-            rotation: Float,
-            lift: Float,
-            full: Boolean = true,
-        ) {
-            val ids = AppWidgetManager.getInstance(context)
-                .getAppWidgetIds(ComponentName(context, VinylWidgetProvider::class.java))
-            if (ids.isEmpty()) return
-            val cover = withContext(Dispatchers.IO) {
-                synchronized(coverLock) {
-                    if (cachedRef != state.artworkRef) {
-                        cachedRef = state.artworkRef
-                        cachedCover = state.artworkRef?.let { VinylRecordRenderer.decodeCover(context, it) }
-                    }
-                    cachedCover
-                }
-            }
-            val record = withContext(Dispatchers.Default) { VinylRecordRenderer.drawVinyl(cover, rotation, lift) }
-            val manager = AppWidgetManager.getInstance(context)
-            val views = RemoteViews(context.packageName, R.layout.widget_vinyl).apply {
-                setImageViewBitmap(R.id.vinyl_record, record)
-                if (full) {
-                    val title = state.title ?: "Nothing playing"
-                    setContentDescription(
-                        R.id.vinyl_record,
-                        if (state.isPlaying) "Pause $title" else "Play $title",
-                    )
-                    setOnClickPendingIntent(
-                        R.id.vinyl_record,
-                        transport(context, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, 4302),
-                    )
-                }
-            }
-            // Unlike updateAppWidget, partial updates retain the view tree, metadata and click
-            // action in the launcher. Sending only one bitmap diff avoids repeated reinflation.
-            if (full) manager.updateAppWidget(ids, views)
-            else manager.partiallyUpdateAppWidget(ids, views)
-        }
-
-        private fun transport(context: Context, code: Int, request: Int): PendingIntent =
-            PendingIntent.getBroadcast(
-                context, request, Intent(Intent.ACTION_MEDIA_BUTTON).apply {
-                    component = ComponentName(context, MediaButtonReceiver::class.java)
-                    putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_DOWN, code))
-                }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        suspend fun updateAll(context: Context, state: PlaybackWidgetState) {
+            val widgetIds = ids(context)
+            if (widgetIds.isEmpty()) return
+            val record = VinylRecordArtwork.prepare(context, state.artworkRef)
+            latestPalettes = widgetIds.associateWith { id -> widgetPalette(context, id) }
+            val logical = widgetLogicalQueue(context)
+            val completeState = state.copy(
+                queueIndex = logical?.currentIndex ?: state.queueIndex,
+                queueTotal = logical?.let {
+                    (it.tracks.size - it.currentIndex.coerceAtLeast(0) - 1).coerceAtLeast(0)
+                } ?: state.queueTotal,
             )
+            PlaybackWidgetSnapshotStore.save(context, completeState)
+            latestState = completeState
+            val manager = AppWidgetManager.getInstance(context)
+            widgetIds.forEach { id ->
+                manager.updateAppWidget(id, responsiveViews(context, id, completeState, record))
+            }
+        }
 
+        fun advanceRotation(context: Context) {
+            val widgetIds = ids(context)
+            if (widgetIds.isEmpty()) return
+            val frame = VinylRecordArtwork.nextFrame() ?: return
+            val state = latestState
+            val manager = AppWidgetManager.getInstance(context)
+            // Every Vinyl instance is the same record shape, so all rotate.
+            widgetIds.forEach { id ->
+                manager.updateAppWidget(id, responsiveViews(context, id, state, frame))
+            }
+        }
+
+        /**
+         * Android 12+ lets the launcher choose the correct layout for its exact cells.
+         * A 3x4 host therefore contains a centered 3x3 disc, not a stretched oval.
+         */
+        private fun responsiveViews(
+            context: Context,
+            widgetId: Int,
+            state: PlaybackWidgetState,
+            record: Bitmap?,
+        ): RemoteViews {
+            val styledArtwork = record?.let { bitmap ->
+                latestPalettes[widgetId]?.let { VinylRecordArtwork.themedFrame(bitmap, it, state.isPlaying) } ?: bitmap
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId)
+                val sizes = BundleCompat.getParcelableArrayList(
+                    options, AppWidgetManager.OPTION_APPWIDGET_SIZES, SizeF::class.java,
+                )?.filter { it.width > 0f && it.height > 0f }?.distinct()?.take(8)
+                val viewsBySize = if (!sizes.isNullOrEmpty()) {
+                    sizes.associateWith { size ->
+                        views(context, widgetId, state, styledArtwork, vinylDiameter(size.width, size.height))
+                    }
+                } else mapOf(
+                    SizeF(40f, 40f) to views(context, widgetId, state, styledArtwork, 32f),
+                    SizeF(104f, 104f) to views(context, widgetId, state, styledArtwork, 96f),
+                    SizeF(176f, 176f) to views(context, widgetId, state, styledArtwork, 168f),
+                    SizeF(252f, 252f) to views(context, widgetId, state, styledArtwork, 244f),
+                )
+                return RemoteViews(viewsBySize)
+            }
+            val options = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId)
+            val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 110)
+            val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 110)
+            val side = vinylDiameter(width.toFloat(), height.toFloat())
+            return views(context, widgetId, state, styledArtwork, side)
+        }
+
+        private fun views(
+            context: Context,
+            widgetId: Int,
+            state: PlaybackWidgetState,
+            record: Bitmap?,
+            discSizeDp: Float,
+        ) = RemoteViews(context.packageName, R.layout.widget_vinyl_disc_only).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setViewLayoutWidth(R.id.vinyl_widget_disc_frame, discSizeDp, TypedValue.COMPLEX_UNIT_DIP)
+                setViewLayoutHeight(R.id.vinyl_widget_disc_frame, discSizeDp, TypedValue.COMPLEX_UNIT_DIP)
+            }
+            // Do not bind a click to the root or disc: some launchers route every
+            // child touch to the root activity PendingIntent, swallowing controls.
+            // The nine transparent cells in widget_vinyl.xml own every hit region.
+            val open = openPlayer(context)
+            setOnClickPendingIntent(R.id.vinyl_widget_open_top_left, open)
+            setOnClickPendingIntent(R.id.vinyl_widget_open_top_right, open)
+            setOnClickPendingIntent(R.id.vinyl_widget_open_bottom_left, open)
+            setOnClickPendingIntent(R.id.vinyl_widget_open_bottom_right, open)
+            setOnClickPendingIntent(R.id.vinyl_widget_center, tap(context, widgetId, VinylZone.CENTER))
+            setOnClickPendingIntent(R.id.vinyl_widget_left, tap(context, widgetId, VinylZone.LEFT))
+            setOnClickPendingIntent(R.id.vinyl_widget_right, tap(context, widgetId, VinylZone.RIGHT))
+            setOnClickPendingIntent(R.id.vinyl_widget_top, tap(context, widgetId, VinylZone.TOP))
+            setOnClickPendingIntent(R.id.vinyl_widget_bottom, tap(context, widgetId, VinylZone.BOTTOM))
+            if (record != null) setImageViewBitmap(R.id.vinyl_widget_disc, record)
+            else setImageViewResource(R.id.vinyl_widget_disc, R.drawable.widget_vinyl_placeholder)
+            // The vinyl has no rectangular surface; opacity controls only the
+            // disc artwork. Its invisible touch zones remain fully interactive.
+            setInt(
+                R.id.vinyl_widget_disc, "setImageAlpha",
+                ((WidgetInstancePreferences.opacity(context, widgetId) * 255) + 50) / 100,
+            )
+            setContentDescription(
+                R.id.vinyl_widget_center,
+                if (state.isPlaying) "Pause" else "Play",
+            )
+            setContentDescription(
+                R.id.vinyl_widget_disc,
+                state.title?.let { "$it vinyl record" } ?: "Meowzix vinyl record",
+            )
+            setContentDescription(
+                R.id.vinyl_widget_top,
+                if (state.isFavorite) "Double tap to unlike" else "Double tap to like",
+            )
+        }
+
+        private fun openPlayer(context: Context) = PendingIntent.getActivity(
+            context, 5200,
+            Intent(context, MainActivity::class.java).apply {
+                action = MainActivity.ACTION_OPEN_NOW_PLAYING
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        private fun tap(context: Context, id: Int, zone: VinylZone) = PendingIntent.getBroadcast(
+            context, 5210 + zone.ordinal,
+            Intent(context, VinylWidgetActionReceiver::class.java).apply {
+                action = VinylWidgetActionReceiver.ACTION_TAP
+                data = Uri.parse("meowzix-widget://tap/$id/${zone.name}")
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                putExtra(VinylWidgetActionReceiver.EXTRA_ZONE, zone.name)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 }

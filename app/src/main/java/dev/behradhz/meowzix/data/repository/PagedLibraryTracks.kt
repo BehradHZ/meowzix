@@ -103,10 +103,11 @@ class PagedLibraryTracks @Inject constructor(
             EXISTS (
                 SELECT 1
                 FROM telegram_track_sources tg
-                INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                 INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
                 WHERE origin.trackId = t.id
                   AND origin.availability != 'MISSING'
+                  AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
             )
         """.trimIndent()
         val availabilityClause = when (availability) {
@@ -166,7 +167,7 @@ class PagedLibraryTracks @Inject constructor(
                 "(EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id " +
                 "AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') " +
                 "OR $cloudExists)$favoriteClause$searchClause",
-            orderBy = orderBy,
+            orderBy = "t.isUnheardNew DESC, $orderBy",
             args = args,
         )
     }

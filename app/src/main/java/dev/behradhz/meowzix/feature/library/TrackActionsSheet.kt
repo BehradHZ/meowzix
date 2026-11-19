@@ -26,7 +26,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
@@ -41,13 +41,16 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.HelpOutline
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,15 +69,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
+import dev.behradhz.meowzix.R
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
+import dev.behradhz.meowzix.ui.components.ChatAvatar
+import dev.behradhz.meowzix.ui.components.WhyThisSongLink
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.telegram.TelegramForwardSheet
+import dev.behradhz.meowzix.feature.telegram.ForwardOptionPill
 import java.util.UUID
 
 /** Forward the selected row, not necessarily the track currently playing. */
@@ -86,10 +95,12 @@ internal val LocalTrackForwardAction =
 internal data class TrackChatLinkActions(
     val lookup: suspend (UUID) -> String?,
     val open: (String) -> Unit,
+    val originLookup: suspend (UUID) -> TelegramTrackOrigin? = { null },
+    val refreshOrigin: suspend (UUID) -> TelegramTrackOrigin? = { null },
 )
 internal val LocalTrackChatLinkActions = staticCompositionLocalOf<TrackChatLinkActions?> { null }
 
-internal enum class TrackActionsPage { ACTIONS, PLAYLISTS }
+internal enum class TrackActionsPage { ACTIONS, PLAYLISTS, REMOVE }
 
 /** Compact popup anchored to the calling track's overflow button in Library and Queue. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,10 +126,25 @@ internal fun TrackActionsMenu(
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
+    onAddToLibrary: (() -> Unit)? = null,
     onRemoveOfflineCopy: (() -> Unit)? = null,
     onViewInChat: (() -> Unit)? = null,
+    viewInChatOrigin: TelegramTrackOrigin? = null,
+    isLocalSource: Boolean = false,
+    onRemoveFromLocations: ((offline: Boolean, library: Boolean) -> Unit)? = null,
+    canRemoveOffline: Boolean = false,
+    canRemoveFromLibrary: Boolean = true,
 ) {
     var page by remember(title, artist, isQueue) { mutableStateOf(TrackActionsPage.ACTIONS) }
+    var removeOffline by remember(title, artist, isQueue) { mutableStateOf(false) }
+    var removeLibrary by remember(title, artist, isQueue) { mutableStateOf(false) }
+    LaunchedEffect(expanded) {
+        if (!expanded) {
+            page = TrackActionsPage.ACTIONS
+            removeOffline = false
+            removeLibrary = false
+        }
+    }
     val accent = MaterialTheme.colorScheme.primary
     val glass = MaterialTheme.colorScheme.surface
     val menuShape = RoundedCornerShape(18.dp)
@@ -165,20 +191,21 @@ internal fun TrackActionsMenu(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(start = 44.dp, bottom = 8.dp))
-                    if (playlists.isEmpty()) {
+                    val editablePlaylists = playlists.filter { !it.localManaged && !it.telegramManaged }
+                    if (editablePlaylists.isEmpty()) {
                         Text("No playlists yet", modifier = Modifier.padding(12.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        LazyColumn(
+                        GlassLazyColumn(
                             // DropdownMenu queries intrinsic width and height. LazyColumn uses
                             // SubcomposeLayout, so both dimensions must be explicit here.
                             // Menu width is 280.dp, with 10.dp padding on each side.
                             modifier = Modifier.width(260.dp)
-                                .height((playlists.size * 68).coerceAtMost(250).dp)
+                                .height((editablePlaylists.size * 68).coerceAtMost(250).dp)
                                 .testTag("track-playlist-picker"),
                             verticalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
-                            items(playlists, key = { it.id }) { playlist ->
+                            items(editablePlaylists, key = { it.id }) { playlist ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth()
                                         .background(accent.copy(alpha = 0.075f), RoundedCornerShape(16.dp))
@@ -199,6 +226,86 @@ internal fun TrackActionsMenu(
                         }
                     }
                     Spacer(Modifier.height(12.dp))
+                }
+            } else if (activePage == TrackActionsPage.REMOVE) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp)
+                        .testTag("track-removal-panel"),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { page = TrackActionsPage.ACTIONS }) {
+                            Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to track actions")
+                        }
+                        Text("Remove song", style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold)
+                    }
+                    Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Remove from", modifier = Modifier.padding(start = 10.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ForwardOptionPill(
+                            title = "Offline",
+                            selected = removeOffline,
+                            onSelectedChange = { removeOffline = it },
+                            modifier = Modifier.weight(1f),
+                            enabled = canRemoveOffline,
+                            tag = "track-removal-offline",
+                        )
+                        ForwardOptionPill(
+                            title = "Library",
+                            selected = removeLibrary,
+                            onSelectedChange = { removeLibrary = it },
+                            modifier = Modifier.weight(1f),
+                            enabled = canRemoveFromLibrary,
+                            tag = "track-removal-library",
+                        )
+                    }
+                    Text(
+                        "Offline removes Meowzix-saved audio only. Library hides the song. " +
+                            "Your device's original files and Telegram messages stay untouched.",
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (!canRemoveOffline) {
+                        Text("No Meowzix offline copy to remove.",
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = { page = TrackActionsPage.ACTIONS }) {
+                            Text("Back")
+                        }
+                        Button(
+                            enabled = removeOffline || removeLibrary,
+                            onClick = {
+                                val offline = removeOffline
+                                val library = removeLibrary
+                                onDismiss()
+                                onRemoveFromLocations?.invoke(offline, library)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError,
+                            ),
+                            modifier = Modifier.testTag("track-removal-confirm"),
+                        ) {
+                            Text("Remove selected")
+                        }
+                    }
                 }
             } else {
                 Column(
@@ -222,8 +329,26 @@ internal fun TrackActionsMenu(
                             if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                             if (favorite) "Unlike" else "Like",
                             highlighted = favorite,
+                            semanticLabel = if (favorite) "Unfavorite" else "Favorite",
+                            actionTag = "favorite",
                         ) { onDismiss(); onFavorite() }
-                        ActionIcon(Icons.Rounded.Send, "Forward") { onDismiss(); onForward() }
+                        ActionIcon(ImageVector.vectorResource(R.drawable.ic_telegram_plane), "Forward") { onDismiss(); onForward() }
+                        if (!isQueue) {
+                            if (onRemoveFromLocations != null && (canRemoveOffline || canRemoveFromLibrary)) {
+                                ActionIcon(Icons.Rounded.DeleteOutline, "Remove", danger = true) {
+                                    removeOffline = false
+                                    removeLibrary = false
+                                    page = TrackActionsPage.REMOVE
+                                }
+                            } else {
+                                onRemoveOfflineCopy?.let { remove ->
+                                    ActionIcon(Icons.Rounded.DeleteOutline, "Remove", danger = true) {
+                                        onDismiss()
+                                        remove()
+                                    }
+                                }
+                            }
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     Column(
@@ -240,16 +365,31 @@ internal fun TrackActionsMenu(
                     ActionLine(Icons.Rounded.Person, "Go to artist", enabled = !artist.isNullOrBlank()) {
                         onDismiss(); onGoToArtist()
                     }
-                    onViewInChat?.let { open ->
-                        ActionLine(Icons.Rounded.OpenInNew, "View in Chat") {
-                            onDismiss(); open()
+                    if (isLocalSource) {
+                        ActionLine(
+                            Icons.Rounded.OpenInNew, "Local",
+                            enabled = false,
+                            actionTag = "track-action-row-view-in-chat",
+                        ) {}
+                    } else {
+                        onViewInChat?.let { open ->
+                            ActionLine(
+                                Icons.Rounded.OpenInNew,
+                                if (viewInChatOrigin?.isProfileMusic == true) "View Profile" else "View in Chat",
+                                chatOrigin = viewInChatOrigin, showChatAvatar = true,
+                                actionTag = "track-action-row-view-in-chat",
+                            ) {
+                                onDismiss(); open()
+                            }
+                        }
+                    }
+                    onAddToLibrary?.let { add ->
+                        ActionLine(Icons.Rounded.LibraryMusic, "Add to library") {
+                            onDismiss(); add()
                         }
                     }
                     ActionLine(Icons.Rounded.PlaylistAdd, "Add to playlist", trailing = true) {
                         page = TrackActionsPage.PLAYLISTS
-                    }
-                    ActionLine(Icons.Rounded.AutoAwesome, "Continue the vibe") {
-                        onDismiss(); onContinueVibe()
                     }
                     ActionLine(Icons.Rounded.Edit, "Edit metadata") {
                         onDismiss(); onEditMetadata()
@@ -257,13 +397,23 @@ internal fun TrackActionsMenu(
                     ActionLine(Icons.Rounded.ContentCopy, "Manage duplicates") {
                         onDismiss(); onManageDuplicates()
                     }
-                    onRemoveOfflineCopy?.let { remove ->
-                        ActionLine(Icons.Rounded.DeleteOutline, "Remove offline download") {
-                            onDismiss(); remove()
+                    if (isQueue) {
+                        if (onRemoveFromLocations != null && (canRemoveOffline || canRemoveFromLibrary)) {
+                            ActionLine(Icons.Rounded.DeleteOutline, "Remove song", trailing = true) {
+                                removeOffline = false
+                                removeLibrary = false
+                                page = TrackActionsPage.REMOVE
+                            }
+                        } else {
+                            onRemoveOfflineCopy?.let { remove ->
+                                ActionLine(Icons.Rounded.DeleteOutline, "Remove offline download") {
+                                    onDismiss(); remove()
+                                }
+                            }
                         }
                     }
                     }
-                    // Keep playlist-only management operations while retaining Why as the last row.
+                    // Playlist-specific actions appear before the final recommendation action.
                     onMoveUp?.let { action ->
                         ActionLine(Icons.Rounded.PlaylistPlay, "Move up in playlist") { onDismiss(); action() }
                     }
@@ -273,16 +423,12 @@ internal fun TrackActionsMenu(
                     onRemoveFromPlaylist?.let { action ->
                         ActionLine(Icons.Rounded.DeleteOutline, "Remove from playlist") { onDismiss(); action() }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .background(Color.White.copy(alpha = 0.055f), RoundedCornerShape(13.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(13.dp))
-                            .padding(horizontal = 8.dp),
-                    ) {
-                        ActionLine(Icons.Rounded.HelpOutline, "Why this song") {
-                            onDismiss(); onWhy()
-                        }
+                    Spacer(Modifier.height(4.dp))
+                    ActionLine(Icons.Rounded.AutoAwesome, "Continue the vibe") {
+                        onDismiss(); onContinueVibe()
+                    }
+                    WhyThisSongLink(tag = "track-action-row-why-this-song") {
+                        onDismiss(); onWhy()
                     }
                 }
             }
@@ -298,6 +444,8 @@ private fun ActionIcon(
     label: String,
     highlighted: Boolean = false,
     danger: Boolean = false,
+    semanticLabel: String = label,
+    actionTag: String = label.lowercase().replace(' ', '-'),
     onClick: () -> Unit,
 ) {
     val color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
@@ -313,10 +461,10 @@ private fun ActionIcon(
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = { showLabel = true },
-                onClickLabel = label,
+                onClickLabel = semanticLabel,
                 onLongClickLabel = "Show $label",
             )
-            .testTag("track-action-${label.lowercase().replace(' ', '-')}"),
+            .testTag("track-action-$actionTag"),
         contentAlignment = Alignment.Center,
     ) {
         Surface(
@@ -329,7 +477,7 @@ private fun ActionIcon(
             ),
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(20.dp))
+                Icon(icon, contentDescription = semanticLabel, tint = color, modifier = Modifier.size(20.dp))
             }
         }
         if (showLabel) {
@@ -364,6 +512,9 @@ private fun ActionLine(
     title: String,
     enabled: Boolean = true,
     trailing: Boolean = false,
+    chatOrigin: TelegramTrackOrigin? = null,
+    showChatAvatar: Boolean = false,
+    actionTag: String = "track-action-row-" + title.lowercase().replace(' ', '-'),
     onClick: () -> Unit,
 ) {
     Row(
@@ -371,15 +522,35 @@ private fun ActionLine(
             .clickable(enabled = enabled, onClick = onClick)
             .height(44.dp)
             .padding(horizontal = 8.dp)
-            .testTag("track-action-row-${title.lowercase().replace(' ', '-')}"),
+            .testTag(actionTag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f),
-            modifier = Modifier.size(18.dp))
-        Text(title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(start = 10.dp),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
-            fontWeight = FontWeight.Medium)
+        if (showChatAvatar) {
+            ChatAvatar(
+                artworkRef = chatOrigin?.profilePhotoRef,
+                description = chatOrigin?.title ?: "Telegram chat",
+                size = 24.dp,
+                shape = RoundedCornerShape(7.dp),
+            )
+        } else {
+            Icon(icon, contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f),
+                modifier = Modifier.size(18.dp))
+        }
+        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+            Text(
+                title, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
+                fontWeight = FontWeight.Medium,
+            )
+            if (showChatAvatar && (chatOrigin?.availableChatCount ?: 0) > 1) {
+                Text(
+                    "Available in ${chatOrigin!!.availableChatCount} Telegram chats",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         if (trailing) Icon(Icons.Rounded.ChevronRight, contentDescription = null)
     }
 }
@@ -397,8 +568,15 @@ internal fun TrackForwardOverlay(
             trackId = selection.id,
             title = selection.title,
             artist = selection.artist,
+            trackIds = state.trackIds,
             query = state.query,
             chats = state.chats,
+            folders = state.folders,
+            foldersLoading = state.foldersLoading,
+            foldersError = state.foldersError,
+            onReloadFolders = viewModel::reloadForwardFolders,
+            folderRefreshGeneration = state.folderRefreshGeneration,
+            successfulForwardCount = state.successfulForwardCount,
             isSearching = state.isSearching,
             isSending = state.isSending,
             errorMessage = state.errorMessage,

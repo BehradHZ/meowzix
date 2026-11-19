@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.feature.telegramauth
 
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,6 +62,8 @@ import dev.behradhz.meowzix.domain.telegram.TelegramProxyItem
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyKind
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyLinkParser
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyState
+import dev.behradhz.meowzix.domain.telegram.TelegramConnectionStatus
+import dev.behradhz.meowzix.domain.telegram.telegramProxyConnectionLabel
 import dev.behradhz.meowzix.domain.telegram.matchesEndpoint
 import dev.behradhz.meowzix.domain.telegram.rankTelegramProxiesByLatency
 import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
@@ -67,12 +71,13 @@ import dev.behradhz.meowzix.ui.components.TelegramGlassInput
 import dev.behradhz.meowzix.ui.components.TelegramGlassPill
 
 /**
- * The shield is always accessible in the Telegram header, including during login.
+ * The proxy manager can be opened from the persistent proxy header action.
  * Clipboard content is inspected only while the dialog is visible and foregrounded.
  */
 @Composable
 internal fun TelegramProxyPanel(
     state: TelegramProxyState,
+    connectionStatus: TelegramConnectionStatus = TelegramConnectionStatus.STARTING,
     onAdd: (TelegramProxyDraft) -> Unit,
     onImport: (String) -> Unit,
     onRefresh: () -> Unit,
@@ -81,30 +86,45 @@ internal fun TelegramProxyPanel(
     onRemove: (Int) -> Unit,
     onPing: (Int) -> Unit,
     onClearError: () -> Unit,
+    showTrigger: Boolean = true,
+    openRequest: Int = 0,
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var open by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
     var pendingRemoval by remember { mutableStateOf<Int?>(null) }
-    var clipboardSuggestion by remember { mutableStateOf<String?>(null) }
-    var lastSeenClipboard by remember { mutableStateOf<String?>(null) }
+    // An ignored suggestion stays dismissed for this opening, but a later opening
+    // should inspect the current clipboard again, even if its text is unchanged.
+    var clipboardSuggestion by remember(open) { mutableStateOf<String?>(null) }
+    var lastSeenClipboard by remember(open) { mutableStateOf<String?>(null) }
     val currentProxy = state.proxies.firstOrNull { it.enabled }
     val sortedProxies = rankTelegramProxiesByLatency(state.proxies)
+    val isConnecting = connectionStatus in setOf(
+        TelegramConnectionStatus.STARTING,
+        TelegramConnectionStatus.CONNECTING_TO_PROXY,
+        TelegramConnectionStatus.CONNECTING,
+        TelegramConnectionStatus.UPDATING,
+    )
 
-    Surface(
-        onClick = { open = true },
-        modifier = Modifier.size(44.dp),
-        shape = CircleShape,
-        color = if (currentProxy != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
-            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.075f),
-        contentColor = if (currentProxy != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(Icons.Rounded.Shield, contentDescription = "Proxy settings", modifier = Modifier.size(22.dp))
+    if (showTrigger) {
+        Surface(
+            onClick = { open = true },
+            modifier = Modifier.size(44.dp),
+            shape = CircleShape,
+            color = if (currentProxy != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.075f),
+            contentColor = if (currentProxy != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Shield, contentDescription = "Proxy settings", modifier = Modifier.size(22.dp))
+            }
         }
     }
 
+    LaunchedEffect(openRequest) {
+        if (openRequest > 0) open = true
+    }
     LaunchedEffect(open) {
         if (open) onRefresh()
     }
@@ -136,11 +156,15 @@ internal fun TelegramProxyPanel(
 
     if (open) {
         Dialog(onDismissRequest = { open = false }) {
+            val shape = RoundedCornerShape(28.dp)
             Surface(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 650.dp),
-                shape = RoundedCornerShape(28.dp),
-                color = TelegramGlassChrome.base,
+                shape = shape,
+                color = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 tonalElevation = 8.dp,
+                shadowElevation = 12.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -155,6 +179,41 @@ internal fun TelegramProxyPanel(
                         }
                         IconButton(onClick = { open = false }) {
                             Icon(Icons.Rounded.Close, contentDescription = "Close proxy settings")
+                        }
+                    }
+                    HorizontalDivider(color = TelegramGlassChrome.stroke.copy(alpha = 0.55f))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.09f),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            if (isConnecting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    if (connectionStatus == TelegramConnectionStatus.CONNECTED) Icons.Rounded.Check else Icons.Rounded.Shield,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            Column {
+                                Text("Telegram connection", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    telegramProxyConnectionLabel(currentProxy != null, connectionStatus),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -177,10 +236,21 @@ internal fun TelegramProxyPanel(
                         )
                     }
                     state.errorMessage?.let { message ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(message, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error)
-                            TextButton(onClick = onClearError) { Text("Dismiss") }
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.09f), RoundedCornerShape(16.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Text("Proxy needs attention", style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                            Text(message, style = MaterialTheme.typography.bodySmall)
+                            Row(modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End) {
+                                TextButton(onClick = onRefresh,
+                                    enabled = !state.isLoading && !state.isChanging) { Text("Reload") }
+                                TextButton(onClick = onClearError) { Text("Dismiss") }
+                            }
                         }
                     }
                     if (state.isLoading || state.isChanging) {
@@ -287,6 +357,8 @@ internal fun TelegramProxyPanel(
     pendingRemoval?.let { id ->
         AlertDialog(
             onDismissRequest = { pendingRemoval = null },
+            shape = RoundedCornerShape(28.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
             title = { Text("Delete proxy?") },
             text = { Text("This removes the saved proxy. Your Telegram account and music are preserved.") },
             confirmButton = {
@@ -322,10 +394,18 @@ private fun AddTelegramProxyDialog(
     var password by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-
+    val parsedLink = remember(link) { TelegramProxyLinkParser.findIn(link) }
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(26.dp), color = TelegramGlassChrome.base,
-            modifier = Modifier.fillMaxWidth().heightIn(max = 650.dp), tonalElevation = 10.dp) {
+        val shape = RoundedCornerShape(28.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 650.dp),
+            shape = shape,
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 8.dp,
+            shadowElevation = 12.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -337,7 +417,15 @@ private fun AddTelegramProxyDialog(
                         Icon(Icons.Rounded.Close, contentDescription = "Close")
                     }
                 }
-                TelegramGlassInput(link, { link = it }, "Telegram proxy link", Modifier.fillMaxWidth())
+                HorizontalDivider(color = TelegramGlassChrome.stroke.copy(alpha = 0.55f))
+                TelegramGlassInput(link, { link = it; error = null }, "Telegram proxy link", Modifier.fillMaxWidth())
+                parsedLink?.let { draft ->
+                    Text(
+                        "${if (draft.kind == TelegramProxyKind.MTPROTO) "MTProto" else "SOCKS5"} proxy recognized: ${draft.server}:${draft.port}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 OutlinedButton(
                     onClick = { link = readProxyClipboard(context).orEmpty() },
                     modifier = Modifier.fillMaxWidth(),
@@ -348,7 +436,7 @@ private fun AddTelegramProxyDialog(
                 }
                 Button(
                     onClick = {
-                        if (TelegramProxyLinkParser.findIn(link) == null) {
+                        if (parsedLink == null) {
                             error = "Enter a valid Telegram proxy link."
                         } else onImport(link)
                     },

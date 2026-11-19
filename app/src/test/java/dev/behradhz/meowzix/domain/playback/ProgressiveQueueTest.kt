@@ -10,6 +10,86 @@ import org.junit.Test
 
 class ProgressiveQueueTest {
     @Test
+    fun `promoting first Next song into Queue changes its lane at same index`() {
+        val songs = tracks(14)
+        val queue = ProgressiveQueue()
+        queue.start(songs, 0, PlaybackMode.ORDERED, RepeatMode.OFF)
+        assertTrue(queue.append(songs[12]))
+        assertTrue(queue.append(songs[13]))
+        val before = requireNotNull(queue.snapshot())
+        val firstGenerated = (before.currentIndex + 1 until before.tracks.size)
+            .first { before.origins[it] == QueueItemOrigin.GENERATED }
+        val promotedOccurrence = before.occurrenceIds[firstGenerated]
+        val promotedTrack = before.tracks[firstGenerated].id
+
+        assertTrue(queue.move(firstGenerated, firstGenerated, QueueItemOrigin.MANUAL))
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(before.tracks.map { it.id }, after.tracks.map { it.id })
+        assertEquals(promotedOccurrence, after.occurrenceIds[firstGenerated])
+        assertEquals(QueueItemOrigin.MANUAL, after.origins[firstGenerated])
+        assertEquals(promotedTrack, after.tracks[firstGenerated].id)
+        assertFalse(queue.move(firstGenerated, firstGenerated, QueueItemOrigin.MANUAL))
+
+        // A manually promoted occurrence must also survive a listening-context reset.
+        queue.start(songs, 0, PlaybackMode.ORDERED, RepeatMode.OFF)
+        val retained = requireNotNull(queue.snapshot())
+        val newIndex = retained.occurrenceIds.indexOf(promotedOccurrence)
+        assertTrue(newIndex > retained.currentIndex)
+        assertEquals(QueueItemOrigin.MANUAL, retained.origins[newIndex])
+    }
+
+    @Test fun `promoting a Next occurrence preserves all previously queued occurrences`() {
+        val songs = tracks(12)
+        val queue = ProgressiveQueue()
+        queue.start(songs, 0, PlaybackMode.ORDERED, RepeatMode.OFF)
+        assertTrue(queue.append(songs[10]))
+        assertTrue(queue.append(songs[11]))
+        val before = requireNotNull(queue.snapshot())
+        val manual = (before.currentIndex + 1 until before.tracks.size)
+            .filter { before.origins[it] == QueueItemOrigin.MANUAL }
+            .map { before.occurrenceIds[it] }
+        assertEquals(2, manual.size)
+        val nextIndex = (before.currentIndex + 1 until before.tracks.size)
+            .first { before.origins[it] == QueueItemOrigin.GENERATED }
+        val movedId = before.occurrenceIds[nextIndex]
+        val lastManualIndex = before.occurrenceIds.indexOf(manual.last())
+        assertTrue(queue.move(nextIndex, lastManualIndex, QueueItemOrigin.MANUAL))
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(3, after.origins.drop(after.currentIndex + 1)
+            .takeWhile { it == QueueItemOrigin.MANUAL }.size)
+        assertEquals(manual, after.occurrenceIds.filter { it in manual })
+        for (occurrence in manual + movedId) {
+            val index = after.occurrenceIds.indexOf(occurrence)
+            assertTrue(index > after.currentIndex)
+            assertTrue(queue.isFixedOccurrence(index))
+            assertEquals(QueueItemOrigin.MANUAL, after.origins[index])
+        }
+    }
+
+    @Test
+    fun `cross section drag changes origin without disturbing the playing song`() {
+        val songs = tracks(10)
+        val queue = ProgressiveQueue()
+        queue.start(songs, 0, PlaybackMode.ORDERED, RepeatMode.OFF)
+        queue.append(songs[8])
+        queue.append(songs[9])
+        val before = requireNotNull(queue.snapshot())
+        val playingOccurrence = before.occurrenceIds[0]
+        val generated = (1 until before.tracks.size)
+            .first { before.origins[it] == QueueItemOrigin.GENERATED }
+        val movedId = before.occurrenceIds[generated + 1]
+
+        assertTrue(queue.move(generated + 1, 1, QueueItemOrigin.MANUAL))
+        val changed = requireNotNull(queue.snapshot())
+        assertEquals(playingOccurrence, changed.occurrenceIds[0])
+        assertEquals(movedId, changed.occurrenceIds[1])
+        assertEquals(QueueItemOrigin.MANUAL, changed.origins[1])
+        assertEquals(List(3) { QueueItemOrigin.MANUAL }, changed.origins.subList(1, 4))
+        assertEquals(QueueItemOrigin.GENERATED, changed.origins[4])
+    }
+
+
+    @Test
     fun `initial window contains current plus ten future tracks`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(1_000)
@@ -176,16 +256,21 @@ class ProgressiveQueueTest {
     }
 
     @Test
-    fun `add to queue still repositions existing tracks without adding duplicates`() {
+    fun `queueing a played track creates a separate manual occurrence without erasing history`() {
         val queue = ProgressiveQueue()
         val tracks = tracks(20)
         queue.start(tracks, 3, PlaybackMode.ORDERED, RepeatMode.OFF)
+        val before = requireNotNull(queue.snapshot())
+        val playedOccurrence = before.occurrenceIds[1]
 
         assertTrue(queue.append(tracks[1]))
         val snapshot = requireNotNull(queue.snapshot())
         assertEquals(tracks[3].id, snapshot.tracks[snapshot.currentIndex].id)
-        assertEquals(tracks[1].id, snapshot.tracks.last().id)
-        assertEquals(20, snapshot.tracks.size)
+        assertEquals(playedOccurrence, snapshot.occurrenceIds[1])
+        assertEquals(tracks[1].id, snapshot.tracks[snapshot.currentIndex + 1].id)
+        assertTrue(queue.isFixedOccurrence(snapshot.currentIndex + 1))
+        assertTrue(playedOccurrence != snapshot.occurrenceIds[snapshot.currentIndex + 1])
+        assertEquals(21, snapshot.tracks.size)
         assertEquals(20, snapshot.tracks.map { it.id }.distinct().size)
     }
 
@@ -454,19 +539,26 @@ class ProgressiveQueueTest {
     }
 
     @Test
-    fun `jumping to the ninety fifth generated item requests a batch once`() {
+    fun `jumping to the ninetieth or later generated item requests one batch`() {
         val songs = tracks(305)
-        val queue = ProgressiveQueue()
-        queue.start(songs.take(100), 0, PlaybackMode.ORDERED, RepeatMode.OFF,
-            sourceIds = songs.map { it.id }, pendingIds = songs.drop(100).map { it.id })
-        val plan = requireNotNull(queue.jumpTo(95))
-        assertEquals(95, requireNotNull(queue.snapshot()).generatedStarted)
-        val batch = requireNotNull(queue.claimGeneratedRefill())
-        assertEquals(100, batch.ids.size)
-        assertEquals(null, queue.claimGeneratedRefill())
-        assertTrue(queue.appendGeneratedBatch(batch, songs.drop(100).take(100)))
-        assertEquals(200, requireNotNull(queue.snapshot()).tracks.size)
-        assertEquals(ProgressiveQueue.PREVIOUS_WINDOW_SIZE, plan.startIndexInWindow)
+        for (target in listOf(90, 95, 120)) {
+            val queue = ProgressiveQueue()
+            queue.start(songs.take(150), 0, PlaybackMode.ORDERED, RepeatMode.OFF,
+                sourceIds = songs.map { it.id }, pendingIds = songs.drop(150).map { it.id })
+            // A refill must not start before the ninetieth generated song.
+            requireNotNull(queue.jumpTo(89))
+            assertEquals(89, requireNotNull(queue.snapshot()).generatedStarted)
+            assertEquals(null, queue.claimGeneratedRefill())
+
+            val plan = requireNotNull(queue.jumpTo(target))
+            assertEquals(target, requireNotNull(queue.snapshot()).generatedStarted)
+            val batch = requireNotNull(queue.claimGeneratedRefill())
+            assertEquals(100, batch.ids.size)
+            assertEquals(null, queue.claimGeneratedRefill())
+            assertTrue(queue.appendGeneratedBatch(batch, songs.drop(150).take(100)))
+            assertEquals(250, requireNotNull(queue.snapshot()).tracks.size)
+            assertEquals(ProgressiveQueue.PREVIOUS_WINDOW_SIZE, plan.startIndexInWindow)
+        }
     }
 
     @Test
@@ -500,6 +592,93 @@ class ProgressiveQueueTest {
         assertEquals(before.currentIndex, after.currentIndex)
         assertEquals(before.playbackMode, after.playbackMode)
         assertTrue(after.tracks.filter { it.id == songs[1].id }.all { it.contentUri == repaired.contentUri })
+    }
+
+    @Test
+    fun `async mode tail preserves current history manual priority and queued additions`() {
+        val queue = ProgressiveQueue()
+        val songs = tracks(250)
+        val source = songs.map { it.id }
+        queue.start(songs.take(100), 2, PlaybackMode.ORDERED, RepeatMode.ALL,
+            sourceIds = source, pendingIds = source.drop(100))
+        val before = requireNotNull(queue.snapshot())
+        val current = before.occurrenceIds[2]
+        queue.updatePlaybackMode(PlaybackMode.PURE_SHUFFLE)
+        assertTrue(queue.insertNext(songs[230]))
+        val ranked = songs.drop(3).asReversed()
+        assertTrue(queue.commitModeSwitch(
+            current, PlaybackMode.PURE_SHUFFLE, source, ranked.take(100),
+            ranked.drop(100).map { it.id }, 1234L,
+        ))
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(before.occurrenceIds.take(3), after.occurrenceIds.take(3))
+        assertEquals(before.tracks.take(3).map { it.id }, after.tracks.take(3).map { it.id })
+        assertEquals(songs[230].id, after.tracks[3].id)
+        assertTrue(queue.isFixedOccurrence(3))
+        assertEquals(1234L, after.shuffleSeed)
+        assertEquals(RepeatMode.ALL, after.repeatMode)
+        assertFalse(songs[230].id in after.pendingGeneratedIds)
+        assertEquals(1, after.tracks.count { it.id == songs[230].id })
+        assertEquals(source, after.sourceTrackIds)
+    }
+
+    @Test
+    fun `stale mode completion cannot mutate a newer mode or playback session`() {
+        val queue = ProgressiveQueue()
+        val songs = tracks(8)
+        val source = songs.map { it.id }
+        queue.start(listOf(songs[0]), 0, PlaybackMode.ORDERED, RepeatMode.OFF, sourceIds = source)
+        val occurrence = requireNotNull(queue.snapshot()).occurrenceIds[0]
+        queue.updatePlaybackMode(PlaybackMode.SMART_SHUFFLE)
+        queue.updatePlaybackMode(PlaybackMode.PURE_SHUFFLE)
+        assertFalse(queue.commitModeSwitch(
+            occurrence, PlaybackMode.SMART_SHUFFLE, source, songs.drop(1), emptyList(), null,
+        ))
+        queue.start(listOf(songs[0]), 0, PlaybackMode.PURE_SHUFFLE, RepeatMode.OFF, sourceIds = source)
+        assertFalse(queue.commitModeSwitch(
+            occurrence, PlaybackMode.PURE_SHUFFLE, source, songs.drop(1), emptyList(), 4L,
+        ))
+        assertEquals(listOf(songs[0].id), requireNotNull(queue.snapshot()).tracks.map { it.id })
+    }
+
+    @Test
+    fun `late manual addition is not duplicated in generated mode switch tail`() {
+        val queue = ProgressiveQueue()
+        val songs = tracks(9)
+        val source = songs.map { it.id }
+        queue.start(listOf(songs[0]), 0, PlaybackMode.ORDERED, RepeatMode.OFF, sourceIds = source)
+        val current = requireNotNull(queue.snapshot()).occurrenceIds[0]
+        queue.updatePlaybackMode(PlaybackMode.SMART_SHUFFLE)
+        assertTrue(queue.append(songs[4]))
+        assertTrue(queue.commitModeSwitch(
+            current, PlaybackMode.SMART_SHUFFLE, source,
+            songs.drop(1).take(5), songs.drop(6).map { it.id }, null,
+        ))
+        val after = requireNotNull(queue.snapshot())
+        assertEquals(songs[4].id, after.tracks[1].id)
+        assertEquals(1, after.tracks.count { it.id == songs[4].id })
+        assertEquals(9, after.tracks.size + after.pendingGeneratedIds.size)
+    }
+
+    @Test
+    fun `deleted source disappears from current future duplicates and generated candidates`() {
+        val queue = ProgressiveQueue()
+        val songs = tracks(6)
+        queue.start(
+            songs, 2, PlaybackMode.ORDERED, RepeatMode.OFF,
+            sourceIds = songs.map { it.id }, pendingIds = listOf(songs[2].id, songs[5].id),
+        )
+        assertTrue(queue.insertNext(songs[2]))
+        assertTrue(queue.removeUnavailableTrack(songs[2].id))
+        val snapshot = requireNotNull(queue.snapshot())
+
+        assertEquals(songs[3].id, snapshot.tracks[snapshot.currentIndex].id)
+        assertFalse(snapshot.tracks.any { it.id == songs[2].id })
+        assertFalse(songs[2].id in snapshot.pendingGeneratedIds)
+        assertFalse(songs[2].id in snapshot.sourceTrackIds)
+        queue.resetWindow()
+        assertEquals(songs[3].id,
+            requireNotNull(queue.snapshot()).tracks[requireNotNull(queue.snapshot()).currentIndex].id)
     }
 
     private fun tracks(count: Int): List<PlayableTrack> = List(count) { index ->

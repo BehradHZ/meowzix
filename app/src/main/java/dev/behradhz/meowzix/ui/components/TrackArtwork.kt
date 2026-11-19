@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -424,6 +425,7 @@ fun ChatAvatar(
     description: String,
     size: Dp = 48.dp,
     modifier: Modifier = Modifier,
+    shape: Shape? = null,
 ) {
     val density = LocalDensity.current
     val targetPixels = with(density) { (size * 2f).roundToPx() }
@@ -432,7 +434,7 @@ fun ChatAvatar(
     Box(
         modifier = modifier
             .size(size)
-            .clip(MaterialTheme.shapes.extraLarge)
+            .clip(shape ?: MaterialTheme.shapes.extraLarge)
             .background(MaterialTheme.colorScheme.secondaryContainer),
         contentAlignment = Alignment.Center,
     ) {

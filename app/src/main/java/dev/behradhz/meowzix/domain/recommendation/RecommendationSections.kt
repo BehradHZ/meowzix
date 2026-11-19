@@ -1,6 +1,8 @@
 package dev.behradhz.meowzix.domain.recommendation
 
 import dev.behradhz.meowzix.domain.history.TimeBucket
+import dev.behradhz.meowzix.domain.playback.ArtistBalancedShuffleEngine
+import dev.behradhz.meowzix.domain.playback.ArtistShuffleItem
 import java.util.UUID
 import kotlin.math.exp
 import kotlin.random.Random
@@ -84,7 +86,7 @@ object RecommendationRanking {
 class RecommendationSectionGenerator(private val similarity: TrackSimilarityCalculator = LocalTrackSimilarityCalculator()) {
     fun sections(pool: List<RankedRecommendationCandidate>, context: RecommendationContext, seed: Long,
         anchors: List<RankedRecommendationCandidate>, limit: Int = RecommendationConfig.SECTION_SIZE,
-        explorationPercent: Int = 0): List<RecommendationSection> {
+        explorationPercent: Int = 0, artistAlpha: Double = ArtistBalancedShuffleEngine.DEFAULT_ALPHA): List<RecommendationSection> {
         val timeEvidence = pool.count { it.candidate.time.starts >= MIN_TIME_BUCKET_STARTS }
         val timePool = if (timeEvidence >= MIN_TIME_BUCKET_CANDIDATES) {
             pool.map(::timeMixAdjusted)
@@ -94,8 +96,8 @@ class RecommendationSectionGenerator(private val similarity: TrackSimilarityCalc
             pool
         }
         val result = arrayListOf(
-            section(RecommendationSectionKind.FOR_YOU_NOW, pool, context, seed, limit, explorationPercent = explorationPercent),
-            section(RecommendationSectionKind.TIME_MIX, timePool, context, seed + 1, limit, explorationPercent = explorationPercent),
+            section(RecommendationSectionKind.FOR_YOU_NOW, pool, context, seed, limit, explorationPercent = explorationPercent, artistAlpha = artistAlpha),
+            section(RecommendationSectionKind.TIME_MIX, timePool, context, seed + 1, limit, explorationPercent = explorationPercent, artistAlpha = artistAlpha),
         )
         val positive = pool.filter { previouslyLiked(it) && !stronglyRejected(it) }
         val horizon = context.timestamp.minusSeconds(RecommendationConfig.REDISCOVER_DAYS * 86_400)
@@ -166,15 +168,15 @@ class RecommendationSectionGenerator(private val similarity: TrackSimilarityCalc
 
     private fun section(kind: RecommendationSectionKind, candidates: List<RankedRecommendationCandidate>,
         context: RecommendationContext, seed: Long, limit: Int, anchor: RankedRecommendationCandidate? = null,
-        explorationPercent: Int = 0): RecommendationSection {
-        val items = diverseOrder(candidates, seed, limit.coerceIn(0, 50), explorationPercent)
+        explorationPercent: Int = 0, artistAlpha: Double = ArtistBalancedShuffleEngine.DEFAULT_ALPHA): RecommendationSection {
+        val items = diverseOrder(candidates, seed, limit.coerceIn(0, 50), explorationPercent, artistAlpha)
         return RecommendationSection(kind, items, if (kind == RecommendationSectionKind.TIME_MIX) context.timeBucket else null,
             anchor?.candidate?.trackId, anchor?.title)
     }
 
     /** Sampling a top window + soft sequential artist penalty. Small one-artist libraries stay usable. */
     fun diverseOrder(pool: List<RankedRecommendationCandidate>, seed: Long, limit: Int,
-        explorationPercent: Int = 0): List<RecommendationItem> {
+        explorationPercent: Int = 0, artistAlpha: Double = ArtistBalancedShuffleEngine.DEFAULT_ALPHA): List<RecommendationItem> {
         val random = Random(seed)
         val remaining = pool.distinctBy { it.candidate.trackId }.sortedWith(compareByDescending<RankedRecommendationCandidate> { it.item.score.finalScore }.thenBy { it.candidate.trackId }).toMutableList()
         val output = ArrayList<RecommendationItem>()
@@ -206,6 +208,14 @@ class RecommendationSectionGenerator(private val similarity: TrackSimilarityCalc
             var roll = random.nextDouble() * weights.sum()
             var index = window.lastIndex
             for (i in window.indices) { roll -= weights[i]; if (roll <= 0.0) { index = i; break } }
+            if (exploring) {
+                // Shared weighted artist selector applies to exploration only, not the model ranker.
+                val chosen = ArtistBalancedShuffleEngine.pickExploration(
+                    window.map { ArtistShuffleItem(it.candidate.trackId, it.profile.artist) },
+                    recentArtists = artists, seed = random.nextLong(), alpha = artistAlpha,
+                )
+                index = window.indexOfFirst { it.candidate.trackId == chosen }
+            }
             val selected = window[index]
             val variety = selected.profile.artist != null && artists.any { it != null } && selected.profile.artist !in artists
             val reasons = ((if (exploring) listOf(RecommendationReason.DISCOVERY_PICK) else emptyList()) +

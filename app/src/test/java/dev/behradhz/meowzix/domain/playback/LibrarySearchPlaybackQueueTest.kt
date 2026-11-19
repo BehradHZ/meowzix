@@ -26,15 +26,22 @@ class LibrarySearchPlaybackQueueTest {
     }
 
     @Test
-    fun `non search library playback retains existing ordered tail behavior`() {
-        assertEquals(ids.drop(700), buildLibraryPlaybackQueue(ids, ids[700], PlaybackMode.ORDERED, fromSearch = false))
+    fun `normal Library selection also reaches the complete library after wrapping`() {
+        val ordered = buildLibraryPlaybackQueue(ids, ids[700], PlaybackMode.ORDERED, fromSearch = false)
+        assertEquals(ids.size, ordered.size)
+        assertEquals(ids[700], ordered.first())
+        assertEquals(ids.drop(700) + ids.take(700), ordered)
+        assertEquals(ids.size, ordered.distinct().size)
     }
 
     @Test
-    fun `missing selection falls back safely to requested track`() {
+    fun `missing selection remains first without discarding the rest of Library`() {
         val missing = UUID.randomUUID()
-        assertEquals(listOf(missing), buildLibraryPlaybackQueue(ids, missing, PlaybackMode.ORDERED, fromSearch = true))
+        assertEquals(listOf(missing) + ids, buildLibraryPlaybackQueue(ids, missing, PlaybackMode.ORDERED, fromSearch = true))
         assertEquals(listOf(missing), buildLibraryPlaybackQueue(emptyList(), missing, PlaybackMode.ORDERED, fromSearch = true))
+        for (mode in listOf(PlaybackMode.PURE_SHUFFLE, PlaybackMode.SMART_SHUFFLE)) {
+            assertEquals(listOf(missing) + ids, buildLibraryPlaybackQueue(ids, missing, mode, fromSearch = false))
+        }
     }
 
     @Test

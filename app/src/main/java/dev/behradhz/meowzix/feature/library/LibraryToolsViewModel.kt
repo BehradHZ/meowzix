@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.domain.library.LibraryToolsRepository
 import dev.behradhz.meowzix.domain.library.TrackMergeJournal
 import dev.behradhz.meowzix.domain.library.TrackMetadataOverride
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +46,9 @@ class LibraryToolsViewModel @Inject constructor(
     fun openDuplicates(trackId: UUID) = load(trackId, LibraryToolsPanel.DUPLICATES)
 
     suspend fun telegramMessageLink(trackId: UUID): String? = telegramRepository.messageLinkForTrack(trackId)
+    suspend fun telegramChatOrigin(trackId: UUID): TelegramTrackOrigin? = telegramRepository.chatOriginForTrack(trackId)
+    suspend fun refreshTelegramChatOrigin(trackId: UUID): TelegramTrackOrigin? =
+        telegramRepository.refreshChatOriginForTrack(trackId)
 
     fun dismiss() {
         _state.update { LibraryToolsUiState() }
@@ -84,7 +88,7 @@ class LibraryToolsViewModel @Inject constructor(
     }
 
     fun requestMerge(candidate: DuplicateCandidate) {
-        if (candidate.evidence == DuplicateEvidence.METADATA_AND_DURATION) {
+        if (candidate.evidence == DuplicateEvidence.SAME_TITLE_AND_ARTIST) {
             _state.update { it.copy(pendingMetadataMerge = candidate) }
         } else {
             merge(candidate, confirmMetadataOnly = false)

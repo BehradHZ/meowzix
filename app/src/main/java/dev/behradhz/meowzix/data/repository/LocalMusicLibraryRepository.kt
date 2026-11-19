@@ -19,10 +19,12 @@ import dev.behradhz.meowzix.data.localmedia.ScannedLocalTrack
 import dev.behradhz.meowzix.data.telegram.TdDownloadPriority
 import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import dev.behradhz.meowzix.data.telegram.toAudioCandidate
+import dev.behradhz.meowzix.data.telegram.findTelegramProfileAudio
 import dev.behradhz.meowzix.domain.library.LibraryTrack
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.library.QueueTrackStatus
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import java.io.File
@@ -36,6 +38,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -61,9 +65,79 @@ class LocalMusicLibraryRepository @Inject constructor(
     private val artworkDirectory = File(context.filesDir, "artwork")
     private var lastSuccessfulRefreshAtEpochMs: Long? = null
 
+    override suspend fun addToLibrary(trackId: UUID) {
+        dao.addToLibrary(trackId.toString())
+    }
+
+    override suspend fun removeFromLibrary(trackId: UUID) {
+        dao.removeFromLibrary(trackId.toString())
+    }
+
+    override suspend fun removeTracksFromLibrary(trackIds: List<UUID>) {
+        val ids = trackIds.distinct()
+        if (ids.isEmpty()) return
+        database.withTransaction {
+            ids.chunked(400).forEach { chunk ->
+                dao.removeTracksFromLibrary(chunk.map(UUID::toString))
+            }
+        }
+    }
+
+    override suspend fun addTracksToLibrary(trackIds: List<UUID>) {
+        database.withTransaction {
+            trackIds.distinct().chunked(400).forEach { ids ->
+                dao.addTracksToLibrary(ids.map(UUID::toString))
+            }
+        }
+    }
+
+    override suspend fun visibleTrackIds(trackIds: List<UUID>): Set<UUID> =
+        trackIds.chunked(400).flatMap { batch ->
+            dao.visibleTrackIds(batch.map { it.toString() })
+        }.mapTo(mutableSetOf()) { UUID.fromString(it) }
+
     override fun observeTracks(): Flow<List<Track>> = dao.observeAvailableTracks()
         .map { rows -> rows.map(TrackEntity::toDomain) }
         .flowOn(Dispatchers.Default)
+
+    override fun observeLocalTracks(): Flow<List<Track>> = dao.observeAvailableLocalTracks()
+        .map { rows -> rows.map(TrackEntity::toDomain) }
+        .flowOn(Dispatchers.Default)
+
+    override fun observeLocalTrackCount(): Flow<Int> = dao.observeAvailableLocalTrackCount()
+        .distinctUntilChanged()
+
+    override fun observeTrack(trackId: UUID): Flow<Track?> =
+        dao.observeTrackById(trackId.toString())
+            .map { entity -> entity?.toDomain() }
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun trackById(trackId: UUID): Track? =
+        dao.trackById(trackId.toString())?.toDomain()
+
+    override fun observeQueueTrackStatuses(trackIds: List<UUID>): Flow<Map<UUID, QueueTrackStatus>> {
+        val ids = trackIds.distinct()
+        if (ids.isEmpty()) return flowOf(emptyMap())
+
+        // SQLite bind limits and Queue size must not scale a query to all Library rows.
+        val windows = ids.chunked(400).map { batch ->
+            dao.observeQueueTrackStatuses(batch.map(UUID::toString)).map { rows ->
+                rows.associate { row ->
+                    UUID.fromString(row.id) to QueueTrackStatus(
+                        favorite = row.favorite,
+                        availability = when {
+                            row.hasOfflineSource -> LibraryTrackAvailability.OFFLINE
+                            row.hasCloudSource -> LibraryTrackAvailability.CLOUD
+                            else -> LibraryTrackAvailability.UNAVAILABLE
+                        },
+                    )
+                }
+            }
+        }
+        return combine(windows) { chunks ->
+            buildMap { chunks.forEach { putAll(it) } }
+        }.distinctUntilChanged().flowOn(Dispatchers.Default)
+    }
 
     override fun observeLibraryTracks(): Flow<List<LibraryTrack>> =
         combine(dao.observeAvailableTracks(), dao.observeActiveSources()) { tracks, sources ->
@@ -94,6 +168,7 @@ class LocalMusicLibraryRepository @Inject constructor(
         val scanned = scanner.scan()
         val now = Instant.now().toEpochMilli()
         var updatedCount = 0
+        var changedTrackIds = emptySet<String>()
 
         val plan = database.withTransaction {
             // These snapshots are loaded once per refresh. Crucially, candidate matching for a new
@@ -120,16 +195,16 @@ class LocalMusicLibraryRepository @Inject constructor(
                     existingTrack = null,
                     now = now,
                     pendingCandidates = pendingCandidates,
+                    isNewAfterBaseline = existingSources.isNotEmpty(),
                 )
             }
 
-            val unchangedSourceIds = mutableListOf<String>()
             reconciliation.toUpdate.forEach { match ->
                 val existingSource = existingSourcesById[match.existing.sourceId] ?: return@forEach
                 val existingTrack = existingTracksById[match.existing.trackId]
                 val existingLocalMedia = existingLocalMediaBySourceId[existingSource.id]
                 if (isUnchanged(match.scanned, existingSource, existingTrack, existingLocalMedia)) {
-                    unchangedSourceIds += existingSource.id
+                    // Unchanged rows are already available: writing their timestamps invalidates Paging.
                 } else {
                     mutations += prepareScannedItem(
                         item = match.scanned,
@@ -143,21 +218,20 @@ class LocalMusicLibraryRepository @Inject constructor(
             }
 
             persistMutationsInBatches(mutations)
+            changedTrackIds = mutations.mapTo(hashSetOf()) { it.track.id }
             updateAvailabilityInChunks(
-                unchangedSourceIds,
-                SourceAvailability.AVAILABLE_LOCAL,
-                now,
-            )
-            updateAvailabilityInChunks(
-                reconciliation.missingSourceIds,
+                reconciliation.missingSourceIds.filter {
+                    existingSourcesById[it]?.availability != SourceAvailability.MISSING
+                },
                 SourceAvailability.MISSING,
                 now,
             )
             reconciliation
         }
 
+        // Update the FTS rows for changed metadata only. A no-op scan writes nothing.
+        if (changedTrackIds.isNotEmpty()) searchIndexer.refreshTracks(changedTrackIds)
         lastSuccessfulRefreshAtEpochMs = now
-        searchIndexer.refreshAll()
         return LocalLibraryRefreshResult(
             discovered = plan.discovered,
             created = plan.toCreate.size,
@@ -247,10 +321,15 @@ class LocalMusicLibraryRepository @Inject constructor(
         }
 
         val telegram = telegramDao.telegramSourceForAnyAccountTrack(trackId) ?: return true
-        val message = runCatching {
-            client.send(TdApi.GetMessage(telegram.chatId, telegram.messageId))
+        val candidate = runCatching {
+            if (telegram.messageId < 0L) {
+                findTelegramProfileAudio(
+                    client, telegram.chatId, telegram.messageId, telegram.tdPersistentFileId,
+                )?.toAudioCandidate(telegram.messageId)
+            } else {
+                client.send(TdApi.GetMessage(telegram.chatId, telegram.messageId)).toAudioCandidate()
+            }
         }.getOrNull() ?: return false
-        val candidate = message.toAudioCandidate() ?: return true
         val artworkFileId = candidate.artworkFileId ?: return true
 
         val downloaded = runCatching {
@@ -289,6 +368,12 @@ class LocalMusicLibraryRepository @Inject constructor(
             val candidate = file.canonicalFile
             if (candidate.path.startsWith(previewRoot.path)) candidate.delete()
         }
+    }
+
+    override suspend fun shuffleArtists(trackIds: List<UUID>): Map<UUID, String?> = withContext(Dispatchers.Default) {
+        trackIds.distinct().chunked(400).flatMap { ids ->
+            dao.shuffleArtists(ids.map(UUID::toString))
+        }.associate { UUID.fromString(it.id) to it.artist }
     }
 
     override suspend fun availableLocalTracks(): List<PlayableTrack> {
@@ -381,6 +466,7 @@ class LocalMusicLibraryRepository @Inject constructor(
         existingTrack: TrackEntity?,
         now: Long,
         pendingCandidates: PendingCandidateIndex,
+        isNewAfterBaseline: Boolean = false,
     ): PreparedLocalMutation {
         val normalizedTitle = TextNormalizer.normalize(item.title) ?: "unknown track"
         val normalizedArtist = TextNormalizer.normalize(item.artist)
@@ -414,6 +500,8 @@ class LocalMusicLibraryRepository @Inject constructor(
             artworkRef = item.artworkRef ?: canonicalTrack?.artworkRef,
             favorite = canonicalTrack?.favorite ?: false,
             hidden = canonicalTrack?.hidden ?: false,
+            addedToLibrary = canonicalTrack?.addedToLibrary ?: false,
+            isUnheardNew = canonicalTrack?.isUnheardNew ?: isNewAfterBaseline,
             createdAtEpochMs = canonicalTrack?.createdAtEpochMs ?: now,
             updatedAtEpochMs = now,
         )
@@ -579,19 +667,3 @@ private fun localSourcePriority(source: TrackSourceEntity): Int = when (source.t
     else -> 3
 }
 
-private fun TrackEntity.toDomain() = Track(
-    id = UUID.fromString(id),
-    title = title,
-    normalizedTitle = normalizedTitle,
-    artist = artist,
-    normalizedArtist = normalizedArtist,
-    album = album,
-    durationMs = durationMs,
-    trackNumber = trackNumber,
-    year = year,
-    artworkRef = artworkRef,
-    favorite = favorite,
-    hidden = hidden,
-    createdAt = Instant.ofEpochMilli(createdAtEpochMs),
-    updatedAt = Instant.ofEpochMilli(updatedAtEpochMs),
-)

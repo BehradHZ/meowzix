@@ -36,7 +36,7 @@ class EmbeddedLyricsPersistenceTest {
     @After fun tearDown() { db.close() }
 
     @Test fun removeAllSuppressesRedetectionUntilExplicitlyRestored() = runBlocking {
-        val repo = RoomLyricsRepository(db, db.lyricsDao())
+        val repo = RoomLyricsRepository(db, db.lyricsDao(), ApplicationProvider.getApplicationContext())
         val label = "Detected from source-1"
         val automatic = repo.saveEmbedded(trackId, "[00:01.00]Auto", label)
         val manual = repo.savePlainText(trackId, "My lyrics")
@@ -65,7 +65,7 @@ class EmbeddedLyricsPersistenceTest {
     }
 
     @Test fun repeatedDetectionDoesNotDuplicateAndManualSelectionAlwaysWins() = runBlocking {
-        val repo = RoomLyricsRepository(db, db.lyricsDao())
+        val repo = RoomLyricsRepository(db, db.lyricsDao(), ApplicationProvider.getApplicationContext())
         val label = "Detected from source-1"
         val first = repo.saveEmbedded(trackId, "[00:01.00]Automatic", label)
         val duplicate = repo.saveEmbedded(trackId, "[00:01.00]Automatic", label)
@@ -84,4 +84,25 @@ class EmbeddedLyricsPersistenceTest {
         assertTrue(versions.any { it.sourceType == LyricsSourceType.EMBEDDED.name &&
             it.rawText == "[00:02.00]Updated" })
     }
+    @Test fun changingLyricsVisibilityDoesNotDeleteOrBlockAutomaticDetection() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val repo = RoomLyricsRepository(db, db.lyricsDao(), context)
+        val versionId = repo.savePlainText(trackId, "Keep these lyrics")
+
+        repo.setShowInPlayer(trackId, false)
+        val hidden = repo.observe(trackId).first()
+        assertTrue(!hidden.showInPlayer)
+        assertEquals(versionId, hidden.selected?.id)
+        assertEquals(1, hidden.versions.size)
+        assertTrue(!hidden.automaticDiscoveryDisabled)
+
+        val reopened = RoomLyricsRepository(db, db.lyricsDao(), context)
+        assertTrue(!reopened.observe(trackId).first().showInPlayer)
+        repo.setShowInPlayer(trackId, true)
+        val restored = reopened.observe(trackId).first()
+        assertTrue(restored.showInPlayer)
+        assertEquals(versionId, restored.selected?.id)
+        assertEquals(1, restored.versions.size)
+    }
+
 }

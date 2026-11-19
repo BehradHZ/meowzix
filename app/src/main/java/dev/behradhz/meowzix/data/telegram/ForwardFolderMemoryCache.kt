@@ -9,7 +9,7 @@ package dev.behradhz.meowzix.data.telegram
  * should not block on TDLib every time the picker opens.
  */
 internal class ForwardFolderMemoryCache<T>(
-    private val maxAgeMillis: Long = 5 * 60_000L,
+    private val maxAgeMillis: Long = 24 * 60 * 60_000L,
 ) {
     private data class Entry<T>(
         val accountId: String,
@@ -20,6 +20,8 @@ internal class ForwardFolderMemoryCache<T>(
     )
 
     @Volatile private var entry: Entry<T>? = null
+
+    fun clear() { entry = null }
 
     fun snapshot(
         accountId: String,

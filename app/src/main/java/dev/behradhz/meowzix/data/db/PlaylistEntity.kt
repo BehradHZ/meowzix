@@ -16,4 +16,5 @@ data class PlaylistEntity(
     @ColumnInfo(defaultValue = "0") val titleOverridden: Boolean = false,
     @ColumnInfo(defaultValue = "0") val descriptionOverridden: Boolean = false,
     @ColumnInfo(defaultValue = "0") val artworkOverridden: Boolean = false,
+    @ColumnInfo(defaultValue = "1") val newTrackHighlightEnabled: Boolean = true,
 )

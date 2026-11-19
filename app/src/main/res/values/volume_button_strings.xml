@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="volume_button_service_label">Meowzix volume buttons</string>
+    <string name="volume_button_service_description">Lets you hold the volume buttons to change tracks while Meowzix is playing. It uses only the volume buttons and does not read your screen. Lock screen support varies by device.</string>
+</resources>

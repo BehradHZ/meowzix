@@ -11,6 +11,7 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.playback.QueueItemOrigin
 import dev.behradhz.meowzix.domain.playback.QueueGroupKind
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RemoteTrackPlaybackResolver
@@ -22,6 +23,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +43,7 @@ class ResolvingPlaybackController @Inject constructor(
     private val sleepTimer: SleepTimerManager,
 ) : PlaybackController, QueueRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var librarySelectionJob: Job? = null
     private val _state = MutableStateFlow(delegate.state.value)
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
     override val queueState: StateFlow<QueueState> = delegate.queueState
@@ -213,6 +216,48 @@ class ResolvingPlaybackController @Inject constructor(
         }
     }
 
+    override fun playLibrarySelection(
+        trackId: UUID,
+        mode: PlaybackMode,
+        repeat: RepeatMode,
+        fromSearch: Boolean,
+        loadOrderedTrackIds: suspend () -> List<UUID>,
+    ) {
+        neutralizeTimerFadeForManualPlayback()
+        nextInitiator = PlaybackInitiator.USER
+        intentionalSkip = historyTrackId != null
+        // Resolving a remote song may suspend. A later Library tap wins.
+        librarySelectionJob?.cancel()
+        librarySelectionJob = scope.launch {
+            resolvingRemote = true
+            _state.value = delegate.state.value.copy(status = PlaybackStatus.PREPARING, errorMessage = null)
+            try {
+                val first = if (isLocal(trackId)) catalog.playableTrack(trackId)
+                    else remoteResolver.prepareForPlayback(trackId)
+                if (first == null) error("The selected track has no available playback source.")
+                // The controller owns catalog discovery after starting the selected song;
+                // leaving Library cannot cancel the queue continuation.
+                delegate.replaceAndPlayLibraryPrepared(first, mode, repeat, fromSearch, loadOrderedTrackIds)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                clearPendingSelection()
+                _state.value = delegate.state.value.copy(
+                    status = PlaybackStatus.ERROR,
+                    errorMessage = error.message ?: "Unable to prepare Library playback.",
+                )
+            } finally {
+                resolvingRemote = false
+            }
+        }
+    }
+
+    override fun attachFutureToSingleTrack(
+        expectedTrackId: UUID,
+        fullOrderedTrackIds: List<UUID>,
+        mode: PlaybackMode,
+    ) = delegate.attachFutureToSingleTrack(expectedTrackId, fullOrderedTrackIds, mode)
+
     override fun removeAt(index: Int) {
         val occurrenceId = queueState.value.items.getOrNull(index)?.occurrenceId ?: return
         removeOccurrence(occurrenceId)
@@ -230,6 +275,9 @@ class ResolvingPlaybackController @Inject constructor(
     }
 
     override fun move(fromIndex: Int, toIndex: Int) = delegate.move(fromIndex, toIndex)
+
+    override fun move(fromIndex: Int, toIndex: Int, destinationOrigin: QueueItemOrigin) =
+        delegate.move(fromIndex, toIndex, destinationOrigin)
 
     override fun clear() = delegate.clear()
 
@@ -311,10 +359,8 @@ class ResolvingPlaybackController @Inject constructor(
                     PlaybackMode.SMART_SHUFFLE -> PlaybackInitiator.SMART_SHUFFLE
                     PlaybackMode.ORDERED -> PlaybackInitiator.QUEUE
                 }
-                if (historyEnabledSafely()) {
-                    activeHistoryId = historySafely {
-                        history.startPlayback(newTrackId, initiator, playback.playbackMode).also { lastHistoryInstanceId = it }
-                    }
+                activeHistoryId = historySafely {
+                    history.startPlayback(newTrackId, initiator, playback.playbackMode).also { lastHistoryInstanceId = it }
                 }
                 nextInitiator = null
             }
@@ -327,7 +373,7 @@ class ResolvingPlaybackController @Inject constructor(
                 PlaybackMode.SMART_SHUFFLE -> PlaybackInitiator.SMART_SHUFFLE
                 PlaybackMode.ORDERED -> PlaybackInitiator.QUEUE
             }
-            if (historyEnabledSafely()) activeHistoryId = historySafely { history.startPlayback(newTrackId, initiator, playback.playbackMode).also { lastHistoryInstanceId = it } }
+            activeHistoryId = historySafely { history.startPlayback(newTrackId, initiator, playback.playbackMode).also { lastHistoryInstanceId = it } }
             nextInitiator = null
         }
         if (!occurrenceChanged && newTrackId == lastPlaybackState.currentTrack?.id && lastPlaybackState.status == PlaybackStatus.PLAYING) {
@@ -357,14 +403,6 @@ class ResolvingPlaybackController @Inject constructor(
     }
 
     private fun clearPendingSelection() { nextInitiator = null; intentionalSkip = false }
-
-    private suspend fun historyEnabledSafely(): Boolean = try {
-        settingsRepository.networkPlaybackSettings.first().listeningHistoryEnabled
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Throwable) {
-        false
-    }
 
     private suspend fun <T> historySafely(block: suspend () -> T): T? = try {
         block()

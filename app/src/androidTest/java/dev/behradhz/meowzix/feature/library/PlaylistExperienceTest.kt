@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.feature.library
 
 import android.graphics.Bitmap
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
@@ -13,6 +14,8 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -20,6 +23,7 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
@@ -62,6 +66,12 @@ class PlaylistExperienceTest {
         var deleted = 0
         var artist: UUID? = null
         var added: Pair<UUID, UUID>? = null
+        var bulkLibraryIds: List<UUID> = emptyList()
+        val addedToLibrary = mutableListOf<UUID>()
+        val removedFromLibrary = mutableListOf<UUID>()
+        val playedNextIds = mutableListOf<UUID>()
+        val queuedIds = mutableListOf<UUID>()
+        var profileRefreshCount = 0
     }
 
     private fun showDetail(
@@ -73,19 +83,35 @@ class PlaylistExperienceTest {
         dark: Boolean = true,
         artworkRef: String? = null,
         fontScale: Float = 1f,
+        telegramPerson: Boolean = false,
+        profileSongIds: Set<UUID> = emptySet(),
+        chatSongIds: Set<UUID> = songs.map(Track::id).toSet() - profileSongIds,
+        librarySongIds: Set<UUID> = emptySet(),
+        newSongIds: Set<UUID> = emptySet(),
+        onNewInteraction: (Track) -> Unit = {},
     ): Calls {
+        val membership = mutableStateOf(librarySongIds)
+        val unseenIds = mutableStateOf(newSongIds)
+        val collapsedSections = mutableStateOf(emptySet<String>())
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
                 MeowzixTheme(darkTheme = dark) {
                     PlaylistDetailScreenV3(
-                        playlist = if (favorites) null else playlist.copy(artworkRef = artworkRef),
+                        playlist = if (favorites) null else playlist.copy(
+                            artworkRef = artworkRef, telegramManaged = telegramPerson,
+                        ),
                         title = if (favorites) "Favorites" else playlist.title,
                         tracks = songs,
                         artworkRef = artworkRef,
                         editable = editable,
                         canEditMetadata = canEditMetadata,
                         isFavorites = favorites,
+                        newTrackIds = unseenIds.value,
+                        onTrackInteracted = { song ->
+                            onNewInteraction(song)
+                            unseenIds.value = unseenIds.value - song.id
+                        },
                         currentTrackId = songs.firstOrNull()?.id,
                         availability = songs.associate { it.id to LibraryTrackAvailability.CLOUD },
                         downloads = emptyMap(),
@@ -94,11 +120,43 @@ class PlaylistExperienceTest {
                         onSaveMetadata = { title, description, artwork -> calls.saved = Triple(title, description, artwork) },
                         onPlay = { queue, mode -> calls.plays.add(queue.map(Track::id) to mode) },
                         onPlayTrack = { song, queue -> calls.plays.add(queue.map(Track::id) to PlaybackMode.ORDERED) },
-                        onPlayNext = { calls.next++ },
-                        onAddToQueue = { calls.queue++ },
+                        onPlayNext = { calls.next++; calls.playedNextIds += it.id },
+                        onAddToQueue = { calls.queue++; calls.queuedIds += it.id },
                         onPinOffline = { calls.downloads++ },
                         onFavorite = { calls.favorites++ },
+                        libraryTrackIds = membership.value,
+                        onAddToLibrary = { song ->
+                            calls.addedToLibrary += song.id
+                            membership.value = membership.value + song.id
+                        },
+                        onRemoveTrack = if (telegramPerson) ({
+                            song: Track, offline: Boolean, fromLibrary: Boolean ->
+                            if (fromLibrary && !offline) {
+                                calls.removedFromLibrary += song.id
+                                membership.value = membership.value - song.id
+                            }
+                        }) else null,
                         onAddToPlaylist = { song, id -> calls.added = song.id to id },
+                        telegramPerson = telegramPerson,
+                        profileTrackIds = profileSongIds,
+                        messageTrackIds = chatSongIds,
+                        onRefreshProfile = { calls.profileRefreshCount++ },
+                        collapsedTelegramSections = collapsedSections.value,
+                        onTelegramSectionExpandedChange = { section, expanded ->
+                            val key = dev.behradhz.meowzix.domain.settings.telegramPlaylistSectionKey(
+                                playlist.id, section,
+                            )
+                            collapsedSections.value = if (expanded) {
+                                collapsedSections.value - key
+                            } else {
+                                collapsedSections.value + key
+                            }
+                        },
+                        onBulkAddToLibrary = { calls.bulkLibraryIds = it.map(Track::id) },
+                        onBulkRemoveFromLibrary = { selected ->
+                            calls.removedFromLibrary.addAll(selected.map(Track::id))
+                            membership.value = membership.value - selected.map(Track::id).toSet()
+                        },
                         onGoToArtist = { calls.artist = it.id },
                         onMove = { from, to -> calls.moves.add(from to to) },
                         onRemove = { calls.removed = it.id },
@@ -121,11 +179,200 @@ class PlaylistExperienceTest {
         compose.onNode(hasContentDescription("Track actions") and hasAnyAncestor(hasTestTag(tag)), useUnmergedTree = true).performClick()
     }
 
+    @Test fun newBadgeSurvivesTapUntilPlaybackAndOverflowButtonsStayAligned() {
+        val newTrack = tracks[0]
+        val seenTrack = tracks[1]
+        val touched = mutableListOf<UUID>()
+        showDetail(
+            songs = listOf(newTrack, seenTrack),
+            newSongIds = setOf(newTrack.id),
+            onNewInteraction = { touched += it.id },
+        )
+        val newTag = "playlist-track:${newTrack.id}"
+        val seenTag = "playlist-track:${seenTrack.id}"
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(newTag))
+        val newMenu = compose.onNode(
+            hasContentDescription("Track actions") and hasAnyAncestor(hasTestTag(newTag)),
+            useUnmergedTree = true,
+        ).getUnclippedBoundsInRoot()
+        val dot = compose.onNode(
+            hasContentDescription("New song") and hasAnyAncestor(hasTestTag(newTag)),
+            useUnmergedTree = true,
+        ).getUnclippedBoundsInRoot()
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(seenTag))
+        val seenMenu = compose.onNode(
+            hasContentDescription("Track actions") and hasAnyAncestor(hasTestTag(seenTag)),
+            useUnmergedTree = true,
+        ).getUnclippedBoundsInRoot()
+        assertTrue("New dot should be right of the overflow icon", dot.left >= newMenu.right)
+        assertEquals("Overflow buttons must share the same x-position", newMenu.left.value, seenMenu.left.value, 1f)
+
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(newTag))
+        compose.onNodeWithText(newTrack.title).performClick()
+        compose.mainClock.advanceTimeBy(650)
+        compose.waitForIdle()
+        compose.runOnIdle { assertTrue(touched.isEmpty()) }
+        compose.onNodeWithContentDescription("New song").assertExists()
+    }
+
+    @Test fun downloadingNewSongDoesNotMarkItAsPlayed() {
+        val song = tracks.first()
+        val touched = mutableListOf<UUID>()
+        val calls = showDetail(
+            songs = listOf(song),
+            newSongIds = setOf(song.id),
+            onNewInteraction = { touched += it.id },
+        )
+        val tag = "playlist-track:${song.id}"
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
+        compose.onNode(
+            hasContentDescription("Download") and hasAnyAncestor(hasTestTag(tag)),
+            useUnmergedTree = true,
+        ).performClick()
+        compose.runOnIdle {
+            assertEquals(1, calls.downloads)
+            assertTrue(touched.isEmpty())
+        }
+        compose.onNodeWithContentDescription("New song").assertExists()
+    }
+
+    @Test fun chatPlaylistDeepSwipeTogglesLibraryMembershipWithoutRemovingChatTrack() {
+        val song = tracks.first()
+        val calls = showDetail(
+            editable = false,
+            telegramPerson = true,
+            chatSongIds = setOf(song.id),
+            songs = listOf(song),
+        )
+        val tag = "playlist-track:${song.id}"
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
+        compose.onNodeWithTag(tag).performTouchInput { swipeRight() }
+        compose.runOnIdle {
+            assertEquals(listOf(song.id), calls.addedToLibrary)
+            assertTrue(calls.removedFromLibrary.isEmpty())
+            assertEquals(0, calls.next)
+            assertEquals(0, calls.queue)
+        }
+
+        // Membership changed: the same deep swipe in the other direction now removes
+        // only Library membership and leaves the Telegram chat track visible.
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
+        compose.onNodeWithTag(tag).performTouchInput { swipeLeft() }
+        compose.runOnIdle {
+            assertEquals(listOf(song.id), calls.removedFromLibrary)
+            assertEquals(0, calls.next)
+            assertEquals(0, calls.queue)
+        }
+        compose.onNodeWithTag("playlist-detail-list").performScrollToNode(hasTestTag(tag))
+        compose.onNodeWithTag(tag).assertExists()
+    }
+
+    @Test fun bulkRemoveFromLibrarySkipsSelectedSongsNotInLibrary() {
+        val members = setOf(tracks.first().id, tracks.last().id)
+        val calls = showDetail(
+            editable = false,
+            telegramPerson = true,
+            librarySongIds = members,
+        )
+        compose.onNodeWithTag("playlist-header-select").performClick()
+        compose.onNodeWithContentDescription("Select all").performClick()
+        compose.onNodeWithContentDescription("More selection actions").performClick()
+        compose.onNodeWithText("Remove selected from Library").performClick()
+        compose.onNodeWithText("Remove 2 songs from Library?").assertIsDisplayed()
+        compose.onNodeWithText("Remove 2").performClick()
+        compose.runOnIdle { assertEquals(members, calls.removedFromLibrary.toSet()) }
+    }
+
+    @Test fun personPlaylistSeparatesProfileAndChatAndBulkAddsOnlySelectedSongs() {
+        val calls = showDetail(
+            editable = false,
+            telegramPerson = true,
+            profileSongIds = setOf(tracks.first().id),
+            chatSongIds = tracks.map(Track::id).toSet(),
+        )
+        scrollToText("Profile music")
+        compose.onNodeWithText("Profile music").assertIsDisplayed()
+        scrollToText("Shared in chat")
+        compose.onNodeWithText("Shared in chat").assertIsDisplayed()
+
+        compose.onNodeWithTag("playlist-header-select").performClick()
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("playlist-select:${tracks.first().id}"))
+        // A profile track can also appear in the chat section; both rows select one Track ID.
+        compose.onAllNodesWithTag("playlist-select:${tracks.first().id}").onFirst().performClick()
+        compose.onNodeWithText("Selected 1").assertIsDisplayed()
+        compose.onNodeWithContentDescription("More selection actions").performClick()
+        compose.onNodeWithText("Add selected to Library").performClick()
+        compose.runOnIdle {
+            assertEquals(listOf(tracks.first().id), calls.bulkLibraryIds)
+            assertTrue(calls.plays.isEmpty())
+        }
+        // The bulk panel is gone: successful actions return to the normal playlist chrome.
+        compose.onNodeWithTag("playlist-header-select").assertIsDisplayed()
+    }
+
+    @Test fun telegramProfileAndChatSectionsCollapseIndependently() {
+        val profileSong = tracks[0]
+        val chatSong = tracks[1]
+        showDetail(
+            editable = false,
+            telegramPerson = true,
+            songs = listOf(profileSong, chatSong),
+            profileSongIds = setOf(profileSong.id),
+            chatSongIds = setOf(chatSong.id),
+        )
+
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("playlist-section:Profile music"))
+        compose.onNodeWithContentDescription("Collapse Profile music").assertExists()
+        compose.onNodeWithTag("playlist-section:Profile music").performClick()
+        compose.onNodeWithContentDescription("Expand Profile music").assertExists()
+        compose.onNodeWithTag("playlist-track:${profileSong.id}").assertDoesNotExist()
+
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("playlist-section:Shared in chat"))
+        compose.onNodeWithContentDescription("Collapse Shared in chat").assertExists()
+        compose.onNodeWithTag("playlist-section:Shared in chat").performClick()
+        compose.onNodeWithContentDescription("Expand Shared in chat").assertExists()
+        compose.onNodeWithTag("playlist-track:${chatSong.id}").assertDoesNotExist()
+
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("playlist-section:Profile music"))
+        compose.onNodeWithTag("playlist-section:Profile music").performClick()
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("playlist-track:${profileSong.id}"))
+        compose.onNodeWithTag("playlist-track:${profileSong.id}").assertExists()
+    }
+
+    @Test fun playlistActionsQueueAllTracksInCorrectOrder() {
+        val calls = showDetail()
+        scrollToText("Play")
+        compose.onNodeWithTag("playlist-action:Play next").performClick()
+        compose.onNodeWithTag("playlist-action:Add to queue").performClick()
+        compose.runOnIdle {
+            assertEquals(tracks.map(Track::id).reversed(), calls.playedNextIds)
+            assertEquals(tracks.map(Track::id), calls.queuedIds)
+        }
+    }
+
+    @Test fun personPlaylistHasAnIndependentProfileRefreshAction() {
+        val calls = showDetail(
+            editable = false,
+            telegramPerson = true,
+            profileSongIds = setOf(tracks.first().id),
+        )
+        compose.onNodeWithTag("playlist-detail-list")
+            .performScrollToNode(hasTestTag("telegram-profile-refresh"))
+        compose.onNodeWithTag("telegram-profile-refresh").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, calls.profileRefreshCount) }
+    }
+
     @Test fun playbackModesRemainSeparateAndRespectDisplayedOrder() {
         val calls = showDetail()
-        listOf("Play", "Shuffle", "Smart").forEach { label ->
-            scrollToText(label)
-            compose.onNodeWithText(label).performClick()
+        scrollToText("Play")
+        compose.onNodeWithTag("playlist-play").performClick()
+        listOf("Shuffle", "Smart Shuffle").forEach { label ->
+            compose.onNodeWithTag("playlist-action:$label").performClick()
         }
         compose.runOnIdle {
             assertEquals(listOf(PlaybackMode.ORDERED, PlaybackMode.PURE_SHUFFLE, PlaybackMode.SMART_SHUFFLE), calls.plays.map { it.second })
@@ -155,6 +402,39 @@ class PlaylistExperienceTest {
         compose.onNodeWithText("Sort · Name").performClick()
         compose.onNodeWithText("Custom").performClick()
         compose.onNodeWithText("Group by · None").assertIsDisplayed()
+    }
+
+    @Test fun newPlaylistEditorWaitsForSaveAndCanBeCancelled() {
+        var saved: Triple<String, String?, String?>? = null
+        var cancelled = 0
+        compose.setContent {
+            MeowzixTheme {
+                PlaylistEditScreenV3(
+                    initialTitle = "Playlist 3",
+                    initialDescription = null,
+                    initialArtworkRef = null,
+                    telegramManaged = false,
+                    isModified = false,
+                    onRestore = {},
+                    creating = true,
+                    onBack = { cancelled++ },
+                    onSave = { title, description, artwork -> saved = Triple(title, description, artwork) },
+                )
+            }
+        }
+        compose.onNodeWithTag("playlist-edit-list").performScrollToNode(hasText("Playlist name"))
+        compose.onNodeWithText("Playlist name").performTextReplacement("  Weekend mix  ")
+        compose.onNodeWithText("Description").performTextReplacement("  Great tracks.  ")
+        compose.runOnIdle { assertEquals(null, saved) }
+        compose.onNodeWithContentDescription("Cancel").performClick()
+        compose.runOnIdle {
+            assertEquals(1, cancelled)
+            assertEquals(null, saved)
+        }
+        compose.onNodeWithContentDescription("Create playlist").performClick()
+        compose.runOnIdle {
+            assertEquals(Triple("Weekend mix", "Great tracks.", null), saved)
+        }
     }
 
     @Test fun editingValidatesNameAndSavesTrimmedMetadata() {
@@ -311,18 +591,40 @@ class PlaylistExperienceTest {
     @Test fun emptyFavoritesDisableAllPlaybackModesInLargeText() {
         showDetail(songs = emptyList(), editable = false, favorites = true, dark = false, fontScale = 1.5f)
         compose.onNodeWithContentDescription("Delete playlist").assertDoesNotExist()
-        listOf("Play", "Shuffle", "Smart").forEach { text ->
-            scrollToText(text)
-            compose.onNodeWithText(text).assertIsNotEnabled()
+        scrollToText("Play")
+        compose.onNodeWithTag("playlist-play").assertIsNotEnabled()
+        listOf("Shuffle", "Smart Shuffle", "Play next", "Add to queue").forEach { label ->
+            compose.onNodeWithTag("playlist-action:$label").assertIsNotEnabled()
         }
         scrollToText("Favorite a track and it will appear here.")
         compose.onNodeWithText("Favorite a track and it will appear here.").assertIsDisplayed()
         capture("favorites-empty-large-text")
     }
 
+    @Test fun collapsedHeaderAppearsOnlyAfterHeroSummaryScrollsBehindIt() {
+        // A short playlist fits the viewport and cannot scroll the hero behind the header.
+        val songs = (1..24).map { track("Song $it", "Artist $it") }
+        showDetail(telegramPerson = true, songs = songs)
+        compose.onNodeWithTag("playlist-hero-artwork").assertIsDisplayed()
+        compose.onNodeWithTag("playlist-hero-summary").assertIsDisplayed()
+        compose.onNodeWithTag("playlist-collapsed-header").assertDoesNotExist()
+        compose.onNodeWithText("Telegram · Synced").assertDoesNotExist()
+
+        compose.onNodeWithTag("playlist-detail-list").performScrollToIndex(1)
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        compose.onNodeWithTag("playlist-collapsed-header").assertIsDisplayed()
+        compose.onNodeWithTag("playlist-header-select").assertIsDisplayed()
+
+        compose.onNodeWithTag("playlist-detail-list").performScrollToIndex(0)
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        compose.onNodeWithTag("playlist-collapsed-header").assertDoesNotExist()
+    }
+
     @Test fun darkDetailAndEditorRenderWithAllControls() {
         showDetail()
-        // The playlist title legitimately appears in the sticky header and the card.
+        // The playlist title is shown in the hero until the compact header takes over.
         compose.onAllNodesWithText(playlist.title)[0].assertIsDisplayed()
         capture("playlist-detail-dark")
         compose.onNodeWithContentDescription("Edit playlist").performClick()

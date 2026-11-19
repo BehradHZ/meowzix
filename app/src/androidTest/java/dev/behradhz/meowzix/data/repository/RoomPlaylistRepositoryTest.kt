@@ -11,6 +11,9 @@ import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
+import dev.behradhz.meowzix.data.db.TelegramSelectedSourceEntity
+import dev.behradhz.meowzix.data.db.TelegramTrackSourceEntity
+import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -35,6 +38,21 @@ class RoomPlaylistRepositoryTest {
 
     @After
     fun tearDown() = database.close()
+
+    @Test
+    fun creatingPlaylistPersistsEditedMetadataAtomically() = runTest {
+        val playlistId = repository.create(
+            "  Late night  ",
+            "  Music for the drive.  ",
+            "  content://test/cover  ",
+        )
+
+        val saved = database.playlistDao().allPlaylists().single()
+        assertEquals(playlistId.toString(), saved.id)
+        assertEquals("Late night", saved.title)
+        assertEquals("Music for the drive.", saved.description)
+        assertEquals("content://test/cover", saved.artworkRef)
+    }
 
     @Test
     fun playlistOrderPersistsAndCanBeReordered() = runTest {
@@ -84,6 +102,46 @@ class RoomPlaylistRepositoryTest {
         assertEquals(listOf(retainedId), repository.observePlaylists().first().map { it.id })
         assertEquals(listOf(trackIds.first()), repository.observeTracks(retainedId).first().map { it.id })
         assertEquals(trackIds.toSet(), database.libraryDao().allTracks().map { UUID.fromString(it.id) }.toSet())
+    }
+
+    @Test
+    fun hiddenLibrarySongRemainsInTelegramChatButNotInPersonalPlaylist() = runTest {
+        val trackId = UUID.randomUUID()
+        database.libraryDao().upsertTrack(track(trackId, 0))
+        database.libraryDao().upsertSource(TrackSourceEntity(
+            id = "source-$trackId", trackId = trackId.toString(),
+            type = TrackSourceType.LOCAL_MEDIASTORE,
+            availability = SourceAvailability.AVAILABLE_LOCAL,
+            contentUri = "content://media/$trackId", localPath = null,
+            mimeType = "audio/mpeg", fileSizeBytes = 1,
+            contentHashSha256 = null, trainingEligible = true,
+            createdAtEpochMs = 1, lastVerifiedAtEpochMs = 1,
+        ))
+
+        val chatId = UUID.randomUUID()
+        database.playlistDao().upsertPlaylist(PlaylistEntity(
+            id = chatId.toString(), title = "Telegram chat",
+            createdAtEpochMs = 1, updatedAtEpochMs = 1,
+            telegramManaged = true,
+        ))
+        val personalId = repository.create("Personal playlist")
+        repository.addTrack(chatId, trackId)
+        repository.addTrack(personalId, trackId)
+
+        database.libraryDao().removeFromLibrary(trackId.toString())
+
+        assertEquals(listOf(trackId), repository.observeTracks(chatId).first().map { it.id })
+        assertEquals(listOf(trackId), database.playlistDao().browseTracks(chatId.toString(), 10, 0).map { UUID.fromString(it.id) })
+        assertEquals(1, repository.observePlaylists().first().first { it.id == chatId }.trackCount)
+        assertEquals(1, database.playlistDao().browsePlaylist(chatId.toString())!!.trackCount)
+
+        assertEquals(emptyList<UUID>(), repository.observeTracks(personalId).first().map { it.id })
+        assertEquals(0, repository.observePlaylists().first().first { it.id == personalId }.trackCount)
+
+        // Re-adding the same logical track is safe and restores normal visibility.
+        database.libraryDao().addToLibrary(trackId.toString())
+        assertEquals(listOf(trackId), repository.observeTracks(personalId).first().map { it.id })
+        assertEquals(listOf(trackId), repository.observeTracks(chatId).first().map { it.id })
     }
 
     @Test
@@ -168,6 +226,83 @@ class RoomPlaylistRepositoryTest {
         assertEquals(listOf(manualId.toString()), database.playlistDao().browsePlaylists(100, 0).map { it.id })
         assertNull(database.playlistDao().browsePlaylist(legacyId.toString()))
         assertEquals(2, database.playlistDao().allPlaylists().size)
+    }
+
+    @Test
+    fun firstInteractionClearsNewStatusAcrossChatsAndLastPlaylistBadge() = runTest {
+        val id = UUID.randomUUID()
+        val account = "1234"
+        val chats = listOf(41L, 42L)
+        database.libraryDao().upsertTrack(track(id, 0))
+        chats.forEach { chatId ->
+            database.telegramDao().upsertSelectedSource(
+                TelegramSelectedSourceEntity(
+                    accountId = account, chatId = chatId, title = "Chat $chatId",
+                    kind = "PRIVATE", newestMessageId = null,
+                    initialScanComplete = true, lastSyncedAtEpochMs = null,
+                ),
+            )
+            val sourceId = "tg-source-$chatId"
+            database.libraryDao().upsertSource(
+                TrackSourceEntity(
+                    id = sourceId, trackId = id.toString(), type = TrackSourceType.TELEGRAM_REMOTE,
+                    availability = SourceAvailability.REMOTE_ONLY,
+                    contentUri = "tg://test/$chatId", localPath = null, mimeType = "audio/mpeg",
+                    fileSizeBytes = 1L, contentHashSha256 = null, trainingEligible = true,
+                    createdAtEpochMs = 1L, lastVerifiedAtEpochMs = 1L,
+                ),
+            )
+            database.telegramDao().upsertTelegramTrackSource(
+                TelegramTrackSourceEntity(
+                    trackSourceId = sourceId, accountId = account, chatId = chatId,
+                    messageId = chatId shl 20, tdFileId = null, tdPersistentFileId = null,
+                    fileName = null, telegramTitle = null, telegramPerformer = null,
+                    remoteRevisionKey = null, isUnheardNew = true,
+                ),
+            )
+        }
+        chats.forEach { chatId ->
+            assertEquals(setOf(id), repository.observeUnheardNewTracks().first()[telegramPlaylistId(account, chatId)])
+        }
+        repository.markNewTrackSeen(id)
+        assertEquals(emptyMap<UUID, Set<UUID>>(), repository.observeUnheardNewTracks().first())
+        // A second interaction remains harmless and cannot reinstate the indicator.
+        repository.markNewTrackSeen(id)
+        assertEquals(emptyMap<UUID, Set<UUID>>(), repository.observeUnheardNewTracks().first())
+    }
+
+    @Test
+    fun localMusicQueryTracksMediaStoreAvailabilityAndBulkLibraryRemoval() = runTest {
+        val first = UUID.randomUUID()
+        val second = UUID.randomUUID()
+        val remote = UUID.randomUUID()
+        listOf(first, second, remote).forEachIndexed { index, id ->
+            database.libraryDao().upsertTrack(track(id, index))
+            database.libraryDao().upsertSource(TrackSourceEntity(
+                id = "source-$id", trackId = id.toString(),
+                type = if (id == remote) TrackSourceType.TELEGRAM_REMOTE else TrackSourceType.LOCAL_MEDIASTORE,
+                availability = if (id == remote) SourceAvailability.REMOTE_ONLY else SourceAvailability.AVAILABLE_LOCAL,
+                contentUri = if (id == remote) null else "content://media/$id",
+                localPath = null, mimeType = "audio/mpeg", fileSizeBytes = 1L,
+                contentHashSha256 = null, trainingEligible = true,
+                createdAtEpochMs = 1L, lastVerifiedAtEpochMs = 1L,
+            ))
+        }
+        val dao = database.libraryDao()
+        assertEquals(2, dao.observeAvailableLocalTrackCount().first())
+        assertEquals(setOf(first, second), dao.observeAvailableLocalTracks().first().map { UUID.fromString(it.id) }.toSet())
+
+        // Mixed selections must not delete any TrackSource or original audio.
+        dao.removeTracksFromLibrary(listOf(first.toString(), remote.toString()))
+        assertEquals(setOf(second), dao.observeAvailableLocalTracks().first().map { UUID.fromString(it.id) }.toSet())
+        assertEquals(1, dao.observeAvailableLocalTrackCount().first())
+        assertEquals(3, dao.allTracks().size)
+        assertEquals(3, dao.allSources().size)
+
+        dao.addToLibrary(first.toString())
+        assertEquals(2, dao.observeAvailableLocalTrackCount().first())
+        dao.updateAvailability(listOf("source-$second"), SourceAvailability.MISSING, 2L)
+        assertEquals(1, dao.observeAvailableLocalTrackCount().first())
     }
 
     private fun track(id: UUID, index: Int) = TrackEntity(

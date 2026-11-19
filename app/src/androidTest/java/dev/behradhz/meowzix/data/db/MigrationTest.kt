@@ -324,6 +324,48 @@ class MigrationTest {
         database.close()
     }
 
+    @Test
+    fun migrateTwentyToTwentyOneKeepsExistingSongsSeenAndRetainsTelegramUnread() {
+        // v20.json was never checked in, so construct it through production migrations.
+        val database = helper.createDatabase(TEST_DATABASE_20_21, 16)
+        database.execSQL(
+            "INSERT INTO tracks(id, title, normalizedTitle, durationMs, favorite, hidden, createdAtEpochMs, updatedAtEpochMs) " +
+                "VALUES ('already-seen', 'Old', 'old', 120000, 0, 0, 1, 1)",
+        )
+        database.execSQL(
+            "INSERT INTO tracks(id, title, normalizedTitle, durationMs, favorite, hidden, createdAtEpochMs, updatedAtEpochMs) " +
+                "VALUES ('telegram-new', 'New', 'new', 120000, 0, 0, 2, 2)",
+        )
+        database.execSQL(
+            "INSERT INTO track_sources(id, trackId, type, availability, trainingEligible, createdAtEpochMs) " +
+                "VALUES ('telegram-source', 'telegram-new', 'TELEGRAM_REMOTE', 'REMOTE_ONLY', 1, 2)",
+        )
+        database.execSQL(
+            "INSERT INTO telegram_track_sources(trackSourceId, accountId, chatId, messageId) " +
+                "VALUES ('telegram-source', 'account', 123, 456)",
+        )
+
+        MIGRATION_16_17.migrate(database)
+        MIGRATION_17_18.migrate(database)
+        MIGRATION_18_19.migrate(database)
+        MIGRATION_19_20.migrate(database)
+        database.execSQL(
+            "UPDATE telegram_track_sources SET isUnheardNew = 1 WHERE trackSourceId = 'telegram-source'",
+        )
+        MIGRATION_20_21.migrate(database)
+        database.version = 21
+
+        database.query("SELECT isUnheardNew FROM tracks WHERE id = 'already-seen'").use {
+            assertTrue(it.moveToFirst())
+            assertEquals(0, it.getInt(0))
+        }
+        database.query("SELECT isUnheardNew FROM tracks WHERE id = 'telegram-new'").use {
+            assertTrue(it.moveToFirst())
+            assertEquals(1, it.getInt(0))
+        }
+        database.close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"
@@ -339,5 +381,6 @@ class MigrationTest {
         const val TEST_DATABASE_15_16 = "migration-test-15-16"
         const val TEST_DATABASE_16_17 = "migration-test-16-17"
         const val TEST_DATABASE_17_18 = "migration-test-17-18"
+        const val TEST_DATABASE_20_21 = "migration-test-20-21"
     }
 }

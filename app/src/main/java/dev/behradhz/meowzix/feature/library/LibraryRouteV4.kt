@@ -11,6 +11,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -29,6 +37,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,7 +49,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
 import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -54,6 +63,8 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -65,6 +76,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
@@ -80,9 +92,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.behradhz.meowzix.ui.components.TRACK_ROW_SPACING
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -111,15 +125,27 @@ import dev.behradhz.meowzix.domain.settings.LibrarySortMode
 import java.util.UUID
 import kotlinx.coroutines.delay
 
-private enum class LibrarySectionV4(val label: String) {
+internal enum class LibrarySectionV4(val label: String) {
     TRACKS("Tracks"), ARTISTS("Artists"), ALBUMS("Albums")
+}
+
+internal enum class LibraryBackAction { DISMISS_DISPLAY, CANCEL_SELECTION, CLOSE_AGGREGATE, NONE }
+
+/** A Back press on a selected artist cancels selection before leaving that artist. */
+internal fun libraryBackAction(displaySheet: Boolean, selecting: Boolean, inAggregate: Boolean) = when {
+    displaySheet -> LibraryBackAction.DISMISS_DISPLAY
+    selecting -> LibraryBackAction.CANCEL_SELECTION
+    inAggregate -> LibraryBackAction.CLOSE_AGGREGATE
+    else -> LibraryBackAction.NONE
 }
 
 @Composable
 internal fun LibraryRouteV4(
     onOpenNowPlaying: () -> Unit,
     viewModel: LibraryViewModel,
+    isActive: Boolean = true,
     requestedArtist: String? = null,
+    scrollToTopRequest: Int = 0,
     onArtistRequestConsumed: () -> Unit = {},
     requestedAlbum: AlbumSummary? = null,
     onAlbumRequestConsumed: () -> Unit = {},
@@ -128,14 +154,54 @@ internal fun LibraryRouteV4(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    var sectionIndex by rememberSaveable { mutableIntStateOf(0) }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Fade the existing rows slightly during a manual refresh; never clear the page.
+    val refreshContentAlpha by animateFloatAsState(
+        targetValue = if (state.isRefreshing) 0.88f else 1f,
+        animationSpec = tween(150),
+        label = "library-refresh-content-fade",
+    )
     val displaySettings by tracksViewModel.displaySettings.collectAsStateWithLifecycle()
     val trackCount by tracksViewModel.trackCount.collectAsStateWithLifecycle()
-    val artists by tracksViewModel.artists.collectAsStateWithLifecycle()
-    val albums by tracksViewModel.albums.collectAsStateWithLifecycle()
+    // Artist aggregation is unnecessary when the user is viewing Tracks.
+    val artists by if (sectionIndex == 1 || requestedArtist != null) {
+        tracksViewModel.artists.collectAsStateWithLifecycle()
+    } else {
+        remember { mutableStateOf(emptyList<ArtistSummary>()) }
+    }
+    // Avoid album aggregation on the initial Tracks screen; it is loaded on demand.
+    val albums by if (sectionIndex == 2 || requestedAlbum != null) {
+        tracksViewModel.albums.collectAsStateWithLifecycle()
+    } else {
+        remember { mutableStateOf(emptyList<AlbumSummary>()) }
+    }
     val aggregateSelection by tracksViewModel.selectedAggregate.collectAsStateWithLifecycle()
+    val selecting by tracksViewModel.selectionActive.collectAsStateWithLifecycle()
+    val selectedTracks by tracksViewModel.selectedTracks.collectAsStateWithLifecycle()
+    // Retain the count through the exit crossfade; don't flash "Selected 0".
+    var lastSelectionCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(selectedTracks.size) {
+        if (selectedTracks.isNotEmpty()) lastSelectionCount = selectedTracks.size
+    }
     val aggregateTracks by tracksViewModel.aggregateTracks.collectAsStateWithLifecycle()
     val pagingItems = tracksViewModel.tracks.collectAsLazyPagingItems()
+    var refreshBaseline by remember { mutableStateOf<Set<UUID>?>(null) }
+    var scrollToNewRequest by remember { mutableIntStateOf(0) }
+    LaunchedEffect(state.newTrackIds, refreshBaseline) {
+        val baseline = refreshBaseline ?: return@LaunchedEffect
+        if ((state.newTrackIds - baseline).isNotEmpty()) {
+            scrollToNewRequest++
+            refreshBaseline = null
+        }
+    }
+    // Wait for delayed Telegram updates after the local refresh.
+    LaunchedEffect(refreshBaseline, state.isRefreshing, state.isTelegramSyncing) {
+        if (refreshBaseline != null && !state.isRefreshing && !state.isTelegramSyncing) {
+            delay(800)
+            if (!state.isRefreshing && !state.isTelegramSyncing) refreshBaseline = null
+        }
+    }
     LaunchedEffect(requestedArtist, artists) {
         val normalized = TextNormalizer.normalize(requestedArtist) ?: return@LaunchedEffect
         val matched = artists.firstOrNull { it.normalizedName == normalized } ?: return@LaunchedEffect
@@ -161,6 +227,7 @@ internal fun LibraryRouteV4(
     ) { granted ->
         permissionRequestAttempted = true
         permissionGranted = granted
+        AudioPermission.notifyPermissionResult()
     }
 
     DisposableEffect(lifecycleOwner, permission) {
@@ -174,18 +241,6 @@ internal fun LibraryRouteV4(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    // Only check periodically while the Library is visible; tab navigation never forces a scan.
-    LaunchedEffect(permissionGranted) {
-        if (permissionGranted) {
-            viewModel.refreshIfDue()
-            while (true) {
-                delay(LIBRARY_AUTO_REFRESH_INTERVAL_MS)
-                viewModel.refreshIfDue()
-            }
-        }
-    }
-
-    var sectionIndex by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(sectionIndex) {
         if (sectionIndex !in LibrarySectionV4.entries.indices) sectionIndex = 0
     }
@@ -196,10 +251,12 @@ internal fun LibraryRouteV4(
     val availabilityFilter = LibraryAvailabilityFilter.entries[availabilityIndex]
     LaunchedEffect(availabilityFilter) { tracksViewModel.setAvailability(availabilityFilter) }
 
-    BackHandler(enabled = aggregateSelection != null || showDisplaySheet) {
-        when {
-            showDisplaySheet -> showDisplaySheet = false
-            else -> tracksViewModel.closeAggregate()
+    BackHandler(enabled = isActive && (aggregateSelection != null || showDisplaySheet || selecting)) {
+        when (libraryBackAction(showDisplaySheet, selecting, aggregateSelection != null)) {
+            LibraryBackAction.DISMISS_DISPLAY -> showDisplaySheet = false
+            LibraryBackAction.CANCEL_SELECTION -> tracksViewModel.cancelSelection()
+            LibraryBackAction.CLOSE_AGGREGATE -> tracksViewModel.closeAggregate()
+            LibraryBackAction.NONE -> Unit
         }
     }
 
@@ -207,6 +264,7 @@ internal fun LibraryRouteV4(
     if (aggregateSelection == LibraryAggregateSelection.Favorites) {
         key("favorites") {
             PlaylistDetailScreenV3(
+                isActive = isActive,
                 playlist = null,
                 title = "Favorites",
                 tracks = aggregateTracks,
@@ -217,7 +275,10 @@ internal fun LibraryRouteV4(
                 availability = state.availability,
                 downloads = state.downloads,
                 playlists = state.playlists,
-                onBack = tracksViewModel::closeAggregate,
+                onBack = {
+                    if (selecting) tracksViewModel.cancelSelection()
+                    else tracksViewModel.closeAggregate()
+                },
                 onSaveMetadata = { _, _, _ -> },
                 onPlay = { collection, mode -> viewModel.playPlaylistCollection(collection, mode) },
                 onPlayTrack = { track, collection ->
@@ -228,12 +289,28 @@ internal fun LibraryRouteV4(
                 onAddToQueue = viewModel::addToQueue,
                 onPinOffline = viewModel::pinOffline,
                 onRemoveOfflineCopy = viewModel::removeOfflineCopy,
+                onRemoveTrack = viewModel::removeTrack,
                 onFavorite = viewModel::setFavorite,
                 onAddToPlaylist = viewModel::addToPlaylist,
+                libraryTrackIds = state.tracks.filter(Track::favorite).map(Track::id).toSet(),
+                onAddToLibrary = viewModel::addToLibrary,
+                onBulkAddToLibrary = viewModel::addTracksToLibrary,
+                onBulkRemoveFromLibrary = viewModel::removeTracksFromLibrary,
+                onBulkAddToPlaylist = viewModel::addTracksToPlaylist,
+                onBulkAddToQueue = viewModel::addTracksToQueue,
+                onBulkLike = viewModel::likeTracks,
+                onBulkUnlike = viewModel::unlikeTracks,
+                onBulkRemove = viewModel::removePlaylistTracks,
+                telegramPerson = state.selectedPlaylistIsPerson,
+                profileTrackIds = state.selectedPlaylistProfileTrackIds,
+                messageTrackIds = state.selectedPlaylistChatTrackIds,
+                profileRefreshing = state.isRefreshingPersonProfile,
+                profileRefreshStatus = state.personProfileRefreshStatus,
+                profileRefreshError = state.personProfileRefreshError,
+                onRefreshProfile = viewModel::refreshSelectedPersonProfile,
                 onGoToArtist = { track ->
                     tracksViewModel.closeAggregate()
-                    artists.firstOrNull { it.normalizedName == track.normalizedArtist }
-                        ?.let(tracksViewModel::openArtist)
+                    tracksViewModel.openArtistForTrack(track)
                 },
                 onMove = viewModel::movePlaylistTrack,
                 onRemove = viewModel::removePlaylistTrack,
@@ -252,45 +329,76 @@ internal fun LibraryRouteV4(
             LibraryAggregateSelection.Favorites -> "Favorites"
             null -> "Library"
         }
+        val detailSection = when (aggregateSelection) {
+            is LibraryAggregateSelection.Artist -> LibrarySectionV4.ARTISTS
+            is LibraryAggregateSelection.Album -> LibrarySectionV4.ALBUMS
+            else -> selectedSection
+        }
         LibraryDetailV4(
             title = title,
             tracks = aggregateTracks,
             state = state,
-            onBack = tracksViewModel::closeAggregate,
+            onBack = {
+                if (selecting) tracksViewModel.cancelSelection()
+                else tracksViewModel.closeAggregate()
+            },
+            scrollToTopRequest = scrollToTopRequest,
             onPlay = { track ->
                 viewModel.playTrack(track, aggregateTracks)
                 onOpenNowPlaying()
             },
             viewModel = viewModel,
+            selecting = selecting,
+            selectedTracks = selectedTracks,
+            lastSelectionCount = lastSelectionCount,
+            detailSection = detailSection,
+            onSelectSection = { section ->
+                sectionIndex = section.ordinal
+                // Navigate to the corresponding full Library section without
+                // clearing the selected songs; even tapping the active artist
+                // chip returns from its detail to the entire Artists list.
+                tracksViewModel.closeAggregate()
+            },
+            moreActions = displaySettings.selection.normalized().more,
+            onToggleSelection = tracksViewModel::toggleTrackSelection,
+            onSelectAll = tracksViewModel::toggleEntireOpenCollection,
+            onCancelSelection = tracksViewModel::cancelSelection,
+            onSelectionAction = tracksViewModel::requestSelectionAction,
             onGoToArtist = { track ->
-                artists.firstOrNull { it.normalizedName == track.normalizedArtist }
-                    ?.let(tracksViewModel::openArtist)
+                tracksViewModel.openArtistForTrack(track)
             },
         )
         return
     }
 
     val headerHazeState = rememberHazeState()
+    val libraryPullState = rememberPullToRefreshState()
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
-            onRefresh = viewModel::refresh,
+            onRefresh = {
+                refreshBaseline = state.newTrackIds
+                viewModel.refresh()
+            },
             modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 96.dp),
+            state = libraryPullState,
+            indicator = {
+                FadeRefreshIndicator(
+                    state = libraryPullState,
+                    refreshing = state.isRefreshing,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp),
+                )
+            },
         ) {
     Column(
-        modifier = Modifier.fillMaxSize().hazeSource(headerHazeState),
+        modifier = Modifier.fillMaxSize()
+            .graphicsLayer { alpha = refreshContentAlpha }
+            .hazeSource(headerHazeState),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            LibrarySectionV4.entries.forEachIndexed { index, section ->
-                SelectChipV4(section.label, sectionIndex == index) { sectionIndex = index }
-            }
-        }
+        LibrarySectionTabs(
+            activeSection = selectedSection,
+            onSelectSection = { sectionIndex = it.ordinal },
+        )
 
         if (selectedSection == LibrarySectionV4.TRACKS) {
             Row(
@@ -352,37 +460,62 @@ internal fun LibraryRouteV4(
                 LibrarySectionV4.TRACKS -> PagedTrackListV4(
                     items = pagingItems,
                     groupMode = displaySettings.groupMode,
+                    newTrackIds = state.newTrackIds,
+                    scrollToNewRequest = scrollToNewRequest,
+                    scrollToTopRequest = scrollToTopRequest,
                     state = state,
+                    selecting = selecting,
+                    selectedIds = selectedTracks.keys,
+                    onToggleSelection = tracksViewModel::toggleTrackSelection,
                     onPlay = { row ->
                         tracksViewModel.playTrack(row.track.id)
                         onOpenNowPlaying()
                     },
                     viewModel = viewModel,
                     onGoToArtist = { track ->
-                        artists.firstOrNull { it.normalizedName == track.normalizedArtist }
-                            ?.let(tracksViewModel::openArtist)
+                        tracksViewModel.openArtistForTrack(track)
                     },
                 )
                 LibrarySectionV4.ARTISTS -> ArtistListV4(
                     artists, tracksViewModel::openArtist,
                     { tracksViewModel.queueArtist(it, true) },
                     { tracksViewModel.queueArtist(it, false) },
+                    selectedTracks.values.toList(), selecting, tracksViewModel::toggleArtistSelection,
+                    scrollToTopRequest = scrollToTopRequest,
                 )
                 LibrarySectionV4.ALBUMS -> AlbumListV4(
                     albums, tracksViewModel::openAlbum,
                     { tracksViewModel.queueAlbum(it, true) },
                     { tracksViewModel.queueAlbum(it, false) },
+                    selectedTracks.values.toList(), selecting, tracksViewModel::toggleAlbumSelection,
+                    scrollToTopRequest = scrollToTopRequest,
                 )
             }
         }
     }
         }
-        MeowzixStickyHeader(
-            title = "Library",
-            subtitle = "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
-            hazeState = headerHazeState,
+        Crossfade(
+            targetState = selecting,
+            animationSpec = tween(240),
             modifier = Modifier.align(Alignment.TopCenter),
-        )
+            label = "library-selection-header",
+        ) { selectionHeader ->
+            MeowzixStickyHeader(
+                title = if (selectionHeader) "Selected ${if (selecting) selectedTracks.size else lastSelectionCount}" else "Library",
+                subtitle = if (selectionHeader) "" else "$trackCount tracks · ${sortLabelV4(displaySettings.sortMode)}",
+                hazeState = headerHazeState,
+                leadingActions = if (selectionHeader) {
+                    { MeowzixHeaderAction("Cancel selection", Icons.Rounded.Close, tracksViewModel::cancelSelection) }
+                } else null,
+            ) {
+                if (selectionHeader) LibrarySelectionMoreMenu(
+                    actions = displaySettings.selection.normalized().more,
+                    onAction = tracksViewModel::requestSelectionAction,
+                    allSelectedLiked = selectedTracks.isNotEmpty() &&
+                        selectedTracks.values.all(Track::favorite),
+                )
+            }
+        }
     }
 
     if (showDisplaySheet) {
@@ -399,12 +532,24 @@ internal fun LibraryRouteV4(
 private fun PagedTrackListV4(
     items: androidx.paging.compose.LazyPagingItems<LibraryTrack>,
     groupMode: LibraryGroupMode,
+    newTrackIds: Set<UUID>,
+    scrollToNewRequest: Int,
+    scrollToTopRequest: Int = 0,
     state: LibraryUiState,
+    selecting: Boolean,
+    selectedIds: Set<UUID>,
+    onToggleSelection: (Track) -> Unit,
     onPlay: (LibraryTrack) -> Unit,
     viewModel: LibraryViewModel,
     onGoToArtist: (Track) -> Unit,
 ) {
     val listState = rememberLazyListState()
+    LaunchedEffect(scrollToTopRequest) {
+        if (scrollToTopRequest > 0) listState.animateScrollToItem(0)
+    }
+    LaunchedEffect(scrollToNewRequest) {
+        if (scrollToNewRequest > 0 && items.itemCount > 0) listState.animateScrollToItem(0)
+    }
     // Compose can prefetch off-screen rows: bitmap decode/repair waits for actual viewport entry.
     val visibleTrackKeys by remember(listState) {
         derivedStateOf { listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
@@ -425,11 +570,11 @@ private fun PagedTrackListV4(
         ) {
             CircularProgressIndicator()
         }
-        else -> LazyColumn(
+        else -> GlassLazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 188.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = dockAwareBottomPadding(188.dp)),
+            verticalArrangement = Arrangement.spacedBy(TRACK_ROW_SPACING),
         ) {
             items(
                 count = items.itemCount,
@@ -441,7 +586,7 @@ private fun PagedTrackListV4(
                 val previousGroup = if (index > 0) {
                     items.peek(index - 1)?.track?.let { groupLabelV4(it, groupMode) }
                 } else null
-                Column {
+                Column(Modifier.animateItem()) {
                     if (group != null && group != previousGroup) {
                         Text(
                             group,
@@ -459,6 +604,7 @@ private fun PagedTrackListV4(
                         onAddToQueue = { viewModel.addToQueue(row.track) },
                         onPinOffline = { viewModel.pinOffline(row.track) },
                         onRemoveOfflineCopy = { viewModel.removeOfflineCopy(row.track) },
+                    onRemoveTrack = { offline, library -> viewModel.removeTrack(row.track, offline, library) },
                         availability = row.availability,
                         download = state.downloads[row.track.id],
                         playlists = state.playlists,
@@ -466,8 +612,13 @@ private fun PagedTrackListV4(
                         onAddToPlaylist = { playlistId -> viewModel.addToPlaylist(row.track, playlistId) },
                         onGoToArtist = { onGoToArtist(row.track) },
                         onEnsureArtwork = { viewModel.ensureArtwork(row.track) },
+                        isNewArrival = row.track.id in newTrackIds,
                         artworkVisible = row.track.id.toString() in visibleTrackKeys,
-                        containerColor = Color(0x4D252329),
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                        onLongClick = { onToggleSelection(row.track) },
+                        selectionMode = selecting,
+                        selected = row.track.id in selectedIds,
+                        onSelect = { onToggleSelection(row.track) },
                     )
                 }
             }
@@ -488,18 +639,32 @@ private fun ArtistListV4(
     onOpen: (ArtistSummary) -> Unit,
     onNext: (ArtistSummary) -> Unit,
     onQueue: (ArtistSummary) -> Unit,
+    selectedTracks: List<Track>,
+    selecting: Boolean,
+    onSelect: (ArtistSummary) -> Unit,
+    scrollToTopRequest: Int = 0,
 ) {
-    LazyColumn(
+    val listState = rememberLazyListState()
+    LaunchedEffect(scrollToTopRequest) {
+        if (scrollToTopRequest > 0) listState.animateScrollToItem(0)
+    }
+    GlassLazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 188.dp),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = dockAwareBottomPadding(188.dp)),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(rows, key = { it.normalizedName }, contentType = { "artist" }) { row ->
-            SummaryRowV4(
+            SwipeableCollectionRow(
                 row.name, "${row.trackCount} tracks", Icons.Rounded.Person,
                 onClick = { onOpen(row) },
                 onPlayNext = { onNext(row) },
                 onAddToQueue = { onQueue(row) },
+                onSelect = { onSelect(row) },
+                selectionMode = selecting,
+                selected = row.trackCount > 0 &&
+                    selectedTracks.count { it.normalizedArtist == row.normalizedName } >= row.trackCount,
+                partiallySelected = selectedTracks.any { it.normalizedArtist == row.normalizedName },
             )
         }
     }
@@ -511,18 +676,34 @@ private fun AlbumListV4(
     onOpen: (AlbumSummary) -> Unit,
     onNext: (AlbumSummary) -> Unit,
     onQueue: (AlbumSummary) -> Unit,
+    selectedTracks: List<Track>,
+    selecting: Boolean,
+    onSelect: (AlbumSummary) -> Unit,
+    scrollToTopRequest: Int = 0,
 ) {
-    LazyColumn(
+    val listState = rememberLazyListState()
+    LaunchedEffect(scrollToTopRequest) {
+        if (scrollToTopRequest > 0) listState.animateScrollToItem(0)
+    }
+    GlassLazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 188.dp),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = dockAwareBottomPadding(188.dp)),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(rows, key = { "${it.name}:${it.normalizedArtist}" }, contentType = { "album" }) { row ->
-            SummaryRowV4(
+            SwipeableCollectionRow(
                 row.name, "${row.artist} · ${row.trackCount} tracks", Icons.Rounded.Album,
                 onClick = { onOpen(row) },
                 onPlayNext = { onNext(row) },
                 onAddToQueue = { onQueue(row) },
+                onSelect = { onSelect(row) },
+                selectionMode = selecting,
+                selected = row.trackCount > 0 &&
+                    selectedTracks.count { it.album == row.name && it.normalizedArtist == row.normalizedArtist } >= row.trackCount,
+                partiallySelected = selectedTracks.any {
+                    it.album == row.name && it.normalizedArtist == row.normalizedArtist
+                },
             )
         }
     }
@@ -534,23 +715,48 @@ private fun LibraryDetailV4(
     tracks: List<Track>,
     state: LibraryUiState,
     onBack: () -> Unit,
+    scrollToTopRequest: Int = 0,
     onPlay: (Track) -> Unit,
     viewModel: LibraryViewModel,
     onGoToArtist: (Track) -> Unit,
+    selecting: Boolean,
+    selectedTracks: Map<UUID, Track>,
+    lastSelectionCount: Int,
+    detailSection: LibrarySectionV4,
+    onSelectSection: (LibrarySectionV4) -> Unit,
+    moreActions: List<dev.behradhz.meowzix.domain.settings.LibrarySelectionAction>,
+    onToggleSelection: (Track) -> Unit,
+    onSelectAll: () -> Unit,
+    onCancelSelection: () -> Unit,
+    onSelectionAction: (dev.behradhz.meowzix.domain.settings.LibrarySelectionAction) -> Unit,
 ) {
     val hazeState = rememberHazeState()
     val listState = rememberLazyListState()
+    LaunchedEffect(scrollToTopRequest) {
+        if (scrollToTopRequest > 0) listState.animateScrollToItem(0)
+    }
     val visibleTrackKeys by remember(listState) {
         derivedStateOf { listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
     }
+    val selectionTabOffset by animateDpAsState(
+        targetValue = if (selecting) 44.dp else 0.dp,
+        animationSpec = tween(durationMillis = 330, easing = FastOutSlowInEasing),
+        label = "library-detail-tabs-content-shift",
+    )
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(
+        GlassLazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(hazeState),
-            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 100.dp, bottom = 188.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                end = 12.dp,
+                top = 100.dp + selectionTabOffset,
+                bottom = dockAwareBottomPadding(188.dp),
+            ),
+            verticalArrangement = Arrangement.spacedBy(TRACK_ROW_SPACING),
         ) {
             items(tracks, key = { it.id.toString() }, contentType = { "track" }) { track ->
+                Box(Modifier.animateItem()) {
                 SwipeableLibraryTrackRow(
                     track = track,
                     isCurrent = state.playback.currentTrack?.id == track.id,
@@ -559,6 +765,7 @@ private fun LibraryDetailV4(
                     onAddToQueue = { viewModel.addToQueue(track) },
                     onPinOffline = { viewModel.pinOffline(track) },
                     onRemoveOfflineCopy = { viewModel.removeOfflineCopy(track) },
+                    onRemoveTrack = { offline, library -> viewModel.removeTrack(track, offline, library) },
                     availability = state.availability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
                     download = state.downloads[track.id],
                     playlists = state.playlists,
@@ -566,153 +773,101 @@ private fun LibraryDetailV4(
                     onAddToPlaylist = { id -> viewModel.addToPlaylist(track, id) },
                     onGoToArtist = { onGoToArtist(track) },
                     onEnsureArtwork = { viewModel.ensureArtwork(track) },
+                    isNewArrival = track.id in state.newTrackIds,
                     artworkVisible = track.id.toString() in visibleTrackKeys,
-                    containerColor = Color(0x4D252329),
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                    onLongClick = { onToggleSelection(track) },
+                    selectionMode = selecting,
+                    selected = track.id in selectedTracks,
+                    onSelect = { onToggleSelection(track) },
                 )
+                }
             }
         }
-        MeowzixStickyHeader(
-            title = title,
-            subtitle = "${tracks.size} tracks",
-            hazeState = hazeState,
+        LibraryDetailSectionTabs(
+            visible = selecting,
+            activeSection = detailSection,
+            onSelectSection = onSelectSection,
+            modifier = Modifier.align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 96.dp),
+        )
+        Crossfade(
+            targetState = selecting,
+            animationSpec = tween(240),
             modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            MeowzixHeaderAction("Back to library", Icons.Rounded.ArrowBack, onBack)
-            if (tracks.isNotEmpty()) {
-                MeowzixHeaderAction("Play", Icons.Rounded.PlayArrow, {
-                    viewModel.playCollection(tracks, PlaybackMode.ORDERED)
-                })
+            label = "collection-selection-header",
+        ) { selectionHeader ->
+            MeowzixStickyHeader(
+                title = if (selectionHeader) "Selected ${if (selecting) selectedTracks.size else lastSelectionCount}" else title,
+                subtitle = if (selectionHeader) "" else "${tracks.size} tracks",
+                hazeState = hazeState,
+                leadingActions = {
+                    if (selectionHeader) MeowzixHeaderAction("Cancel selection", Icons.Rounded.Close, onCancelSelection)
+                    else MeowzixHeaderAction("Back to library", Icons.Rounded.ArrowBack, onBack)
+                },
+            ) {
+                if (selectionHeader) {
+                    LibrarySelectionMoreMenu(
+                        moreActions, onSelectionAction, onSelectAll = onSelectAll,
+                        allSelectedLiked = selectedTracks.isNotEmpty() &&
+                            selectedTracks.values.all(Track::favorite),
+                    )
+                } else if (tracks.isNotEmpty()) {
+                    MeowzixHeaderAction("Select all", Icons.Rounded.SelectAll, onSelectAll)
+                    MeowzixHeaderAction("Play", Icons.Rounded.PlayArrow, {
+                        viewModel.playCollection(tracks, PlaybackMode.ORDERED)
+                    })
+                }
             }
         }
     }
 }
 
+/** Same tab row and position as the parent Library, with no separate detail styling. */
 @Composable
-private fun SummaryRowV4(
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
-    onPlayNext: (() -> Unit)? = null,
-    onAddToQueue: (() -> Unit)? = null,
+internal fun LibrarySectionTabs(
+    activeSection: LibrarySectionV4,
+    onSelectSection: (LibrarySectionV4) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
-    var offsetX by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var dragging by remember { mutableStateOf(false) }
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val haptic = LocalHapticFeedback.current
-    val threshold = with(density) { 75.dp.toPx() }
-    val visualOffset by animateFloatAsState(
-        targetValue = offsetX,
-        animationSpec = if (dragging) snap() else tween(190),
-        label = "aggregate-library-swipe",
-    )
-    val swipeRight = visualOffset > 0f
-    Box(modifier = Modifier.fillMaxWidth()) {
-        if (onPlayNext != null && onAddToQueue != null && kotlin.math.abs(visualOffset) > 0.5f) {
-            Surface(
-                modifier = Modifier.matchParentSize().drawWithContent {
-                    val edge = visualOffset.coerceIn(-size.width, size.width)
-                    if (edge > 0f) clipRect(left = 0f, right = edge) {
-                        this@drawWithContent.drawContent()
-                    } else if (edge < 0f) clipRect(left = size.width + edge, right = size.width) {
-                        this@drawWithContent.drawContent()
-                    }
-                },
-                shape = RoundedCornerShape(16.dp),
-                color = if (swipeRight) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.tertiaryContainer,
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
-                    horizontalArrangement = if (swipeRight) Arrangement.Start else Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (swipeRight) {
-                        Icon(Icons.Rounded.PlaylistPlay, contentDescription = null)
-                        Spacer(Modifier.size(8.dp))
-                    }
-                    Text(if (swipeRight) "Play next" else "Add to queue",
-                        fontWeight = FontWeight.SemiBold)
-                    if (!swipeRight) {
-                        Spacer(Modifier.size(8.dp))
-                        Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
-                    }
-                }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        LibrarySectionV4.entries.forEach { section ->
+            SelectChipV4(section.label, activeSection == section) {
+                onSelectSection(section)
             }
         }
-        Surface(
-            modifier = Modifier.fillMaxWidth()
-                .graphicsLayer { translationX = visualOffset }
-                .pointerInput(title, onPlayNext, onAddToQueue) {
-                    if (onPlayNext != null && onAddToQueue != null) {
-                        detectHorizontalDragGestures(
-                            onDragStart = { dragging = true },
-                            onHorizontalDrag = { change, delta ->
-                                change.consume()
-                                val old = kotlin.math.abs(offsetX)
-                                offsetX = (offsetX + delta).coerceIn(-threshold * 3, threshold * 3)
-                                if (old < threshold && kotlin.math.abs(offsetX) >= threshold)
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            },
-                            onDragEnd = {
-                                val released = offsetX
-                                dragging = false
-                                offsetX = 0f
-                                when {
-                                    released >= threshold -> onPlayNext()
-                                    released <= -threshold -> onAddToQueue()
-                                }
-                            },
-                            onDragCancel = { dragging = false; offsetX = 0f },
-                        )
-                    }
-                },
-            shape = RoundedCornerShape(16.dp),
-            color = Color(0x4D252329),
-            contentColor = Color.White,
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    modifier = Modifier.size(48.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                    contentColor = MaterialTheme.colorScheme.primary,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(icon, contentDescription = null)
-                    }
-                }
-                Spacer(Modifier.size(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.70f))
-                }
-                if (onPlayNext != null && onAddToQueue != null) {
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Rounded.MoreVert, contentDescription = "Queue actions")
-                        }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(text = { Text("Play next") }, onClick = {
-                                menuOpen = false; onPlayNext()
-                            })
-                            DropdownMenuItem(text = { Text("Add to queue") }, onClick = {
-                                menuOpen = false; onAddToQueue()
-                            })
-                        }
-                    }
-                }
-            }
-        }
+    }
+}
+
+/** Slide the section navigation in for selection and remove it without leaving a gap. */
+@Composable
+internal fun LibraryDetailSectionTabs(
+    visible: Boolean,
+    activeSection: LibrarySectionV4,
+    onSelectSection: (LibrarySectionV4) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier.testTag("library-detail-section-tabs"),
+        enter = expandVertically(
+            expandFrom = Alignment.Top,
+            animationSpec = tween(durationMillis = 330, easing = FastOutSlowInEasing),
+        ) + fadeIn(animationSpec = tween(durationMillis = 250)),
+        exit = shrinkVertically(
+            shrinkTowards = Alignment.Top,
+            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+        ) + fadeOut(animationSpec = tween(durationMillis = 200)),
+        label = "library-detail-selection-tabs-slide",
+    ) {
+        LibrarySectionTabs(activeSection, onSelectSection)
     }
 }
 

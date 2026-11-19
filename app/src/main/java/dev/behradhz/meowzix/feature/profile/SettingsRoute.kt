@@ -38,21 +38,20 @@ fun SettingsRoute(
     onOpenOffline: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenTelegram: () -> Unit,
+    onApplyLauncherIcon: (dev.behradhz.meowzix.domain.settings.LauncherIconColorSource) -> Unit = {},
 ) {
-    var showEqualizer by remember { mutableStateOf(false) }
     var showFullscreenCat by remember { mutableStateOf(false) }
 
     UnifiedSettingsScreen(
         onBack = onBack,
         onOpenBrand = { showFullscreenCat = true },
-        onOpenEqualizer = { showEqualizer = true },
         onOpenTelegram = onOpenTelegram,
         onOpenDownloads = onOpenOffline,
         onOpenHistory = onOpenHistory,
+        onApplyLauncherIcon = onApplyLauncherIcon,
     )
 
     if (showFullscreenCat) SettingsBrandDialog(onDismiss = { showFullscreenCat = false })
-    if (showEqualizer) EqualizerSheet(onDismiss = { showEqualizer = false })
 }
 
 @Composable

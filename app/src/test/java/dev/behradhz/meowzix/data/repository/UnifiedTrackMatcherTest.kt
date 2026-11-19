@@ -26,6 +26,26 @@ class UnifiedTrackMatcherTest {
     }
 
     @Test
+    fun `same title and artist with a very different duration stays separate until review`() {
+        assertNull(
+            UnifiedTrackMatcher.match(
+                IncomingTrackIdentity("numb", "linkin park", 300_000L),
+                listOf(candidate("track-1")),
+            ),
+        )
+    }
+
+    @Test
+    fun `metadata match rejects duration differences beyond two seconds`() {
+        val result = UnifiedTrackMatcher.match(
+            IncomingTrackIdentity("numb", "linkin park", 188_000L),
+            listOf(candidate("track-1")),
+        )
+
+        assertNull(result)
+    }
+
+    @Test
     fun `same title alone never merges`() {
         val result = UnifiedTrackMatcher.match(
             incoming = IncomingTrackIdentity("home", "artist two", 185_000L),

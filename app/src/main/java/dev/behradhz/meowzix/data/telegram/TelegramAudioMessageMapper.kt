@@ -28,22 +28,7 @@ internal fun isSupportedAudioDocument(mimeType: String?, fileName: String?): Boo
 }
 
 internal fun TdApi.Message.toAudioCandidate(): TelegramAudioCandidate? = when (val body = content) {
-    is TdApi.MessageAudio -> {
-        val audio = body.audio
-        TelegramAudioCandidate(
-            messageId = id,
-            title = bestTitle(audio.title, audio.fileName),
-            artist = audio.performer.cleanOrNull(),
-            durationMs = audio.duration.toLong().coerceAtLeast(0L) * 1_000L,
-            fileName = audio.fileName.cleanOrNull(),
-            mimeType = audio.mimeType.cleanOrNull(),
-            fileId = audio.audio.id,
-            persistentFileId = audio.audio.remote.uniqueId.cleanOrNull(),
-            fileSizeBytes = audio.audio.size.toLong().takeIf { it > 0L },
-            artworkMinithumbnail = audio.albumCoverMinithumbnail?.data?.copyOf(),
-            artworkFileId = audio.albumCoverThumbnail?.file?.id,
-        )
-    }
+    is TdApi.MessageAudio -> body.audio.toAudioCandidate(id)
     is TdApi.MessageDocument -> {
         val document = body.document
         if (!isSupportedAudioDocument(document.mimeType, document.fileName)) return null
@@ -63,6 +48,31 @@ internal fun TdApi.Message.toAudioCandidate(): TelegramAudioCandidate? = when (v
     }
     else -> null
 }
+
+/** Profile music has no message ID. Keep a deterministic negative ID per audio identity. */
+internal fun telegramProfileMessageId(identity: String): Long =
+    java.util.UUID.nameUUIDFromBytes(("telegram-profile:" + identity).toByteArray(Charsets.UTF_8))
+        .mostSignificantBits or Long.MIN_VALUE
+
+internal fun TdApi.Audio.profileIdentity(): String =
+    audio.remote.uniqueId.cleanOrNull()
+        ?: audio.remote.id.cleanOrNull()
+        ?: listOf(title, performer, duration.toString(), fileName).joinToString("|")
+
+internal fun TdApi.Audio.toAudioCandidate(messageId: Long): TelegramAudioCandidate =
+    TelegramAudioCandidate(
+        messageId = messageId,
+        title = bestTitle(title, fileName),
+        artist = performer.cleanOrNull(),
+        durationMs = duration.toLong().coerceAtLeast(0L) * 1_000L,
+        fileName = fileName.cleanOrNull(),
+        mimeType = mimeType.cleanOrNull(),
+        fileId = audio.id,
+        persistentFileId = audio.remote.uniqueId.cleanOrNull(),
+        fileSizeBytes = audio.size.toLong().takeIf { it > 0L },
+        artworkMinithumbnail = albumCoverMinithumbnail?.data?.copyOf(),
+        artworkFileId = albumCoverThumbnail?.file?.id,
+    )
 
 private fun bestTitle(explicitTitle: String?, fileName: String?): String =
     explicitTitle.cleanOrNull()

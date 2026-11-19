@@ -151,6 +151,18 @@ class NowPlayingLyricsViewModel @Inject constructor(
         }
     }
 
+    fun setShowInPlayer(show: Boolean) {
+        val trackId = state.value.trackId ?: return
+        viewModelScope.launch {
+            runCatching { repository.setShowInPlayer(trackId, show) }
+                .onSuccess { error.value = null }
+                .onFailure { failure ->
+                    if (failure is CancellationException) throw failure
+                    error.value = failure.message ?: "Unable to change lyrics visibility"
+                }
+        }
+    }
+
     fun removeAllLyrics() {
         val trackId = state.value.trackId ?: return
         viewModelScope.launch {

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,11 +12,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DownloadForOffline
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -33,6 +36,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,6 +48,8 @@ import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.ui.components.TrackArtwork
 import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
+import dev.behradhz.meowzix.feature.library.PlaylistGlassPanel
 import dev.chrisbanes.haze.rememberHazeState
 import dev.chrisbanes.haze.hazeSource
 import java.util.Locale
@@ -51,6 +57,7 @@ import kotlin.math.roundToInt
 
 @Composable
 fun DownloadsRoute(
+    onBack: () -> Unit,
     viewModel: DownloadsViewModel = hiltViewModel(),
     storageViewModel: StoragePolicyViewModel = hiltViewModel(),
 ) {
@@ -59,30 +66,51 @@ fun DownloadsRoute(
     val selectedChats by viewModel.selectedTelegramChats.collectAsStateWithLifecycle()
     val chatDownloadProgress by viewModel.chatDownloadProgress.collectAsStateWithLifecycle()
     val storageUsage by storageViewModel.usage.collectAsStateWithLifecycle()
-    val storageSettings by storageViewModel.settings.collectAsStateWithLifecycle()
     val active = rows.filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
     val rest = rows.filterNot { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
     val headerHazeState = rememberHazeState()
     Box(Modifier.fillMaxSize()) {
-    LazyColumn(
+    GlassLazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding().hazeSource(headerHazeState),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = 182.dp),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 100.dp, bottom = dockAwareBottomPadding(182.dp)),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { SettingToggle("Offline mode", settings.offlineMode, viewModel::setOfflineMode) }
-        item { SettingToggle("Wi-Fi only downloads", settings.wifiOnlyDownloads, viewModel::setWifiOnly) }
-        item { SettingToggle("Prefetch next track", settings.prefetchEnabled, viewModel::setPrefetch) }
-        item { SettingToggle("Prefetch on metered networks", settings.prefetchOnMetered, viewModel::setPrefetchOnMetered, enabled = settings.prefetchEnabled && !settings.wifiOnlyDownloads) }
-        item {
-            StoragePolicyCard(
-                usage = storageUsage,
-                selectedBudget = storageSettings.temporaryCacheBudgetBytes,
-                onBudgetSelected = storageViewModel::setBudget,
-                onClearTemporary = storageViewModel::clearTemporaryCache,
-            )
+        item(key = "network-settings") {
+            PlaylistGlassPanel(headerHazeState, radius = 24.dp) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("Playback & network", style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold)
+                    SettingToggle(
+                        "Offline mode", settings.offlineMode, viewModel::setOfflineMode,
+                        subtitle = "Play downloaded music without requesting the network",
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    SettingToggle(
+                        "Wi-Fi only downloads", settings.wifiOnlyDownloads, viewModel::setWifiOnly,
+                        subtitle = "Restrict Telegram downloads to unmetered connections",
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    SettingToggle(
+                        "Prefetch next track", settings.prefetchEnabled, viewModel::setPrefetch,
+                        subtitle = "Prepare upcoming music automatically; uses the same download policy",
+                    )
+                    if (settings.prefetchEnabled && !settings.wifiOnlyDownloads) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        SettingToggle(
+                            "Allow mobile data for prefetch", settings.prefetchOnMetered,
+                            viewModel::setPrefetchOnMetered,
+                            subtitle = "Off keeps prefetch on Wi-Fi even when downloads allow mobile data",
+                        )
+                    }
+                }
+            }
         }
+        item(key = "storage-usage") { StoragePolicyCard(usage = storageUsage) }
         if (selectedChats.isNotEmpty()) {
-            item { SectionTitle("Telegram sources") }
+            item { SectionTitle("Save whole Telegram chats") }
             items(selectedChats, key = { it.chatId }) { chat ->
                 TelegramDownloadSource(
                     chat = chat,
@@ -104,9 +132,9 @@ fun DownloadsRoute(
                 )
             }
         }
-        item { SectionTitle("Download library") }
+        item { SectionTitle("Saved & previous downloads") }
         if (rest.isEmpty() && active.isEmpty()) {
-            item { Text("Use the download icon on a track cover, or download a whole Telegram source above.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)) }
+            item { Text("Songs started from Telegram streaming are saved automatically. You can also save an entire selected chat above.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         } else {
             items(rest, key = { it.trackId }) { row ->
                 DownloadRowCard(
@@ -121,21 +149,20 @@ fun DownloadsRoute(
         }
     }
     MeowzixStickyHeader(
-        title = "Offline",
-        subtitle = "Downloads and offline playback.",
+        showProxyAction = true,
+        title = "Downloads & offline",
+        subtitle = "Network rules, saved music and progress",
         hazeState = headerHazeState,
         modifier = Modifier.align(Alignment.TopCenter),
+        leadingActions = {
+            MeowzixHeaderAction("Back", Icons.AutoMirrored.Rounded.ArrowBack, onBack)
+        },
     )
     }
 }
 
 @Composable
-private fun StoragePolicyCard(
-    usage: ManagedStorageUsage?,
-    selectedBudget: Long,
-    onBudgetSelected: (Long) -> Unit,
-    onClearTemporary: () -> Unit,
-) {
+private fun StoragePolicyCard(usage: ManagedStorageUsage?) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
@@ -147,7 +174,7 @@ private fun StoragePolicyCard(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             } else {
                 Text(
-                    "Temporary ${formatBytes(usage.temporaryPlaybackBytes)} · Pinned ${formatBytes(usage.pinnedOfflineBytes)} · Other ${formatBytes(usage.otherManagedBytes)}",
+                    "Saved audio ${formatBytes(usage.pinnedOfflineBytes)} · Artwork ${formatBytes(usage.otherManagedBytes)}",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -157,28 +184,13 @@ private fun StoragePolicyCard(
                 )
                 if (usage.lowSpace) {
                     Text(
-                        "Storage is low. Nonessential cache work is suspended until space recovers.",
+                        "Storage is low. Ongoing downloads may need more free space to finish.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
             }
-            Text("Temporary cache budget", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CACHE_BUDGET_PRESETS.forEach { bytes ->
-                    if (selectedBudget == bytes) {
-                        Button(onClick = { onBudgetSelected(bytes) }) { Text(formatBudget(bytes)) }
-                    } else {
-                        OutlinedButton(onClick = { onBudgetSelected(bytes) }) { Text(formatBudget(bytes)) }
-                    }
-                }
-            }
-            OutlinedButton(onClick = onClearTemporary) { Text("Clear temporary cache") }
-            Text(
-                "Pinned offline copies and your own MediaStore audio are never removed by Clear temporary cache.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-            )
+            Text("Streams keep downloading after playback moves on. Saved audio stays offline until you remove it.")
         }
     }
 }
@@ -247,7 +259,7 @@ private fun TelegramDownloadSource(
 }
 
 @Composable
-private fun DownloadRowCard(
+internal fun DownloadRowCard(
     row: DownloadRow,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -281,7 +293,13 @@ private fun DownloadRowCard(
                 when (row.status) {
                     DownloadStatus.DOWNLOADING,
                     DownloadStatus.QUEUED,
-                    -> OutlinedButton(onClick = onPause) { Text("Pause") }
+                    -> {
+                        OutlinedButton(onClick = onPause) { Text("Pause") }
+                        OutlinedButton(
+                            onClick = onCancel,
+                            modifier = Modifier.testTag("download-cancel-" + row.trackId),
+                        ) { Text("Cancel") }
+                    }
                     DownloadStatus.PAUSED -> Button(onClick = onResume) { Text("Resume") }
                     DownloadStatus.FAILED,
                     DownloadStatus.CANCELED,
@@ -311,17 +329,28 @@ private fun DownloadRowCard(
 }
 
 @Composable private fun SectionTitle(text: String) { Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
-@Composable private fun SettingToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, enabled: Boolean = true) {
+@Composable
+private fun SettingToggle(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    subtitle: String? = null,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(label, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            subtitle?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            enabled = enabled,
             modifier = Modifier.semantics {
                 contentDescription = label
                 stateDescription = if (checked) "On" else "Off"
@@ -355,16 +384,3 @@ private fun formatBytes(bytes: Long): String {
         String.format(Locale.US, "%.0f MB", mib)
     }
 }
-
-private fun formatBudget(bytes: Long): String = when (bytes) {
-    256L * 1024L * 1024L -> "256 MB"
-    512L * 1024L * 1024L -> "512 MB"
-    1024L * 1024L * 1024L -> "1 GB"
-    else -> formatBytes(bytes)
-}
-
-private val CACHE_BUDGET_PRESETS = listOf(
-    256L * 1024L * 1024L,
-    512L * 1024L * 1024L,
-    1024L * 1024L * 1024L,
-)

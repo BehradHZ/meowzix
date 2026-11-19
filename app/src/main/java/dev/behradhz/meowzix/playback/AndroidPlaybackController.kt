@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -11,6 +12,7 @@ import androidx.media3.session.SessionToken
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.behradhz.meowzix.domain.history.ListeningEventSemantics
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
+import dev.behradhz.meowzix.domain.playback.ModeSwitchCandidates
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -19,17 +21,23 @@ import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueueSnapshot
-import dev.behradhz.meowzix.domain.playback.generatedIndicesAfterSelection
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
+import dev.behradhz.meowzix.domain.playback.ArtistBalancedShuffleEngine
+import dev.behradhz.meowzix.domain.playback.ArtistShuffleItem
+import dev.behradhz.meowzix.domain.playback.ShuffleCycle
+import dev.behradhz.meowzix.domain.playback.SmartShuffleFutureOrder
 import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
 import dev.behradhz.meowzix.domain.playback.QueueActionKind
 import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueRemovalPlan
 import dev.behradhz.meowzix.domain.playback.planQueueRemoval
 import dev.behradhz.meowzix.domain.playback.QueueRepository
+import dev.behradhz.meowzix.domain.playback.QueueItemOrigin
+import dev.behradhz.meowzix.domain.playback.buildLibraryPlaybackQueue
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.domain.playback.RepeatMode
 import dev.behradhz.meowzix.domain.recommendation.RecommendationEngine
+import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
@@ -37,14 +45,20 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 
 @Singleton
 class AndroidPlaybackController @Inject constructor(
@@ -53,7 +67,9 @@ class AndroidPlaybackController @Inject constructor(
     private val recommendationEngine: RecommendationEngine,
     private val progressiveQueue: ProgressiveQueue,
     private val queueActionFeedbackBus: QueueActionFeedbackBus,
+    private val settings: SettingsRepository,
 ) : PlaybackController, QueueRepository {
+    private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(PlaybackState(status = PlaybackStatus.PREPARING))
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
@@ -69,6 +85,9 @@ class AndroidPlaybackController @Inject constructor(
     private var seekRevision = 0L
     private var userSelectedOccurrence = false
     private var userInterruptedPrevious = false
+    private var lastRecordedExposureOccurrence: UUID? = null
+    private var modeChangeJob: Job? = null
+    private var libraryStartupJob: Job? = null
 
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -96,7 +115,7 @@ class AndroidPlaybackController @Inject constructor(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            updateState(controller, error.message ?: "Unable to play this track")
+            updateState(controller, userFacingPlaybackError(error))
         }
     }
 
@@ -393,6 +412,78 @@ class AndroidPlaybackController @Inject constructor(
         replaceAndPlayInternal(trackIds, startTrackId, mode)
     }
 
+    override fun playLibrarySelection(
+        trackId: UUID,
+        mode: PlaybackMode,
+        repeat: RepeatMode,
+        fromSearch: Boolean,
+        loadOrderedTrackIds: suspend () -> List<UUID>,
+    ) {
+        scope.launch {
+            val first = catalog.playableTrack(trackId)
+            if (first == null) showError("The selected track has no available playback source")
+            else replaceAndPlayLibraryPrepared(first, mode, repeat, fromSearch, loadOrderedTrackIds)
+        }
+    }
+
+    /**
+     * Commit one playable track to Media3 first; perform full Library discovery,
+     * shuffle ranking and bounded queue hydration in a separate, application-owned job.
+     * This job survives navigation away from Library.
+     */
+    fun replaceAndPlayLibraryPrepared(
+        first: PlayableTrack,
+        mode: PlaybackMode,
+        repeat: RepeatMode,
+        fromSearch: Boolean,
+        loadOrderedTrackIds: suspend () -> List<UUID>,
+    ) {
+        libraryStartupJob?.cancel()
+        libraryStartupJob = scope.launch {
+            var selectedOccurrence: UUID? = null
+            withConnectedController { connected ->
+                playbackOccurrenceId = UUID.randomUUID()
+                userSelectedOccurrence = true
+                val plan = progressiveQueue.start(
+                    orderedTracks = listOf(first),
+                    requestedStartIndex = 0,
+                    mode = mode,
+                    repeat = repeat,
+                    sourceIds = listOf(first.id),
+                )
+                selectedOccurrence = progressiveQueue.snapshot()?.occurrenceIds?.firstOrNull()
+                connected.setMediaItems(
+                    requireNotNull(progressiveQueue.snapshot()).mediaItems(),
+                    plan.startIndexInWindow,
+                    0,
+                )
+                connected.repeatMode = repeat.toPlayerRepeatMode(progressive = true)
+                connected.prepare()
+                connected.play()
+            }
+            val occurrence = selectedOccurrence ?: return@launch
+            // Do not join this work to a ViewModel or block the player startup path.
+            scope.launch {
+                var ids: List<UUID> = emptyList()
+                for (attempt in 1..3) {
+                    try {
+                        ids = withContext(Dispatchers.IO) { loadOrderedTrackIds() }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        Log.w("MeowzixQueue", "Library catalog lookup failed (attempt $attempt)", error)
+                    }
+                    if (ids.isNotEmpty()) break
+                    if (attempt < 3) delay(450L)
+                }
+                val ordered = buildLibraryPlaybackQueue(ids, first.id, mode, fromSearch)
+                if (ordered.size > 1) {
+                    attachFutureToSingleTrack(first.id, ordered, mode, occurrence)
+                }
+            }
+        }
+    }
+
     fun replaceAndPlayPrepared(
         trackIds: List<UUID>,
         startTrackId: UUID,
@@ -410,107 +501,84 @@ class AndroidPlaybackController @Inject constructor(
         prepared: PlayableTrack? = null,
     ) {
         scope.launch {
-            // Tapping a song in the same collection must not regenerate a new shuffle
-            // permutation or discard manually queued items. Jump within the existing cycle.
-            val active = progressiveQueue.snapshot()
-            // Prefer a FUTURE generated occurrence over a matching track in history
-            // or manual Queue. Canonical track IDs do not uniquely identify instances.
-            val existingIndex = active?.let { snapshot ->
-                (snapshot.currentIndex + 1 until snapshot.tracks.size).firstOrNull { index ->
-                    snapshot.tracks[index].id == startTrackId &&
-                        snapshot.origins[index] ==
-                            dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
-                } ?: snapshot.tracks.indexOfFirst { it.id == startTrackId }
-            } ?: -1
-            if (startTrackId != null && existingIndex >= 0 && active != null &&
-                active.playbackMode == mode &&
-                active.sourceTrackIds.isNotEmpty() &&
-                active.sourceTrackIds.size == trackIds.size &&
-                active.sourceTrackIds.toSet() == trackIds.toSet()
-            ) {
-                if (prepared != null) progressiveQueue.replacePlayableSource(prepared.id, prepared)
-                val refreshed = progressiveQueue.snapshot() ?: return@launch
-                val selectedOccurrence = refreshed.occurrenceIds[existingIndex]
+            // Every direct Library selection begins a fresh listening session,
+            // even when the selected track belongs to the active collection.
+            // Next/Previous navigation continues to use the existing committed order.
+            // Starting an ordered queue must not resolve every source in a large library.
+            // ProgressiveQueue already supports unresolved future IDs, so hydrate only
+            // the initial batch before preparing Media3. Keep all IDs for later refills.
+            val distinctIds = trackIds.distinct()
+            if (distinctIds.isEmpty()) return@launch showError("No playlist tracks are available")
+            if (mode == PlaybackMode.ORDERED) {
+                if (startTrackId != null && startTrackId !in distinctIds) {
+                    return@launch showError("Selected track is no longer available")
+                }
+                val rotation = startTrackId?.let(distinctIds::indexOf)?.coerceAtLeast(0) ?: 0
+                val orderedIds = distinctIds.drop(rotation) + distinctIds.take(rotation)
+                val headIds = orderedIds.take(ProgressiveQueue.GENERATED_BATCH_SIZE)
+                val materialized = runCatching { catalog.availableTracks(headIds) }
+                    .getOrElse { error ->
+                        showError(error.message ?: "Unable to load playlist")
+                        return@launch
+                    }.associateBy(PlayableTrack::id)
+                val initial = headIds.mapNotNull { id ->
+                    if (prepared?.id == id) prepared else materialized[id]
+                }
+                if (initial.isEmpty() || (startTrackId != null && initial.first().id != startTrackId)) {
+                    return@launch showError("Selected track is no longer available")
+                }
                 withConnectedController { connected ->
-                    val latest = progressiveQueue.snapshot() ?: return@withConnectedController
-                    val selectedIndex = latest.occurrenceIds.indexOf(selectedOccurrence)
-                    if (selectedIndex < 0) return@withConnectedController
-                    if (selectedIndex <= latest.currentIndex ||
-                        latest.origins[selectedIndex] ==
-                            dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED ||
-                        !progressiveQueue.hasFixedFuture()
-                    ) {
-                        // Same session: resolve the occurrence again on the
-                        // connected player so an intervening queue edit cannot
-                        // make this index point at a different song.
-                        playAtOnController(connected, selectedIndex)
-                    } else {
-                        playIndependentTrackPreservingNext(connected, latest, selectedIndex)
-                    }
+                    playbackOccurrenceId = UUID.randomUUID()
+                    userSelectedOccurrence = true
+                    val window = progressiveQueue.start(
+                        orderedTracks = initial,
+                        requestedStartIndex = 0,
+                        mode = mode,
+                        repeat = RepeatMode.OFF,
+                        sourceIds = distinctIds,
+                        pendingIds = orderedIds.drop(headIds.size),
+                    )
+                    connected.setMediaItems(
+                        requireNotNull(progressiveQueue.snapshot()).mediaItems(),
+                        window.startIndexInWindow,
+                        0,
+                    )
+                    connected.repeatMode = Player.REPEAT_MODE_OFF
+                    connected.prepare()
+                    connected.play()
                 }
                 return@launch
             }
 
-            val catalogTracks = runCatching { catalog.availableTracks(trackIds) }
-                .getOrElse { error ->
-                    showError(error.message ?: "Unable to load playlist")
-                    return@launch
-                }
-            // A freshly resolved Telegram URI outranks an old database snapshot.
-            val byId = catalogTracks.associateBy { it.id }
-            val requested = trackIds.distinct().mapNotNull { id ->
-                if (prepared?.id == id) prepared else byId[id]
+            // Start the requested track without waiting for a whole-catalog hydration
+            // or a potentially expensive Smart Shuffle recommendation pass.
+            if (startTrackId != null && startTrackId !in distinctIds) {
+                return@launch showError("Selected track is no longer available")
             }
-            var shuffleSeed: Long? = null
-            var tracks = when (mode) {
-                PlaybackMode.ORDERED -> requested
-                PlaybackMode.PURE_SHUFFLE -> {
-                    val requestedById = requested.associateBy { it.id }
-                    PureShuffleEngine.newCycle(requested.map { it.id }).let { cycle ->
-                        shuffleSeed = cycle.seed
-                        cycle.order.mapNotNull(requestedById::get)
+            val selectedId = startTrackId ?: when (mode) {
+                PlaybackMode.PURE_SHUFFLE -> withContext(Dispatchers.Default) {
+                    PureShuffleEngine.newCycle(distinctIds).order.first()
+                }
+                else -> distinctIds.first()
+            }
+            val first = prepared?.takeIf { it.id == selectedId }
+                ?: runCatching { catalog.playableTrack(selectedId) }
+                    .getOrElse { error ->
+                        showError(error.message ?: "Unable to load the selected track")
+                        return@launch
                     }
-                }
-                PlaybackMode.SMART_SHUFFLE -> {
-                    val smartQueue = recommendationEngine.generate(
-                        allowedTrackIds = requested.map { it.id },
-                        currentTrackId = _state.value.currentTrack?.id,
-                        timeBucket = currentTimeBucket(),
-                    )
-                    val ids = smartQueue.trackIds.distinct()
-                    val requestedById = requested.associateBy { it.id }
-                    val ranked = ids.mapNotNull(requestedById::get)
-                    val rankedSet = ranked.mapTo(hashSetOf(), PlayableTrack::id)
-                    ranked + requested.filter { track -> track.id !in rankedSet && track.id in smartQueue.eligibleTrackIds }
-                }
-            }
-            if (tracks.isEmpty()) return@launch showError("No playlist tracks are available")
-
-            if (startTrackId != null && mode != PlaybackMode.ORDERED) {
-                val selectedIndex = tracks.indexOfFirst { it.id == startTrackId }
-                if (selectedIndex > 0) tracks = tracks.drop(selectedIndex) + tracks.take(selectedIndex)
-            }
-            val startIndex = when {
-                startTrackId == null -> 0
-                mode == PlaybackMode.ORDERED -> tracks.indexOfFirst { it.id == startTrackId }.coerceAtLeast(0)
-                else -> 0
-            }
-            tracks = tracks.drop(startIndex) + tracks.take(startIndex)
-            val sourceIds = requested.map { it.id }
-            val initial = tracks.take(ProgressiveQueue.GENERATED_BATCH_SIZE)
-            val pending = tracks.drop(initial.size).map { it.id }
+            if (first == null) return@launch showError("Selected track is no longer available")
 
             withConnectedController { connected ->
                 playbackOccurrenceId = UUID.randomUUID()
                 userSelectedOccurrence = true
                 val window = progressiveQueue.start(
-                    orderedTracks = initial,
+                    orderedTracks = listOf(first),
                     requestedStartIndex = 0,
                     mode = mode,
                     repeat = RepeatMode.OFF,
-                    seed = shuffleSeed,
-                    sourceIds = sourceIds,
-                    pendingIds = pending,
+                    // A mode switch during async ranking still needs the full candidate pool.
+                    sourceIds = distinctIds,
                 )
                 connected.setMediaItems(
                     requireNotNull(progressiveQueue.snapshot()).mediaItems(),
@@ -521,45 +589,146 @@ class AndroidPlaybackController @Inject constructor(
                 connected.prepare()
                 connected.play()
             }
+            // This runs in a separate coroutine and must never re-prepare the current item.
+            attachFutureToSingleTrack(selectedId, distinctIds, mode)
         }
     }
 
     /**
-     * A separate Library selection can match a manually queued occurrence.
-     * In that specific case, start an independent playback context without
-     * consuming the pending manual Queue entry.
-     *
-     * Direct Next selections NEVER use this method: playAt() navigates within
-     * the existing session and retains every earlier song as navigable history.
+     * Nonblocking Library-first playback: fill only the upcoming materialized batch
+     * once the full ID order is known. Never re-prepare or replace the current MediaItem.
      */
-    private fun playIndependentTrackPreservingNext(
-        connected: MediaController,
-        active: ProgressiveQueueSnapshot,
-        selectedIndex: Int,
+    override fun attachFutureToSingleTrack(
+        expectedTrackId: UUID,
+        fullOrderedTrackIds: List<UUID>,
+        mode: PlaybackMode,
+    ) = attachFutureToSingleTrack(expectedTrackId, fullOrderedTrackIds, mode, null)
+
+    private fun attachFutureToSingleTrack(
+        expectedTrackId: UUID,
+        fullOrderedTrackIds: List<UUID>,
+        mode: PlaybackMode,
+        requiredOccurrenceId: UUID?,
     ) {
-        val selected = active.tracks.getOrNull(selectedIndex) ?: return
-        val retainedNextIndices = active.generatedIndicesAfterSelection(selectedIndex)
-        val generated = retainedNextIndices.map(active.tracks::get)
-        val window = progressiveQueue.start(
-            orderedTracks = listOf(selected) + generated,
-            requestedStartIndex = 0,
-            mode = active.playbackMode,
-            repeat = active.repeatMode,
-            seed = active.shuffleSeed,
-            sourceIds = active.sourceTrackIds,
-            pendingIds = active.pendingGeneratedIds,
-            futureOccurrenceIds = retainedNextIndices.map(active.occurrenceIds::get),
-        )
-        playbackOccurrenceId = UUID.randomUUID()
-        userSelectedOccurrence = true
-        connected.setMediaItems(
-            requireNotNull(progressiveQueue.snapshot()).mediaItems(),
-            window.startIndexInWindow,
-            0L,
-        )
-        connected.repeatMode = active.repeatMode.toPlayerRepeatMode(progressive = true)
-        connected.prepare()
-        connected.play()
+        scope.launch {
+            val allIds = fullOrderedTrackIds.distinct()
+            if (expectedTrackId !in allIds) return@launch
+            // A mode change while the catalog/ranker is suspended must not strand a
+            // one-song queue. Recompute against the latest requested mode if needed.
+            repeat(4) {
+                val snapshot = progressiveQueue.snapshot() ?: return@launch
+                val activeMode = if (requiredOccurrenceId != null) snapshot.playbackMode else mode
+                if ((snapshot.sourceTrackIds != listOf(expectedTrackId) &&
+                        snapshot.sourceTrackIds != allIds) ||
+                    snapshot.playbackMode != activeMode ||
+                    snapshot.currentIndex != 0 ||
+                    snapshot.tracks.firstOrNull()?.id != expectedTrackId) return@launch
+                val expectedOccurrenceId = snapshot.occurrenceIds.first()
+                if (requiredOccurrenceId != null && requiredOccurrenceId != expectedOccurrenceId) return@launch
+
+                val remaining = allIds.filterNot { it == expectedTrackId }
+                val (orderedFuture, shuffleSeed) = runCatching {
+                    when (activeMode) {
+                        PlaybackMode.ORDERED -> remaining to null
+                        PlaybackMode.PURE_SHUFFLE -> {
+                            // Artist metadata is optional. Failure must never strand the
+                            // single playing track without its generated future.
+                            val balanced = try {
+                                val prefs = settings.playbackPreferenceSettings.first()
+                                if (prefs.artistBalancedShuffle) {
+                                    val artists = catalog.shuffleArtists(allIds)
+                                    withContext(Dispatchers.Default) {
+                                        ArtistBalancedShuffleEngine.newCycleStartingWith(
+                                            allIds.map { ArtistShuffleItem(it, artists[it]) },
+                                            expectedTrackId,
+                                            alpha = prefs.artistShuffleAlpha.toDouble(),
+                                        )
+                                    }
+                                } else null
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Throwable) {
+                                Log.w("MeowzixQueue", "Artist shuffle unavailable, using Pure Shuffle", error)
+                                null
+                            }
+                            val cycle = balanced ?: withContext(Dispatchers.Default) {
+                                PureShuffleEngine.newCycleStartingWith(allIds, expectedTrackId)
+                            }
+                            cycle.order.filterNot { it == expectedTrackId } to cycle.seed
+                        }
+                        PlaybackMode.SMART_SHUFFLE -> {
+                            // Ranking is bounded, so it cannot delay playback or queue forever.
+                            val recommendation = try {
+                                withTimeoutOrNull(2_000L) {
+                                    recommendationEngine.generate(
+                                        allowedTrackIds = allIds,
+                                        currentTrackId = expectedTrackId,
+                                        timeBucket = currentTimeBucket(),
+                                    )
+                                }
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Throwable) {
+                                Log.w("MeowzixQueue", "Smart ranking unavailable, preserving Library order", error)
+                                null
+                            }
+                            if (recommendation == null) remaining to null else {
+                                SmartShuffleFutureOrder.completeLibraryCycle(
+                                    remaining, recommendation.trackIds, recommendation.eligibleTrackIds,
+                                ) to null
+                            }
+                        }
+                    }
+                }.getOrElse { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    return@launch
+                }
+                val headIds = orderedFuture.take((ProgressiveQueue.GENERATED_BATCH_SIZE - 1).coerceAtLeast(1))
+                var loaded: List<PlayableTrack>? = null
+                for (attempt in 1..3) {
+                    try {
+                        loaded = catalog.availableTracks(headIds)
+                        break
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        Log.w("MeowzixQueue", "Generated queue hydration failed (attempt $attempt)", error)
+                        if (attempt < 3) delay(450L)
+                    }
+                }
+                val prepared = loaded?.associateBy(PlayableTrack::id) ?: return@launch
+                val initial = headIds.mapNotNull(prepared::get)
+                var modeChanged = false
+                withConnectedController { connected ->
+                    if (connected.currentMediaItem?.mediaId != expectedTrackId.toString()) return@withConnectedController
+                    val actualOccurrence = connected.currentMediaItem?.queueOccurrenceId()
+                    if (actualOccurrence != null && actualOccurrence != expectedOccurrenceId) return@withConnectedController
+                    if (progressiveQueue.snapshot()?.playbackMode != activeMode) {
+                        modeChanged = true
+                        return@withConnectedController
+                    }
+                    val accepted = progressiveQueue.attachFutureToSingleTrack(
+                        expectedTrackId = expectedTrackId,
+                        expectedOccurrenceId = expectedOccurrenceId,
+                        future = initial,
+                        sourceIds = allIds,
+                        pendingIds = orderedFuture.drop(headIds.size),
+                        mode = activeMode,
+                        seed = shuffleSeed,
+                    )
+                    if (accepted) {
+                        syncProgressiveFutureInPlace(connected)
+                        // The first song may have ended while catalog discovery ran.
+                        if (connected.playbackState == Player.STATE_ENDED && connected.hasNextMediaItem()) {
+                            connected.seekToNextMediaItem()
+                            connected.prepare()
+                            connected.play()
+                        }
+                    }
+                }
+                if (!modeChanged) return@launch
+            }
+        }
     }
 
     override fun removeOccurrence(occurrenceId: UUID) = withController { connected ->
@@ -629,12 +798,25 @@ class AndroidPlaybackController @Inject constructor(
         queueActionFeedbackBus.emit(QueueActionKind.REMOVED, removedTitle)
     }
 
-    override fun move(fromIndex: Int, toIndex: Int) {
+    override fun move(fromIndex: Int, toIndex: Int) =
+        moveInternal(fromIndex, toIndex, null)
+
+    override fun move(fromIndex: Int, toIndex: Int, destinationOrigin: QueueItemOrigin) =
+        moveInternal(fromIndex, toIndex, destinationOrigin)
+
+    private fun moveInternal(
+        fromIndex: Int,
+        toIndex: Int,
+        destinationOrigin: QueueItemOrigin?,
+    ) {
         withController { connected ->
             if (progressiveQueue.snapshot() != null) {
                 syncLogicalCurrentFromPlayer(connected)
-                if (progressiveQueue.move(fromIndex, toIndex)) syncProgressiveWindowInPlace(connected)
-            } else if (fromIndex in 0 until connected.mediaItemCount && toIndex in 0 until connected.mediaItemCount) {
+                if (progressiveQueue.move(fromIndex, toIndex, destinationOrigin)) {
+                    syncProgressiveWindowInPlace(connected)
+                }
+            } else if (fromIndex in 0 until connected.mediaItemCount &&
+                toIndex in 0 until connected.mediaItemCount && fromIndex != toIndex) {
                 connected.moveMediaItem(fromIndex, toIndex)
             }
         }
@@ -676,9 +858,12 @@ class AndroidPlaybackController @Inject constructor(
     }
 
     override fun setPlaybackMode(mode: PlaybackMode) {
-        scope.launch {
+        // Latest request wins, including while artist lookup or Smart ranking is suspended.
+        modeChangeJob?.cancel()
+        modeChangeJob = scope.launch {
             val connected = runCatching { controller ?: controllerFuture.await().also { controller = it } }
                 .getOrElse { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
                     showError(error.message ?: "Playback is unavailable")
                     return@launch
                 }
@@ -688,48 +873,113 @@ class AndroidPlaybackController @Inject constructor(
             }
             syncLogicalCurrentFromPlayer(connected)
             val active = progressiveQueue.snapshot() ?: return@launch
-            if (active.tracks.isEmpty()) return@launch
+            if (active.tracks.isEmpty() || active.playbackMode == mode) return@launch
             val currentTrack = active.tracks[active.currentIndex]
-            val candidateIds = active.sourceTrackIds.ifEmpty { active.tracks.map { it.id } }
-            val candidates = runCatching { catalog.availableTracks(candidateIds) }.getOrDefault(emptyList())
-            val excluded = active.tracks.indices
-                .filter { it > active.currentIndex && active.origins[it] == dev.behradhz.meowzix.domain.playback.QueueItemOrigin.MANUAL }
-                .mapTo(hashSetOf()) { active.tracks[it].id }
-            excluded += currentTrack.id
-            val future = candidates.filterNot { it.id in excluded }
-            var seed: Long? = null
-            val desiredFuture = when (mode) {
-                PlaybackMode.ORDERED -> {
-                    val rank = runCatching { catalog.availableTracks().map { it.id } }
-                        .getOrDefault(emptyList())
-                        .withIndex()
-                        .associate { it.value to it.index }
-                    future.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
-                }
-                PlaybackMode.PURE_SHUFFLE -> {
-                    PureShuffleEngine.newCycle(future.indices.toList()).let { cycle ->
-                        seed = cycle.seed
-                        cycle.order.map(future::get)
+            val expectedOccurrence = active.occurrenceIds[active.currentIndex]
+            // Input order is the original Playlist / Library sort order, even after
+            // a shuffle. Never query the entire Library to reconstruct ORDERED.
+            val sourceIds = active.sourceTrackIds.ifEmpty { active.tracks.map(PlayableTrack::id) }
+            val futureIds = ModeSwitchCandidates.eligible(active, sourceIds)
+
+            // Change UI policy immediately; computing a new Next must not interrupt audio.
+            progressiveQueue.updatePlaybackMode(mode)
+            updateState(connected)
+
+            val (orderedIds, seed) = try {
+                when (mode) {
+                    PlaybackMode.ORDERED -> {
+                        // Continue from the selected song in the source collection, wrapping
+                        // around only to eligible unplayed tracks.
+                        ModeSwitchCandidates.orderedAfterCurrent(
+                            sourceIds, currentTrack.id, futureIds,
+                        ) to null
+                    }
+                    PlaybackMode.PURE_SHUFFLE -> {
+                        val prefs = settings.playbackPreferenceSettings.first()
+                        val cycle = if (prefs.artistBalancedShuffle) {
+                            val artists = catalog.shuffleArtists(futureIds)
+                            val recent = (listOf(currentTrack.id) +
+                                settings.recentShuffleTrackIds.first()).distinct()
+                            withContext(Dispatchers.Default) {
+                                ArtistBalancedShuffleEngine.newCycle(
+                                    futureIds.map { ArtistShuffleItem(it, artists[it]) },
+                                    recent,
+                                    alpha = prefs.artistShuffleAlpha.toDouble(),
+                                )
+                            }
+                        } else withContext(Dispatchers.Default) {
+                            PureShuffleEngine.newCycle(futureIds, currentTrack.id)
+                        }
+                        cycle.order to cycle.seed
+                    }
+                    PlaybackMode.SMART_SHUFFLE -> {
+                        val smart = recommendationEngine.generate(
+                            allowedTrackIds = futureIds,
+                            currentTrackId = currentTrack.id,
+                            timeBucket = currentTimeBucket(),
+                        )
+                        SmartShuffleFutureOrder.order(
+                            futureIds, smart.trackIds, smart.eligibleTrackIds,
+                        ) to null
                     }
                 }
-                PlaybackMode.SMART_SHUFFLE -> {
-                    val rankedIds = recommendationEngine.generate(
-                        allowedTrackIds = future.map { it.id }.distinct(),
-                        currentTrackId = currentTrack.id,
-                        timeBucket = currentTimeBucket(),
-                    ).trackIds.distinct()
-                    val rank = rankedIds.withIndex().associate { it.value to it.index }
-                    future.withIndex()
-                        .sortedWith(compareBy({ rank[it.value.id] ?: Int.MAX_VALUE }, { it.index }))
-                        .map { it.value }
-                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Recommendation failure must not leave a one-item queue or pause playback.
+                futureIds to null
             }
-            progressiveQueue.replaceFuture(
-                desiredFuture.take(ProgressiveQueue.GENERATED_BATCH_SIZE), mode, seed,
-                sourceIds = candidateIds,
-                pendingIds = desiredFuture.drop(ProgressiveQueue.GENERATED_BATCH_SIZE).map { it.id },
-            )
-            syncProgressiveFutureInPlace(connected)
+
+            val headIds = orderedIds.take(ProgressiveQueue.GENERATED_BATCH_SIZE)
+            val resolved = try {
+                catalog.availableTracks(headIds)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                emptyList()
+            }
+            coroutineContext.ensureActive()
+            // A skip, replacement session or another mode change invalidates this result.
+            if (connected.currentMediaItem?.mediaId != currentTrack.id.toString()) return@launch
+            val mediaOccurrence = connected.currentMediaItem?.queueOccurrenceId()
+            if (mediaOccurrence != null && mediaOccurrence != expectedOccurrence) return@launch
+            if (progressiveQueue.commitModeSwitch(
+                    expectedCurrentOccurrenceId = expectedOccurrence,
+                    mode = mode,
+                    sourceIds = sourceIds,
+                    future = resolved,
+                    pendingIds = orderedIds.drop(headIds.size),
+                    seed = seed,
+                )
+            ) {
+                syncProgressiveFutureInPlace(connected)
+            }
+        }
+    }
+
+    /** Settings affect only newly generated queues; existing manual Queue entries are untouched. */
+    private suspend fun makeShuffleCycle(
+        tracks: List<PlayableTrack>,
+        selectedTrackId: UUID? = null,
+        previousTrackId: UUID? = null,
+    ): ShuffleCycle<UUID> {
+        val prefs = settings.playbackPreferenceSettings.first()
+        val recent = if (prefs.artistBalancedShuffle)
+            (listOfNotNull(previousTrackId) + settings.recentShuffleTrackIds.first()).distinct()
+        else emptyList()
+        return withContext(Dispatchers.Default) {
+            if (prefs.artistBalancedShuffle) {
+                val items = tracks.map { ArtistShuffleItem(it.id, it.artist) }
+                if (selectedTrackId == null) ArtistBalancedShuffleEngine.newCycle(
+                    items, recent, alpha = prefs.artistShuffleAlpha.toDouble(),
+                ) else ArtistBalancedShuffleEngine.newCycleStartingWith(
+                    items, selectedTrackId, recent, alpha = prefs.artistShuffleAlpha.toDouble(),
+                )
+            } else {
+                val ids = tracks.map { it.id }
+                if (selectedTrackId == null) PureShuffleEngine.newCycle(ids, previousTrackId)
+                else PureShuffleEngine.newCycleStartingWith(ids, selectedTrackId)
+            }
         }
     }
 
@@ -925,48 +1175,64 @@ class AndroidPlaybackController @Inject constructor(
         if (shouldPlay) connected.play()
     }
 
-    private fun setLegacyPlaybackMode(connected: MediaController, mode: PlaybackMode) {
+    private suspend fun setLegacyPlaybackMode(connected: MediaController, mode: PlaybackMode) {
         if (connected.mediaItemCount == 0) return
         val repeatMode = connected.queueRepeatMode()
         val currentIndex = connected.currentMediaItemIndex.coerceAtLeast(0)
         val currentId = connected.currentMediaItem?.mediaId
         val existingIds = (0 until connected.mediaItemCount).map { connected.getMediaItemAt(it).mediaId }
-        scope.launch {
-            val desiredFutureIds = when (mode) {
-                PlaybackMode.ORDERED -> {
-                    val order = runCatching { catalog.availableTracks().map { it.id.toString() } }.getOrDefault(emptyList())
-                    val rank = order.withIndex().associate { it.value to it.index }
-                    existingIds.drop(currentIndex + 1).sortedBy { rank[it] ?: Int.MAX_VALUE }
-                }
-                PlaybackMode.PURE_SHUFFLE -> existingIds.drop(currentIndex + 1).shuffled()
-                PlaybackMode.SMART_SHUFFLE -> {
-                    val allowed = existingIds.drop(currentIndex + 1)
-                        .mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
-                    recommendationEngine.generate(
-                        allowedTrackIds = allowed.distinct(),
-                        currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
-                        timeBucket = currentTimeBucket(),
-                    ).trackIds.map(UUID::toString).let { ranked ->
-                        val rank = ranked.withIndex().associate { it.value to it.index }
-                        existingIds.drop(currentIndex + 1)
-                            .withIndex()
-                            .sortedWith(compareBy({ rank[it.value] ?: Int.MAX_VALUE }, { it.index }))
-                            .map { it.value }
+        val futureIds = existingIds.drop(currentIndex + 1)
+        val desiredFutureIds = when (mode) {
+            // Legacy timelines do not retain a separate source context. Preserve their
+            // existing order rather than loading the entire Library and changing scope.
+            PlaybackMode.ORDERED -> futureIds
+            PlaybackMode.PURE_SHUFFLE -> {
+                val prefs = settings.playbackPreferenceSettings.first()
+                if (prefs.artistBalancedShuffle) {
+                    val uuids = futureIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
+                    val artists = catalog.shuffleArtists(uuids)
+                    withContext(Dispatchers.Default) {
+                        ArtistBalancedShuffleEngine.newCycle(
+                            futureIds.mapIndexed { index, id ->
+                                ArtistShuffleItem(index, runCatching { UUID.fromString(id) }.getOrNull()?.let(artists::get))
+                            },
+                            alpha = prefs.artistShuffleAlpha.toDouble(),
+                        ).order.map(futureIds::get)
                     }
+                } else withContext(Dispatchers.Default) {
+                    PureShuffleEngine.newCycle(futureIds.indices.toList()).order.map(futureIds::get)
                 }
             }
-            desiredFutureIds.forEachIndexed { offset, mediaId ->
-                val destination = currentIndex + 1 + offset
-                val sourceIndex = (destination until connected.mediaItemCount)
-                    .firstOrNull { connected.getMediaItemAt(it).mediaId == mediaId }
-                    ?: return@forEachIndexed
-                if (sourceIndex != destination) connected.moveMediaItem(sourceIndex, destination)
+            PlaybackMode.SMART_SHUFFLE -> {
+                val allowed = futureIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
+                val smart = recommendationEngine.generate(
+                    allowedTrackIds = allowed.distinct(),
+                    currentTrackId = currentId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
+                    timeBucket = currentTimeBucket(),
+                )
+                val rank = smart.trackIds.distinct().withIndex().associate { it.value.toString() to it.index }
+                futureIds.withIndex()
+                    .sortedWith(compareBy({ rank[it.value] ?: Int.MAX_VALUE }, { it.index }))
+                    .map { it.value }
             }
-            updateQueuePolicyMetadata(connected, mode, repeatMode)
         }
+        coroutineContext.ensureActive()
+        if (connected.currentMediaItemIndex != currentIndex ||
+            connected.currentMediaItem?.mediaId != currentId ||
+            connected.mediaItemCount != existingIds.size ||
+            (0 until connected.mediaItemCount).any { connected.getMediaItemAt(it).mediaId != existingIds[it] }
+        ) return
+        desiredFutureIds.forEachIndexed { offset, mediaId ->
+            val destination = currentIndex + 1 + offset
+            val sourceIndex = (destination until connected.mediaItemCount)
+                .firstOrNull { connected.getMediaItemAt(it).mediaId == mediaId }
+                ?: return@forEachIndexed
+            if (sourceIndex != destination) connected.moveMediaItem(sourceIndex, destination)
+        }
+        updateQueuePolicyMetadata(connected, mode, repeatMode)
     }
 
-    private fun updateState(player: Player?, errorMessage: String? = player?.playerError?.message) {
+    private fun updateState(player: Player?, errorMessage: String? = player?.playerError?.let(::userFacingPlaybackError)) {
         if (player == null) return
         val mediaItem = player.currentMediaItem
         val trackId = mediaItem?.mediaId?.let { mediaId ->
@@ -979,6 +1245,14 @@ class AndroidPlaybackController @Inject constructor(
             ?: 0L
         val playbackMode = logical?.playbackMode ?: player.queuePlaybackMode()
         val repeatMode = logical?.repeatMode ?: player.queueRepeatMode()
+        // Track actual Shuffle starts, never pre-generated selections or position updates.
+        if (player.isPlaying && trackId != null &&
+            (playbackMode == PlaybackMode.PURE_SHUFFLE || playbackMode == PlaybackMode.SMART_SHUFFLE) &&
+            lastRecordedExposureOccurrence != playbackOccurrenceId
+        ) {
+            lastRecordedExposureOccurrence = playbackOccurrenceId
+            scope.launch { settings.recordShuffleExposure(trackId) }
+        }
         _state.value = PlaybackState(
             status = when {
                 errorMessage != null -> PlaybackStatus.ERROR
@@ -1031,6 +1305,9 @@ class AndroidPlaybackController @Inject constructor(
                     repeatMode = logical.repeatMode,
                 )
                 lastPublishedLogicalQueue = logical
+                // QueueRoute and the widget must consume the same revision, including
+                // manual/Next changes beyond Media3's short physical timeline.
+                dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)
             }
         } else {
             lastPublishedLogicalQueue = null
@@ -1093,10 +1370,5 @@ private fun updateQueuePolicyMetadata(player: MediaController, playbackMode: Pla
     }
 }
 
-private fun RepeatMode.toPlayerRepeatMode(progressive: Boolean): Int = when {
-    this == RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-    this == RepeatMode.ALL && !progressive -> Player.REPEAT_MODE_ALL
-    else -> Player.REPEAT_MODE_OFF
-}
 
 private fun currentTimeBucket() = ListeningEventSemantics.timeContext(Instant.now(), ZoneId.systemDefault()).bucket

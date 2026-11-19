@@ -184,7 +184,7 @@ class LibraryQueryRepository @Inject constructor(
 
     /** Single-row lookup for surfaces that already know the canonical track UUID. */
     suspend fun track(trackId: UUID): Track? =
-        libraryDao.trackById(trackId.toString())?.toDomainTrack()
+        libraryDao.trackById(trackId.toString())?.toDomain()
 
     /**
      * Full eligibility set as UUIDs only. Recommendation can consider the complete library without
@@ -240,6 +240,9 @@ class LibraryQueryRepository @Inject constructor(
 
     fun favoriteCount(): Flow<Int> = dao.observeFavoriteCount()
 
+    fun observeTrackRevision(): Flow<Long> = libraryDao.observeLatestTrackRevision()
+    suspend fun trackRevision(): Long = libraryDao.latestTrackRevision()
+
     fun artists(): Flow<List<ArtistSummary>> = dao.observeArtistSummaries().map { rows ->
         rows.map(ArtistSummaryRow::toSummary)
     }
@@ -266,13 +269,13 @@ class LibraryQueryRepository @Inject constructor(
     }
 
     fun artistTracks(normalizedArtist: String): Flow<List<Track>> =
-        dao.observeTracksByArtist(normalizedArtist).map { rows -> rows.map(TrackEntity::toDomainTrack) }
+        dao.observeTracksByArtist(normalizedArtist).map { rows -> rows.map(TrackEntity::toDomain) }
 
     fun albumTracks(album: String, normalizedArtist: String): Flow<List<Track>> =
-        dao.observeTracksByAlbum(album, normalizedArtist).map { rows -> rows.map(TrackEntity::toDomainTrack) }
+        dao.observeTracksByAlbum(album, normalizedArtist).map { rows -> rows.map(TrackEntity::toDomain) }
 
     fun favoriteTracks(): Flow<List<Track>> =
-        dao.observeFavoriteTracks().map { rows -> rows.map(TrackEntity::toDomainTrack) }
+        dao.observeFavoriteTracks().map { rows -> rows.map(TrackEntity::toDomain) }
 
     private suspend fun boundedAvailableTracks(orderBy: String, limit: Int): List<Track> =
         dao.searchTracks(
@@ -325,9 +328,9 @@ class LibraryQueryRepository @Inject constructor(
                 OR EXISTS (
                     SELECT 1
                     FROM telegram_track_sources tg
-                    INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                    LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                     INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                    WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                    WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
                 )
             )
         """.trimIndent()
@@ -394,19 +397,3 @@ private fun SearchTrackRow.toDomain() = Track(
     updatedAt = Instant.ofEpochMilli(updatedAtEpochMs),
 )
 
-private fun TrackEntity.toDomainTrack() = Track(
-    id = UUID.fromString(id),
-    title = title,
-    normalizedTitle = normalizedTitle,
-    artist = artist,
-    normalizedArtist = normalizedArtist,
-    album = album,
-    durationMs = durationMs,
-    trackNumber = trackNumber,
-    year = year,
-    artworkRef = artworkRef,
-    favorite = favorite,
-    hidden = hidden,
-    createdAt = Instant.ofEpochMilli(createdAtEpochMs),
-    updatedAt = Instant.ofEpochMilli(updatedAtEpochMs),
-)

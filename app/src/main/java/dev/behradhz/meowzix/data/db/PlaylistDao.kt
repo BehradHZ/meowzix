@@ -8,26 +8,27 @@ import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 private const val VISIBLE_PLAYLIST_TRACK_COUNT =
-    "COUNT(CASE WHEN EXISTS (SELECT 1 FROM tracks t WHERE t.id = pt.trackId AND t.hidden = 0 AND (" +
+    "COUNT(CASE WHEN EXISTS (SELECT 1 FROM tracks t WHERE t.id = pt.trackId AND (t.hidden = 0 OR p.telegramManaged = 1) AND (" +
         "EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id " +
         "AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') " +
         "OR EXISTS (SELECT 1 FROM telegram_track_sources tg " +
         "INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId " +
         "INNER JOIN track_sources origin ON origin.id = tg.trackSourceId " +
-        "WHERE origin.trackId = t.id AND origin.availability != 'MISSING')" +
+        "WHERE origin.trackId = t.id AND origin.availability != 'MISSING') " +
+        "OR (t.addedToLibrary = 1 AND EXISTS (SELECT 1 FROM track_sources pinned WHERE pinned.trackId = t.id AND pinned.availability != 'MISSING'))" +
         ")) THEN pt.trackId END)"
 
 @Dao
 interface PlaylistDao {
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, p.newTrackHighlightEnabled, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id ORDER BY p.title COLLATE NOCASE",
     )
     fun observePlaylists(): Flow<List<PlaylistSummaryRow>>
 
-    @Query("SELECT t.* FROM playlist_tracks pt INNER JOIN tracks t ON t.id = pt.trackId WHERE pt.playlistId = :playlistId AND t.hidden = 0 AND (EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') OR EXISTS (SELECT 1 FROM telegram_track_sources tg INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId INNER JOIN track_sources origin ON origin.id = tg.trackSourceId WHERE origin.trackId = t.id AND origin.availability != 'MISSING')) ORDER BY pt.position")
+    @Query("SELECT t.* FROM playlist_tracks pt INNER JOIN tracks t ON t.id = pt.trackId INNER JOIN playlists p ON p.id = pt.playlistId WHERE pt.playlistId = :playlistId AND (t.hidden = 0 OR p.telegramManaged = 1) AND (EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') OR EXISTS (SELECT 1 FROM telegram_track_sources tg INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId INNER JOIN track_sources origin ON origin.id = tg.trackSourceId WHERE origin.trackId = t.id AND origin.availability != 'MISSING') OR (t.addedToLibrary = 1 AND EXISTS (SELECT 1 FROM track_sources pinned WHERE pinned.trackId = t.id AND pinned.availability != 'MISSING'))) ORDER BY pt.position")
     fun observeTracks(playlistId: String): Flow<List<TrackEntity>>
 
     @Query("SELECT * FROM playlists ORDER BY createdAtEpochMs, id")
@@ -38,6 +39,14 @@ interface PlaylistDao {
 
     @Query("SELECT * FROM playlist_tracks WHERE playlistId = :playlistId ORDER BY position")
     suspend fun entries(playlistId: String): List<PlaylistTrackEntity>
+
+    /** Explicit chat/queue playback may use a hidden Library track from Telegram. */
+    @Query("""
+        SELECT DISTINCT pt.trackId FROM playlist_tracks pt
+        INNER JOIN playlists p ON p.id = pt.playlistId
+        WHERE p.telegramManaged = 1 AND pt.trackId IN (:trackIds)
+    """)
+    suspend fun telegramManagedTrackIds(trackIds: List<String>): List<String>
 
     @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
     suspend fun playlist(playlistId: String): PlaylistEntity?
@@ -53,7 +62,7 @@ interface PlaylistDao {
 
 
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, p.newTrackHighlightEnabled, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id ORDER BY p.title COLLATE NOCASE LIMIT :limit OFFSET :offset",
@@ -61,7 +70,7 @@ interface PlaylistDao {
     suspend fun browsePlaylists(limit: Int, offset: Int): List<PlaylistSummaryRow>
 
     @Query(
-        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
+        "SELECT p.id, p.title, p.description, p.artworkRef, p.updatedAtEpochMs, p.telegramManaged, p.titleOverridden, p.descriptionOverridden, p.artworkOverridden, p.newTrackHighlightEnabled, " + VISIBLE_PLAYLIST_TRACK_COUNT + " AS trackCount " +
             "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
             "WHERE p.id = :playlistId AND NOT EXISTS (SELECT 1 FROM rule_playlists rp WHERE rp.playlistId = p.id) " +
             "GROUP BY p.id LIMIT 1",
@@ -69,8 +78,8 @@ interface PlaylistDao {
     suspend fun browsePlaylist(playlistId: String): PlaylistSummaryRow?
 
     @Query(
-        "SELECT t.* FROM playlist_tracks pt INNER JOIN tracks t ON t.id = pt.trackId " +
-            "WHERE pt.playlistId = :playlistId AND t.hidden = 0 AND (EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') OR EXISTS (SELECT 1 FROM telegram_track_sources tg INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId INNER JOIN track_sources origin ON origin.id = tg.trackSourceId WHERE origin.trackId = t.id AND origin.availability != 'MISSING')) ORDER BY pt.position LIMIT :limit OFFSET :offset",
+        "SELECT t.* FROM playlist_tracks pt INNER JOIN tracks t ON t.id = pt.trackId INNER JOIN playlists p ON p.id = pt.playlistId " +
+            "WHERE pt.playlistId = :playlistId AND (t.hidden = 0 OR p.telegramManaged = 1) AND (EXISTS (SELECT 1 FROM track_sources independent WHERE independent.trackId = t.id AND independent.type = 'LOCAL_MEDIASTORE' AND independent.availability = 'AVAILABLE_LOCAL') OR EXISTS (SELECT 1 FROM telegram_track_sources tg INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId INNER JOIN track_sources origin ON origin.id = tg.trackSourceId WHERE origin.trackId = t.id AND origin.availability != 'MISSING') OR (t.addedToLibrary = 1 AND EXISTS (SELECT 1 FROM track_sources pinned WHERE pinned.trackId = t.id AND pinned.availability != 'MISSING'))) ORDER BY pt.position LIMIT :limit OFFSET :offset",
     )
     suspend fun browseTracks(playlistId: String, limit: Int, offset: Int): List<TrackEntity>
 
@@ -86,6 +95,9 @@ interface PlaylistDao {
     suspend fun renamePlaylist(playlistId: String, title: String, updatedAt: Long)
     @Query("UPDATE playlists SET title = :title, description = :description, artworkRef = :artworkRef, updatedAtEpochMs = :updatedAt WHERE id = :playlistId")
     suspend fun updatePlaylistMetadata(playlistId: String, title: String, description: String?, artworkRef: String?, updatedAt: Long)
+    @Query("UPDATE playlists SET newTrackHighlightEnabled = :enabled WHERE id = :playlistId AND telegramManaged = 1")
+    suspend fun setNewTrackHighlightEnabled(playlistId: String, enabled: Boolean)
+
     @Query("UPDATE playlists SET updatedAtEpochMs = :updatedAt WHERE id = :playlistId") suspend fun touchPlaylist(playlistId: String, updatedAt: Long)
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertTrack(entry: PlaylistTrackEntity): Long
     @Upsert suspend fun upsertTracks(entries: List<PlaylistTrackEntity>)
@@ -105,4 +117,5 @@ data class PlaylistSummaryRow(
     val titleOverridden: Boolean,
     val descriptionOverridden: Boolean,
     val artworkOverridden: Boolean,
+    val newTrackHighlightEnabled: Boolean = true,
 )

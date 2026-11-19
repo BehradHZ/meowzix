@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.data.repository.ArtworkRepairCoordinator
+import dev.behradhz.meowzix.core.model.Track
 import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.library.RemoveTrackFromLocations
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
@@ -27,6 +29,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramSendEnqueueResult
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,7 +39,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -46,11 +51,14 @@ data class TelegramForwardUiState(
     val isOpen: Boolean = false,
     /** Snapshot of the selected track; auto-advance must not silently change the send target. */
     val track: NowPlayingTrack? = null,
+    /** Canonical IDs in their chosen order, including bulk Forward from Library. */
+    val trackIds: List<UUID> = emptyList(),
     val query: String = "",
     val chats: List<TelegramChatSummary> = emptyList(),
     val folders: List<TelegramForwardFolder> = emptyList(),
     val foldersLoading: Boolean = false,
     val foldersError: String? = null,
+    val folderRefreshGeneration: Int = 0,
     val isSearching: Boolean = false,
     val isSending: Boolean = false,
     /** Counts newly accepted sends for this picker session; never counts retries/errors. */
@@ -65,6 +73,7 @@ class NowPlayingViewModel @Inject constructor(
     private val queueRepository: QueueRepository,
     private val audioVisualizerRepository: AudioVisualizerRepository,
     private val libraryRepository: MusicLibraryRepository,
+    private val trackRemoval: RemoveTrackFromLocations,
     private val telegramForwardRepository: TelegramForwardRepository,
     private val settingsRepository: SettingsRepository,
     private val artworkRepairCoordinator: ArtworkRepairCoordinator,
@@ -73,33 +82,48 @@ class NowPlayingViewModel @Inject constructor(
     queueActionFeedbackBus: QueueActionFeedbackBus,
 ) : ViewModel() {
     val queueActionFeedback = queueActionFeedbackBus.events
+    private val _trackRemovalError = MutableStateFlow<String?>(null)
+    val trackRemovalError: StateFlow<String?> = _trackRemovalError.asStateFlow()
 
-    private val libraryTracks = libraryRepository.observeTracks()
-        .catch { emit(emptyList()) }
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            emptyList(),
-        )
+    /** Remove only user-selected locations; never delete the device original or Telegram message. */
+    fun removeTrackFromLocations(trackId: UUID, offline: Boolean, fromLibrary: Boolean) {
+        if (!offline && !fromLibrary) return
+        viewModelScope.launch {
+            try {
+                trackRemoval(trackId, offline, fromLibrary)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _trackRemovalError.value = error.message ?: "Unable to remove song"
+            }
+        }
+    }
 
-    private val libraryById = libraryTracks
-        .map { tracks -> tracks.associateBy { it.id } }
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            emptyMap(),
-        )
+    fun dismissTrackRemovalError() {
+        _trackRemovalError.value = null
+    }
 
     private val currentTrackId = playbackController.state
         .map { playback -> playback.currentTrack?.id }
         .distinctUntilChanged()
 
+    // Metadata is already part of the Media3/Queue snapshots. Only observe the
+    // playing row for Favorite and late artwork repair; never load the full library.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val currentLibraryTrack = currentTrackId
+        .flatMapLatest { id ->
+            if (id == null) flowOf(null)
+            else libraryRepository.observeTrack(id).catch { emit(null) }
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val state = combine(
         playbackController.state,
-        libraryById,
-    ) { playback, tracksById ->
+        currentLibraryTrack,
+    ) { playback, liveTrack ->
         val current = playback.currentTrack ?: return@combine playback
-        val liveTrack = tracksById[current.id] ?: return@combine playback
+        if (liveTrack == null || liveTrack.id != current.id) return@combine playback
         playback.copy(
             currentTrack = current.copy(
                 title = liveTrack.title,
@@ -113,26 +137,9 @@ class NowPlayingViewModel @Inject constructor(
         playbackController.state.value,
     )
 
-    val queueState = combine(
-        queueRepository.queueState,
-        libraryById,
-    ) { queue, tracksById ->
-        if (queue.items.isEmpty() || tracksById.isEmpty()) return@combine queue
-        queue.copy(
-            items = queue.items.map { item ->
-                val live = tracksById[item.id] ?: return@map item
-                item.copy(
-                    title = live.title,
-                    artist = live.artist,
-                    artworkRef = live.artworkRef ?: item.artworkRef,
-                )
-            },
-        )
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        queueRepository.queueState.value,
-    )
+    // PlaybackController already owns metadata, ordering and occurrence IDs.
+    // A second, library-backed copy of every queued item is unnecessary.
+    val queueState = queueRepository.queueState
 
     val spectrum = audioVisualizerRepository.spectrum
     val sleepTimerState = sleepTimerManager.state
@@ -147,9 +154,9 @@ class NowPlayingViewModel @Inject constructor(
 
     val isFavorite = combine(
         currentTrackId,
-        libraryById,
-    ) { id, tracksById ->
-        id != null && tracksById[id]?.favorite == true
+        currentLibraryTrack,
+    ) { id, selected ->
+        id != null && selected?.id == id && selected.favorite
     }.distinctUntilChanged().stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
@@ -161,6 +168,8 @@ class NowPlayingViewModel @Inject constructor(
     private var forwardSearchJob: Job? = null
     private var forwardFoldersJob: Job? = null
     private var forwardTrackId: UUID? = null
+    private var forwardTrackIds: List<UUID> = emptyList()
+    private var forwardPickerRequest = 0L
 
     init {
         viewModelScope.launch { sleepTimerManager.restore() }
@@ -238,6 +247,7 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun extendSleepTimer() = viewModelScope.launch { sleepTimerManager.extend(15 * 60_000L) }
+    fun shortenSleepTimer() = viewModelScope.launch { sleepTimerManager.extend(-15 * 60_000L) }
     fun cancelSleepTimer() = setSleepTimerEnabled(false)
 
     private var savePlaybackSpeedJob: Job? = null
@@ -299,20 +309,57 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun openForwardPickerForTrack(trackId: UUID, fallbackTrack: NowPlayingTrack? = null) {
+        val request = ++forwardPickerRequest
         val selectedTrack = state.value.currentTrack?.takeIf { it.id == trackId }
-            ?: libraryById.value[trackId]?.let { track ->
-                NowPlayingTrack(track.id, track.title, track.artist, track.artworkRef)
-            }
             ?: fallbackTrack?.takeIf { it.id == trackId }
-            ?: return
+        if (selectedTrack != null) {
+            showForwardPicker(selectedTrack)
+            return
+        }
+        // Arbitrary Queue/Library tracks are fetched only when Forward is requested.
+        viewModelScope.launch {
+            val track = try {
+                libraryRepository.trackById(trackId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } ?: return@launch
+            if (forwardPickerRequest != request) return@launch
+            showForwardPicker(NowPlayingTrack(track.id, track.title, track.artist, track.artworkRef))
+        }
+    }
+
+    /** A single picker session forwards every distinct selected track, without text sharing. */
+    fun openForwardPickerForTracks(tracks: List<Track>) {
+        val selected = tracks.distinctBy(Track::id)
+        val first = selected.firstOrNull() ?: return
+        forwardPickerRequest++
+        showForwardPicker(
+            selectedTrack = NowPlayingTrack(
+                first.id,
+                if (selected.size == 1) first.title else "${selected.size} selected tracks",
+                if (selected.size == 1) first.artist else null,
+                first.artworkRef,
+            ),
+            trackIds = selected.map(Track::id),
+        )
+    }
+
+    private fun showForwardPicker(
+        selectedTrack: NowPlayingTrack,
+        trackIds: List<UUID> = listOf(selectedTrack.id),
+    ) {
         forwardSearchJob?.cancel()
         forwardFoldersJob?.cancel()
         val cachedFolders = telegramForwardRepository.cachedForwardFolders()
         forwardTrackId = selectedTrack.id
+        forwardTrackIds = trackIds.distinct()
         _forwardState.update {
             it.copy(
                 isOpen = true,
                 track = selectedTrack,
+                trackIds = forwardTrackIds,
                 query = "",
                 chats = emptyList(),
                 folders = cachedFolders.orEmpty(),
@@ -352,9 +399,11 @@ class NowPlayingViewModel @Inject constructor(
                     if (it.isOpen && it.track?.id == trackId) it.copy(
                         folders = folders,
                         foldersLoading = false,
+                        folderRefreshGeneration = it.folderRefreshGeneration + if (forceRefresh) 1 else 0,
                         foldersError = if (folders.isEmpty()) "Folders not available yet" else null,
                     ) else it
                 }
+                if (forceRefresh) searchForwardChats("")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
@@ -369,13 +418,16 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun dismissForwardPicker() {
+        forwardPickerRequest++
         forwardSearchJob?.cancel()
         forwardFoldersJob?.cancel()
         forwardTrackId = null
+        forwardTrackIds = emptyList()
         _forwardState.update {
             it.copy(
                 isOpen = false,
                 track = null,
+                trackIds = emptyList(),
                 query = "",
                 chats = emptyList(),
                 folders = emptyList(),
@@ -420,47 +472,72 @@ class NowPlayingViewModel @Inject constructor(
         rememberDefaults: Boolean,
     ) {
         val trackId = forwardTrackId ?: return
+        val ids = forwardTrackIds.toList().ifEmpty { listOf(trackId) }
         if (_forwardState.value.isSending) return
+        val request = forwardPickerRequest
         val picker = _forwardState.value
         val targetTitle = picker.chats.firstOrNull { it.chatId == targetChatId }?.title
             ?: telegramForwardRepository.cachedForwardChat(targetChatId)?.title
         _forwardState.update { it.copy(errorMessage = null, isSending = true) }
         viewModelScope.launch {
-            runCatching {
+            try {
                 if (rememberDefaults) {
                     settingsRepository.setTelegramForwardDefaults(
                         includeSourceAttribution = options.includeSourceAttribution,
                         keepCaption = options.keepCaption,
                     )
                 }
-                telegramForwardRepository.enqueueTrack(
-                    trackId = trackId,
-                    targetChatId = targetChatId,
-                    targetTitle = targetTitle,
-                    options = options,
-                )
-            }.onSuccess { result ->
-                val message = when (result) {
-                    is TelegramSendEnqueueResult.Queued -> null
-                    is TelegramSendEnqueueResult.AlreadyQueued ->
-                        "Already queued for ${result.job.targetTitle ?: "this Telegram chat"}."
-                    is TelegramSendEnqueueResult.AlreadyInChat ->
-                        "Already sent to ${result.targetTitle ?: "this Telegram chat"}."
+                var queued = 0
+                var alreadyPresent = 0
+                var failed = 0
+                var lastError: String? = null
+                for (id in ids) {
+                    // Do not enqueue additional tracks after the user closes this picker.
+                    if (request != forwardPickerRequest) break
+                    try {
+                        when (telegramForwardRepository.enqueueTrack(
+                            trackId = id,
+                            targetChatId = targetChatId,
+                            targetTitle = targetTitle,
+                            options = options,
+                        )) {
+                            is TelegramSendEnqueueResult.Queued -> queued++
+                            is TelegramSendEnqueueResult.AlreadyQueued,
+                            is TelegramSendEnqueueResult.AlreadyInChat -> alreadyPresent++
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        failed++
+                        lastError = error.message
+                    }
+                }
+                val message = when {
+                    failed > 0 -> "$queued queued; $failed failed. ${lastError ?: "Try again."}"
+                    alreadyPresent > 0 && queued == 0 ->
+                        "All selected tracks are already queued or present in this chat."
+                    alreadyPresent > 0 -> "$queued queued; $alreadyPresent already queued or present."
+                    else -> null
                 }
                 _forwardState.update {
-                    if (it.isOpen && it.track?.id == trackId) it.copy(
-                        errorMessage = message,
-                        isSending = false,
-                        successfulForwardCount = it.successfulForwardCount +
-                            if (result is TelegramSendEnqueueResult.Queued) 1 else 0,
-                    ) else it
+                    if (request == forwardPickerRequest && it.isOpen && it.track?.id == trackId &&
+                        it.trackIds == ids
+                    ) {
+                        it.copy(
+                            errorMessage = message,
+                            isSending = false,
+                            successfulForwardCount = it.successfulForwardCount + queued,
+                        )
+                    } else it
                 }
-            }.onFailure { error ->
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
                 _forwardState.update {
-                    it.copy(
+                    if (request == forwardPickerRequest && it.isOpen) it.copy(
                         isSending = false,
                         errorMessage = error.message ?: "Unable to queue this Telegram send.",
-                    )
+                    ) else it
                 }
             }
         }

@@ -2,6 +2,8 @@ package dev.behradhz.meowzix.playback
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
@@ -13,11 +15,14 @@ import androidx.media3.datasource.TransferListener
 import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrity
 import dev.behradhz.meowzix.data.telegram.TdDownloadPriority
 import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
+import dev.behradhz.meowzix.data.telegram.TELEGRAM_FILE_UNIQUE_ID_QUERY
+import dev.behradhz.meowzix.data.telegram.matchesTelegramFileIdentity
 import dev.behradhz.meowzix.data.telegram.readableEndAt
 import java.io.File
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.io.RandomAccessFile
+import java.util.UUID
 import kotlin.math.min
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -26,17 +31,27 @@ import org.drinkless.tdlib.TdApi
 
 private const val TDLIB_SCHEME = "meowzix-tdlib"
 
+/** Only local URI schemes may replace a Telegram stream; never redirect to remote URLs. */
+internal fun isSupportedLocalPlaybackUri(uri: String): Boolean =
+    uri.startsWith("file://", ignoreCase = true) ||
+        uri.startsWith("content://", ignoreCase = true)
+
 @OptIn(UnstableApi::class)
-class MeowzixDataSourceFactory(context: Context) : DataSource.Factory {
+class MeowzixDataSourceFactory(
+    context: Context,
+    private val verifiedLocalSource: suspend (UUID) -> String? = { null },
+) : DataSource.Factory {
     private val appContext = context.applicationContext
     private val defaultFactory = DefaultDataSource.Factory(appContext)
 
-    override fun createDataSource(): DataSource = RoutingDataSource(defaultFactory)
+    override fun createDataSource(): DataSource =
+        RoutingDataSource(defaultFactory, verifiedLocalSource)
 }
 
 @OptIn(UnstableApi::class)
 private class RoutingDataSource(
     private val defaultFactory: DataSource.Factory,
+    private val verifiedLocalSource: suspend (UUID) -> String?,
 ) : DataSource {
     private val listeners = mutableListOf<TransferListener>()
     private var active: DataSource? = null
@@ -49,21 +64,60 @@ private class RoutingDataSource(
     override fun open(dataSpec: DataSpec): Long {
         check(active == null) { "DataSource is already open" }
 
-        // A Telegram URI must use TDLib's verified byte ranges. Directory scanning used
-        // to accept any nonempty orphan cache file as a fully downloaded track.
-        val source: DataSource = if (dataSpec.uri.scheme == TDLIB_SCHEME) {
+        val isTelegramStream = dataSpec.uri.scheme == TDLIB_SCHEME
+        // A queued/restored MediaItem can retain an old TDLib URI after the user saved the
+        // audio. Resolve the *verified* local source at read time, before contacting Telegram.
+        // This runs on Media3's loader thread, never on the UI thread.
+        val localUri = if (isTelegramStream) {
+            val trackId = dataSpec.uri.getQueryParameter("trackId")
+                ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            val candidate = trackId?.let { id ->
+                try {
+                    runBlocking { verifiedLocalSource(id) }
+                } catch (interrupted: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw InterruptedIOException("Offline source lookup was interrupted").apply {
+                        initCause(interrupted)
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null // The verified cache is optional; TDLib remains the fallback.
+                }
+            }
+            candidate?.takeIf(::isSupportedLocalPlaybackUri)?.let(Uri::parse)
+        } else null
+
+        val source = if (isTelegramStream && localUri == null) {
             TdLibStreamingDataSource()
         } else {
             defaultFactory.createDataSource()
         }
-
+        val resolvedSpec = localUri?.let(dataSpec::withUri) ?: dataSpec
+        if (isTelegramStream && localUri != null) {
+            Log.i("MeowzixStream", "Using verified local source instead of queued Telegram URI")
+        }
         listeners.forEach(source::addTransferListener)
         active = source
         try {
-            return source.open(dataSpec)
+            return source.open(resolvedSpec)
         } catch (failure: Throwable) {
             runCatching { source.close() }
             active = null
+            if (localUri != null && failure is IOException) {
+                // Local file could disappear between verification and opening. Retry the
+                // original TDLib stream rather than turning a cache race into a hard error.
+                val remote = TdLibStreamingDataSource()
+                listeners.forEach(remote::addTransferListener)
+                active = remote
+                try {
+                    return remote.open(dataSpec)
+                } catch (remoteFailure: Throwable) {
+                    runCatching { remote.close() }
+                    active = null
+                    throw remoteFailure
+                }
+            }
             throw failure
         }
     }
@@ -97,6 +151,7 @@ private class RoutingDataSource(
 private class TdLibStreamingDataSource : BaseDataSource(true) {
     private var openedUri: Uri? = null
     private var fileId: Int = 0
+    private var expectedFileUniqueId: String? = null
     private var randomAccessFile: RandomAccessFile? = null
     private var openedPath: String? = null
     private var readPosition: Long = 0L
@@ -111,19 +166,26 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
 
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
+        val openingStartedAt = SystemClock.elapsedRealtime()
         closed = false
         val id = dataSpec.uri.lastPathSegment?.toIntOrNull()
             ?: throw IOException("Invalid Telegram playback URI: ${dataSpec.uri}")
+        val expectedUniqueId = dataSpec.uri.getQueryParameter(TELEGRAM_FILE_UNIQUE_ID_QUERY)
+        if (expectedUniqueId.isNullOrBlank()) {
+            throw IOException("Telegram source identity missing; refresh the source before playback")
+        }
         val client = runBlockingIo { awaitActiveClient() }
             ?: throw IOException("Telegram is not ready yet after retrying")
 
         openedUri = dataSpec.uri
         fileId = id
+        expectedFileUniqueId = expectedUniqueId
         readPosition = dataSpec.position
         bytesRemaining = dataSpec.length
 
         val initialWindow = runBlockingIo {
             val seeded = seedFileStateWithRetry(client, id)
+            verifyFileIdentity(seeded)
             if (!seeded.local.isDownloadingCompleted) {
                 ensureDownload(
                     client = client,
@@ -153,6 +215,14 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
 
         checkOpen()
         opened = true
+        Log.i(
+            "MeowzixStream",
+            "Opened Telegram audio range; offset=$readPosition, " +
+                "waitMs=${SystemClock.elapsedRealtime() - openingStartedAt}, " +
+                "readableBytes=${(initialWindow.readableEnd - readPosition).coerceAtLeast(0L)}, " +
+                "downloadedBytes=${initialWindow.state.local.downloadedSize}, " +
+                "complete=${initialWindow.state.local.isDownloadingCompleted}",
+        )
         transferStarted(dataSpec)
         return bytesRemaining
     }
@@ -236,6 +306,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         resetFileHandle()
         openedUri = null
         fileId = 0
+        expectedFileUniqueId = null
         if (opened) {
             opened = false
             transferEnded()
@@ -293,6 +364,12 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         throw IOException("Unable to resolve Telegram file state after retrying", lastError)
     }
 
+    private fun verifyFileIdentity(file: TdApi.File) {
+        if (!matchesTelegramFileIdentity(expectedFileUniqueId, file.remote.uniqueId)) {
+            throw IOException("Telegram audio identity changed; refresh the source before playback")
+        }
+    }
+
     private suspend fun waitForReadableWindow(position: Long): ReadableWindow {
         var recoveryAttempts = 0
         var corruptCompletionRetries = 0
@@ -301,6 +378,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             val client = awaitActiveClient()
                 ?: throw IOException("Telegram remained disconnected during playback")
             var state = client.fileStates.current(fileId) ?: seedFileStateWithRetry(client, fileId)
+            verifyFileIdentity(state)
             if (state.local.isDownloadingCompleted && !isValidCompletedFile(state)) {
                 // Completed with missing or truncated bytes is not EOF. Retry real Telegram bytes.
                 if (++corruptCompletionRetries > MAX_CORRUPT_COMPLETION_RETRIES) {
@@ -313,6 +391,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
                         fileId, TdDownloadPriority.CURRENT_TRACK_AUDIO, 0L, 0L, false,
                     ),
                 )
+                verifyFileIdentity(restarted)
                 client.fileStates.publish(restarted)
                 continue
             }
@@ -339,6 +418,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             checkOpen()
             if (pushedState != null) {
                 state = pushedState
+                verifyFileIdentity(state)
                 val pushedReadableEnd = resolveReadableEnd(client, state, position)
                 if (pushedReadableEnd > position || isAtEnd(state, position)) {
                     return ReadableWindow(state, pushedReadableEnd)
@@ -354,6 +434,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             val refreshed = runCatching { client.refreshFileState(fileId) }.getOrNull()
             if (refreshed != null) {
                 state = refreshed
+                verifyFileIdentity(state)
                 val refreshedReadableEnd = resolveReadableEnd(client, state, position)
                 if (refreshedReadableEnd > position || isAtEnd(state, position)) {
                     return ReadableWindow(state, refreshedReadableEnd)

@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.ui.components
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -8,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
@@ -49,6 +51,36 @@ fun GlassSurface(
                 state = hazeState,
                 style = style,
             ),
+        content = content,
+    )
+}
+
+/** Shared appearance for the floating dock and the collapsed Mini Player. */
+@Composable
+fun Modifier.floatingChromeFrame(shape: RoundedCornerShape): Modifier =
+    shadow(6.dp, shape)
+        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f), shape)
+
+/**
+ * Keep the dock and collapsed Mini Player visually identical. The expanded player
+ * retains its pre-existing lighter backdrop by gradually restoring its old tint.
+ */
+@Composable
+fun FloatingChromeGlassSurface(
+    hazeState: HazeState,
+    modifier: Modifier,
+    shape: RoundedCornerShape,
+    expansionFraction: Float = 0f,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val expansion = expansionFraction.coerceIn(0f, 1f)
+    val surface = MaterialTheme.colorScheme.surface
+    GlassSurface(
+        hazeState = hazeState,
+        modifier = modifier,
+        shape = shape,
+        fallbackColor = surface.copy(alpha = 0.90f + (0.85f - 0.90f) * expansion),
+        tint = surface.copy(alpha = 0.74f + (0.10f - 0.74f) * expansion),
         content = content,
     )
 }

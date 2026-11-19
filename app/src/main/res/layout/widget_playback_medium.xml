@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Two/three-column widget: cover, one-line metadata and a usable Play control. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_playback_background"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="5dp"
+    android:paddingEnd="5dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+    <ImageView
+        android:id="@+id/widget_artwork"
+        android:layout_width="39dp"
+        android:layout_height="39dp"
+        android:clipToOutline="true"
+        android:background="@drawable/widget_artwork_frame"
+        android:contentDescription="Open player"
+        android:scaleType="centerCrop"
+        android:src="@drawable/meowzix_logo" />
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:orientation="vertical"
+        android:paddingStart="6dp">
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:text="Nothing playing"
+            android:textColor="#FFFFFFFF"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+        <TextView
+            android:id="@+id/widget_artist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:text="Open Meowzix"
+            android:textColor="#CCFFFFFF"
+            android:textSize="9sp" />
+    </LinearLayout>
+    <ImageView
+        android:id="@+id/widget_play_pause"
+        android:layout_width="36dp"
+        android:layout_height="40dp"
+        android:background="@drawable/widget_play_button_background"
+        android:contentDescription="Play or pause"
+        android:padding="10dp"
+        android:src="@drawable/widget_play" />
+</LinearLayout>

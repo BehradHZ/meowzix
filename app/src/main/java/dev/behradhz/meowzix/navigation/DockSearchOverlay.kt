@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +22,10 @@ import androidx.compose.material.icons.rounded.PlaylistPlay
 import dev.behradhz.meowzix.data.repository.ArtistSummary
 import dev.behradhz.meowzix.data.repository.AlbumSummary
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
+import dev.behradhz.meowzix.domain.downloads.OfflineDownload
+import dev.behradhz.meowzix.feature.library.SwipeableLibraryTrackRow
+import dev.behradhz.meowzix.feature.library.SwipeableCollectionRow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,6 +49,7 @@ import java.util.UUID
 internal enum class DockSearchScope(val placeholder: String) {
     GLOBAL("Search anything"),
     LIBRARY("Search in library"),
+    PLAYLIST("Search in playlist"),
     QUEUE("Search in queue"),
 }
 
@@ -57,9 +62,26 @@ internal fun DockSearchOverlay(
     artistResults: List<ArtistSummary>,
     albumResults: List<AlbumSummary>,
     playlistResults: List<PlaylistSummary>,
+    allPlaylists: List<PlaylistSummary>,
+    libraryAvailability: Map<UUID, LibraryTrackAvailability>,
+    downloads: Map<UUID, OfflineDownload>,
     queueState: QueueState,
     currentTrackId: UUID?,
     onPlayLibraryTrack: (Track) -> Unit,
+    onPlayNext: (Track) -> Unit,
+    onAddToQueue: (Track) -> Unit,
+    onPinOffline: (Track) -> Unit,
+    onRemoveOfflineCopy: (Track) -> Unit,
+    onRemoveTrack: (Track, Boolean, Boolean) -> Unit,
+    onFavorite: (Track) -> Unit,
+    onAddToPlaylist: (Track, UUID) -> Unit,
+    onGoToArtist: (Track) -> Unit,
+    onEnsureArtwork: (Track) -> Unit,
+    onTrackInteracted: (Track) -> Unit,
+    onPlayNextArtist: (ArtistSummary) -> Unit,
+    onQueueArtist: (ArtistSummary) -> Unit,
+    onPlayNextAlbum: (AlbumSummary) -> Unit,
+    onQueueAlbum: (AlbumSummary) -> Unit,
     onOpenArtist: (ArtistSummary) -> Unit,
     onOpenAlbum: (AlbumSummary) -> Unit,
     onOpenPlaylist: (PlaylistSummary) -> Unit,
@@ -92,11 +114,12 @@ internal fun DockSearchOverlay(
         tint = Color.White.copy(alpha = 0.12f),
     ) {
         when (scope) {
+            DockSearchScope.PLAYLIST -> Unit // Filtered in the playlist itself.
             DockSearchScope.QUEUE -> {
                 if (queueMatches.isEmpty()) {
                     EmptySearchResult("No queued tracks match “${query.trim()}”")
                 } else {
-                    LazyColumn(
+                    GlassLazyColumn(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
@@ -122,29 +145,57 @@ internal fun DockSearchOverlay(
                 ) {
                     EmptySearchResult("No matches for “${query.trim()}”")
                 } else {
-                    LazyColumn(
+                    GlassLazyColumn(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
+                        if (libraryResults.isNotEmpty()) {
+                            item(key = "songs-header") { SearchCategoryHeading("Songs") }
+                            items(libraryResults, key = { "track:${it.id}" }) { track ->
+                                SwipeableLibraryTrackRow(
+                                    track = track,
+                                    isCurrent = currentTrackId == track.id,
+                                    onClick = { onPlayLibraryTrack(track) },
+                                    onPlayNext = { onPlayNext(track) },
+                                    onAddToQueue = { onAddToQueue(track) },
+                                    onPinOffline = { onPinOffline(track) },
+                                    onRemoveOfflineCopy = { onRemoveOfflineCopy(track) },
+                                    onRemoveTrack = { offline, library -> onRemoveTrack(track, offline, library) },
+                                    availability = libraryAvailability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
+                                    download = downloads[track.id],
+                                    playlists = allPlaylists,
+                                    onFavorite = { onFavorite(track) },
+                                    onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
+                                    onGoToArtist = { onGoToArtist(track) },
+                                    onEnsureArtwork = { onEnsureArtwork(track) },
+                                    onTrackInteracted = { onTrackInteracted(track) },
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                                )
+                            }
+                        }
                         if (artistResults.isNotEmpty()) {
                             item(key = "artists-header") { SearchCategoryHeading("Artists") }
                             items(artistResults, key = { "artist:${it.normalizedName}" }) { artist ->
-                                SearchEntityRow(
+                                SwipeableCollectionRow(
                                     title = artist.name,
                                     subtitle = "${artist.trackCount} songs",
-                                    symbol = { Icon(Icons.Rounded.Person, contentDescription = null) },
+                                    icon = Icons.Rounded.Person,
                                     onClick = { onOpenArtist(artist) },
+                                    onPlayNext = { onPlayNextArtist(artist) },
+                                    onAddToQueue = { onQueueArtist(artist) },
                                 )
                             }
                         }
                         if (albumResults.isNotEmpty()) {
                             item(key = "albums-header") { SearchCategoryHeading("Albums") }
                             items(albumResults, key = { "album:${it.name}:${it.normalizedArtist}" }) { album ->
-                                SearchEntityRow(
+                                SwipeableCollectionRow(
                                     title = album.name,
-                                    subtitle = album.artist,
-                                    symbol = { Icon(Icons.Rounded.Album, contentDescription = null) },
+                                    subtitle = "${album.artist} · ${album.trackCount} songs",
+                                    icon = Icons.Rounded.Album,
                                     onClick = { onOpenAlbum(album) },
+                                    onPlayNext = { onPlayNextAlbum(album) },
+                                    onAddToQueue = { onQueueAlbum(album) },
                                 )
                             }
                         }
@@ -159,16 +210,7 @@ internal fun DockSearchOverlay(
                                 )
                             }
                         }
-                        if (libraryResults.isNotEmpty()) {
-                            item(key = "songs-header") { SearchCategoryHeading("Songs") }
-                            items(libraryResults, key = { "track:${it.id}" }) { track ->
-                                LibrarySearchResultRow(
-                                    track = track,
-                                    isCurrent = currentTrackId == track.id,
-                                    onClick = { onPlayLibraryTrack(track) },
-                                )
-                            }
-                        }
+
                     }
                 }
             }
@@ -202,41 +244,6 @@ private fun EmptySearchResult(message: String) {
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-    }
-}
-
-@Composable
-private fun LibrarySearchResultRow(
-    track: Track,
-    isCurrent: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TrackArtwork(track.artworkRef, track.title, 46.dp)
-        Spacer(Modifier.size(11.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = track.title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = listOfNotNull(track.artist, track.album).joinToString(" · ").ifBlank { "Unknown artist" },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
     }
 }
 

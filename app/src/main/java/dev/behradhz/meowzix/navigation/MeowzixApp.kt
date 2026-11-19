@@ -2,13 +2,21 @@ package dev.behradhz.meowzix.navigation
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Transition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
@@ -22,6 +30,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
@@ -47,10 +56,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -68,17 +80,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -88,17 +106,28 @@ import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.feature.downloads.DownloadsRoute
 import dev.behradhz.meowzix.feature.history.HistoryRoute
 import dev.behradhz.meowzix.feature.home.HomeRoute
+import dev.behradhz.meowzix.feature.home.HomeSessionIds
 import dev.behradhz.meowzix.feature.library.LibraryRoute
 import dev.behradhz.meowzix.feature.library.PlaylistsRoute
 import dev.behradhz.meowzix.data.repository.AlbumSummary
 import dev.behradhz.meowzix.feature.library.LibraryViewModel
+import dev.behradhz.meowzix.feature.library.LibraryTracksViewModel
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.feature.profile.SettingsRoute
 import dev.behradhz.meowzix.feature.queue.QueueRoute
 import dev.behradhz.meowzix.feature.search.SearchViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
+import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthViewModel
+import dev.behradhz.meowzix.feature.telegramauth.TelegramProxyPanel
+import dev.behradhz.meowzix.domain.downloads.DownloadStatus
+import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
+import dev.behradhz.meowzix.domain.telegram.telegramProxyBadge
 import dev.behradhz.meowzix.ui.theme.LocalMeowzixLogoBackground
-import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.FloatingChromeGlassSurface
+import dev.behradhz.meowzix.ui.components.floatingChromeFrame
+import dev.behradhz.meowzix.ui.components.LocalMeowzixHeaderControls
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderControls
 import dev.behradhz.meowzix.ui.components.SecondaryAmbientBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -116,6 +145,38 @@ private const val DOWNLOADS_ROUTE = "downloads"
 private const val HISTORY_ROUTE = "history"
 private const val TOP_LEVEL_ENTER_DURATION_MS = 120
 private const val TOP_LEVEL_EXIT_DURATION_MS = 90
+private val RETAINED_TAB_ORDER = listOf(HOME_ROUTE, LIBRARY_ROUTE, PLAYLISTS_ROUTE, QUEUE_ROUTE)
+private val RETAINED_TAB_ROUTES = RETAINED_TAB_ORDER.toSet()
+private const val TAB_MOTION_DURATION_MS = 165
+private const val TAB_FADE_DURATION_MS = 125
+private const val TELEGRAM_ENTRY_DURATION_MS = 220
+private const val TELEGRAM_NAV_DURATION_MS = 205
+
+/**
+ * Directional positions for tab transitions: an incoming right-hand tab starts
+ * to the right and the outgoing tab moves left (and vice versa).
+ */
+internal fun retainedTabOffsetFraction(tabRoute: String, selectedRoute: String): Float {
+    val tabIndex = RETAINED_TAB_ORDER.indexOf(tabRoute)
+    val selectedIndex = RETAINED_TAB_ORDER.indexOf(selectedRoute)
+    return when {
+        tabIndex < 0 || selectedIndex < 0 || tabIndex == selectedIndex -> 0f
+        tabIndex > selectedIndex -> 1f
+        else -> -1f
+    }
+}
+private val SETTINGS_CHILD_ROUTES = setOf(DOWNLOADS_ROUTE, HISTORY_ROUTE, TELEGRAM_AUTH_ROUTE)
+
+internal enum class DockTabTapAction { CLOSE_SETTINGS, SWITCH_FROM_SETTINGS, RESELECT, SWITCH }
+
+/** Resolve a dock tap before mutating the back stack; Settings never belongs to a tab's saved state. */
+internal fun dockTabTapAction(currentRoute: String, activeTab: String, tappedTab: String): DockTabTapAction =
+    when {
+        currentRoute == SETTINGS_ROUTE || currentRoute in SETTINGS_CHILD_ROUTES ->
+            if (tappedTab == activeTab) DockTabTapAction.CLOSE_SETTINGS else DockTabTapAction.SWITCH_FROM_SETTINGS
+        currentRoute == tappedTab -> DockTabTapAction.RESELECT
+        else -> DockTabTapAction.SWITCH
+    }
 
 internal data class DockDestination(
     val route: String,
@@ -127,16 +188,38 @@ internal data class DockDestination(
 fun MeowzixApp(
     openNowPlayingRequest: Boolean = false,
     onNowPlayingRequestConsumed: () -> Unit = {},
+    onApplyLauncherIcon: (dev.behradhz.meowzix.domain.settings.LauncherIconColorSource) -> Unit = {},
     playerViewModel: NowPlayingViewModel = hiltViewModel(),
 ) {
+    // A new session starts when the application returns to the foreground.
+    var foregroundSessionId by remember { mutableLongStateOf(0L) }
+    LifecycleStartEffect(Unit) {
+        foregroundSessionId = HomeSessionIds.next()
+        onStopOrDispose { }
+    }
+
     val navController = rememberNavController()
+    var visitedTabRoutes by remember { mutableStateOf(setOf(HOME_ROUTE)) }
+    var lastContentTab by rememberSaveable { mutableStateOf(HOME_ROUTE) }
     val hazeState = rememberHazeState()
     val morphingPlayerState = rememberMorphingPlayerState()
+    val floatingTouchBounds = remember { FloatingControlsTouchBounds() }
     val libraryViewModel: LibraryViewModel = hiltViewModel()
+    val libraryTracksViewModel: LibraryTracksViewModel = hiltViewModel()
     val searchViewModel: SearchViewModel = hiltViewModel()
+    val telegramProxyViewModel: TelegramAuthViewModel = hiltViewModel()
+    val proxyState by telegramProxyViewModel.proxyState.collectAsStateWithLifecycle()
+    val telegramAuthState by telegramProxyViewModel.state.collectAsStateWithLifecycle()
+    var openProxyRequest by remember { mutableIntStateOf(0) }
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
+    val librarySelectionActive by libraryTracksViewModel.selectionActive.collectAsStateWithLifecycle()
+    val librarySelectedTracks by libraryTracksViewModel.selectedTracks.collectAsStateWithLifecycle()
+    val libraryDisplaySettings by libraryTracksViewModel.displaySettings.collectAsStateWithLifecycle()
+    val queueSelectionController = remember { ContextualSelectionController() }
+    val playlistSelectionController = remember { ContextualSelectionController() }
     val playbackState by playerViewModel.state.collectAsStateWithLifecycle()
-    val queueState by playerViewModel.queueState.collectAsStateWithLifecycle()
+    val playerBlocksBackgroundBack =
+        playbackState.currentTrack != null && morphingPlayerState.blocksBackgroundBack
     val appearance by playerViewModel.appearanceSettings.collectAsStateWithLifecycle()
     val reduceMotion = appearance.reduceMotion
     val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
@@ -145,6 +228,12 @@ fun MeowzixApp(
     val searchPlaylists by searchViewModel.playlists.collectAsStateWithLifecycle()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: HOME_ROUTE
+    // Animate the real, retained tab surfaces. NavHost destinations for these
+    // routes are empty and cannot animate the cached content themselves.
+    val retainedTabTransition = updateTransition(
+        targetState = currentRoute,
+        label = "retained-tab-navigation",
+    )
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
@@ -163,27 +252,55 @@ fun MeowzixApp(
         )
     }
 
-    val secondarySettingsRoutes = remember { setOf(DOWNLOADS_ROUTE, HISTORY_ROUTE, TELEGRAM_AUTH_ROUTE) }
-    val selectedDockRoute = if (currentRoute in secondarySettingsRoutes || currentRoute == SETTINGS_ROUTE) HOME_ROUTE else currentRoute
+    LaunchedEffect(currentRoute) {
+        if (currentRoute in RETAINED_TAB_ROUTES) {
+            lastContentTab = currentRoute
+            visitedTabRoutes = visitedTabRoutes + currentRoute
+        }
+    }
+    // The same global Settings destination can be opened from any tab.
+    val selectedDockRoute =
+        if (currentRoute == SETTINGS_ROUTE || currentRoute in SETTINGS_CHILD_ROUTES) lastContentTab else currentRoute
     val searchActive = searchContextRoute != null
+    val librarySelectionVisible = currentRoute == LIBRARY_ROUTE && librarySelectionActive
+    val contextualSelectionVisible = librarySelectionVisible ||
+        (currentRoute == QUEUE_ROUTE && queueSelectionController.active) ||
+        (currentRoute == PLAYLISTS_ROUTE && playlistSelectionController.active)
+    val selectionAllLiked = when (currentRoute) {
+        LIBRARY_ROUTE -> librarySelectedTracks.isNotEmpty() &&
+            librarySelectedTracks.values.all { it.favorite }
+        QUEUE_ROUTE -> queueSelectionController.allSelectedLiked
+        PLAYLISTS_ROUTE -> playlistSelectionController.allSelectedLiked
+        else -> false
+    }
     val searchScope = when (searchContextRoute) {
         LIBRARY_ROUTE -> DockSearchScope.LIBRARY
+        PLAYLISTS_ROUTE -> DockSearchScope.PLAYLIST
         QUEUE_ROUTE -> DockSearchScope.QUEUE
         else -> DockSearchScope.GLOBAL
     }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     var dockCompact by rememberSaveable { mutableStateOf(false) }
+    val queueReorderGestureState = remember { QueueReorderGestureState() }
+    var reachedScrollEnd by remember(currentRoute) { mutableStateOf(false) }
     // Incremented even when Home is already selected: reselecting the tab
     // should scroll its retained LazyColumn back to the header.
     var homeScrollToTopRequest by remember { mutableIntStateOf(0) }
+    var libraryScrollToTopRequest by remember { mutableIntStateOf(0) }
+    var queueScrollToTopRequest by remember { mutableIntStateOf(0) }
+    var playlistReselectRequest by remember { mutableIntStateOf(0) }
     var scrollDelta by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 28.dp.toPx() }
-    val dockScrollConnection = remember(currentRoute, searchActive, threshold) {
+    val dockScrollConnection = remember(currentRoute, searchActive, contextualSelectionVisible, threshold) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput || searchActive) return Offset.Zero
+                if (source != NestedScrollSource.UserInput || searchActive || contextualSelectionVisible ||
+                    (currentRoute == QUEUE_ROUTE && queueReorderGestureState.active)
+                ) return Offset.Zero
                 val delta = available.y
                 if (delta == 0f) return Offset.Zero
+                if (delta > 0f) reachedScrollEnd = false
+                if (delta < 0f && reachedScrollEnd) return Offset.Zero
                 if (delta * scrollDelta < 0f) scrollDelta = 0f
                 scrollDelta += delta
                 if (scrollDelta <= -threshold) {
@@ -195,11 +312,35 @@ fun MeowzixApp(
                 }
                 return Offset.Zero
             }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // At the true bottom of a scrollable page, the remaining upward
+                // drag is unconsumed. Expand the dock so the reserved footer is filled.
+                if (contextualSelectionVisible || (currentRoute == QUEUE_ROUTE && queueReorderGestureState.active)) return Offset.Zero
+                if (shouldExpandDockAtEnd(
+                        isUserInput = source == NestedScrollSource.UserInput,
+                        searchActive = searchActive,
+                        compact = dockCompact,
+                        unconsumedDy = available.y,
+                    )
+                ) {
+                    reachedScrollEnd = true
+                    dockCompact = false
+                    scrollDelta = 0f
+                }
+                return Offset.Zero
+            }
         }
     }
-    LaunchedEffect(currentRoute, searchActive) {
+    LaunchedEffect(currentRoute, searchActive, contextualSelectionVisible) {
         dockCompact = false
+        reachedScrollEnd = false
         scrollDelta = 0f
+        if (currentRoute != QUEUE_ROUTE) queueReorderGestureState.active = false
     }
 
     fun dismissSearchKeyboard() {
@@ -215,33 +356,62 @@ fun MeowzixApp(
     }
 
     fun navigateTopLevel(route: String) {
-        // Refresh only on an intentional second tap of the already-selected Library tab.
-        if (route == LIBRARY_ROUTE && currentRoute == LIBRARY_ROUTE && !searchActive) {
-            libraryViewModel.refresh()
+        val action = dockTabTapAction(currentRoute, lastContentTab, route)
+        if (route in RETAINED_TAB_ROUTES) visitedTabRoutes = visitedTabRoutes + route
+
+        if (action == DockTabTapAction.CLOSE_SETTINGS) {
+            clearSearchState()
+            // One Back action dismisses Settings and all of its nested screens.
+            navController.popBackStack(SETTINGS_ROUTE, inclusive = true)
             return
         }
-        clearSearchState()
-        if (currentRoute == LIBRARY_ROUTE || route == LIBRARY_ROUTE) {
-            libraryViewModel.resetNavigationState()
+        if (action == DockTabTapAction.SWITCH_FROM_SETTINGS) {
+            // Remove Settings before saveState/restoreState can associate it with the origin tab.
+            navController.popBackStack(SETTINGS_ROUTE, inclusive = true)
         }
+
+        if (action == DockTabTapAction.RESELECT) {
+            clearSearchState()
+            dockCompact = false
+            scrollDelta = 0f
+            when (route) {
+                HOME_ROUTE -> homeScrollToTopRequest++
+                LIBRARY_ROUTE -> libraryScrollToTopRequest++
+                PLAYLISTS_ROUTE -> playlistReselectRequest++
+                QUEUE_ROUTE -> if (!queueReorderGestureState.active) queueScrollToTopRequest++
+            }
+            return // Don't create a new navigation entry on reselect.
+        }
+        clearSearchState()
         if (route == HOME_ROUTE) {
             dockCompact = false
             scrollDelta = 0f
-            homeScrollToTopRequest++
-            navController.popBackStack(HOME_ROUTE, inclusive = false)
-            return
+            // Returning from a different tab preserves Home's retained scroll state.
+            // Only DockTabTapAction.RESELECT explicitly scrolls Home to the top.
         }
+        lastContentTab = route
         navController.navigate(route) {
             popUpTo(HOME_ROUTE) {
                 inclusive = false
-                saveState = false
+                saveState = true
             }
             launchSingleTop = true
-            restoreState = false
+            restoreState = true
         }
     }
 
     fun goHome() = navigateTopLevel(HOME_ROUTE)
+
+    fun toggleSettings() {
+        when {
+            currentRoute == SETTINGS_ROUTE -> navController.popBackStack()
+            currentRoute in SETTINGS_CHILD_ROUTES -> navController.popBackStack(SETTINGS_ROUTE, false)
+            else -> {
+                clearSearchState()
+                navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true }
+            }
+        }
+    }
 
     LaunchedEffect(searchActive, searchScope, searchQuery) {
         if (searchActive && searchScope == DockSearchScope.GLOBAL) {
@@ -259,44 +429,53 @@ fun MeowzixApp(
     }
 
     BackHandler(
-        enabled = currentRoute != HOME_ROUTE || searchActive || morphingPlayerState.targetExpanded,
+        enabled = currentRoute != HOME_ROUTE || searchActive || playerBlocksBackgroundBack,
     ) {
         when {
-            morphingPlayerState.targetExpanded -> morphingPlayerState.collapse()
+            playerBlocksBackgroundBack -> morphingPlayerState.collapse()
             searchActive -> clearSearchState()
-            currentRoute in secondarySettingsRoutes -> navController.popBackStack()
+            currentRoute in SETTINGS_CHILD_ROUTES -> navController.popBackStack()
+            currentRoute == SETTINGS_ROUTE -> navController.popBackStack()
             currentRoute != HOME_ROUTE -> goHome()
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (currentRoute != HOME_ROUTE) {
-            SecondaryAmbientBackdrop(
-                variation = when (currentRoute) {
-                    LIBRARY_ROUTE -> 0
-                    PLAYLISTS_ROUTE -> 1
-                    QUEUE_ROUTE -> 3
-                    SETTINGS_ROUTE -> 2
-                    else -> 4
-                },
-            )
-        }
-        NavHost(
-            navController = navController,
-            startDestination = HOME_ROUTE,
-            modifier = Modifier
-                .fillMaxSize()
-                .nestedScroll(dockScrollConnection)
-                .hazeSource(hazeState),
-            enterTransition = { fadeIn(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS)) },
-            exitTransition = { fadeOut(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS)) },
-            popEnterTransition = { fadeIn(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS)) },
-            popExitTransition = { fadeOut(animationSpec = tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS)) },
+        if (currentRoute != HOME_ROUTE) SecondaryAmbientBackdrop(variation = 0)
+        CompositionLocalProvider(
+            LocalMeowzixHeaderControls provides MeowzixHeaderControls(
+                onSettings = if (currentRoute == SETTINGS_ROUTE || currentRoute in SETTINGS_CHILD_ROUTES) null
+                    else { { toggleSettings() } },
+                onProxy = { openProxyRequest++ },
+                proxyBadge = telegramProxyBadge(
+                    proxyState.proxies.any { it.enabled },
+                    telegramAuthState.connectionStatus,
+                ),
+            ),
+            LocalDockLayout provides DockLayout(
+                compact = dockCompact && !searchActive && !contextualSelectionVisible,
+                reduceMotion = reduceMotion,
+            ),
+            LocalFloatingControlsTouchBounds provides floatingTouchBounds,
+            LocalQueueReorderGestureState provides queueReorderGestureState,
         ) {
-            composable(HOME_ROUTE) {
+        // The scroll connection must be an ancestor of retained tabs as well as NavHost.
+        // Keeping it on NavHost alone misses all top-level tab scroll gestures.
+        Box(Modifier.fillMaxSize().nestedScroll(dockScrollConnection)) {
+        // Keep visited destinations in composition; inactive tabs are not placed, painted, or hit-tested.
+            if (HOME_ROUTE in visitedTabRoutes) RetainedTopLevelTab(
+                route = HOME_ROUTE,
+                currentRoute = currentRoute,
+                transition = retainedTabTransition,
+                reduceMotion = reduceMotion,
+                hazeState = hazeState,
+            ) {
                 HomeRoute(
+                    isActive = currentRoute == HOME_ROUTE,
                     hazeState = hazeState,
                     scrollToTopRequest = homeScrollToTopRequest,
+                    foregroundSessionId = foregroundSessionId,
+                    reduceMotion = reduceMotion,
                     currentTrack = libraryState.tracks.firstOrNull { it.id == playbackState.currentTrack?.id },
                     onPlayCollection = { tracks ->
                         libraryViewModel.playCollection(
@@ -305,42 +484,77 @@ fun MeowzixApp(
                         )
                     },
                     onOpenLibrary = { navigateTopLevel(LIBRARY_ROUTE) },
+                    isTelegramConnected = telegramAuthState.step is TelegramAuthStep.Ready,
+                    isTelegramStatusInitializing = telegramAuthState.step is TelegramAuthStep.Initializing,
+                    onConnectTelegram = {
+                        clearSearchState()
+                        navController.navigate(TELEGRAM_AUTH_ROUTE) { launchSingleTop = true }
+                    },
                     onOpenPlaylist = { id ->
                         pendingPlaylistId = id
                         navigateTopLevel(PLAYLISTS_ROUTE)
                     },
-                    onOpenSettings = { navigateTopLevel(SETTINGS_ROUTE) },
                 )
             }
-            composable(LIBRARY_ROUTE) {
+            if (LIBRARY_ROUTE in visitedTabRoutes) RetainedTopLevelTab(
+                route = LIBRARY_ROUTE,
+                currentRoute = currentRoute,
+                transition = retainedTabTransition,
+                reduceMotion = reduceMotion,
+                hazeState = hazeState,
+            ) {
                 LibraryRoute(
+                    isActive = currentRoute == LIBRARY_ROUTE && !playerBlocksBackgroundBack,
                     onOpenNowPlaying = {
                         if (searchActive) clearSearchState()
                         morphingPlayerState.expand()
                     },
                     searchQuery = if (searchActive && searchScope == DockSearchScope.LIBRARY) searchQuery else "",
                     viewModel = libraryViewModel,
+                    tracksViewModel = libraryTracksViewModel,
                     requestedArtist = pendingArtist,
+                    scrollToTopRequest = libraryScrollToTopRequest,
                     onArtistRequestConsumed = { pendingArtist = null },
                     requestedAlbum = pendingAlbum,
                     onAlbumRequestConsumed = { pendingAlbum = null },
                 )
             }
-            composable(PLAYLISTS_ROUTE) {
+            if (PLAYLISTS_ROUTE in visitedTabRoutes) RetainedTopLevelTab(
+                route = PLAYLISTS_ROUTE,
+                currentRoute = currentRoute,
+                transition = retainedTabTransition,
+                reduceMotion = reduceMotion,
+                hazeState = hazeState,
+            ) {
                 PlaylistsRoute(
+                    isActive = currentRoute == PLAYLISTS_ROUTE && !playerBlocksBackgroundBack,
+                    selectionController = playlistSelectionController,
+                    selectionMoreActions = libraryDisplaySettings.selection.normalized().more,
                     viewModel = libraryViewModel,
+                    searchQuery = if (searchActive && searchScope == DockSearchScope.PLAYLIST) searchQuery else "",
                     onOpenNowPlaying = { morphingPlayerState.expand() },
                     onGoToArtist = { artist ->
                         pendingArtist = artist
                         navigateTopLevel(LIBRARY_ROUTE)
                     },
                     requestedPlaylistId = pendingPlaylistId,
+                    reselectRequest = playlistReselectRequest,
                     onPlaylistRequestConsumed = { pendingPlaylistId = null },
                     reduceMotion = reduceMotion,
                 )
             }
-            composable(QUEUE_ROUTE) {
+            if (QUEUE_ROUTE in visitedTabRoutes) RetainedTopLevelTab(
+                route = QUEUE_ROUTE,
+                currentRoute = currentRoute,
+                transition = retainedTabTransition,
+                reduceMotion = reduceMotion,
+                hazeState = hazeState,
+            ) {
                 QueueRoute(
+                    isActive = currentRoute == QUEUE_ROUTE && !playerBlocksBackgroundBack,
+                    selectionController = queueSelectionController,
+                    selectionMoreActions = libraryDisplaySettings.selection.normalized().more,
+                    scrollToTopRequest = queueScrollToTopRequest,
                     searchQuery = if (searchActive && searchScope == DockSearchScope.QUEUE) searchQuery else "",
                     onGoToArtist = { artist ->
                         pendingArtist = artist
@@ -348,19 +562,87 @@ fun MeowzixApp(
                     },
                 )
             }
+
+        NavHost(
+            navController = navController,
+            startDestination = HOME_ROUTE,
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(hazeState),
+            enterTransition = {
+                when {
+                    !reduceMotion && targetState.destination.route == TELEGRAM_AUTH_ROUTE ->
+                        // The destination animates itself after layout; the host only
+                        // crossfades so it cannot finish its slide before first draw.
+                        fadeIn(tween(125))
+                    !reduceMotion && targetState.destination.route == SETTINGS_ROUTE ->
+                        fadeIn(tween(260)) + slideInHorizontally(tween(300), initialOffsetX = { it / 6 })
+                    else -> fadeIn(tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS))
+                }
+            },
+            exitTransition = {
+                when {
+                    !reduceMotion && initialState.destination.route == SETTINGS_ROUTE &&
+                        targetState.destination.route == TELEGRAM_AUTH_ROUTE ->
+                        fadeOut(tween(155)) + slideOutHorizontally(
+                            tween(TELEGRAM_NAV_DURATION_MS, easing = FastOutSlowInEasing),
+                            targetOffsetX = { -it / 12 },
+                        )
+                    !reduceMotion && initialState.destination.route == SETTINGS_ROUTE ->
+                        fadeOut(tween(210)) + slideOutHorizontally(tween(250), targetOffsetX = { it / 6 })
+                    else -> fadeOut(tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS))
+                }
+            },
+            popEnterTransition = {
+                when {
+                    !reduceMotion && initialState.destination.route == TELEGRAM_AUTH_ROUTE &&
+                        targetState.destination.route == SETTINGS_ROUTE ->
+                        fadeIn(tween(155)) + slideInHorizontally(
+                            tween(TELEGRAM_NAV_DURATION_MS, easing = FastOutSlowInEasing),
+                            initialOffsetX = { -it / 12 },
+                        )
+                    !reduceMotion && targetState.destination.route == SETTINGS_ROUTE ->
+                        fadeIn(tween(260)) + slideInHorizontally(tween(300), initialOffsetX = { it / 6 })
+                    else -> fadeIn(tween(if (reduceMotion) 0 else TOP_LEVEL_ENTER_DURATION_MS))
+                }
+            },
+            popExitTransition = {
+                when {
+                    !reduceMotion && initialState.destination.route == TELEGRAM_AUTH_ROUTE ->
+                        fadeOut(tween(155)) + slideOutHorizontally(
+                            tween(TELEGRAM_NAV_DURATION_MS, easing = FastOutSlowInEasing),
+                            targetOffsetX = { it / 8 },
+                        )
+                    !reduceMotion && initialState.destination.route == SETTINGS_ROUTE ->
+                        fadeOut(tween(210)) + slideOutHorizontally(tween(250), targetOffsetX = { it / 6 })
+                    else -> fadeOut(tween(if (reduceMotion) 0 else TOP_LEVEL_EXIT_DURATION_MS))
+                }
+            },
+        ) {
+            composable(HOME_ROUTE) { }
+            composable(LIBRARY_ROUTE) { }
+            composable(PLAYLISTS_ROUTE) { }
+            composable(QUEUE_ROUTE) { }
             composable(SETTINGS_ROUTE) {
                 SettingsRoute(
                     onBack = { navController.popBackStack() },
                     onOpenOffline = { navController.navigate(DOWNLOADS_ROUTE) },
                     onOpenHistory = { navController.navigate(HISTORY_ROUTE) },
                     onOpenTelegram = { navController.navigate(TELEGRAM_AUTH_ROUTE) },
+                    onApplyLauncherIcon = onApplyLauncherIcon,
                 )
             }
             composable(TELEGRAM_AUTH_ROUTE) {
-                TelegramAuthRoute(onBack = { navController.popBackStack() })
+                TelegramDestinationEntrance(reduceMotion = reduceMotion) {
+                    TelegramAuthRoute(
+                        onBack = { navController.popBackStack() },
+                    )
+                }
             }
-            composable(DOWNLOADS_ROUTE) { DownloadsRoute() }
-            composable(HISTORY_ROUTE) { HistoryRoute() }
+            composable(DOWNLOADS_ROUTE) { DownloadsRoute(onBack = { navController.popBackStack() }) }
+            composable(HISTORY_ROUTE) { HistoryRoute(onBack = { navController.popBackStack() }) }
+        }
+        }
         }
 
         // Search results and the dock share one IME/navigation-bar anchor, independent of focus.
@@ -373,6 +655,8 @@ fun MeowzixApp(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (searchActive && searchScope == DockSearchScope.GLOBAL && searchQuery.isNotBlank()) {
+                // The root UI does not need to collect Queue updates when search is closed.
+                val queueState by playerViewModel.queueState.collectAsStateWithLifecycle()
                 DockSearchOverlay(
                     hazeState = hazeState,
                     scope = searchScope,
@@ -381,12 +665,35 @@ fun MeowzixApp(
                     artistResults = searchArtists,
                     albumResults = searchAlbums,
                     playlistResults = searchPlaylists,
+                    allPlaylists = libraryState.playlists,
+                    libraryAvailability = libraryState.availability,
+                    downloads = libraryState.downloads,
                     queueState = queueState,
                     currentTrackId = playbackState.currentTrack?.id,
                     onPlayLibraryTrack = { track ->
                         clearSearchState()
                         libraryViewModel.playLibrarySearchTrack(track)
                     },
+                    onPlayNext = libraryViewModel::playNext,
+                    onAddToQueue = libraryViewModel::addToQueue,
+                    onPinOffline = libraryViewModel::pinOffline,
+                    onRemoveOfflineCopy = libraryViewModel::removeOfflineCopy,
+                    onRemoveTrack = libraryViewModel::removeTrack,
+                    onFavorite = libraryViewModel::setFavorite,
+                    onAddToPlaylist = libraryViewModel::addToPlaylist,
+                    onGoToArtist = { track ->
+                        track.artist?.takeIf(String::isNotBlank)?.let { artist ->
+                            pendingArtist = artist
+                            navigateTopLevel(LIBRARY_ROUTE)
+                        }
+                    },
+                    onEnsureArtwork = libraryViewModel::ensureArtwork,
+                    // Browsing, downloading or opening a menu never acknowledges playback.
+                    onTrackInteracted = { _ -> },
+                    onPlayNextArtist = { artist -> libraryTracksViewModel.queueArtist(artist, next = true) },
+                    onQueueArtist = { artist -> libraryTracksViewModel.queueArtist(artist, next = false) },
+                    onPlayNextAlbum = { album -> libraryTracksViewModel.queueAlbum(album, next = true) },
+                    onQueueAlbum = { album -> libraryTracksViewModel.queueAlbum(album, next = false) },
                     onOpenArtist = { artist ->
                         pendingArtist = artist.name
                         navigateTopLevel(LIBRARY_ROUTE)
@@ -406,31 +713,51 @@ fun MeowzixApp(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                 )
             }
+            Box(
+                Modifier.fillMaxWidth().onGloballyPositioned { coordinates ->
+                    floatingTouchBounds.dockTopY = coordinates.boundsInWindow().top
+                },
+            ) {
             MorphingDock(
                 hazeState = hazeState,
                 destinations = destinations,
                 selectedRoute = if (searchActive) SEARCH_ROUTE else selectedDockRoute,
+                selectionActions = if (contextualSelectionVisible)
+                    libraryDisplaySettings.selection.normalized().dock else emptyList(),
+                selectionAllLiked = selectionAllLiked,
+                onSelectionAction = { action ->
+                    when (currentRoute) {
+                        LIBRARY_ROUTE -> libraryTracksViewModel.requestSelectionAction(action)
+                        QUEUE_ROUTE -> queueSelectionController.onAction(action)
+                        PLAYLISTS_ROUTE -> playlistSelectionController.onAction(action)
+                    }
+                },
                 searchActive = searchActive,
-                dockCompact = dockCompact,
+                dockCompact = dockCompact && !contextualSelectionVisible,
                 searchPlaceholder = searchScope.placeholder,
                 searchQuery = searchQuery,
                 onSearchQueryChange = { searchQuery = it },
                 onExpandCompact = {
+                    if (!queueReorderGestureState.active) {
                     // This is a geometry action, not navigation; the mini player
                     // observes dockCompact and rises with the same eased timeline.
                     dockCompact = false
                     scrollDelta = 0f
+                    }
                 },
                 onSelect = { route ->
+                    if (!queueReorderGestureState.active) {
                     if (route == SEARCH_ROUTE) {
                         searchQuery = ""
                         searchContextRoute = when (currentRoute) {
                             LIBRARY_ROUTE -> LIBRARY_ROUTE
+                            PLAYLISTS_ROUTE -> PLAYLISTS_ROUTE
                             QUEUE_ROUTE -> QUEUE_ROUTE
                             else -> HOME_ROUTE
                         }
                     } else {
                         navigateTopLevel(route)
+                    }
                     }
                 },
                 reduceMotion = reduceMotion,
@@ -442,6 +769,7 @@ fun MeowzixApp(
                     }
                 },
             )
+            }
         }
 
         // The collapsed player must not cover the active keyboard or global search results.
@@ -454,7 +782,10 @@ fun MeowzixApp(
                 state = playbackState,
                 viewModel = playerViewModel,
                 morphState = morphingPlayerState,
-                dockCompact = dockCompact && !searchActive,
+                dockCompact = dockCompact && !searchActive && !contextualSelectionVisible,
+                canRemoveOffline = libraryState.downloads[playbackState.currentTrack?.id]
+                    ?.let { it.hasManagedCopy && it.status == DownloadStatus.COMPLETED } == true,
+                onMiniPlayerTopInWindow = { floatingTouchBounds.miniPlayerTopY = it },
                 onOpenQueue = { navigateTopLevel(QUEUE_ROUTE) },
                 onGoToArtist = { artist ->
                     pendingArtist = artist
@@ -462,6 +793,104 @@ fun MeowzixApp(
                 },
             )
         }
+
+        TelegramProxyPanel(
+            state = proxyState,
+            connectionStatus = telegramAuthState.connectionStatus,
+            onAdd = telegramProxyViewModel::addProxy,
+            onImport = telegramProxyViewModel::importProxyLink,
+            onRefresh = telegramProxyViewModel::refreshProxies,
+            onEnable = telegramProxyViewModel::enableProxy,
+            onDisable = telegramProxyViewModel::disableProxy,
+            onRemove = telegramProxyViewModel::removeProxy,
+            onPing = telegramProxyViewModel::pingProxy,
+            onClearError = telegramProxyViewModel::clearProxyError,
+            showTrigger = false,
+            openRequest = openProxyRequest,
+        )
+    }
+}
+
+/**
+ * Animate already-composed top-level tabs instead of replacing their content.
+ * The outgoing and incoming tabs are temporarily both placed; inactive tabs
+ * remain composed but are neither painted nor hit-tested once settled.
+ */
+@Composable
+private fun RetainedTopLevelTab(
+    route: String,
+    currentRoute: String,
+    transition: Transition<String>,
+    reduceMotion: Boolean,
+    hazeState: HazeState,
+    content: @Composable () -> Unit,
+) {
+    val opacity by transition.animateFloat(
+        transitionSpec = {
+            if (reduceMotion) snap()
+            else tween(TAB_FADE_DURATION_MS, easing = FastOutSlowInEasing)
+        },
+        label = "$route-tab-opacity",
+    ) { selected -> if (selected == route) 1f else 0f }
+    val offsetFraction by transition.animateFloat(
+        transitionSpec = {
+            if (reduceMotion) snap()
+            else tween(TAB_MOTION_DURATION_MS, easing = FastOutSlowInEasing)
+        },
+        label = "$route-tab-offset",
+    ) { selected -> retainedTabOffsetFraction(route, selected) }
+    // Do not mount another tab instance: retain the same LazyListState and
+    // Compose saveables while only changing placement during the transition.
+    val placeTab = transition.currentState == route ||
+        transition.targetState == route || opacity > 0.001f
+    val slideDistancePx = with(LocalDensity.current) { 20.dp.toPx() }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .layout { measurable, constraints ->
+                val child = measurable.measure(constraints)
+                layout(child.width, child.height) {
+                    if (placeTab) child.place(0, 0)
+                }
+            }
+            .graphicsLayer {
+                alpha = opacity
+                translationX = offsetFraction * slideDistancePx
+            }
+            .hazeSource(hazeState),
+    ) { content() }
+}
+
+/**
+ * NavHost transitions can advance while Telegram's expensive first composition
+ * is being prepared. Start this GPU-only entrance after the destination has
+ * actually been laid out, so opening Telegram never appears as an instant swap.
+ */
+@Composable
+internal fun TelegramDestinationEntrance(
+    reduceMotion: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val progress = remember(reduceMotion) { Animatable(if (reduceMotion) 1f else 0f) }
+    var measured by remember { mutableStateOf(false) }
+    val entryOffsetPx = with(LocalDensity.current) { 30.dp.toPx() }
+    LaunchedEffect(measured, reduceMotion, progress) {
+        if (!reduceMotion && measured) {
+            withFrameNanos { }
+            progress.animateTo(1f, tween(TELEGRAM_ENTRY_DURATION_MS, easing = FastOutSlowInEasing))
+        }
+    }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onSizeChanged { if (it.width > 0 && it.height > 0) measured = true }
+            .graphicsLayer {
+                alpha = progress.value
+                translationX = (1f - progress.value) * entryOffsetPx
+            }
+            .testTag("telegram-destination-entrance"),
+    ) {
+        content()
     }
 }
 
@@ -479,67 +908,41 @@ internal fun MorphingDock(
     onExpandCompact: () -> Unit,
     onCloseSearch: () -> Unit,
     reduceMotion: Boolean = false,
+    selectionActions: List<LibrarySelectionAction> = emptyList(),
+    onSelectionAction: (LibrarySelectionAction) -> Unit = {},
+    selectionAllLiked: Boolean = false,
 ) {
+    // Retain the very same glass surfaces while swapping dock content. Search must
+    // keep its reversible morph even when Library selection is active.
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    LaunchedEffect(searchActive) {
+    // Wait for the bubble to occupy the dock before the IME starts resizing the footer.
+    // LaunchedEffect cancels the pending focus if search is closed mid-transition.
+    LaunchedEffect(searchActive, reduceMotion) {
         if (searchActive) {
-            if (!reduceMotion) delay(110)
+            if (!reduceMotion) delay(DockSearchOpenDurationMs.toLong() - 35L)
             runCatching { focusRequester.requestFocus() }
             keyboardController?.show()
         }
     }
 
-    if (searchActive) {
-        GlassSurface(
-            hazeState = hazeState,
-            modifier = Modifier.fillMaxWidth().height(72.dp),
-            shape = RoundedCornerShape(36.dp),
-            fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.size(12.dp))
-                BasicTextField(
-                    value = searchQuery,
-                    onValueChange = onSearchQueryChange,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Medium,
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.weight(1f).focusRequester(focusRequester),
-                    decorationBox = { inner ->
-                        Box(contentAlignment = Alignment.CenterStart) {
-                            if (searchQuery.isEmpty()) {
-                                Text(searchPlaceholder, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
-                            }
-                            inner()
-                        }
-                    },
-                )
-                IconButton(onClick = onCloseSearch) {
-                    Icon(Icons.Rounded.Clear, contentDescription = if (searchQuery.isBlank()) "Close search" else "Clear search")
-                }
-            }
-        }
-        return
-    }
-
-    // One eased, reversible timeline controls width, height, icon crossfade and
-    // the motion-blur pulse. Avoid switching layouts on the boolean itself.
+    // Keep both glass bubbles in one layout. Switching the entire composable on
+    // searchActive caused the previous instant cut, and could not animate back.
+    val searchMorph by animateFloatAsState(
+        targetValue = if (searchActive) 1f else 0f,
+        animationSpec = dockSearchMorphSpec(searchActive, reduceMotion),
+        label = "search-dock-morph",
+    )
+    val compact = dockCompact && !searchActive && selectionActions.size != 4
     val morph by animateFloatAsState(
-        targetValue = if (dockCompact) 1f else 0f,
-        animationSpec = dockMorphSpec(dockCompact, reduceMotion),
+        targetValue = if (compact) 1f else 0f,
+        animationSpec = dockMorphSpec(compact, reduceMotion),
         label = "dock-morph",
     )
     val expandedAlpha = ((0.48f - morph) / 0.38f).coerceIn(0f, 1f)
     val compactAlpha = ((morph - 0.18f) / 0.55f).coerceIn(0f, 1f)
+    val navigationAlpha = dockSearchNavigationAlpha(searchMorph)
+    val searchInputAlpha = dockSearchInputAlpha(searchMorph)
     val activeDestination = destinations.firstOrNull { it.route == selectedRoute }
         ?: destinations.first()
 
@@ -548,47 +951,72 @@ internal fun MorphingDock(
         val leftWidth = lerp(maxWidth - 72.dp, compactSize, morph)
         val leftHeight = lerp(72.dp, compactSize, morph)
         val searchSize = lerp(62.dp, compactSize, morph)
-        // Both edges have fixed anchors. Shrinking the left dock must never
-        // pull Search toward the center or underneath the compact player.
+        val dockShape = RoundedCornerShape(lerp(36.dp, 26.dp, morph))
+
+        // The Search circle retains its original end-edge anchor as it grows
+        // across the dock. The very same glass surface is used in both states.
+        val searchWidth = lerp(searchSize, maxWidth, searchMorph)
+        val searchHeight = lerp(searchSize, 72.dp, searchMorph)
+        val searchShape = RoundedCornerShape(lerp(searchSize / 2, 36.dp, searchMorph))
         Box(modifier = Modifier.fillMaxSize()) {
-            GlassSurface(
+            FloatingChromeGlassSurface(
                 hazeState = hazeState,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .width(leftWidth)
-                    .height(leftHeight),
-                shape = RoundedCornerShape(lerp(36.dp, 26.dp, morph)),
-                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f),
+                    .height(leftHeight)
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                        alpha = navigationAlpha
+                    }
+                    .floatingChromeFrame(dockShape),
+                shape = dockShape,
             ) {
-                // Keep the four destinations composed long enough to fade out,
-                // then let the selected destination take over the circular dock.
-                if (expandedAlpha > 0.01f) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 5.dp, vertical = 7.dp)
-                            .graphicsLayer {
-                                // Child dock icons do not overlap; avoid an extra alpha render target.
-                                compositingStrategy = CompositingStrategy.ModulateAlpha
-                                alpha = expandedAlpha
-                                translationX = -morph * 10.dp.toPx()
-                            },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                // Crossfade the four destinations into contextual actions, without unmounting
+                // the dock or its Search bubble. Rapid enter/exit remains reversible.
+                if (expandedAlpha > 0.01f && navigationAlpha > 0.01f) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().graphicsLayer {
+                            compositingStrategy = CompositingStrategy.ModulateAlpha
+                            alpha = expandedAlpha
+                            translationX = -morph * 10.dp.toPx()
+                        },
                     ) {
-                        destinations.forEach { destination ->
-                            DockItem(
-                                destination = destination,
-                                selected = selectedRoute == destination.route,
-                                onClick = { onSelect(destination.route) },
-                                modifier = Modifier.weight(1f),
-                                enabled = morph < 0.40f,
-                            )
+                        Crossfade(
+                            // Preserve the outgoing action snapshot while it fades away.
+                            targetState = selectionActions.takeIf { it.size == 4 },
+                            animationSpec = tween(if (reduceMotion) 0 else 260),
+                            label = "library-selection-dock",
+                        ) { activeSelectionActions ->
+                            if (activeSelectionActions != null) {
+                                SelectionDockActions(
+                                    actions = activeSelectionActions,
+                                    onAction = onSelectionAction,
+                                    allSelectedLiked = selectionAllLiked,
+                                    enabled = selectionActions.size == 4 && !searchActive,
+                                )
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = 5.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    destinations.forEach { destination ->
+                                        DockItem(
+                                            destination = destination,
+                                            selected = selectedRoute == destination.route,
+                                            onClick = { onSelect(destination.route) },
+                                            modifier = Modifier.weight(1f),
+                                            enabled = selectionActions.size != 4 &&
+                                                !searchActive && searchMorph < 0.06f && morph < 0.40f,
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-                if (compactAlpha > 0.01f) {
+                if (compactAlpha > 0.01f && navigationAlpha > 0.01f) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -600,7 +1028,7 @@ internal fun MorphingDock(
                                 scaleY = scale
                             }
                             .semantics { contentDescription = "Expand navigation dock" }
-                            .clickable(enabled = dockCompact && morph > 0.55f) {
+                            .clickable(enabled = compact && morph > 0.55f && searchMorph < 0.06f) {
                                 onExpandCompact()
                             },
                         contentAlignment = Alignment.Center,
@@ -611,22 +1039,85 @@ internal fun MorphingDock(
                     }
                 }
             }
-            GlassSurface(
+
+            FloatingChromeGlassSurface(
                 hazeState = hazeState,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .size(searchSize)
-                    .clickable { onSelect(SEARCH_ROUTE) },
-                shape = RoundedCornerShape(searchSize / 2),
-                fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.80f),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+                    .width(searchWidth)
+                    .height(searchHeight)
+                    .testTag("dock-search-bubble")
+                    .floatingChromeFrame(searchShape)
+                    .clickable(enabled = !searchActive && searchMorph < 0.06f) {
+                        onSelect(SEARCH_ROUTE)
+                    },
+                shape = searchShape,
             ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Rounded.Search,
-                        contentDescription = "Search all music",
-                        modifier = Modifier.size(lerp(25.dp, 22.dp, morph)),
-                    )
+                Box(Modifier.fillMaxSize()) {
+                    // Keep a single Search icon anchored to the original circle.
+                    // Only the surrounding glass and the input grow; the icon
+                    // never jumps from a centered button to the opposite edge.
+                    if (searchMorph > 0.32f) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .graphicsLayer {
+                                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                                    alpha = searchInputAlpha
+                                },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(
+                                onClick = onCloseSearch,
+                                enabled = searchActive && searchInputAlpha > 0.85f,
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Clear,
+                                    contentDescription = if (searchQuery.isBlank()) "Close search" else "Clear search",
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = onSearchQueryChange,
+                                enabled = searchActive,
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                modifier = Modifier.weight(1f).focusRequester(focusRequester),
+                                decorationBox = { inner ->
+                                    Box(contentAlignment = Alignment.CenterStart) {
+                                        if (searchQuery.isEmpty()) {
+                                            Text(
+                                                searchPlaceholder,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+                                            )
+                                        }
+                                        inner()
+                                    }
+                                },
+                            )
+                            Spacer(Modifier.width(searchSize))
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .width(searchSize)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Rounded.Search,
+                            contentDescription = if (searchActive) null else "Search all music",
+                            tint = if (searchActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(lerp(25.dp, 23.dp, searchMorph)),
+                        )
+                    }
                 }
             }
         }
@@ -642,17 +1133,19 @@ private fun DockItem(
     showLabel: Boolean = true,
     enabled: Boolean = true,
 ) {
+    val shape = RoundedCornerShape(28.dp)
     Surface(
         modifier = modifier
             .height(58.dp)
+            .clip(shape)
             .clickable(enabled = enabled, onClick = onClick),
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent,
         contentColor = if (selected) {
             MaterialTheme.colorScheme.primary
         } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f)
         },
-        shape = RoundedCornerShape(28.dp),
+        shape = shape,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,

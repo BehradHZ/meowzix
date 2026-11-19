@@ -2,13 +2,22 @@ package dev.behradhz.meowzix.core.permissions
 
 import android.Manifest
 import android.os.Build
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 object AudioPermission {
-    /**
-     * Telegram-only mode does not read device media, so the Library route uses an
-     * already-granted normal permission and never prompts for local audio access.
-     */
-    fun requiredPermission(): String = Manifest.permission.INTERNET
+    // Permission grant/revocation is owned by Android, never persisted as an app setting.
+    // Notify screens after an in-app permission result so they recheck the OS immediately.
+    private val _permissionCheckRequests = MutableStateFlow(0)
+    val permissionCheckRequests = _permissionCheckRequests.asStateFlow()
+
+    fun notifyPermissionResult() {
+        _permissionCheckRequests.update { it + 1 }
+    }
+
+    /** Local audio is requested once during initial setup; Telegram remains optional. */
+    fun requiredPermission(): String = requiredPermissionForSdk(Build.VERSION.SDK_INT)
 
     internal fun requiredPermissionForSdk(sdkInt: Int): String =
         if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {

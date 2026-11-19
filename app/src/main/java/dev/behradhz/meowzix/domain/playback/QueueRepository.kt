@@ -34,10 +34,36 @@ interface QueueRepository {
     fun moveGroup(groupId: UUID, toIndex: Int)
     fun replaceAndPlay(trackIds: List<UUID>, mode: PlaybackMode)
     fun replaceAndPlay(trackIds: List<UUID>, startTrackId: UUID, mode: PlaybackMode)
+    /**
+     * Begin a Library context with the selected song immediately, then discover and
+     * attach its generated candidate pool from an application-lived coroutine.
+     * The supplier must return the unfiltered Library in the chosen display order.
+     */
+    fun playLibrarySelection(
+        trackId: UUID,
+        mode: PlaybackMode,
+        repeat: RepeatMode,
+        fromSearch: Boolean,
+        loadOrderedTrackIds: suspend () -> List<UUID>,
+    ) {
+        error("Library selection requires a playback controller with asynchronous queue support")
+    }
+    /**
+     * Attach the collection after a one-track first-play startup, without resetting
+     * its playing occurrence. Ignored if the active listening context has changed.
+     */
+    fun attachFutureToSingleTrack(
+        expectedTrackId: UUID,
+        fullOrderedTrackIds: List<UUID>,
+        mode: PlaybackMode,
+    ) {}
     fun removeAt(index: Int)
     /** Remove the exact displayed occurrence, even if playback shifts queue indexes first. */
     fun removeOccurrence(occurrenceId: UUID)
     fun move(fromIndex: Int, toIndex: Int)
+    /** Drag-and-drop may change Queue/Next ownership without changing the index. */
+    fun move(fromIndex: Int, toIndex: Int, destinationOrigin: QueueItemOrigin) =
+        move(fromIndex, toIndex)
     fun clear()
     fun setPlaybackMode(mode: PlaybackMode)
     fun setRepeatMode(mode: RepeatMode)

@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.feature.telegramauth
 import androidx.lifecycle.ViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
+import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceMode
 import dev.behradhz.meowzix.domain.telegram.TelegramProxyDraft
 import javax.inject.Inject
 
@@ -34,8 +35,8 @@ class TelegramAuthViewModel @Inject constructor(
     fun clearProxyError() = repository.clearProxyError()
 
     fun refreshMusicSources() = repository.refreshSelectableChats()
-    fun setMusicSourceSelected(chatId: Long, selected: Boolean) =
-        repository.setMusicSourceSelected(chatId, selected)
+    fun setMusicSourceMode(chatId: Long, mode: TelegramMusicSourceMode) =
+        repository.setMusicSourceMode(chatId, mode)
     fun syncSelectedSources() = repository.syncSelectedSources()
     fun clearMusicSourceError() = repository.clearMusicSourceError()
 }

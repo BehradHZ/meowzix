@@ -3,10 +3,11 @@ package dev.behradhz.meowzix.domain.playback
 import java.util.UUID
 
 /**
- * Search filters only visible rows. The input must be the unfiltered library IDs in display order.
- * For an ordered search selection, rotate once so the chosen track plays first and all tracks
- * remain in the queue; non-search selections retain their previous tail-only semantics.
+ * Search only filters visible rows, not the eligible playback catalog. Starting from
+ * any Library song traverses the entire library once, wrapping at the end in ORDERED
+ * mode and leaving all distinct candidates eligible in both shuffle modes.
  */
+@Suppress("UNUSED_PARAMETER") // Search no longer changes Library cycle coverage.
 fun buildLibraryPlaybackQueue(
     orderedLibraryIds: List<UUID>,
     selectedId: UUID,
@@ -15,11 +16,10 @@ fun buildLibraryPlaybackQueue(
 ): List<UUID> {
     val ids = orderedLibraryIds.distinct()
     val selectedIndex = ids.indexOf(selectedId)
-    if (selectedIndex < 0) return listOf(selectedId)
+    if (selectedIndex < 0) return listOf(selectedId) + ids
 
-    return when {
-        mode != PlaybackMode.ORDERED -> ids
-        fromSearch -> ids.drop(selectedIndex) + ids.take(selectedIndex)
-        else -> ids.drop(selectedIndex)
+    return when (mode) {
+        PlaybackMode.ORDERED -> ids.drop(selectedIndex) + ids.take(selectedIndex)
+        PlaybackMode.PURE_SHUFFLE, PlaybackMode.SMART_SHUFFLE -> ids
     }
 }

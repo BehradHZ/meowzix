@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -58,6 +59,43 @@ class ExpandedLyricsPanelTest {
         compose.onNodeWithText("Lyrics options").assertDoesNotExist()
         compose.onNodeWithText("Delay +0 ms").assertDoesNotExist()
         compose.onNodeWithText("Active line").assertIsDisplayed()
+    }
+
+    @Test fun plainLyricsPreviewShowsTwoLinesAndEllipsisInsteadOfTheThirdLine() {
+        val trackId = UUID.randomUUID()
+        val selected = LyricsVersion(
+            id = UUID.randomUUID(),
+            trackId = trackId,
+            sourceType = LyricsSourceType.USER_PASTE,
+            sourceLabel = "test",
+            rawText = "First line\nSecond line\nThird line",
+            parsed = ParsedLyrics(
+                LyricsContentType.PLAIN,
+                plainLines = listOf("First line", "Second line", "Third line"),
+            ),
+            selected = true,
+            userSelected = true,
+            userDelayMs = 0L,
+            createdAtEpochMs = 1L,
+            updatedAtEpochMs = 1L,
+        )
+        compose.setContent {
+            Box(Modifier.size(width = 360.dp, height = 160.dp)) {
+                CompactLyricsPreview(
+                    state = NowPlayingLyricsState(
+                        trackId,
+                        TrackLyrics(trackId, selected, listOf(selected)),
+                    ),
+                    onExpand = {},
+                    reduceMotion = true,
+                )
+            }
+        }
+        compose.onNodeWithTag("plain-lyrics-line-0", useUnmergedTree = true).assertTextEquals("First line")
+        compose.onNodeWithTag("plain-lyrics-line-1", useUnmergedTree = true).assertTextEquals("Second line")
+        compose.onNodeWithTag("plain-lyrics-more", useUnmergedTree = true).assertTextEquals("...")
+        compose.onNodeWithTag("plain-lyrics-line-2", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("Third line", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun missingLyricsStillOffersOneEmptyStateWithImportAndPaste() {

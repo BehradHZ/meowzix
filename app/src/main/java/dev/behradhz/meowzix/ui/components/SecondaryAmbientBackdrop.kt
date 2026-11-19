@@ -25,7 +25,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SecondaryAmbientBackdrop(variation: Int) {
     val colors = MaterialTheme.colorScheme
-    val arrangement = Math.floorMod(variation, 4)
+    // All destinations share one stable ambient composition, independent of tab identity.
+    val arrangement = 0
     Box(
         Modifier.fillMaxSize().background(colors.background).graphicsLayer {
             compositingStrategy = CompositingStrategy.Offscreen

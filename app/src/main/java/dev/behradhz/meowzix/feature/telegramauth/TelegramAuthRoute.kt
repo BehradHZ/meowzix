@@ -9,17 +9,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import dev.behradhz.meowzix.navigation.dockAwareBottomPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Email
@@ -49,9 +48,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -59,23 +55,21 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthState
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
+import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceMode
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
-import dev.behradhz.meowzix.domain.telegram.TelegramProxyDraft
-import dev.behradhz.meowzix.domain.telegram.TelegramProxyState
 import dev.behradhz.meowzix.domain.telegram.TelegramConnectionStatus
 import dev.behradhz.meowzix.ui.components.GlassSurface
+import dev.behradhz.meowzix.ui.components.MeowzixStickyHeader
+import dev.behradhz.meowzix.feature.library.PlaylistGlassBackdrop
+import dev.behradhz.meowzix.feature.library.PlaylistGlassPanel
+import dev.behradhz.meowzix.ui.components.MeowzixHeaderAction
 import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
-import dev.behradhz.meowzix.ui.components.TelegramGlassFrame
 import dev.behradhz.meowzix.ui.components.TelegramGlassInput
-import dev.behradhz.meowzix.ui.theme.MeowzixTheme
-import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
 
 @Composable
 fun TelegramAuthRoute(
@@ -84,14 +78,9 @@ fun TelegramAuthRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val musicSourceState by viewModel.musicSourceState.collectAsStateWithLifecycle()
-    val proxyState by viewModel.proxyState.collectAsStateWithLifecycle()
-    val hazeState = rememberHazeState()
-    MeowzixTheme(darkTheme = true) {
-        TelegramAuthScreen(
+    TelegramAuthScreen(
             state = state,
             musicSourceState = musicSourceState,
-            proxyState = proxyState,
-            hazeState = hazeState,
             onBack = onBack,
             onPhoneNumber = viewModel::submitPhoneNumber,
             onCode = viewModel::submitCode,
@@ -102,28 +91,17 @@ fun TelegramAuthRoute(
             onLogout = viewModel::logout,
             onResetTelegram = viewModel::resetTelegram,
             onClearError = viewModel::clearError,
-            onRefreshProxies = viewModel::refreshProxies,
-            onAddProxy = viewModel::addProxy,
-            onImportProxyLink = viewModel::importProxyLink,
-            onEnableProxy = viewModel::enableProxy,
-            onDisableProxy = viewModel::disableProxy,
-            onRemoveProxy = viewModel::removeProxy,
-            onPingProxy = viewModel::pingProxy,
-            onClearProxyError = viewModel::clearProxyError,
             onRefreshSources = viewModel::refreshMusicSources,
-            onSetSourceSelected = viewModel::setMusicSourceSelected,
+            onSetSourceMode = viewModel::setMusicSourceMode,
             onSyncSources = viewModel::syncSelectedSources,
             onClearMusicSourceError = viewModel::clearMusicSourceError,
-            )
-    }
+    )
 }
 
 @Composable
 private fun TelegramAuthScreen(
     state: TelegramAuthState,
     musicSourceState: TelegramMusicSourceState,
-    proxyState: TelegramProxyState,
-    hazeState: HazeState,
     onBack: () -> Unit,
     onPhoneNumber: (String) -> Unit,
     onCode: (String) -> Unit,
@@ -134,82 +112,21 @@ private fun TelegramAuthScreen(
     onLogout: () -> Unit,
     onResetTelegram: () -> Unit,
     onClearError: () -> Unit,
-    onRefreshProxies: () -> Unit,
-    onAddProxy: (TelegramProxyDraft) -> Unit,
-    onImportProxyLink: (String) -> Unit,
-    onEnableProxy: (Int) -> Unit,
-    onDisableProxy: () -> Unit,
-    onRemoveProxy: (Int) -> Unit,
-    onPingProxy: (Int) -> Unit,
-    onClearProxyError: () -> Unit,
     onRefreshSources: () -> Unit,
-    onSetSourceSelected: (Long, Boolean) -> Unit,
+    onSetSourceMode: (Long, TelegramMusicSourceMode) -> Unit,
     onSyncSources: () -> Unit,
     onClearMusicSourceError: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(TelegramGlassChrome.base)
-            .background(TelegramGlassChrome.backdrop)
-            .hazeSource(hazeState)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 176.dp),
-    ) {
-        TelegramGlassFrame(
-            hazeState = hazeState,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(30.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 13.dp),
-                verticalAlignment = Alignment.CenterVertically,
+    PlaylistGlassBackdrop(variation = 2) { hazeState ->
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxSize()
+                    .hazeSource(hazeState)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp)
+                    .padding(top = 110.dp, bottom = dockAwareBottomPadding(176.dp)),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp),
             ) {
-                Surface(
-                    onClick = onBack,
-                    modifier = Modifier.size(46.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.065f),
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                }
-                val statusColor = if (state.connectionStatus == TelegramConnectionStatus.CONNECTED)
-                    MaterialTheme.colorScheme.primary else TelegramGlassChrome.muted
-                Text(
-                    text = buildAnnotatedString {
-                        append("Telegram")
-                        withStyle(SpanStyle(color = statusColor, fontSize = 16.sp)) {
-                            append(" · " + telegramConnectionLabel(state.connectionStatus))
-                        }
-                    },
-                    modifier = Modifier.weight(1f).padding(start = 12.dp),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                TelegramProxyPanel(
-                    state = proxyState,
-                    onAdd = onAddProxy,
-                    onImport = onImportProxyLink,
-                    onRefresh = onRefreshProxies,
-                    onEnable = onEnableProxy,
-                    onDisable = onDisableProxy,
-                    onRemove = onRemoveProxy,
-                    onPing = onPingProxy,
-                    onClearError = onClearProxyError,
-                )
-            }
-        }
-
-
         state.errorMessage?.let { message ->
             Spacer(Modifier.height(10.dp))
             GlassSurface(
@@ -219,33 +136,33 @@ private fun TelegramAuthScreen(
                 fallbackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.22f),
                 tint = MaterialTheme.colorScheme.error.copy(alpha = 0.08f),
             ) {
-                Row(
-                    modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(
-                        Icons.Rounded.ErrorOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                    Text(
-                        text = message,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 10.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    TextButton(onClick = onClearError) { Text("Dismiss") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.ErrorOutline, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error)
+                        Text("Telegram needs attention",
+                            modifier = Modifier.padding(start = 10.dp),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold)
+                    }
+                    Text(message, style = MaterialTheme.typography.bodyMedium)
+                    Row(modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End) {
+                        TextButton(onClick = onClearError) { Text("Dismiss") }
+                    }
                 }
             }
         }
 
         Spacer(Modifier.height(14.dp))
 
-        TelegramGlassFrame(
+        PlaylistGlassPanel(
             hazeState = hazeState,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(30.dp),
+            radius = 26.dp,
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 22.dp),
@@ -323,7 +240,7 @@ private fun TelegramAuthScreen(
                         musicSourceState = musicSourceState,
                         enabled = !state.isSubmitting,
                         onRefreshSources = onRefreshSources,
-                        onSetSourceSelected = onSetSourceSelected,
+                        onSetSourceMode = onSetSourceMode,
                         onSyncSources = onSyncSources,
                         onClearMusicSourceError = onClearMusicSourceError,
                         onLogout = onLogout,
@@ -367,6 +284,20 @@ private fun TelegramAuthScreen(
             }
         }
 
+            }
+            MeowzixStickyHeader(
+                showProxyAction = true,
+                title = if (state.step is TelegramAuthStep.Ready) "Telegram chats" else "Telegram",
+                subtitle = if (state.step is TelegramAuthStep.Ready)
+                    "${musicSourceState.selectedChatIds.size} selected sources"
+                else telegramConnectionLabel(state.connectionStatus),
+                hazeState = hazeState,
+                modifier = Modifier.align(Alignment.TopCenter),
+                leadingActions = {
+                    MeowzixHeaderAction("Back", Icons.AutoMirrored.Rounded.ArrowBack, onBack)
+                },
+            )
+        }
     }
 }
 
@@ -474,21 +405,33 @@ private fun ReadyState(
     musicSourceState: TelegramMusicSourceState,
     enabled: Boolean,
     onRefreshSources: () -> Unit,
-    onSetSourceSelected: (Long, Boolean) -> Unit,
+    onSetSourceMode: (Long, TelegramMusicSourceMode) -> Unit,
     onSyncSources: () -> Unit,
     onClearMusicSourceError: () -> Unit,
     onLogout: () -> Unit,
 ) {
-    MessageState(
-        icon = { Icon(Icons.Rounded.CheckCircle, contentDescription = null) },
-        title = "Telegram connected",
-        message = "Choose the Telegram chats or channels that contain your music. Imported tracks appear in Library.",
-    )
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.09f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.CheckCircle, contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+        Column(Modifier.padding(start = 12.dp)) {
+            Text("Telegram connected", style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold)
+            Text("Choose where each chat's music appears.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    Spacer(Modifier.height(18.dp))
     TelegramMusicSourcePicker(
         state = musicSourceState,
         enabled = enabled,
         onRefresh = onRefreshSources,
-        onSetSelected = onSetSourceSelected,
+        onSetMode = onSetSourceMode,
         onSync = onSyncSources,
         onClearError = onClearMusicSourceError,
     )
@@ -530,7 +473,7 @@ private fun MessageState(
     Text(
         text = message,
         style = MaterialTheme.typography.bodyLarge,
-        color = TelegramGlassChrome.muted,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
         modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
     )
@@ -549,8 +492,8 @@ private fun ProgressState(message: String) {
 
 private fun telegramConnectionLabel(status: TelegramConnectionStatus): String = when (status) {
     TelegramConnectionStatus.STARTING -> "Starting"
-    TelegramConnectionStatus.WAITING_FOR_NETWORK -> "Offline"
-    TelegramConnectionStatus.CONNECTING_TO_PROXY -> "Proxy…"
+    TelegramConnectionStatus.WAITING_FOR_NETWORK -> "Waiting for network"
+    TelegramConnectionStatus.CONNECTING_TO_PROXY -> "Connecting to proxy"
     TelegramConnectionStatus.CONNECTING -> "Connecting"
     TelegramConnectionStatus.UPDATING -> "Syncing"
     TelegramConnectionStatus.CONNECTED -> "Connected"

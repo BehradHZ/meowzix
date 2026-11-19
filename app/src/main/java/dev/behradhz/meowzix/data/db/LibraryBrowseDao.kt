@@ -37,11 +37,10 @@ interface LibraryBrowseDao {
         SELECT
             s.trackId AS trackId,
             MAX(CASE WHEN s.availability = 'AVAILABLE_LOCAL' THEN 1 ELSE 0 END) AS hasOfflineSource,
-            MAX(CASE WHEN chosen.chatId IS NOT NULL AND s.availability != 'MISSING'
+            MAX(CASE WHEN tg.chatId IS NOT NULL AND s.availability != 'MISSING'
                      THEN 1 ELSE 0 END) AS hasCloudSource
         FROM track_sources s
         LEFT JOIN telegram_track_sources tg ON tg.trackSourceId = s.id
-        LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
         GROUP BY s.trackId
         """,
     )
@@ -57,9 +56,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         """,
@@ -83,9 +82,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         GROUP BY COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist')
@@ -115,9 +114,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         GROUP BY COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist')
@@ -143,9 +142,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         GROUP BY COALESCE(NULLIF(TRIM(t.album), ''), 'Unknown album'),
@@ -166,9 +165,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         ORDER BY t.normalizedTitle ASC
@@ -188,9 +187,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         ORDER BY t.normalizedTitle ASC
@@ -208,9 +207,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         ORDER BY t.normalizedTitle ASC
@@ -227,9 +226,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         ORDER BY t.normalizedTitle ASC, t.id ASC
@@ -247,9 +246,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         ORDER BY t.normalizedTitle ASC, t.id ASC
@@ -282,10 +281,10 @@ interface LibraryBrowseDao {
               )
               OR EXISTS (
                   SELECT 1 FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen
+                  LEFT JOIN telegram_selected_sources chosen
                     ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         ORDER BY COALESCE(
@@ -314,9 +313,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         GROUP BY COALESCE(NULLIF(t.normalizedArtist, ''), 'unknown artist')
@@ -340,9 +339,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         GROUP BY COALESCE(NULLIF(TRIM(t.album), ''), 'Unknown album'),
@@ -364,9 +363,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         ORDER BY t.normalizedTitle ASC, t.id ASC
@@ -391,9 +390,9 @@ interface LibraryBrowseDao {
               OR EXISTS (
                   SELECT 1
                   FROM telegram_track_sources tg
-                  INNER JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
+                  LEFT JOIN telegram_selected_sources chosen ON chosen.accountId = tg.accountId AND chosen.chatId = tg.chatId
                   INNER JOIN track_sources origin ON origin.id = tg.trackSourceId
-                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING'
+                  WHERE origin.trackId = t.id AND origin.availability != 'MISSING' AND (chosen.includeInLibrary = 1 OR t.addedToLibrary = 1)
               )
           )
         ORDER BY t.normalizedTitle ASC, t.id ASC

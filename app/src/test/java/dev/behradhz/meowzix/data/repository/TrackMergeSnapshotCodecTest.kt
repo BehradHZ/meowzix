@@ -41,6 +41,8 @@ class TrackMergeSnapshotCodecTest {
                     createdAt = Instant.ofEpochMilli(100L),
                 ),
             ),
+            survivorAddedToLibrary = true,
+            mergedAddedToLibrary = false,
             mergedFeedback = listOf(
                 RecommendationFeedback(
                     trackId = merged,

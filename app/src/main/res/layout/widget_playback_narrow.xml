@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A genuine 1x1 widget: the cover is visible, with one overlay play/pause tap. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_playback_background"
+    android:padding="4dp">
+    <ImageView
+        android:id="@+id/widget_artwork"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="Open Meowzix player"
+        android:scaleType="centerCrop"
+        android:src="@drawable/meowzix_logo" />
+    <ImageView
+        android:id="@+id/widget_play_pause"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_gravity="center"
+        android:background="@drawable/widget_play_button_background"
+        android:contentDescription="Play or pause"
+        android:padding="7dp"
+        android:src="@drawable/widget_play" />
+</FrameLayout>

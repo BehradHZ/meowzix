@@ -1,6 +1,7 @@
 package dev.behradhz.meowzix.playback
 
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -56,9 +57,16 @@ class PlaybackServiceTest {
     private lateinit var controllerFuture: ListenableFuture<MediaController>
     private lateinit var controller: MediaController
     private val files = mutableListOf<File>()
+    private var previousStartupPermissionStage: String? = null
 
     @Before
     fun setUp() {
+        // The playback tests do not test first-run permission onboarding. Keep the app
+        // foregrounded instead of letting runtime permission or overlay Settings screens
+        // intercept the return from the notification's forward picker.
+        val startupPrefs = context.getSharedPreferences("meowzix_first_launch_permissions", Context.MODE_PRIVATE)
+        previousStartupPermissionStage = startupPrefs.getString("stage", null)
+        check(startupPrefs.edit().putString("stage", "COMPLETE").commit())
         // Android 15+ intentionally rejects audio-focus requests from a background-only app. Keep
         // the app foregrounded so these tests exercise the same lifecycle as a user pressing Play.
         activityScenario = ActivityScenario.launch(MainActivity::class.java)
@@ -86,6 +94,11 @@ class PlaybackServiceTest {
         }
         onMain { MediaController.releaseFuture(controllerFuture) }
         activityScenario.close()
+        val startupPrefs = context.getSharedPreferences("meowzix_first_launch_permissions", Context.MODE_PRIVATE)
+        val editor = startupPrefs.edit()
+        if (previousStartupPermissionStage == null) editor.remove("stage")
+        else editor.putString("stage", previousStartupPermissionStage)
+        editor.commit()
         files.forEach(File::delete)
     }
 
@@ -304,6 +317,44 @@ class PlaybackServiceTest {
         waitUntil { onMain { controller.currentMediaItemIndex == 1 } }
 
         assertEquals("Second", onMain { controller.currentMediaItem?.mediaMetadata?.title })
+    }
+
+    @Test
+    fun liveUpdatePendingIntentsControlPlaybackEvenAfterPausing() {
+        val first = playableItem("Live action first", createWaveFile("live-action-first.wav", 12_000))
+        val second = playableItem("Live action second", createWaveFile("live-action-second.wav", 12_000))
+        onMain {
+            controller.setMediaItems(listOf(first, second))
+            controller.prepare()
+            controller.play()
+        }
+        waitUntil { onMain { controller.isPlaying && controller.currentMediaItemIndex == 0 } }
+
+        fun press(action: LiveSongAction) {
+            // The same PendingIntent shape produced by NowPlayingLiveCard.
+            val intent = Intent(context, LiveSongControlsReceiver::class.java)
+                .setAction(LiveSongControlsReceiver.actionName(context, action))
+            val pending = PendingIntent.getBroadcast(
+                context,
+                4980 + action.ordinal,
+                intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            pending.send()
+        }
+
+        press(LiveSongAction.PAUSE)
+        waitUntil { onMain { !controller.playWhenReady } }
+
+        // Regression: the old LiveSongControlsReceiver silently dropped ALL actions
+        // when playWhenReady was false. Next and previous must still reach playback.
+        press(LiveSongAction.NEXT)
+        waitUntil { onMain { controller.currentMediaItemIndex == 1 } }
+        assertFalse(onMain { controller.playWhenReady })
+
+        press(LiveSongAction.PREVIOUS)
+        waitUntil { onMain { controller.currentMediaItemIndex == 0 } }
+        assertEquals(first.mediaId, onMain { controller.currentMediaItem?.mediaId })
     }
 
     @Test

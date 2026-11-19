@@ -1,6 +1,5 @@
 package dev.behradhz.meowzix.feature.library
 
-import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -15,8 +14,10 @@ import dev.behradhz.meowzix.domain.downloads.DownloadRepository
 import dev.behradhz.meowzix.domain.downloads.OfflineDownload
 import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.library.LibraryTrackAvailability
+import dev.behradhz.meowzix.domain.library.LOCAL_PLAYLIST_ID
 import dev.behradhz.meowzix.domain.library.LocalLibraryRefreshResult
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
+import dev.behradhz.meowzix.domain.library.RemoveTrackFromLocations
 import dev.behradhz.meowzix.domain.library.PlaylistRepository
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
 import dev.behradhz.meowzix.domain.playback.PlaybackController
@@ -24,14 +25,15 @@ import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.QueueRepository
 import dev.behradhz.meowzix.domain.playback.RepeatMode
-import dev.behradhz.meowzix.domain.playback.buildLibraryPlaybackQueue
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
+import dev.behradhz.meowzix.domain.settings.TelegramPlaylistSection
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,8 +47,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-internal const val LIBRARY_AUTO_REFRESH_INTERVAL_MS = 15 * 60 * 1_000L
-
 data class LibraryUiState(
     /**
      * Compatibility slice for legacy callers: favorites plus the active track only. The primary
@@ -57,10 +57,25 @@ data class LibraryUiState(
     val downloads: Map<UUID, OfflineDownload> = emptyMap(),
     val playlists: List<PlaylistSummary> = emptyList(),
     val playlistArtwork: Map<UUID, String?> = emptyMap(),
+    val newTelegramTracksByPlaylist: Map<UUID, Set<UUID>> = emptyMap(),
+    val newTrackIds: Set<UUID> = emptySet(),
+    val isTelegramSyncing: Boolean = false,
+    val highlightNewTelegramTracks: Boolean = true,
     val selectedPlaylistId: UUID? = null,
     val selectedPlaylistTracks: List<Track> = emptyList(),
+    val selectedPlaylistLibraryTrackIds: Set<UUID> = emptySet(),
+    val selectedPlaylistProfileTrackIds: Set<UUID> = emptySet(),
+    val selectedPlaylistChatTrackIds: Set<UUID> = emptySet(),
+    val selectedPlaylistIsPerson: Boolean = false,
+    val selectedPlaylistPersonChatId: Long? = null,
+    val isRefreshingPersonProfile: Boolean = false,
+    val personProfileRefreshStatus: String? = null,
+    val personProfileRefreshError: String? = null,
     val deletingPlaylistId: UUID? = null,
     val isRefreshing: Boolean = false,
+    val refreshingPlaylistId: UUID? = null,
+    val playlistRefreshError: String? = null,
+    val playlistRefreshStatus: String? = null,
     val lastRefresh: LocalLibraryRefreshResult? = null,
     val errorMessage: String? = null,
     val playback: PlaybackState = PlaybackState(),
@@ -75,6 +90,7 @@ class LibraryViewModel @Inject constructor(
     private val playbackController: PlaybackController,
     private val queueRepository: QueueRepository,
     private val downloadRepository: DownloadRepository,
+    private val trackRemoval: RemoveTrackFromLocations,
     private val playlistRepository: PlaylistRepository,
     private val telegramRepository: TelegramRepository,
     private val artworkRepairCoordinator: ArtworkRepairCoordinator,
@@ -82,7 +98,12 @@ class LibraryViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
-    private var lastAutomaticRefreshCheckMs: Long? = null
+    val collapsedTelegramPlaylistSections = settingsRepository.collapsedTelegramPlaylistSections
+
+    fun setTelegramPlaylistSectionExpanded(playlistId: UUID, section: TelegramPlaylistSection, expanded: Boolean) =
+        viewModelScope.launch {
+            settingsRepository.setTelegramPlaylistSectionExpanded(playlistId, section, expanded)
+        }
     private var favoriteTracksSnapshot: List<Track> = emptyList()
     private var activeTrackSnapshot: Track? = null
     private var playlistTracksJob: Job? = null
@@ -107,11 +128,37 @@ class LibraryViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
-            playlistRepository.observePlaylists()
+            combine(
+                playlistRepository.observePlaylists(),
+                repository.observeLocalTrackCount(),
+            ) { playlists, localCount ->
+                listOf(PlaylistSummary(
+                    id = LOCAL_PLAYLIST_ID,
+                    title = "Local",
+                    trackCount = localCount,
+                    localManaged = true,
+                )) + playlists
+            }
                 .catch { error -> reportLoadError(error, "Unable to load playlists") }
                 .collect { playlists ->
                     _state.update { it.copy(playlists = playlists) }
                 }
+        }
+        viewModelScope.launch {
+            playlistRepository.observeUnheardNewTracks()
+                .catch { error -> reportLoadError(error, "Unable to load new songs") }
+                .collect { byPlaylist -> _state.update {
+                    it.copy(
+                        newTelegramTracksByPlaylist = byPlaylist,
+                        newTrackIds = byPlaylist.values.flatten().toSet(),
+                    )
+                } }
+        }
+        viewModelScope.launch {
+            settingsRepository.libraryDisplaySettings
+                .map { it.highlightNewTelegramTracks }
+                .distinctUntilChanged()
+                .collect { enabled -> _state.update { it.copy(highlightNewTelegramTracks = enabled) } }
         }
         viewModelScope.launch {
             combine(
@@ -147,7 +194,7 @@ class LibraryViewModel @Inject constructor(
                         telegramPlaylistId(accountId, chat.chatId) to chat.profilePhotoRef
                     }
                 }
-                _state.update { it.copy(playlistArtwork = artwork) }
+                _state.update { it.copy(playlistArtwork = artwork, isTelegramSyncing = telegram.isSyncing) }
             }
         }
         viewModelScope.launch {
@@ -179,33 +226,19 @@ class LibraryViewModel @Inject constructor(
             it.copy(
                 selectedPlaylistId = null,
                 selectedPlaylistTracks = emptyList(),
+                selectedPlaylistLibraryTrackIds = emptySet(),
+                selectedPlaylistProfileTrackIds = emptySet(),
+                selectedPlaylistChatTrackIds = emptySet(),
+                selectedPlaylistIsPerson = false,
             )
         }
     }
 
-    /** Explicit refresh bypasses the periodic throttle (pull gesture or active-tab reselect). */
+    /** Only user-initiated refresh is allowed; tab navigation never triggers a source scan. */
     fun refresh() {
         if (_state.value.isRefreshing) return
-        lastAutomaticRefreshCheckMs = SystemClock.elapsedRealtime()
         syncSelectedTelegramSources()
         viewModelScope.launch { refreshInternal() }
-    }
-
-    /** Check once per interval rather than every time the Library destination is composed. */
-    fun refreshIfDue() {
-        if (_state.value.isRefreshing) return
-        val now = SystemClock.elapsedRealtime()
-        val previous = lastAutomaticRefreshCheckMs
-        if (previous != null && now - previous < LIBRARY_AUTO_REFRESH_INTERVAL_MS) return
-        lastAutomaticRefreshCheckMs = now
-        viewModelScope.launch {
-            if (_state.value.isRefreshing) return@launch
-            syncSelectedTelegramSources()
-            // The repository's own six-hour local scan policy remains authoritative.
-            if (runCatching { repository.shouldRefreshLocalMusic() }.getOrDefault(true)) {
-                refreshInternal()
-            }
-        }
     }
 
     private fun syncSelectedTelegramSources() {
@@ -236,6 +269,51 @@ class LibraryViewModel @Inject constructor(
             }
     }
 
+    /** Only a user gesture invokes this targeted, full playlist refresh. */
+    fun refreshPlaylist(playlistId: UUID) {
+        val current = _state.value
+        if (current.refreshingPlaylistId != null || current.isRefreshing) return
+        val playlist = current.playlists.firstOrNull { it.id == playlistId } ?: return
+        _state.update {
+            it.copy(refreshingPlaylistId = playlistId, playlistRefreshError = null, playlistRefreshStatus = null)
+        }
+        viewModelScope.launch {
+            try {
+                val status = if (playlist.telegramManaged) {
+                    val chatId = telegramRepository.chatIdForPlaylist(playlistId)
+                        ?: error("This Telegram playlist is no longer connected to a selected chat.")
+                    val result = telegramRepository.refreshChatSource(chatId)
+                    "Chat scanned · ${result.tracksImported} new, ${result.tracksUpdated} updated, ${result.sourcesMarkedMissing} missing"
+                } else {
+                    val result = repository.refreshLocalMusic()
+                    _state.update { it.copy(lastRefresh = result) }
+                    "Device scanned · ${result.created} new, ${result.updated} updated, ${result.markedMissing} missing"
+                }
+                _state.update {
+                    if (it.selectedPlaylistId == playlistId) it.copy(playlistRefreshStatus = status) else it
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _state.update {
+                    if (it.selectedPlaylistId == playlistId) {
+                        it.copy(playlistRefreshError = error.message ?: "Unable to refresh this playlist.")
+                    } else it
+                }
+            } finally {
+                _state.update {
+                    if (it.refreshingPlaylistId == playlistId) it.copy(refreshingPlaylistId = null) else it
+                }
+            }
+        }
+    }
+
+    /** Room Flow updates the song's highlight and its playlist badge without blocking the UI. */
+    fun markNewTrackSeen(trackId: UUID) = viewModelScope.launch {
+        runCatching { playlistRepository.markNewTrackSeen(trackId) }
+            .onFailure { reportLoadError(it, "Unable to mark song as seen") }
+    }
+
     fun playTrack(track: Track, queueTracks: List<Track> = listOf(track)) {
         val queue = queueTracks.distinctBy { it.id }
         if (queue.isEmpty()) {
@@ -258,10 +336,17 @@ class LibraryViewModel @Inject constructor(
         )
     }
 
-    /** Global search plays the complete library, not its limited result page. */
+    /** Global search also starts audio before discovering its complete Library queue. */
     fun playLibrarySearchTrack(track: Track) {
-        viewModelScope.launch {
-            runCatching {
+        val contextKey = PlaybackContextKeys.LIBRARY
+        playbackContextPolicyStore.activate(contextKey)
+        val policy = playbackContextPolicyStore.policy(contextKey)
+        queueRepository.playLibrarySelection(
+            trackId = track.id,
+            mode = policy.playbackMode,
+            repeat = policy.repeatMode,
+            fromSearch = true,
+            loadOrderedTrackIds = {
                 val display = settingsRepository.libraryDisplaySettings.first()
                 pagedLibrary.orderedTrackIds(
                     sortMode = display.sortMode,
@@ -269,18 +354,8 @@ class LibraryViewModel @Inject constructor(
                     availability = LibraryAvailabilityFilter.ALL,
                     searchQuery = "",
                 )
-            }.onSuccess { ids ->
-                val contextKey = PlaybackContextKeys.LIBRARY
-                val policy = playbackContextPolicyStore.policy(contextKey)
-                val queue = buildLibraryPlaybackQueue(ids, track.id, policy.playbackMode, fromSearch = true)
-                playbackContextPolicyStore.activate(contextKey)
-                prepareRepeatRestore(queue.toSet(), policy.repeatMode)
-                queueRepository.replaceAndPlay(queue, track.id, policy.playbackMode)
-            }.onFailure { error ->
-                reportLoadError(error, "Unable to load library queue")
-                playbackController.playTrack(track.id)
-            }
-        }
+            },
+        )
     }
 
     fun playCollection(tracks: List<Track>, mode: PlaybackMode) {
@@ -310,9 +385,90 @@ class LibraryViewModel @Inject constructor(
             .onFailure { reportLoadError(it, "Unable to remove offline copy") }
     }
 
+    fun removeTrack(track: Track, offline: Boolean, fromLibrary: Boolean) = viewModelScope.launch {
+        try {
+            trackRemoval(track.id, offline, fromLibrary)
+            if (fromLibrary) {
+                _state.update {
+                    it.copy(selectedPlaylistLibraryTrackIds = it.selectedPlaylistLibraryTrackIds - track.id)
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            reportLoadError(error, "Unable to remove song")
+        }
+    }
+
     fun setFavorite(track: Track) = viewModelScope.launch {
         runCatching { repository.setFavorite(track.id, !track.favorite) }
             .onFailure { reportLoadError(it, "Unable to update favorite") }
+    }
+
+    fun addToLibrary(track: Track) = viewModelScope.launch {
+        runCatching { repository.addToLibrary(track.id) }
+            .onSuccess {
+                _state.update { state ->
+                    state.copy(selectedPlaylistLibraryTrackIds = state.selectedPlaylistLibraryTrackIds + track.id)
+                }
+            }
+            .onFailure { reportLoadError(it, "Unable to add track to Library") }
+    }
+
+    fun addTracksToLibrary(tracks: List<Track>) = viewModelScope.launch {
+        val ids = tracks.map(Track::id).distinct()
+        if (ids.isEmpty()) return@launch
+        runCatching { repository.addTracksToLibrary(ids) }
+            .onSuccess {
+                _state.update { state ->
+                    state.copy(selectedPlaylistLibraryTrackIds = state.selectedPlaylistLibraryTrackIds + ids)
+                }
+            }
+            .onFailure { reportLoadError(it, "Unable to add selected tracks to Library") }
+    }
+
+    fun addTracksToPlaylist(tracks: List<Track>, playlistId: UUID) = viewModelScope.launch {
+        if (playlistId == LOCAL_PLAYLIST_ID) return@launch
+        runCatching { tracks.distinctBy(Track::id).forEach { playlistRepository.addTrack(playlistId, it.id) } }
+            .onFailure { reportLoadError(it, "Unable to add selected tracks to playlist") }
+    }
+
+    fun addTracksToQueue(tracks: List<Track>) {
+        tracks.distinctBy(Track::id).forEach(::addToQueue)
+    }
+
+    fun likeTracks(tracks: List<Track>) = viewModelScope.launch {
+        runCatching { tracks.distinctBy(Track::id).forEach { repository.setFavorite(it.id, true) } }
+            .onFailure { reportLoadError(it, "Unable to like selected tracks") }
+    }
+
+    fun unlikeTracks(tracks: List<Track>) = viewModelScope.launch {
+        runCatching { tracks.distinctBy(Track::id).forEach { repository.setFavorite(it.id, false) } }
+            .onFailure { reportLoadError(it, "Unable to unlike selected tracks") }
+    }
+
+    fun removePlaylistTracks(tracks: List<Track>) {
+        val playlistId = _state.value.selectedPlaylistId?.takeUnless { it == LOCAL_PLAYLIST_ID } ?: return
+        viewModelScope.launch {
+            runCatching { tracks.distinctBy(Track::id).forEach { playlistRepository.removeTrack(playlistId, it.id) } }
+                .onFailure { reportLoadError(it, "Unable to remove selected tracks") }
+        }
+    }
+
+    fun removeTracksFromLibrary(tracks: List<Track>) = viewModelScope.launch {
+        val inLibrary = _state.value.selectedPlaylistLibraryTrackIds
+        val ids = tracks.map(Track::id).distinct().filter { it in inLibrary }
+        if (ids.isEmpty()) return@launch
+        try {
+            repository.removeTracksFromLibrary(ids)
+            _state.update { state ->
+                state.copy(selectedPlaylistLibraryTrackIds = state.selectedPlaylistLibraryTrackIds - ids.toSet())
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            reportLoadError(error, "Unable to remove selected songs from Library")
+        }
     }
 
     fun ensureArtwork(track: Track) {
@@ -322,9 +478,28 @@ class LibraryViewModel @Inject constructor(
     fun createPlaylist() = createPlaylist(onCreated = null)
 
     fun createPlaylist(onCreated: ((UUID) -> Unit)?) = viewModelScope.launch {
-        runCatching { playlistRepository.create("Playlist ${_state.value.playlists.size + 1}") }
+        runCatching { playlistRepository.create("Playlist ${_state.value.playlists.count { !it.localManaged } + 1}") }
             .onSuccess { id -> selectPlaylist(id); onCreated?.invoke(id) }
             .onFailure { reportLoadError(it, "Unable to create playlist") }
+    }
+
+    fun createPlaylist(
+        title: String,
+        description: String?,
+        artworkRef: String?,
+        onCreated: (UUID) -> Unit,
+        onFailed: (String) -> Unit,
+    ) = viewModelScope.launch {
+        try {
+            val id = playlistRepository.create(title, description, artworkRef)
+            selectPlaylist(id)
+            onCreated(id)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            reportLoadError(error, "Unable to create playlist")
+            onFailed(error.message ?: "Unable to create playlist")
+        }
     }
 
     fun restoreTelegramPlaylistMetadata(playlistId: UUID) = viewModelScope.launch {
@@ -370,7 +545,13 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    fun setNewTrackHighlightEnabled(playlistId: UUID, enabled: Boolean) = viewModelScope.launch {
+        runCatching { playlistRepository.setNewTrackHighlightEnabled(playlistId, enabled) }
+            .onFailure { reportLoadError(it, "Unable to update new-song highlights") }
+    }
+
     fun addToPlaylist(track: Track, playlistId: UUID) = viewModelScope.launch {
+        if (playlistId == LOCAL_PLAYLIST_ID) return@launch
         runCatching { playlistRepository.addTrack(playlistId, track.id) }
             .onFailure { reportLoadError(it, "Unable to update playlist") }
     }
@@ -384,19 +565,108 @@ class LibraryViewModel @Inject constructor(
             it.copy(
                 selectedPlaylistId = playlistId,
                 selectedPlaylistTracks = emptyList(),
+                selectedPlaylistLibraryTrackIds = emptySet(),
+                selectedPlaylistProfileTrackIds = emptySet(),
+                selectedPlaylistChatTrackIds = emptySet(),
+                selectedPlaylistIsPerson = false,
+                selectedPlaylistPersonChatId = null,
+                playlistRefreshError = null,
+                playlistRefreshStatus = null,
+                isRefreshingPersonProfile = false,
+                personProfileRefreshStatus = null,
+                personProfileRefreshError = null,
             )
         }
         playlistTracksJob = viewModelScope.launch {
-            playlistRepository.observeTracks(playlistId)
+            // The chat-picker cache may be empty when Playlists is first opened.
+            // Resolve from persisted source selection instead.
+            val personChatId = if (playlistId == LOCAL_PLAYLIST_ID) null else try {
+                telegramRepository.personChatIdForPlaylist(playlistId)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                reportLoadError(error, "Unable to resolve Telegram profile")
+                null
+            }
+            _state.update { current ->
+                if (current.selectedPlaylistId == playlistId) {
+                    current.copy(
+                        selectedPlaylistPersonChatId = personChatId,
+                        selectedPlaylistIsPerson = personChatId != null,
+                    )
+                } else current
+            }
+            (if (playlistId == LOCAL_PLAYLIST_ID) repository.observeLocalTracks()
+            else playlistRepository.observeTracks(playlistId))
                 .catch { error -> reportLoadError(error, "Unable to load playlist") }
                 .collect { tracks ->
-                    _state.update { it.copy(selectedPlaylistTracks = tracks) }
+                    val included = repository.visibleTrackIds(tracks.map { it.id })
+                    val profile = personChatId?.let { telegramRepository.profileTrackIdsForChat(it) }.orEmpty()
+                    val messages = personChatId?.let { telegramRepository.messageTrackIdsForChat(it) }.orEmpty()
+                    _state.update { current ->
+                        if (current.selectedPlaylistId == playlistId) {
+                            current.copy(
+                                selectedPlaylistTracks = tracks,
+                                selectedPlaylistLibraryTrackIds = included,
+                                selectedPlaylistProfileTrackIds = profile,
+                                selectedPlaylistChatTrackIds = messages,
+                                selectedPlaylistIsPerson = personChatId != null,
+                            )
+                        } else current
+                    }
                 }
         }
     }
 
+    fun refreshSelectedPersonProfile() {
+        val snapshot = _state.value
+        val playlistId = snapshot.selectedPlaylistId ?: return
+        val chatId = snapshot.selectedPlaylistPersonChatId ?: return
+        if (snapshot.isRefreshingPersonProfile) return
+        _state.update {
+            it.copy(
+                isRefreshingPersonProfile = true,
+                personProfileRefreshStatus = null,
+                personProfileRefreshError = null,
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val count = telegramRepository.refreshPersonProfileMusic(chatId)
+                // Even if the playlist membership is unchanged, refresh source badges.
+                val profile = telegramRepository.profileTrackIdsForChat(chatId)
+                val messages = telegramRepository.messageTrackIdsForChat(chatId)
+                _state.update { current ->
+                    if (current.selectedPlaylistId == playlistId) {
+                        current.copy(
+                            isRefreshingPersonProfile = false,
+                            selectedPlaylistProfileTrackIds = profile,
+                            selectedPlaylistChatTrackIds = messages,
+                            personProfileRefreshStatus = if (count == 0) {
+                                "Telegram returned no profile music. This may be restricted by privacy settings."
+                            } else {
+                                "Profile refreshed · $count songs"
+                            },
+                        )
+                    } else current
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _state.update { current ->
+                    if (current.selectedPlaylistId == playlistId) {
+                        current.copy(
+                            isRefreshingPersonProfile = false,
+                            personProfileRefreshError = error.message ?: "Unable to refresh profile music.",
+                        )
+                    } else current
+                }
+            }
+        }
+    }
+
     fun movePlaylistTrack(fromIndex: Int, toIndex: Int) {
-        val id = _state.value.selectedPlaylistId ?: return
+        val id = _state.value.selectedPlaylistId?.takeUnless { it == LOCAL_PLAYLIST_ID } ?: return
         viewModelScope.launch {
             runCatching { playlistRepository.moveTrack(id, fromIndex, toIndex) }
                 .onFailure { reportLoadError(it, "Unable to reorder playlist") }
@@ -404,7 +674,7 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun removePlaylistTrack(track: Track) {
-        val id = _state.value.selectedPlaylistId ?: return
+        val id = _state.value.selectedPlaylistId?.takeUnless { it == LOCAL_PLAYLIST_ID } ?: return
         viewModelScope.launch {
             runCatching { playlistRepository.removeTrack(id, track.id) }
                 .onFailure { reportLoadError(it, "Unable to update playlist") }

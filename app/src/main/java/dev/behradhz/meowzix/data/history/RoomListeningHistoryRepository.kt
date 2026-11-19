@@ -38,6 +38,7 @@ class RoomListeningHistoryRepository @Inject constructor(
 ) : ListeningHistoryRepository {
     private val mutex = Mutex()
     private val active = mutableMapOf<UUID, ActivePlayback>()
+    private val unrecordedPlayback = mutableMapOf<UUID, UUID>() // In-memory only.
     private var currentSession: Session? = null
     private var lastFinalized: ActivePlayback? = null
     private var lastCompletion: Pair<UUID, Instant>? = null
@@ -88,14 +89,21 @@ class RoomListeningHistoryRepository @Inject constructor(
 
     override suspend fun startPlayback(trackId: UUID, initiatedBy: PlaybackInitiator, mode: PlaybackMode): UUID = mutex.withLock {
         val playbackId = UUID.randomUUID()
-        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) return@withLock playbackId
+        // A manual play is an explicit interaction even when listening history is disabled.
+        if (initiatedBy == PlaybackInitiator.USER) {
+            database.telegramDao().markTrackSeen(trackId.toString())
+        }
+        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) {
+            unrecordedPlayback[playbackId] = trackId
+            return@withLock playbackId
+        }
         // Restored Media3 state can outlive its canonical library row (for example after a source
         // was removed while the app was closed). History has a foreign key to Track, so recording
         // such a stale queue item must be a no-op rather than a process-fatal constraint error.
         if (database.libraryDao().trackById(trackId.toString()) == null) return@withLock playbackId
 
         val now = Instant.now()
-        val session = session(now, mode)
+        val session = session(now, mode, forceNew = initiatedBy == PlaybackInitiator.USER)
         val context = ActivePlayback(playbackId, trackId, session.id, initiatedBy, mode, ListeningEventSemantics.timeContext(now, ZoneId.systemDefault()).bucket)
         database.withTransaction {
             if (initiatedBy == PlaybackInitiator.USER) insert(context, ListeningEventType.MANUAL_SELECTED, now, null, null)
@@ -117,10 +125,19 @@ class RoomListeningHistoryRepository @Inject constructor(
         durationMs: Long,
         intentionalSkip: Boolean,
     ) = mutex.withLock {
-        val context = active[playbackInstanceId] ?: return@withLock
-        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) { active.remove(playbackInstanceId); return@withLock }
         val type = ListeningEventSemantics.outcome(positionMs, durationMs, intentionalSkip)
-        database.withTransaction { insert(context, type, Instant.now(), positionMs, durationMs) }
+        val unrecordedTrack = unrecordedPlayback.remove(playbackInstanceId)
+        if (unrecordedTrack != null) {
+            return@withLock
+        }
+        val context = active[playbackInstanceId] ?: return@withLock
+        if (!settings.networkPlaybackSettings.first().listeningHistoryEnabled) {
+            active.remove(playbackInstanceId)
+            return@withLock
+        }
+        database.withTransaction {
+            insert(context, type, Instant.now(), positionMs, durationMs)
+        }
         active.remove(playbackInstanceId)
         lastFinalized = context
         if (type == ListeningEventType.PLAY_COMPLETED) lastCompletion = context.trackId to Instant.now()
@@ -214,6 +231,7 @@ class RoomListeningHistoryRepository @Inject constructor(
 
     override suspend fun clear() = mutex.withLock {
         active.clear()
+        unrecordedPlayback.clear()
         currentSession = null
         lastCompletion = null
         lastFinalized = null
@@ -229,6 +247,7 @@ class RoomListeningHistoryRepository @Inject constructor(
 
     override suspend fun resetPersonalization() = mutex.withLock {
         active.clear()
+        unrecordedPlayback.clear()
         // The trainer clears aggregates and the model under the same lock used by rebuilds.
         lastCompletion = null
         lastFinalized = null
@@ -236,9 +255,9 @@ class RoomListeningHistoryRepository @Inject constructor(
         personalizationTrainer.resetLearningKeepHistory()
     }
 
-    private suspend fun session(now: Instant, mode: PlaybackMode): Session {
+    private suspend fun session(now: Instant, mode: PlaybackMode, forceNew: Boolean = false): Session {
         val existing = currentSession
-        if (existing != null && now.toEpochMilli() - existing.lastActivityEpochMs <= ListeningEventSemantics.SESSION_TIMEOUT_MS) {
+        if (!forceNew && existing != null && now.toEpochMilli() - existing.lastActivityEpochMs <= ListeningEventSemantics.SESSION_TIMEOUT_MS) {
             existing.lastActivityEpochMs = now.toEpochMilli()
             return existing
         }

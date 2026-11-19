@@ -60,6 +60,44 @@ class PureShuffleEngineTest {
     }
 
     @Test
+    fun `direct selections get independent random cycles with the chosen track first`() {
+        val eligible = (0 until 50).toList()
+        val first = PureShuffleEngine.newCycleStartingWith(eligible, selectedItem = 23, seed = 101L)
+        val second = PureShuffleEngine.newCycleStartingWith(eligible, selectedItem = 23, seed = 202L)
+
+        assertEquals(23, first.order.first())
+        assertEquals(23, second.order.first())
+        assertEquals(eligible.size, first.order.size)
+        assertEquals(eligible.toSet(), first.order.toSet())
+        assertEquals(eligible.toSet(), second.order.toSet())
+        assertNotEquals(first.seed, second.seed)
+        assertNotEquals(first.order, second.order)
+        assertEquals(first, PureShuffleEngine.newCycleStartingWith(eligible, 23, seed = first.seed))
+    }
+
+    @Test
+    fun `selected item is required and duplicates are rejected for anchored cycles`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            PureShuffleEngine.newCycleStartingWith(listOf(1, 2), 3, seed = 1)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            PureShuffleEngine.newCycleStartingWith(listOf(1, 1, 2), 1, seed = 1)
+        }
+        assertEquals(listOf("one"), PureShuffleEngine.newCycleStartingWith(listOf("one"), "one", 1).order)
+    }
+
+    @Test
+    fun `direct selection distributes remaining tracks without a fixed position`() {
+        val counts = IntArray(10)
+        repeat(5_000) { seed ->
+            val cycle = PureShuffleEngine.newCycleStartingWith((0..10).toList(), 10, seed.toLong())
+            assertEquals(10, cycle.order.first())
+            counts[cycle.order[1]]++
+        }
+        assertTrue(counts.all { it in 370..630 })
+    }
+
+    @Test
     fun `duplicate eligible inputs are rejected`() {
         assertThrows(IllegalArgumentException::class.java) {
             PureShuffleEngine.newCycle(listOf("a", "a"), seed = 1)

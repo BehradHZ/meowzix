@@ -1,5 +1,6 @@
 package dev.behradhz.meowzix.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -28,4 +29,7 @@ data class TrackEntity(
     val hidden: Boolean,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
+    @ColumnInfo(defaultValue = "0") val addedToLibrary: Boolean = false,
+    /** Cleared only when actual playback starts, not on download or click. */
+    @ColumnInfo(defaultValue = "0") val isUnheardNew: Boolean = false,
 )

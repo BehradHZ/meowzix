@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
@@ -108,13 +108,40 @@ fun CompactLyricsPreview(
                 }
             }
             LyricsContentType.PLAIN -> {
-                val lines = selected.parsed.plainLines.take(3)
                 Column(
-                    Modifier.fillMaxSize().lyricsEdgeFade(),
+                    Modifier.fillMaxSize().testTag("plain-lyrics-preview"),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    lines.forEachIndexed { index, line -> PreviewLine(line, index == 1 || lines.size == 1) }
+                    selected.parsed.plainLines.take(2).forEachIndexed { index, line ->
+                        Text(
+                            text = line,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontFamily = Vazirmatn,
+                                fontSize = 19.sp,
+                                lineHeight = 27.sp,
+                            ),
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp)
+                                .testTag("plain-lyrics-line-$index"),
+                        )
+                    }
+                    Text(
+                        text = "...",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontFamily = Vazirmatn,
+                            fontSize = 19.sp,
+                            lineHeight = 27.sp,
+                        ),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.testTag("plain-lyrics-more"),
+                    )
                 }
             }
             LyricsContentType.INSTRUMENTAL -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -235,7 +262,7 @@ fun ExpandedLyricsPanel(
                 reduceMotion = reduceMotion,
                 modifier = Modifier.weight(1f),
             )
-            LyricsContentType.PLAIN -> LazyColumn(
+            LyricsContentType.PLAIN -> GlassLazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth().lyricsEdgeFade(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -376,7 +403,7 @@ private fun TimedLyricsList(
     }
 
     BoxWithConstraints(modifier.fillMaxWidth()) {
-        LazyColumn(
+        GlassLazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize()
                 .lyricsEdgeFade(browsingReveal, revealTop = listState.firstVisibleItemIndex == 0)

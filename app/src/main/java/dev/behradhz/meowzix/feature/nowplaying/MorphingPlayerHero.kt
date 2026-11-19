@@ -56,6 +56,8 @@ internal fun MorphingPlayerHero(
     collapsedHeightPx: Int,
     lyricsLayoutVisible: Boolean,
     onBack: () -> Unit,
+    onSwipeUp: () -> Unit,
+    verticalDragCallbacks: ArtworkVerticalDragCallbacks?,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -84,6 +86,8 @@ internal fun MorphingPlayerHero(
                     artworkRef = track.artworkRef,
                     artworkDescription = "${track.title} cover art",
                     onBack = onBack,
+                    onSwipeUp = onSwipeUp,
+                    verticalDragCallbacks = verticalDragCallbacks,
                     onPrevious = onPrevious,
                     onNext = onNext,
                     onBackdropTransition = onBackdropTransition,
@@ -233,6 +237,8 @@ private fun ArtworkGestureZoneForMorph(
     artworkRef: String?,
     artworkDescription: String,
     onBack: () -> Unit,
+    onSwipeUp: () -> Unit,
+    verticalDragCallbacks: ArtworkVerticalDragCallbacks?,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit,
@@ -245,6 +251,8 @@ private fun ArtworkGestureZoneForMorph(
         fallbackArtworkRef = artworkRef,
         fallbackArtworkDescription = artworkDescription,
         onBack = onBack,
+        onSwipeUp = onSwipeUp,
+        verticalDragCallbacks = verticalDragCallbacks,
         onPrevious = onPrevious,
         onNext = onNext,
         onBackdropTransition = onBackdropTransition,
@@ -282,6 +290,27 @@ internal fun collapsedHeroGeometry(
 
 private fun lerpInt(start: Int, stop: Int, fraction: Float): Int =
     (start + (stop - start) * fraction.coerceIn(0f, 1f)).toInt()
+
+
+/** Space allocated after measuring transport controls, including the first frame. */
+internal data class PortraitPlayerSpace(
+    val fullHeroHeight: Int,
+    val heroHeight: Int,
+    val queueHeight: Int,
+)
+
+internal fun portraitPlayerSpace(
+    availableHeight: Int,
+    footerHeight: Int,
+    queueProgress: Float,
+    compactHeroHeight: Int,
+): PortraitPlayerSpace {
+    val fullHeight = (availableHeight - footerHeight).coerceAtLeast(0)
+    val compact = compactHeroHeight.coerceIn(0, fullHeight)
+    val hero = (fullHeight + (compact - fullHeight) * queueProgress.coerceIn(0f, 1f))
+        .toInt().coerceIn(0, fullHeight)
+    return PortraitPlayerSpace(fullHeight, hero, fullHeight - hero)
+}
 
 /** Interpolates one persistent hero between the full-player area and a real compact header. */
 internal fun lyricsMorphHeroHeight(fullHeight: Dp, progress: Float, compactHeight: Dp = 76.dp): Dp {

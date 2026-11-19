@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -41,6 +42,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
 import dev.behradhz.meowzix.domain.playback.QueueState
+import dev.behradhz.meowzix.domain.playback.resolveCurrentQueueIndex
 import dev.behradhz.meowzix.ui.components.NowPlayingArtwork
 import dev.behradhz.meowzix.ui.components.PreloadNowPlayingArtwork
 import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
@@ -53,6 +55,32 @@ private enum class ArtworkTransitionDirection { PREVIOUS, NEXT }
 private enum class ArtworkCropRole { CURRENT, TARGET }
 private enum class ArtworkGestureAxis { UNDECIDED, HORIZONTAL, VERTICAL }
 private const val ArtworkCommitThreshold = 0.35f
+
+/** Keep small covers square-like instead of making a 64dp thumbnail nearly circular. */
+internal fun artworkCornerRadiusForSize(size: Dp, maximum: Dp): Dp =
+    minOf(maximum, size * 0.16f).coerceAtLeast(0.dp)
+
+internal enum class ArtworkVerticalSwipeAction { NONE, OPEN_QUEUE, CLOSE_PLAYER }
+
+internal class ArtworkVerticalDragCallbacks(
+    val onDelta: (Float) -> Unit,
+    val onEnd: (ArtworkVerticalSwipeAction) -> Unit,
+    val onCancel: () -> Unit,
+)
+
+/** Keep vertical queue gestures separate from the horizontal track-changing pager. */
+internal fun artworkVerticalSwipeAction(
+    drag: Offset,
+    openThresholdPx: Float,
+    closeThresholdPx: Float,
+): ArtworkVerticalSwipeAction {
+    if (abs(drag.y) <= abs(drag.x)) return ArtworkVerticalSwipeAction.NONE
+    return when {
+        drag.y <= -openThresholdPx -> ArtworkVerticalSwipeAction.OPEN_QUEUE
+        drag.y >= closeThresholdPx -> ArtworkVerticalSwipeAction.CLOSE_PLAYER
+        else -> ArtworkVerticalSwipeAction.NONE
+    }
+}
 
 internal data class ArtworkBackdropTransition(
     val fromArtworkRef: String?,
@@ -78,6 +106,8 @@ internal fun NowPlayingArtworkPager(
     onBack: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onSwipeUp: () -> Unit = {},
+    verticalDragCallbacks: ArtworkVerticalDragCallbacks? = null,
     onBackdropTransition: (ArtworkBackdropTransition?) -> Unit = {},
     onTransitionSettled: (java.util.UUID) -> Unit = {},
     cornerRadius: Dp = 28.dp,
@@ -87,6 +117,12 @@ internal fun NowPlayingArtworkPager(
     // view model as the route. Keeping the tap action here avoids duplicating gesture ownership.
     val viewModel: NowPlayingViewModel = hiltViewModel()
     val haptics = rememberMeowzixHaptics()
+    val latestSwipeUp by rememberUpdatedState(onSwipeUp)
+    val latestVerticalDragCallbacks by rememberUpdatedState(verticalDragCallbacks)
+    val latestBack by rememberUpdatedState(onBack)
+    val density = LocalDensity.current
+    val openThresholdPx = with(density) { 72.dp.toPx() }
+    val closeThresholdPx = with(density) { 96.dp.toPx() }
 
     val activeIndex = remember(
         state.currentTrack?.id,
@@ -94,7 +130,7 @@ internal fun NowPlayingArtworkPager(
         queueState.currentIndex,
         queueState.items,
     ) {
-        resolveActiveQueueIndex(state, queueState)
+        resolveCurrentQueueIndex(state, queueState)
     }
 
     val isPaused = state.status == PlaybackStatus.PAUSED
@@ -115,11 +151,42 @@ internal fun NowPlayingArtworkPager(
         LaunchedEffect(state.currentTrack?.id) {
             state.currentTrack?.id?.let(onTransitionSettled)
         }
-        BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
+        BoxWithConstraints(
+            modifier = modifier.pointerInput(openThresholdPx, closeThresholdPx) {
+                var verticalDrag = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { verticalDrag = 0f },
+                    onVerticalDrag = { change, amount ->
+                        verticalDrag += amount
+                        change.consume()
+                        latestVerticalDragCallbacks?.onDelta?.invoke(amount)
+                    },
+                    onDragEnd = {
+                        val action = artworkVerticalSwipeAction(
+                            Offset(0f, verticalDrag), openThresholdPx, closeThresholdPx,
+                        )
+                        val callbacks = latestVerticalDragCallbacks
+                        if (callbacks != null) {
+                            callbacks.onEnd(action)
+                        } else {
+                            when (action) {
+                                ArtworkVerticalSwipeAction.OPEN_QUEUE -> latestSwipeUp()
+                                ArtworkVerticalSwipeAction.CLOSE_PLAYER -> latestBack()
+                                ArtworkVerticalSwipeAction.NONE -> Unit
+                            }
+                        }
+                    },
+                    onDragCancel = {
+                        verticalDrag = 0f
+                        latestVerticalDragCallbacks?.onCancel?.invoke()
+                    },
+                )
+            },
+            contentAlignment = Alignment.Center,
+        ) {
             val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
             NowPlayingArtwork(
-
-                cornerRadius = cornerRadius,
+                cornerRadius = artworkCornerRadiusForSize(artworkSize, cornerRadius),
                 artworkRef = fallbackArtworkRef,
                 description = fallbackArtworkDescription,
                 modifier = Modifier
@@ -145,11 +212,8 @@ internal fun NowPlayingArtworkPager(
     PreloadNowPlayingArtwork(queueState.items.getOrNull(activeIndex - 1)?.artworkRef)
     PreloadNowPlayingArtwork(queueState.items.getOrNull(activeIndex + 1)?.artworkRef)
 
-    val density = LocalDensity.current
     val axisThresholdPx = with(density) { 10.dp.toPx() }
-    val closeThresholdPx = with(density) { 96.dp.toPx() }
     val separatorGapPx = with(density) { 12.dp.toPx() }
-    val artworkCornerRadiusPx = with(density) { cornerRadius.toPx() }
     val scope = rememberCoroutineScope()
 
     var displayedIndex by remember { mutableIntStateOf(activeIndex) }
@@ -400,12 +464,16 @@ internal fun NowPlayingArtworkPager(
 
                         ArtworkGestureAxis.VERTICAL -> {
                             change.consume()
+                            latestVerticalDragCallbacks?.onDelta?.invoke(dragAmount.y)
                         }
 
                         ArtworkGestureAxis.UNDECIDED -> Unit
                     }
                 },
                 onDragCancel = {
+                    if (gestureAxis == ArtworkGestureAxis.VERTICAL) {
+                        latestVerticalDragCallbacks?.onCancel?.invoke()
+                    }
                     if (direction != null && progress > 0f) animateBackToCurrent()
                     thresholdDirection = 0
                     totalDrag = Offset.Zero
@@ -422,8 +490,18 @@ internal fun NowPlayingArtworkPager(
                         }
 
                         ArtworkGestureAxis.VERTICAL -> {
-                            if (totalDrag.y >= closeThresholdPx && abs(totalDrag.y) > abs(totalDrag.x)) {
-                                onBack()
+                            val action = artworkVerticalSwipeAction(
+                                totalDrag, openThresholdPx, closeThresholdPx,
+                            )
+                            val callbacks = latestVerticalDragCallbacks
+                            if (callbacks != null) {
+                                callbacks.onEnd(action)
+                            } else {
+                                when (action) {
+                                    ArtworkVerticalSwipeAction.OPEN_QUEUE -> latestSwipeUp()
+                                    ArtworkVerticalSwipeAction.CLOSE_PLAYER -> latestBack()
+                                    ArtworkVerticalSwipeAction.NONE -> Unit
+                                }
                             }
                         }
 
@@ -438,7 +516,9 @@ internal fun NowPlayingArtworkPager(
         contentAlignment = Alignment.Center,
     ) {
         val artworkSize = minOf(maxWidth * 0.90f, maxHeight * 0.90f)
-        val artworkShape = RoundedCornerShape(cornerRadius)
+        val effectiveCornerRadius = artworkCornerRadiusForSize(artworkSize, cornerRadius)
+        val artworkCornerRadiusPx = with(density) { effectiveCornerRadius.toPx() }
+        val artworkShape = RoundedCornerShape(effectiveCornerRadius)
         val safeDisplayedIndex = displayedIndex.coerceIn(queueState.items.indices)
         val currentItem = queueState.items[safeDisplayedIndex]
         val currentArtworkRef = currentItem.artworkRef ?: if (currentItem.id == state.currentTrack?.id) {
@@ -484,7 +564,7 @@ internal fun NowPlayingArtworkPager(
             if (!hasTarget) {
                 NowPlayingArtwork(
 
-                    cornerRadius = cornerRadius,
+                    cornerRadius = effectiveCornerRadius,
                     artworkRef = currentArtworkRef,
                     description = "${currentItem.title} cover art",
                     modifier = Modifier.fillMaxSize(),
@@ -513,7 +593,7 @@ internal fun NowPlayingArtworkPager(
                 ) {
                     NowPlayingArtwork(
 
-                        cornerRadius = cornerRadius,
+                        cornerRadius = effectiveCornerRadius,
                         artworkRef = currentArtworkRef,
                         description = "${currentItem.title} cover art",
                         modifier = Modifier.fillMaxSize(),
@@ -534,7 +614,7 @@ internal fun NowPlayingArtworkPager(
                 ) {
                     NowPlayingArtwork(
 
-                        cornerRadius = cornerRadius,
+                        cornerRadius = effectiveCornerRadius,
                         artworkRef = targetArtworkRef,
                         description = "${targetItem.title} cover art",
                         modifier = Modifier.fillMaxSize(),
@@ -679,27 +759,4 @@ private fun animatedSeparatorHalfGap(gapPx: Float, progress: Float): Float {
     val clampedProgress = progress.coerceIn(0f, 1f)
     val visibility = (4f * clampedProgress * (1f - clampedProgress)).coerceIn(0f, 1f)
     return gapPx.coerceAtLeast(0f) * visibility / 2f
-}
-
-private fun resolveActiveQueueIndex(
-    state: PlaybackState,
-    queueState: QueueState,
-): Int {
-    val currentTrackId = state.currentTrack?.id ?: return -1
-
-    if (
-        state.queueIndex in queueState.items.indices &&
-        queueState.items[state.queueIndex].id == currentTrackId
-    ) {
-        return state.queueIndex
-    }
-
-    if (
-        queueState.currentIndex in queueState.items.indices &&
-        queueState.items[queueState.currentIndex].id == currentTrackId
-    ) {
-        return queueState.currentIndex
-    }
-
-    return queueState.items.indexOfFirst { it.id == currentTrackId }
 }

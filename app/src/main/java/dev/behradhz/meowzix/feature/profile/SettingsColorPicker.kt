@@ -8,7 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,12 +31,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -94,7 +91,8 @@ internal fun SettingsColorPicker(
     val supportsWallpaper = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val context = LocalContext.current
     val wallpaperSwatch = if (supportsWallpaper) {
-        if (isSystemInDarkTheme()) dynamicDarkColorScheme(context).primary else dynamicLightColorScheme(context).primary
+        // Match the pastel wallpaper-themed launcher icon swatch, independent of dark UI.
+        dynamicLightColorScheme(context).primaryContainer
     } else Color(ColorThemePreference.MEOWZIX.seedArgb(appearance.customColorSeed))
     var showCustomPicker by remember { mutableStateOf(false) }
 
@@ -106,11 +104,6 @@ internal fun SettingsColorPicker(
             "Accent color",
             style = MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp, lineHeight = 21.sp),
             fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            "Choose an accent or follow your device wallpaper. Light and dark appearance can be set separately.",
-            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         availablePalettes.chunked(3).forEach { group ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -168,42 +161,6 @@ internal fun SettingsColorPicker(
             }
         }
 
-        if (!supportsWallpaper) {
-            Text(
-                "Wallpaper colors require Android 12 or newer. Meowzix's palette remains available.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (appearance.colorTheme == ColorThemePreference.WALLPAPER && supportsWallpaper) {
-            Text(
-                "Following Android's current wallpaper/system palette. Changing your wallpaper can update app colors.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        OutlinedButton(
-            onClick = { showCustomPicker = true },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Box(
-                Modifier.size(20.dp).background(Color(appearance.customColorSeed), CircleShape)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-            )
-            Spacer(Modifier.width(10.dp))
-            Text("Custom RGB · #" + "%06X".format(appearance.customColorSeed and 0xFFFFFF))
-        }
-        Text(
-            "The palette is tonal: background and text colors are adjusted for readability instead of using the raw accent everywhere.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            "The original Meowzix logo background is #E5948A. Other in-app logo colors use the exact chosen RGB without tonal filtering; launcher icons are controlled by Android.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 
     if (showCustomPicker) {
@@ -265,7 +222,6 @@ private fun CustomRgbPickerDialog(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
-                        Text("Drag or edit RGB below", style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 RgbColorPlane(selectedArgb, ::setColor)
@@ -286,11 +242,6 @@ private fun CustomRgbPickerDialog(
                     singleLine = true,
                     isError = !validHex,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-                )
-                Text(
-                    "The logo and color values update instantly. Apply saves the custom accent; Cancel keeps your previous theme.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },

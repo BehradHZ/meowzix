@@ -1,17 +1,22 @@
 package dev.behradhz.meowzix.playback
 
 import android.app.ActivityOptions
+import android.app.KeyguardManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.Context
 import android.media.AudioManager
 import android.media.AudioPlaybackConfiguration
 import android.media.AudioRecordingConfiguration
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -21,6 +26,7 @@ import androidx.media3.common.Metadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
@@ -42,6 +48,9 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import dev.behradhz.meowzix.MainActivity
+import dev.behradhz.meowzix.LockScreenPlayerActivity
+import dev.behradhz.meowzix.LockScreenPlayerPreferences
+import dev.behradhz.meowzix.shouldOpenLockScreenPlayer
 import dev.behradhz.meowzix.R
 import dev.behradhz.meowzix.data.recommendation.AudioFeatureExtractionCoordinator
 import dev.behradhz.meowzix.data.repository.LibraryQueryRepository
@@ -57,7 +66,11 @@ import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackGainCoordinator
 import dev.behradhz.meowzix.domain.playback.PlaybackGainState
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
+import dev.behradhz.meowzix.domain.playback.PlayableTrack
 import dev.behradhz.meowzix.domain.playback.ProgressiveQueue
+import dev.behradhz.meowzix.domain.playback.QueueActionFeedbackBus
+import dev.behradhz.meowzix.domain.playback.QueueActionKind
+import dev.behradhz.meowzix.domain.playback.DeletedTelegramSourceEvents
 import dev.behradhz.meowzix.domain.playback.mayBeginAnotherCycle
 import dev.behradhz.meowzix.domain.playback.PureShuffleEngine
 import dev.behradhz.meowzix.domain.playback.RepeatMode
@@ -70,6 +83,7 @@ import dev.behradhz.meowzix.feature.telegram.TelegramForwardActivity
 import dev.behradhz.meowzix.playback.persistence.PersistedPlaybackSession
 import dev.behradhz.meowzix.playback.persistence.PlaybackStateStore
 import dev.behradhz.meowzix.widget.PlaybackWidgetProvider
+import dev.behradhz.meowzix.widget.PlaybackWidgetSnapshotStore
 import dev.behradhz.meowzix.widget.PlaybackWidgetState
 import dev.behradhz.meowzix.widget.VinylWidgetProvider
 import java.util.UUID
@@ -82,9 +96,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(markerClass = [UnstableApi::class])
 @AndroidEntryPoint
@@ -96,12 +111,15 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var audioFeatureCoordinator: AudioFeatureExtractionCoordinator
     @Inject lateinit var libraryRepository: MusicLibraryRepository
     @Inject lateinit var progressiveQueue: ProgressiveQueue
+    @Inject lateinit var queueActionFeedbackBus: QueueActionFeedbackBus
+    @Inject lateinit var deletedSources: DeletedTelegramSourceEvents
     @Inject lateinit var sleepTimer: SleepTimerManager
     @Inject lateinit var equalizer: EqualizerRepository
     @Inject lateinit var loudnessNormalization: LoudnessNormalizationRepository
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var mediaLibrary: MeowzixMediaLibrary
     @Inject lateinit var libraryQueryRepository: LibraryQueryRepository
+    @Inject lateinit var playlistRepository: dev.behradhz.meowzix.domain.library.PlaylistRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var lastAudioAnalysisTrackId: UUID? = null
@@ -120,6 +138,31 @@ class PlaybackService : MediaLibraryService() {
     }
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaLibrarySession
+    // SCREEN_ON is a protected, runtime-only broadcast. This receiver lives only as
+    // long as MediaLibraryService does and does not start another background service.
+    private val lockScreenWakeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != Intent.ACTION_SCREEN_ON) return
+            val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            if (!shouldOpenLockScreenPlayer(
+                    enabled = LockScreenPlayerPreferences.isEnabled(this@PlaybackService),
+                    overlayPermission = Settings.canDrawOverlays(this@PlaybackService),
+                    keyguardLocked = keyguard.isKeyguardLocked,
+                    activelyPlaying = player.isPlaying && player.currentMediaItem != null,
+                )
+            ) return
+
+            // No keyguard dismissal, no screen wakeup and no persistent overlay.
+            // Android permits a background Activity launch with user-granted SAW access;
+            // OEMs can still restrict this, so failures must leave playback unaffected.
+            runCatching {
+                startActivity(Intent(this@PlaybackService, LockScreenPlayerActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                })
+            }.onFailure { Log.w("MeowzixLockScreen", "Lock screen player could not open", it) }
+        }
+    }
     private lateinit var playbackAudioAttributes: AudioAttributes
     private lateinit var audioManager: AudioManager
     private var resumeAfterExternalAudioEnabled = false
@@ -235,11 +278,18 @@ class PlaybackService : MediaLibraryService() {
     }
     private var persistJob: Job? = null
     private var widgetRefreshJob: Job? = null
+    private var vinylAnimationJob: Job? = null
+    private var widgetTitleScrollJob: Job? = null
     private var playbackRetryJob: Job? = null
+    private var missingSourceCheckJob: Job? = null
+    private var missingSourceMediaId: String? = null
     private var retryMediaId: String? = null
     private var remoteFallbackMediaId: String? = null
     private var retryCount = 0
     private var isRestoring = true
+    // Keep the complete saved logical queue durable until background hydration commits.
+    private var pendingDeferredQueueRestore: PersistedPlaybackSession? = null
+    private var deferredQueueRestoreJob: Job? = null
     private var isChangingQueueCycle = false
     private var isExpandingWindow = false
     private var currentFavorite = false
@@ -531,8 +581,41 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    /** Media3 confirms playback even when the queue advances automatically. */
+    private fun acknowledgeAudibleTrack(mediaId: String?) {
+        val id = mediaId?.let { runCatching { UUID.fromString(it) }.getOrNull() } ?: return
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching { playlistRepository.markNewTrackSeen(id) }
+        }
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            if (mediaItem?.mediaId != missingSourceMediaId) {
+                missingSourceCheckJob?.cancel()
+                missingSourceCheckJob = null
+                missingSourceMediaId = null
+            }
+            // A process restart may restore an old Media3 timeline after a
+            // confirmed Telegram deletion. Events are ephemeral; persisted
+            // SourceAvailability.MISSING is not. Stop that stream on selection.
+            val restoredUri = mediaItem?.localConfiguration?.uri
+            val restoredId = mediaItem?.mediaId
+            if (restoredUri?.scheme == TDLIB_SCHEME && restoredId != null) {
+                val trackId = runCatching { UUID.fromString(restoredId) }.getOrNull()
+                if (trackId != null) serviceScope.launch {
+                    val missing = withContext(Dispatchers.IO) {
+                        remotePlaybackResolver.isPreviouslyConfirmedMissing(trackId)
+                    }
+                    if (missing && player.currentMediaItem?.mediaId == restoredId &&
+                        player.currentMediaItem?.localConfiguration?.uri == restoredUri
+                    ) {
+                        investigateDeletedTelegramSource(
+                            restoredId, restoredUri, alreadyConfirmed = true,
+                        )
+                    }
+                }
+            }
             if (!isRestoring && (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK ||
                     reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
             ) {
@@ -559,6 +642,7 @@ class PlaybackService : MediaLibraryService() {
             // Publish the new song before onEvents() runs its queue, audio-analysis,
             // favorite and persistence work. No polling delay on actual transitions.
             publishLiveSongTransition()
+            if (player.isPlaying) acknowledgeAudibleTrack(mediaItem?.mediaId)
         }
 
         override fun onPositionDiscontinuity(
@@ -662,10 +746,15 @@ class PlaybackService : MediaLibraryService() {
                 events.containsAny(
                     Player.EVENT_MEDIA_ITEM_TRANSITION,
                     Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                    Player.EVENT_IS_PLAYING_CHANGED,
                     Player.EVENT_PLAYBACK_STATE_CHANGED,
+                    Player.EVENT_MEDIA_METADATA_CHANGED,
                     Player.EVENT_TIMELINE_CHANGED,
+                    Player.EVENT_AVAILABLE_COMMANDS_CHANGED,
                 )
             ) {
+                // Update after metadata, output suppression and queue mutations as well
+                // as play/pause. Otherwise the home-screen widget can remain stale.
                 refreshPlaybackWidget()
             }
             if (events.containsAny(
@@ -754,7 +843,9 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (!isPlaying) volumeKeyPlayback = Any()
             if (isPlaying) {
+                acknowledgeAudibleTrack(player.currentMediaItem?.mediaId)
                 // Media3 may accept playWhenReady=true while focus is still
                 // suppressed. Only actual playback acknowledges auto-resume.
                 interruptionPolicy.playbackStarted()
@@ -780,6 +871,7 @@ class PlaybackService : MediaLibraryService() {
             .build()
         player = buildPlayer(handleAudioFocus = true)
             .also { it.addListener(playerListener) }
+        registerReceiver(lockScreenWakeReceiver, IntentFilter(Intent.ACTION_SCREEN_ON))
 
         val openPlayerIntent = PendingIntent.getActivity(
             this,
@@ -795,6 +887,23 @@ class PlaybackService : MediaLibraryService() {
             .setSessionActivity(openPlayerIntent)
             .setMediaButtonPreferences(mediaButtons())
             .build()
+        PlaybackServiceBridge.register(this)
+
+        // Download validation may discover a deleted message while Media3 is
+        // silently buffering its cached TDLib URI (without onPlayerError).
+        // The database marks the source missing; this event closes that stale
+        // streaming session immediately instead of letting it retry forever.
+        serviceScope.launch {
+            deletedSources.deleted.collect { id ->
+                try {
+                    handleConfirmedDeletedTelegramSource(id)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    Log.w(TAG, "Unable to reconcile deleted Telegram source with Media3", failure)
+                }
+            }
+        }
 
         // Always monitor for the first frame of another app's MEDIA/GAME playback.
         // Automatic restart remains opt-in, but the early pause is unconditional.
@@ -975,6 +1084,8 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: ControllerInfo): MediaLibrarySession = mediaSession
 
     override fun onDestroy() {
+        unregisterReceiver(lockScreenWakeReceiver)
+        PlaybackServiceBridge.unregister(this)
         liveSongTransitionRetry.cancel()
         liveSongCard?.cancel()
         audioManager.unregisterAudioPlaybackCallback(externalAudioObserver)
@@ -989,6 +1100,8 @@ class PlaybackService : MediaLibraryService() {
         equalizer.release()
         normalizationRefreshJob?.cancel()
         widgetRefreshJob?.cancel()
+        vinylAnimationJob?.cancel()
+        widgetTitleScrollJob?.cancel()
         mediaSession.release()
         player.release()
         serviceScope.cancel()
@@ -1121,19 +1234,159 @@ class PlaybackService : MediaLibraryService() {
         )
     }
 
+    private var volumeKeyPlayback = Any()
+    internal val activeVolumeKeyPlayback: Any?
+        get() = volumeKeyPlayback.takeIf { player.isPlaying }
+
+    internal fun skipWithVolumeKey(next: Boolean) {
+        if (next) {
+            if (player.hasNextMediaItem()) player.seekToNext()
+        } else if (player.hasPreviousMediaItem()) {
+            player.seekToPrevious()
+        }
+    }
+
+    /**
+     * Single in-process control entry point for the two widgets and the Live Song card.
+     * Always runs on the application's main looper; uses the same authoritative
+     * ExoPlayer and business actions as the MediaSession.
+     */
+    internal fun executeExternalPlaybackAction(action: ExternalPlaybackAction) {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        when (action) {
+            ExternalPlaybackAction.TogglePlayPause -> {
+                if (player.playWhenReady && player.playbackState != Player.STATE_ENDED) {
+                    player.pause()
+                } else if (player.currentMediaItem != null) {
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                    player.play()
+                }
+            }
+            ExternalPlaybackAction.Pause -> player.pause()
+            ExternalPlaybackAction.Previous -> {
+                if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem()
+            }
+            ExternalPlaybackAction.Next -> {
+                if (player.hasNextMediaItem()) player.seekToNextMediaItem()
+            }
+            is ExternalPlaybackAction.QueueSelection -> playWidgetQueueOccurrence(action)
+            ExternalPlaybackAction.Favorite ->
+                if (player.currentMediaItem != null) toggleSystemFavorite()
+            ExternalPlaybackAction.Shuffle ->
+                if (player.currentMediaItem != null) toggleSystemShuffle()
+            ExternalPlaybackAction.Repeat ->
+                if (player.currentMediaItem != null) cycleSystemRepeat()
+            ExternalPlaybackAction.Forward ->
+                if (player.currentMediaItem != null && !openTelegramForwardPicker()) {
+                    Log.w(TAG, "Forward control could not open Telegram picker")
+                }
+        }
+    }
+
+    private fun playWidgetQueueOccurrence(action: ExternalPlaybackAction.QueueSelection) {
+        val logical = progressiveQueue.snapshot()
+        if (logical != null) {
+            val index = action.index
+            if (index !in logical.tracks.indices ||
+                logical.tracks[index].id.toString() != action.mediaId ||
+                logical.occurrenceIds.getOrNull(index)?.toString() != action.occurrenceId
+            ) return
+            if (activeCrossfade != null) cancelCrossfade("widget queue selection")
+            // Mirror QueueRepository.playAt: selecting a later manual Queue entry
+            // moves it to the next slot and preserves other pending manual songs.
+            val selectedIndex = if (
+                index > logical.currentIndex + 1 && progressiveQueue.isFixedOccurrence(index)
+            ) {
+                if (!progressiveQueue.move(index, logical.currentIndex + 1)) return
+                logical.currentIndex + 1
+            } else index
+            val plan = if (
+                selectedIndex > logical.currentIndex &&
+                logical.origins.getOrNull(index) ==
+                    dev.behradhz.meowzix.domain.playback.QueueItemOrigin.GENERATED
+            ) {
+                progressiveQueue.selectUpcomingNext(selectedIndex)
+            } else progressiveQueue.jumpTo(selectedIndex)
+            val now = progressiveQueue.snapshot() ?: return
+            if (plan == null) return
+            player.repeatMode = now.repeatMode.toPlayerRepeatMode(progressive = true)
+            player.setMediaItems(now.mediaItems(), plan.startIndexInWindow, 0L)
+            player.prepare()
+            player.play()
+            schedulePersist()
+            refreshPlaybackWidget()
+            return
+        }
+        // Non-progressive queues use direct Media3 positions only.
+        if (action.index in 0 until player.mediaItemCount &&
+            player.getMediaItemAt(action.index).mediaId == action.mediaId &&
+            action.occurrenceId == null
+        ) {
+            player.seekTo(action.index, 0L)
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            player.play()
+        }
+    }
+
     private fun refreshPlaybackWidget() {
-        val state = PlaybackWidgetState.fromPlayer(player)
+        val logical = progressiveQueue.snapshot()
+        val state = PlaybackWidgetState.fromPlayer(player).copy(
+            isFavorite = currentFavorite,
+            // QueueRoute uses this same logical snapshot. Media3 only exposes a
+            // small physical window and cannot serve as the widget's Queue source.
+            queueIndex = logical?.currentIndex ?: player.currentMediaItemIndex,
+            queueTotal = logical?.let { (it.tracks.size - it.currentIndex - 1).coerceAtLeast(0) }
+                ?: (player.mediaItemCount - player.currentMediaItemIndex.coerceAtLeast(0) - 1).coerceAtLeast(0),
+        )
         widgetRefreshJob?.cancel()
         widgetRefreshJob = serviceScope.launch(Dispatchers.IO) {
-            runCatching {
-                PlaybackWidgetProvider.updateAll(this@PlaybackService.applicationContext, state)
-                // A second optional widget. Frames run only while a vinyl widget exists
-                // and Media3 reports active playback; no periodic alarm or wake lock.
-                VinylWidgetProvider.updateAll(
-                    this@PlaybackService.applicationContext,
-                    state,
-                    reduceMotion = settingsRepository.appearanceSettings.first().reduceMotion,
-                )
+            PlaybackWidgetSnapshotStore.saveLastPlayed(this@PlaybackService.applicationContext, state)
+            runCatching { PlaybackWidgetProvider.updateAll(this@PlaybackService.applicationContext, state) }
+            runCatching { VinylWidgetProvider.updateAll(this@PlaybackService.applicationContext, state) }
+        }
+        refreshVinylAnimation()
+        refreshWidgetTitleTicker()
+    }
+
+    private fun refreshWidgetTitleTicker() {
+        val context = applicationContext
+        if (!player.isPlaying || !PlaybackWidgetProvider.hasWidgets(context)) {
+            widgetTitleScrollJob?.cancel()
+            widgetTitleScrollJob = null
+            return
+        }
+        if (widgetTitleScrollJob?.isActive == true) return
+        widgetTitleScrollJob = serviceScope.launch {
+            val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+            while (isActive && player.isPlaying && PlaybackWidgetProvider.hasWidgets(context)) {
+                delay(3_800L)
+                if (power.isInteractive) {
+                    withContext(Dispatchers.Default) {
+                        runCatching { PlaybackWidgetProvider.advanceTitle(context) }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Low-resolution rotation only while a visible screen can display an active widget. */
+    private fun refreshVinylAnimation() {
+        val context = applicationContext
+        if (!player.isPlaying || !VinylWidgetProvider.hasWidgets(context)) {
+            vinylAnimationJob?.cancel()
+            vinylAnimationJob = null
+            return
+        }
+        if (vinylAnimationJob?.isActive == true) return
+        vinylAnimationJob = serviceScope.launch {
+            val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+            while (isActive && player.isPlaying && VinylWidgetProvider.hasWidgets(context)) {
+                delay(if (power.isInteractive) 750L else 3_000L)
+                if (power.isInteractive) {
+                    withContext(Dispatchers.Default) {
+                        runCatching { VinylWidgetProvider.advanceRotation(context) }
+                    }
+                }
             }
         }
     }
@@ -1188,9 +1441,21 @@ class PlaybackService : MediaLibraryService() {
 
     private fun buildPlayer(handleAudioFocus: Boolean): ExoPlayer {
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(MeowzixDataSourceFactory(this))
+            .setDataSourceFactory(
+                MeowzixDataSourceFactory(this) { trackId ->
+                    remotePlaybackResolver.cachedLocalForPlayback(trackId)?.contentUri
+                },
+            )
         return ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
+            // Start with a small playable-duration buffer, not a percentage of
+            // the Telegram download. The growing DataSource supplies more data
+            // as playback advances.
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(20_000, 50_000, 1_000, 2_000)
+                    .build()
+            )
             .setSeekForwardIncrementMs(FORWARD_INCREMENT_MS)
             .setAudioAttributes(playbackAudioAttributes, handleAudioFocus)
             .setHandleAudioBecomingNoisy(handleAudioFocus)
@@ -1210,7 +1475,7 @@ class PlaybackService : MediaLibraryService() {
             .setSlots(CommandButton.SLOT_FORWARD)
             .build(),
         if (includeForward) CommandButton.Builder(CommandButton.ICON_UNDEFINED)
-            .setCustomIconResId(R.drawable.ic_forward_paper_plane)
+            .setCustomIconResId(R.drawable.ic_telegram_plane)
             .setDisplayName("Forward on Telegram")
             .setSessionCommand(forwardCommand)
             .setSlots(CommandButton.SLOT_OVERFLOW)
@@ -1385,6 +1650,14 @@ class PlaybackService : MediaLibraryService() {
         val mediaId = currentItem?.mediaId
         val uri = currentItem?.localConfiguration?.uri
         val isTelegramStream = uri?.scheme == TDLIB_SCHEME
+        Log.w(
+            TAG,
+            "Media3 failure: ${error.errorCodeName} (${error.errorCode}), source=${uri?.scheme}",
+            error,
+        )
+        if (isTelegramStream && mediaId != null && uri != null) {
+            investigateDeletedTelegramSource(mediaId, uri)
+        }
 
         if (mediaId != null && uri != null && isOwnedPlaybackFile(uri) &&
             remoteFallbackMediaId != mediaId
@@ -1416,8 +1689,21 @@ class PlaybackService : MediaLibraryService() {
                     player.prepare()
                     if (shouldResume) player.play()
                 } else {
-                    Log.w(TAG, "Unable to recover failed local audio; preserving the queue", error)
-                    player.pause()
+                    // An invalid saved copy may also have lost its Telegram origin.
+                    // Re-check the original before deciding that the queue is stuck.
+                    val missing = trackId?.let { id ->
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                remotePlaybackResolver.confirmDeletedSource(id)
+                            }
+                        }.getOrDefault(false)
+                    } ?: false
+                    if (missing) {
+                        investigateDeletedTelegramSource(mediaId, failedUri, alreadyConfirmed = true)
+                    } else {
+                        Log.w(TAG, "Unable to recover failed local audio; preserving the queue", error)
+                        player.pause()
+                    }
                 }
                 schedulePersist()
             }
@@ -1442,6 +1728,12 @@ class PlaybackService : MediaLibraryService() {
                 val failedUri = uri
                 playbackRetryJob = serviceScope.launch {
                     delay(REMOTE_PLAYBACK_RETRY_BASE_DELAY_MS * attempt)
+                    // A source check wins over retrying the same stale Media3 URI.
+                    // If Telegram confirms deletion, the check closes the stream and
+                    // removes the occurrence; no retry may resurrect the old source.
+                    if (missingSourceMediaId == mediaId) {
+                        missingSourceCheckJob?.join()
+                    }
                     // A new user selection wins over any delayed recovery.
                     if (player.currentMediaItem?.mediaId != mediaId ||
                         player.currentMediaItem?.localConfiguration?.uri != failedUri
@@ -1484,6 +1776,153 @@ class PlaybackService : MediaLibraryService() {
             serviceScope.launch { completeSleepTimer(SleepTimerTerminationReason.END_OF_TRACK_PLAYBACK_ERROR) }
         }
         schedulePersist()
+    }
+
+    private suspend fun handleConfirmedDeletedTelegramSource(trackId: UUID) {
+        val id = trackId.toString()
+        val previousItem = player.currentMediaItem
+        // Another source (e.g. a saved audio file or another Telegram message)
+        // can keep the canonical song playable. Never delete that copy.
+        val alternative = runCatching { playbackCatalog.playableTrack(trackId) }.getOrNull()
+        val sameStaleUri = previousItem?.mediaId == id &&
+            previousItem.localConfiguration?.uri?.scheme == TDLIB_SCHEME &&
+            previousItem.localConfiguration?.uri?.toString() == alternative?.contentUri
+        if (alternative != null && !sameStaleUri) {
+            progressiveQueue.replacePlayableSource(trackId, alternative)
+            if (previousItem?.mediaId == id &&
+                previousItem.localConfiguration?.uri?.toString() != alternative.contentUri
+            ) {
+                val wasPlaying = player.playWhenReady
+                player.replaceMediaItem(
+                    player.currentMediaItemIndex,
+                    alternative.toMediaItem(
+                        currentPlaybackMode(), currentRepeatMode(), previousItem.queueOccurrenceId(),
+                    ),
+                )
+                player.prepare()
+                if (wasPlaying) player.play()
+                schedulePersist()
+            } else if (previousItem?.mediaId != id) {
+                syncProgressiveFutureInPlace()
+            }
+            return
+        }
+
+        if (previousItem?.mediaId == id) {
+            val uri = previousItem.localConfiguration?.uri ?: return
+            investigateDeletedTelegramSource(id, uri, alreadyConfirmed = true)
+            return
+        }
+        if (progressiveQueue.removeUnavailableTrack(trackId)) {
+            // Keep the current song and its Media3 decoder untouched.
+            syncProgressiveFutureInPlace()
+            schedulePersist()
+        }
+    }
+
+    /**
+     * Ordinary buffering/TDLib errors are recoverable and must not remove songs.
+     * Only a separate source lookup confirming deletion removes the failed occurrence.
+     * The notice stays visible for five seconds before the next track starts.
+     */
+    private fun investigateDeletedTelegramSource(
+        mediaId: String,
+        failedUri: android.net.Uri,
+        alreadyConfirmed: Boolean = false,
+    ) {
+        if (missingSourceMediaId == mediaId && missingSourceCheckJob?.isActive == true &&
+            !alreadyConfirmed
+        ) return
+        // A positive deletion notification supersedes a slower in-flight
+        // network check; otherwise the stale stream could keep buffering.
+        missingSourceCheckJob?.cancel()
+        missingSourceMediaId = mediaId
+        val trackId = runCatching { UUID.fromString(mediaId) }.getOrNull() ?: return
+        val expectedOccurrence = player.currentMediaItem?.queueOccurrenceId()
+        val wasPlaying = player.playWhenReady
+        missingSourceCheckJob = serviceScope.launch {
+            val confirmed = try {
+                alreadyConfirmed || withContext(Dispatchers.IO) {
+                    remotePlaybackResolver.confirmDeletedSource(trackId)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w(TAG, "Telegram source verification failed; retaining queue item", failure)
+                false
+            }
+            if (!confirmed || !isStillFailedSource(mediaId, failedUri, expectedOccurrence)) return@launch
+
+            // A download row can vanish before Media3 stops loading its cached URI.
+            // Stop the player immediately (which closes the blocking TDLib
+            // DataSource), then leave the selected item visible for the notice.
+            // Do not let another stream retry run during the five-second hold.
+            clearPlaybackRetry()
+            player.pause()
+            player.stop()
+            val title = player.currentMediaItem?.mediaMetadata?.title?.toString()
+                ?.takeIf(String::isNotBlank) ?: "This song"
+            queueActionFeedbackBus.emit(QueueActionKind.SOURCE_DELETED, title)
+            delay(DELETED_SOURCE_NOTICE_MS)
+            if (!isStillFailedSource(mediaId, failedUri, expectedOccurrence)) return@launch
+
+            val snapshot = progressiveQueue.snapshot()
+            if (snapshot == null) {
+                // Older saved sessions use a plain Media3 playlist rather than
+                // ProgressiveQueue. Removing the download row alone must not
+                // leave its current MediaItem selected in that legacy timeline.
+                val index = player.currentMediaItemIndex
+                if (index in 0 until player.mediaItemCount &&
+                    player.getMediaItemAt(index).mediaId == mediaId
+                ) {
+                    val hasNext = index < player.mediaItemCount - 1
+                    if (hasNext) {
+                        player.removeMediaItem(index)
+                        player.prepare()
+                        if (wasPlaying) player.play()
+                    } else {
+                        player.clearMediaItems()
+                    }
+                    schedulePersist()
+                }
+                return@launch
+            }
+            val currentOccurrence = snapshot.occurrenceIds.getOrNull(snapshot.currentIndex)
+            if (currentOccurrence == null ||
+                (expectedOccurrence != null && expectedOccurrence != currentOccurrence)
+            ) return@launch
+
+            val hasSuccessor = snapshot.tracks.drop(snapshot.currentIndex + 1)
+                .any { it.id != trackId }
+            if (!progressiveQueue.removeUnavailableTrack(trackId)) return@launch
+            val nextSnapshot = progressiveQueue.snapshot()
+            missingSourceCheckJob = null
+            missingSourceMediaId = null
+            if (!hasSuccessor || nextSnapshot == null) {
+                // Never replay a previous history item as the "next" song.
+                progressiveQueue.clear()
+                player.clearMediaItems()
+            } else {
+                val plan = progressiveQueue.resetWindow()
+                val updated = progressiveQueue.snapshot() ?: return@launch
+                player.repeatMode = updated.repeatMode.toPlayerRepeatMode(progressive = true)
+                player.setMediaItems(updated.mediaItems(), plan.startIndexInWindow, 0L)
+                player.prepare()
+                if (wasPlaying) player.play()
+            }
+            schedulePersist()
+        }
+    }
+
+    private fun isStillFailedSource(
+        mediaId: String,
+        uri: android.net.Uri,
+        expectedOccurrence: UUID?,
+    ): Boolean {
+        val current = player.currentMediaItem ?: return false
+        return current.mediaId == mediaId &&
+            current.localConfiguration?.uri == uri &&
+            (expectedOccurrence == null || current.queueOccurrenceId() == expectedOccurrence)
     }
 
     private fun isOwnedPlaybackFile(uri: android.net.Uri): Boolean {
@@ -1803,7 +2242,10 @@ class PlaybackService : MediaLibraryService() {
         // This is the equivalent of finishing the outgoing Queue occurrence.
         progressiveQueue.consumeFixedOccurrence(lastTransitionOccurrenceId)
         syncLogicalCurrentFromPlayer()
-        if (incoming.isPlaying) progressiveQueue.consumeCurrentFixed()
+        if (incoming.isPlaying) {
+            progressiveQueue.consumeCurrentFixed()
+            acknowledgeAudibleTrack(incoming.currentMediaItem?.mediaId)
+        }
         lastTransitionOccurrenceId = progressiveQueue.snapshot()?.let { snapshot ->
             snapshot.occurrenceIds.getOrNull(snapshot.currentIndex)
         }
@@ -1980,9 +2422,11 @@ class PlaybackService : MediaLibraryService() {
         val currentId = player.currentMediaItem?.mediaId
         serviceScope.launch {
             val desiredFutureIds = when (nextMode) {
-                PlaybackMode.PURE_SHUFFLE -> (currentIndex + 1 until player.mediaItemCount)
-                    .map { player.getMediaItemAt(it).mediaId }
-                    .shuffled()
+                PlaybackMode.PURE_SHUFFLE -> {
+                    val ids = (currentIndex + 1 until player.mediaItemCount)
+                        .map { player.getMediaItemAt(it).mediaId }
+                    PureShuffleEngine.newCycle(ids.indices.toList()).order.map(ids::get)
+                }
                 else -> {
                     val orderedIds = runCatching { playbackCatalog.availableTracks().map { it.id.toString() } }.getOrDefault(emptyList())
                     val rank = orderedIds.withIndex().associate { it.value to it.index }
@@ -2042,6 +2486,7 @@ class PlaybackService : MediaLibraryService() {
                     currentFavorite = favorite
                     refreshMediaButtons()
                     updateLiveSongCard()
+                    refreshPlaybackWidget()
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -2072,6 +2517,7 @@ class PlaybackService : MediaLibraryService() {
                 currentFavorite = favorite
                 refreshMediaButtons()
                 updateLiveSongCard()
+                refreshPlaybackWidget()
             }
         }
     }
@@ -2096,77 +2542,175 @@ class PlaybackService : MediaLibraryService() {
                 else -> RepeatMode.OFF
             }
 
+    /**
+     * Phase 1: publish the saved (small) Media3 window immediately. This prepares
+     * the active song and makes its metadata visible without reading the Catalog.
+     * Phase 2 runs after that initial player/UI update and resolves only saved
+     * logical IDs, prioritizing the next ten and previous three.
+     */
     private suspend fun restoreSession() {
-        val saved = stateStore.load()
+        // Codec decoding and merge-journal reads must not run on the UI thread.
+        val saved = withContext(Dispatchers.IO) { stateStore.load() }
         if (player.mediaItemCount != 0 || saved.items.isEmpty()) {
             isRestoring = false
             return
         }
-
-        val logicalIds = saved.logicalMediaIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
-        val restoredProgressive = if (logicalIds.isNotEmpty()) {
-            val available = runCatching { playbackCatalog.availableTracks().associateBy { it.id } }.getOrNull()
-            available != null && progressiveQueue.restore(
-                orderedTrackIds = logicalIds,
-                availableTracks = available,
-                requestedCurrentIndex = saved.logicalCurrentIndex,
-                requestedMaterializedStartIndex = saved.materializedStartIndex,
-                requestedMaterializedEndExclusive = saved.materializedEndExclusive,
-                mode = saved.playbackMode,
-                repeat = saved.repeatMode,
-                seed = saved.shuffleSeed,
-                requestedOrigins = saved.logicalOrigins,
-                requestedOccurrenceIds = saved.logicalOccurrenceIds.mapNotNull {
-                    runCatching { UUID.fromString(it) }.getOrNull()
-                }.takeIf { it.size == saved.logicalMediaIds.size },
-                requestedGroupIds = saved.logicalGroupIds.map { id ->
-                    id?.let { runCatching { UUID.fromString(it) }.getOrNull() }
-                }.takeIf { it.size == saved.logicalMediaIds.size },
-                requestedGroups = saved.logicalGroups.mapNotNull {
-                    runCatching {
-                        dev.behradhz.meowzix.domain.playback.QueueGroup(
-                            UUID.fromString(it.id),
-                            dev.behradhz.meowzix.domain.playback.QueueGroupKind.valueOf(it.kind),
-                            it.title,
-                        )
-                    }.getOrNull()
-                },
-                sourceIds = saved.sourceMediaIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() },
-                pendingIds = saved.pendingMediaIds.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() },
-                generatedStartedCount = saved.generatedStarted,
-                nextGenerationThreshold = saved.nextGenerationAt,
-            )
-        } else {
-            false
+        val initial = saved.items.mapIndexed { windowIndex, item ->
+            val logicalIndex = saved.materializedStartIndex + windowIndex
+            val occurrence = saved.logicalOccurrenceIds.getOrNull(logicalIndex)
+                ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            item.toMediaItem(saved.playbackMode, saved.repeatMode, occurrence)
         }
-
-        if (restoredProgressive) {
-            if (!progressiveQueue.updateCurrentFromWindowIndex(saved.currentIndex)) {
-                progressiveQueue.updateCurrent(saved.items.getOrNull(saved.currentIndex)?.mediaId)
+        // The Media3 restore snapshot already contains the currently playing URI.
+        // Do not wait for Room or re-prepare this item when the Queue is hydrated.
+        player.repeatMode = saved.repeatMode.toPlayerRepeatMode(progressive = false)
+        player.setMediaItems(initial, saved.currentIndex.coerceIn(initial.indices), saved.positionMs)
+        player.prepare()
+        if (saved.logicalMediaIds.isNotEmpty()) {
+            pendingDeferredQueueRestore = saved
+            deferredQueueRestoreJob?.cancel()
+            deferredQueueRestoreJob = serviceScope.launch {
+                // Let the newly prepared track, controller and first UI frame run first.
+                delay(250L)
+                try {
+                    restoreLogicalQueueAfterInitialPlayback(saved)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // Never destroy the saved full Queue on a temporary DB failure.
+                    Log.w(TAG, "Deferred Queue restore failed; preserving saved session", error)
+                }
             }
-            val plan = progressiveQueue.resetWindow()
-            player.repeatMode = saved.repeatMode.toPlayerRepeatMode(progressive = true)
-            player.setMediaItems(
-                requireNotNull(progressiveQueue.snapshot()).mediaItems(),
-                plan.startIndexInWindow,
-                saved.positionMs,
-            )
-            player.prepare()
-        } else {
-            progressiveQueue.clear()
-            player.repeatMode = saved.repeatMode.toPlayerRepeatMode(progressive = false)
-            player.setMediaItems(
-                saved.items.map { it.toMediaItem(saved.playbackMode, saved.repeatMode) },
-                saved.currentIndex,
-                saved.positionMs,
-            )
-            player.prepare()
         }
         isRestoring = false
     }
 
+    private fun savedWindowStillActive(saved: PersistedPlaybackSession): Boolean =
+        pendingDeferredQueueRestore === saved &&
+            progressiveQueue.snapshot() == null &&
+            activeCrossfade == null &&
+            currentPlaybackMode() == saved.playbackMode &&
+            currentRepeatMode() == saved.repeatMode &&
+            persistedWindowMatches(saved, (0 until player.mediaItemCount).map { index ->
+                val item = player.getMediaItemAt(index)
+                Triple(item.mediaId, item.localConfiguration?.uri?.toString(), item.queueOccurrenceId())
+            })
+
+    private suspend fun restoreLogicalQueueAfterInitialPlayback(saved: PersistedPlaybackSession) {
+        val plan = withContext(Dispatchers.Default) { DeferredQueueRestorePlan.from(saved) }
+            ?: return
+
+        // All Room/source work is off-main. The saved Media3 window remains usable
+        // throughout, including seek, pause and ordinary Next/Previous navigation.
+        val available = withContext(Dispatchers.IO) {
+            val resolved = LinkedHashMap<UUID, PlayableTrack>()
+            for (batch in plan.batches) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                playbackCatalog.availableTracks(batch).forEach { resolved[it.id] = it }
+            }
+            resolved
+        }
+
+        if (pendingDeferredQueueRestore !== saved) return
+        if (!savedWindowStillActive(saved)) {
+            // User replaced/reordered the playback timeline during hydration.
+            // Their new session wins over this stale disk snapshot.
+            pendingDeferredQueueRestore = null
+            schedulePersist()
+            return
+        }
+
+        val windowIndex = player.currentMediaItemIndex
+        val originalIndex = saved.materializedStartIndex + windowIndex
+        val currentId = plan.logicalIds.getOrNull(originalIndex) ?: return
+        if (player.currentMediaItem?.mediaId != currentId.toString()) return
+
+        // Keep saved window positions stable even if a cached source disappeared.
+        // Their last playable URI is already in Media3; normal missing-source
+        // handling can skip/fallback when that occurrence is actually selected.
+        saved.items.forEachIndexed { index, old ->
+            val live = player.getMediaItemAt(index).toPersistedPlaybackItem() ?: old
+            val id = runCatching { UUID.fromString(live.mediaId) }.getOrNull()
+                ?: return@forEachIndexed
+            available.putIfAbsent(id, PlayableTrack(
+                id = id,
+                title = live.title,
+                artist = live.artist,
+                album = null,
+                durationMs = live.durationMs,
+                artworkRef = live.artworkUri,
+                contentUri = live.uri,
+            ))
+        }
+        if (currentId !in available) return
+
+        val restored = progressiveQueue.restore(
+            orderedTrackIds = plan.logicalIds,
+            availableTracks = available,
+            requestedCurrentIndex = originalIndex,
+            requestedMaterializedStartIndex = saved.materializedStartIndex,
+            requestedMaterializedEndExclusive = saved.materializedEndExclusive,
+            mode = saved.playbackMode,
+            repeat = saved.repeatMode,
+            seed = saved.shuffleSeed,
+            requestedOrigins = saved.logicalOrigins,
+            requestedOccurrenceIds = saved.logicalOccurrenceIds.mapNotNull {
+                runCatching { UUID.fromString(it) }.getOrNull()
+            }.takeIf { it.size == saved.logicalMediaIds.size },
+            requestedGroupIds = saved.logicalGroupIds.map { id ->
+                id?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            }.takeIf { it.size == saved.logicalMediaIds.size },
+            requestedGroups = saved.logicalGroups.mapNotNull {
+                runCatching {
+                    dev.behradhz.meowzix.domain.playback.QueueGroup(
+                        UUID.fromString(it.id),
+                        dev.behradhz.meowzix.domain.playback.QueueGroupKind.valueOf(it.kind),
+                        it.title,
+                    )
+                }.getOrNull()
+            },
+            sourceIds = saved.sourceMediaIds.mapNotNull {
+                runCatching { UUID.fromString(it) }.getOrNull()
+            },
+            pendingIds = saved.pendingMediaIds.mapNotNull {
+                runCatching { UUID.fromString(it) }.getOrNull()
+            },
+            generatedStartedCount = saved.generatedStarted,
+            nextGenerationThreshold = saved.nextGenerationAt,
+        )
+        if (!restored) return
+        val snapshot = progressiveQueue.snapshot()
+        if (snapshot?.tracks?.getOrNull(snapshot.currentIndex)?.id != currentId) {
+            progressiveQueue.clear()
+            return
+        }
+
+        pendingDeferredQueueRestore = null
+        lastTransitionOccurrenceId = snapshot.occurrenceIds.getOrNull(snapshot.currentIndex)
+        // This only replaces upcoming items. It never resets Media3's current item,
+        // playWhenReady, playback position or audio decoder.
+        syncProgressiveFutureInPlace()
+        refreshMediaButtons()
+        refreshPlaybackWidget()
+        schedulePersist()
+    }
+
     private fun schedulePersist() {
         if (isRestoring) return
+        pendingDeferredQueueRestore?.let { saved ->
+            if (savedWindowStillActive(saved)) {
+                // Save a seek/pause cursor without overwriting unhydrated Queue topology.
+                val mediaId = player.currentMediaItem?.mediaId
+                val positionMs = player.currentPosition.coerceAtLeast(0L)
+                serviceScope.launch(Dispatchers.IO) {
+                    stateStore.savePosition(mediaId, positionMs)
+                }
+                return
+            }
+            // An explicit user edit supersedes unfinished disk restoration.
+            pendingDeferredQueueRestore = null
+            deferredQueueRestoreJob?.cancel()
+        }
         persistJob?.cancel()
         persistJob = serviceScope.launch {
             delay(PERSIST_DEBOUNCE_MS)
@@ -2324,21 +2868,13 @@ class PlaybackService : MediaLibraryService() {
                     var seed: Long? = progressive.shuffleSeed
                     val nextOrder = when (progressive.playbackMode) {
                         PlaybackMode.PURE_SHUFFLE -> {
-                            PureShuffleEngine.newCycle(candidates.indices.toList()).let { cycle ->
+                            val byId = candidates.associateBy { it.id }
+                            PureShuffleEngine.newCycle(
+                                candidates.map { it.id }.distinct(),
+                                previousLastItem = previousLast?.id,
+                            ).let { cycle ->
                                 seed = cycle.seed
-                                val order = cycle.order.toMutableList()
-                                if (previousLast != null && order.size > 1 &&
-                                    candidates[order.first()].id == previousLast.id) {
-                                    val swapAt = (1 until order.size).firstOrNull {
-                                        candidates[order[it]].id != previousLast.id
-                                    }
-                                    if (swapAt != null) {
-                                        val first = order[0]
-                                        order[0] = order[swapAt]
-                                        order[swapAt] = first
-                                    }
-                                }
-                                order.map(candidates::get)
+                                cycle.order.mapNotNull(byId::get)
                             }
                         }
                         PlaybackMode.ORDERED, PlaybackMode.SMART_SHUFFLE -> candidates
@@ -2436,6 +2972,7 @@ class PlaybackService : MediaLibraryService() {
         const val ACTION_TOGGLE_FAVORITE = LiveSongSessionActions.FAVORITE
         const val MAX_REMOTE_PLAYBACK_RETRIES = 3
         const val REMOTE_PLAYBACK_RETRY_BASE_DELAY_MS = 600L
+        const val DELETED_SOURCE_NOTICE_MS = 5_000L
         const val FORWARD_INCREMENT_MS = 15_000L
         const val PERSIST_DEBOUNCE_MS = 250L
         const val POSITION_SAVE_INTERVAL_MS = 1_000L
@@ -2445,8 +2982,3 @@ class PlaybackService : MediaLibraryService() {
     }
 }
 
-private fun RepeatMode.toPlayerRepeatMode(progressive: Boolean): Int = when {
-    this == RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-    this == RepeatMode.ALL && !progressive -> Player.REPEAT_MODE_ALL
-    else -> Player.REPEAT_MODE_OFF
-}

@@ -35,6 +35,32 @@ internal fun dockMotionBlurDp(progress: Float, reduceMotion: Boolean): Float {
     return 1.6f * 4f * clamped * (1f - clamped)
 }
 
+/**
+ * Search expands from the existing circular bubble into the entire dock;
+ * its geometry uses one reversible timeline rather than replacing layouts.
+ */
+internal const val DockSearchOpenDurationMs = 420
+internal const val DockSearchCloseDurationMs = 340
+
+internal fun dockSearchMorphSpec(
+    open: Boolean,
+    reduceMotion: Boolean,
+): FiniteAnimationSpec<Float> {
+    if (reduceMotion) return snap()
+    return androidx.compose.animation.core.tween(
+        durationMillis = if (open) DockSearchOpenDurationMs else DockSearchCloseDurationMs,
+        easing = CubicBezierEasing(0.20f, 0.80f, 0.20f, 1f),
+    )
+}
+
+/** Hide the old navigation before the search surface overtakes it. */
+internal fun dockSearchNavigationAlpha(progress: Float): Float =
+    (1f - progress.coerceIn(0f, 1f) / 0.65f).coerceIn(0f, 1f)
+
+/** Reveal the text field once the growing bubble has enough horizontal space. */
+internal fun dockSearchInputAlpha(progress: Float): Float =
+    ((progress.coerceIn(0f, 1f) - 0.45f) / 0.42f).coerceIn(0f, 1f)
+
 /** Ensures the two compact buttons have the same circular geometry. */
 internal const val CompactDockButtonDp = 52
 internal const val CompactMiniPlayerInsetDp = 80

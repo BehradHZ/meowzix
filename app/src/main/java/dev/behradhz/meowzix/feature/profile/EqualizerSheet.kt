@@ -120,7 +120,7 @@ fun EqualizerSheet(
 }
 
 @Composable
-private fun EqualizerBandSlider(
+internal fun EqualizerBandSlider(
     band: EqualizerBand,
     enabled: Boolean,
     onCommit: (Float) -> Unit,

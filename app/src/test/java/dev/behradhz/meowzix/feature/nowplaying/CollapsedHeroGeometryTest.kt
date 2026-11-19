@@ -5,6 +5,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CollapsedHeroGeometryTest {
+
+    @Test fun firstFrameReservesMeasuredTransportHeight() {
+        val space = portraitPlayerSpace(
+            availableHeight = 900,
+            footerHeight = 200,
+            queueProgress = 0f,
+            compactHeroHeight = 76,
+        )
+        assertEquals(700, space.fullHeroHeight)
+        assertEquals(700, space.heroHeight)
+        assertEquals(0, space.queueHeight)
+        assertEquals(900, space.heroHeight + 200 + space.queueHeight)
+    }
+
+    @Test fun expandingQueueKeepsTransportBetweenHeroAndQueue() {
+        val expanded = portraitPlayerSpace(900, 200, 1f, 76)
+        assertEquals(76, expanded.heroHeight)
+        assertEquals(624, expanded.queueHeight)
+        assertEquals(900, expanded.heroHeight + 200 + expanded.queueHeight)
+
+        val halfway = portraitPlayerSpace(900, 200, 0.5f, 76)
+        assertEquals(388, halfway.heroHeight)
+        assertEquals(312, halfway.queueHeight)
+    }
+
+    @Test fun constrainedWindowNeverAllocatesNegativeHeroOrQueueSpace() {
+        val cramped = portraitPlayerSpace(150, 200, 0f, 76)
+        assertEquals(0, cramped.fullHeroHeight)
+        assertEquals(0, cramped.heroHeight)
+        assertEquals(0, cramped.queueHeight)
+    }
+
     @Test fun noLyricsCenterTheLargerCoverInsteadOfReservingAnEmptyPreview() {
         val noLyrics = collapsedHeroGeometry(360, 510, 64, 118, 66, 48, 12, 0f)
         val lyrics = collapsedHeroGeometry(360, 510, 64, 118, 66, 48, 12, 1f)

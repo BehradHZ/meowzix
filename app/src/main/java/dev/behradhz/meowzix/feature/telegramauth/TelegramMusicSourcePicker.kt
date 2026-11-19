@@ -1,7 +1,14 @@
 package dev.behradhz.meowzix.feature.telegramauth
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,12 +18,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -29,26 +35,31 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
+import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceMode
 import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
+import dev.behradhz.meowzix.domain.telegram.TelegramSourceRetry
 import dev.behradhz.meowzix.domain.telegram.prioritizeTelegramSourceChats
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
 import dev.behradhz.meowzix.ui.components.TelegramGlassInput
 
-/** Forward-style chat rows, but checkbox selection rather than forwarding on tap. */
+/** Source selection cycles among None, Playlist only, and Library. */
 @Composable
 internal fun TelegramMusicSourcePicker(
     state: TelegramMusicSourceState,
     enabled: Boolean,
     onRefresh: () -> Unit,
-    onSetSelected: (Long, Boolean) -> Unit,
+    onSetMode: (Long, TelegramMusicSourceMode) -> Unit,
     onSync: () -> Unit,
     onClearError: () -> Unit,
 ) {
@@ -67,9 +78,9 @@ internal fun TelegramMusicSourcePicker(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("Music sources", style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold, color = Color.White)
+                    fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                 Text("${state.selectedChatIds.size} selected", style = MaterialTheme.typography.bodySmall,
-                    color = TelegramGlassChrome.muted)
+                    color = MaterialTheme.colorScheme.primary)
             }
             TextButton(onClick = onRefresh, enabled = enabled && !state.isLoadingChats) {
                 Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -77,7 +88,7 @@ internal fun TelegramMusicSourcePicker(
                 Text("Refresh")
             }
         }
-        Text("Choose Telegram chats, channels and Saved Messages. Offline downloads are retained if a source is deselected.",
+        Text("Tap a chat's mode to switch between None, Playlist only and Library. Offline music is kept.",
             style = MaterialTheme.typography.bodySmall, color = TelegramGlassChrome.muted)
         TelegramGlassInput(
             value = query, onValueChange = { query = it },
@@ -90,13 +101,27 @@ internal fun TelegramMusicSourcePicker(
                 color = MaterialTheme.colorScheme.error.copy(alpha = 0.13f),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Row(
-                    modifier = Modifier.padding(start = 12.dp, end = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(message, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = onClearError) { Text("Dismiss") }
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    Text("Telegram needs attention", style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
+                    Text(message, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = 4.dp))
+                    Row(modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End) {
+                        state.retryAction?.let { retry ->
+                            TextButton(
+                                enabled = enabled && !state.isLoadingChats && !state.isSyncing,
+                                onClick = {
+                                    when (retry) {
+                                        TelegramSourceRetry.REFRESH_CHATS -> onRefresh()
+                                        TelegramSourceRetry.SYNC_SELECTED -> onSync()
+                                    }
+                                },
+                            ) { Text("Try again") }
+                        }
+                        TextButton(onClick = onClearError) { Text("Dismiss") }
+                    }
                 }
             }
         }
@@ -120,38 +145,74 @@ internal fun TelegramMusicSourcePicker(
             }
         } else {
             filtered.forEach { chat ->
+                val mode = state.sourceModes[chat.chatId] ?: TelegramMusicSourceMode.NONE
+                val modeColor by animateColorAsState(
+                    targetValue = when (mode) {
+                        TelegramMusicSourceMode.NONE -> TelegramGlassChrome.muted
+                        TelegramMusicSourceMode.PLAYLIST_ONLY -> MaterialTheme.colorScheme.secondary
+                        TelegramMusicSourceMode.LIBRARY -> MaterialTheme.colorScheme.primary
+                    },
+                    animationSpec = tween(240),
+                    label = "telegram-source-mode-color",
+                )
                 val shape = RoundedCornerShape(20.dp)
                 Row(
                     modifier = Modifier.fillMaxWidth()
-                        .background(TelegramGlassChrome.base.copy(alpha = 0.28f), shape)
-                        .border(
-                            1.dp,
-                            if (chat.selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.56f)
-                            else Color.White.copy(alpha = 0.055f),
+                        .background(
+                            if (chat.selected) modeColor.copy(alpha = 0.09f)
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.035f),
                             shape,
                         )
-                        .toggleable(
-                            value = chat.selected,
-                            enabled = enabled,
-                            role = Role.Checkbox,
-                            onValueChange = { selected -> onSetSelected(chat.chatId, selected) },
+                        .border(
+                            1.dp,
+                            if (chat.selected) modeColor.copy(alpha = 0.56f)
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            shape,
                         )
                         .padding(horizontal = 10.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ChatAvatar(chat.profilePhotoRef, chat.title, size = 46.dp)
-                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text(chat.title, style = MaterialTheme.typography.titleMedium,
+                    ChatAvatar(chat.profilePhotoRef, chat.title, size = 42.dp)
+                    Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text(chat.title, style = MaterialTheme.typography.bodyLarge,
                             fontWeight = if (chat.selected) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
-                        Text(chat.kind.displayName(), style = MaterialTheme.typography.bodySmall,
-                            color = TelegramGlassChrome.muted)
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            if (chat.isArchived) "${chat.kind.displayName()} · Archived" else chat.kind.displayName(),
+                            style = MaterialTheme.typography.bodySmall, color = TelegramGlassChrome.muted,
+                        )
                     }
-                    Checkbox(
-                        checked = chat.selected,
-                        onCheckedChange = null,
-                        enabled = enabled,
-                    )
+                    Box(
+                        modifier = Modifier.widthIn(min = 104.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(modeColor.copy(alpha = if (mode == TelegramMusicSourceMode.NONE) 0.08f else 0.18f))
+                            .border(1.dp, modeColor.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
+                            .clickable(
+                                enabled = enabled,
+                                role = Role.Button,
+                                onClickLabel = "Switch to ${mode.next().label}",
+                            ) { onSetMode(chat.chatId, mode.next()) }
+                            .semantics { stateDescription = mode.label }
+                            .testTag("telegram-source-mode-${chat.chatId}")
+                            .padding(horizontal = 10.dp, vertical = 11.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AnimatedContent(
+                            targetState = mode,
+                            transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                            label = "telegram-source-mode",
+                        ) { current ->
+                            Text(
+                                current.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                color = if (current == TelegramMusicSourceMode.NONE)
+                                    MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
                 }
             }
         }

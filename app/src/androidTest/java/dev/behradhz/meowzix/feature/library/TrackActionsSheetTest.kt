@@ -11,10 +11,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.domain.library.PlaylistSummary
+import dev.behradhz.meowzix.domain.telegram.TelegramTrackOrigin
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
 import java.util.UUID
 import org.junit.Assert.assertEquals
@@ -81,6 +84,51 @@ class TrackActionsMenuTest {
         compose.runOnIdle { assertEquals(1, opened) }
     }
 
+    @Test fun sourceActionSwitchesToViewProfileWithoutChangingItsMenuPositionOrClickTarget() {
+        var origin by mutableStateOf<TelegramTrackOrigin?>(null)
+        var opened by mutableIntStateOf(0)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                TrackActionsMenu(
+                    expanded = true,
+                    title = "Telegram music", artist = "Artist", favorite = false, isQueue = false,
+                    playlists = emptyList(), onDismiss = {}, onPrimary = {}, onAddToQueue = {},
+                    onFavorite = {}, onForward = {}, onGoToArtist = {}, onAddToPlaylist = {},
+                    onContinueVibe = {}, onEditMetadata = {}, onManageDuplicates = {}, onWhy = {},
+                    onViewInChat = { opened++ }, viewInChatOrigin = origin,
+                )
+            }
+        }
+        // Visible before any asynchronous source/photo lookup completes.
+        compose.onNodeWithTag("track-action-row-view-in-chat").assertExists()
+        compose.runOnIdle {
+            origin = TelegramTrackOrigin(123L, "Friend", null, isProfileMusic = true)
+        }
+        compose.onNodeWithText("View Profile").assertExists()
+        compose.onNodeWithText("View in Chat").assertDoesNotExist()
+        compose.onNodeWithTag("track-action-row-view-in-chat").performClick()
+        compose.runOnIdle { assertEquals(1, opened) }
+    }
+
+    @Test fun localOriginIsVisibleButDisabled() {
+        var opened by mutableIntStateOf(0)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                TrackActionsMenu(
+                    expanded = true, title = "Device audio", artist = "Artist",
+                    favorite = false, isQueue = false, playlists = emptyList(),
+                    onDismiss = {}, onPrimary = {}, onAddToQueue = {}, onFavorite = {},
+                    onForward = {}, onGoToArtist = {}, onAddToPlaylist = {},
+                    onContinueVibe = {}, onEditMetadata = {}, onManageDuplicates = {}, onWhy = {},
+                    onViewInChat = { opened++ }, isLocalSource = true,
+                )
+            }
+        }
+        compose.onNodeWithTag("track-action-row-view-in-chat").assertIsNotEnabled()
+        compose.onNodeWithText("Local").assertExists()
+        compose.runOnIdle { assertEquals(0, opened) }
+    }
+
     @Test fun queueReplacesPlayNextWithRemoveButKeepsOtherQuickActions() {
         var removed by mutableIntStateOf(0)
         compose.setContent {
@@ -100,6 +148,64 @@ class TrackActionsMenuTest {
         compose.onNodeWithTag("track-action-play-next").assertDoesNotExist()
         compose.onNodeWithTag("track-action-remove-from-queue").performClick()
         compose.runOnIdle { assertEquals(1, removed) }
+    }
+
+    @Test fun removalOpensInsideSameMenuAndUsesTwoIndependentForwardStylePills() {
+        val confirmed = mutableListOf<Pair<Boolean, Boolean>>()
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                TrackActionsMenu(
+                    expanded = true,
+                    title = "Music", artist = "Artist", favorite = false, isQueue = false,
+                    playlists = emptyList(),
+                    onDismiss = {}, onPrimary = {}, onAddToQueue = {},
+                    onFavorite = {}, onForward = {}, onGoToArtist = {},
+                    onAddToPlaylist = {}, onContinueVibe = {},
+                    onEditMetadata = {}, onManageDuplicates = {}, onWhy = {},
+                    canRemoveOffline = true,
+                    onRemoveFromLocations = { offline, library -> confirmed += offline to library },
+                )
+            }
+        }
+
+        compose.onNodeWithTag("track-action-row-remove-song").assertDoesNotExist()
+        compose.onNodeWithTag("track-action-remove").performClick()
+        compose.onNodeWithTag("track-removal-panel").assertExists()
+        compose.onNodeWithTag("track-removal-confirm").assertIsNotEnabled()
+        compose.onNodeWithTag("track-removal-offline").performClick()
+        compose.onNodeWithTag("track-removal-confirm").assertIsEnabled()
+        compose.onNodeWithTag("track-removal-library").performClick()
+        compose.onNodeWithTag("track-removal-confirm").performClick()
+        compose.runOnIdle { assertEquals(listOf(true to true), confirmed) }
+    }
+
+    @Test fun noOfflineCopyCannotBeSelectedAndBackNeverDeletesAnything() {
+        val confirmed = mutableListOf<Pair<Boolean, Boolean>>()
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                TrackActionsMenu(
+                    expanded = true,
+                    title = "Only in the cloud", artist = null,
+                    favorite = false, isQueue = true, playlists = emptyList(),
+                    onDismiss = {}, onPrimary = {}, onAddToQueue = {},
+                    onFavorite = {}, onForward = {}, onGoToArtist = {},
+                    onAddToPlaylist = {}, onContinueVibe = {},
+                    onEditMetadata = {}, onManageDuplicates = {}, onWhy = {},
+                    canRemoveOffline = false,
+                    onRemoveFromLocations = { offline, library -> confirmed += offline to library },
+                )
+            }
+        }
+
+        compose.onNodeWithTag("queue-track-actions").assertExists()
+        compose.onNodeWithTag("track-action-row-remove-song").performClick()
+        compose.onNodeWithTag("track-removal-offline").assertIsNotEnabled()
+        compose.onNodeWithTag("track-removal-confirm").assertIsNotEnabled()
+        compose.onNodeWithTag("track-removal-library").performClick()
+        compose.onNodeWithTag("track-removal-confirm").assertIsEnabled()
+        compose.onNodeWithText("Back").performClick()
+        compose.onNodeWithTag("queue-track-actions").assertExists()
+        compose.runOnIdle { assertEquals(emptyList<Pair<Boolean, Boolean>>(), confirmed) }
     }
 
     @Test fun opensAtOverflowAnchorAndClosesAfterAction() {

@@ -35,12 +35,35 @@ data class TelegramAuthState(
 
 enum class TelegramChatKind { SAVED_MESSAGES, PRIVATE, BASIC_GROUP, SUPERGROUP_OR_CHANNEL, SECRET }
 
+enum class TelegramMusicSourceMode(val label: String) {
+    NONE("None"), PLAYLIST_ONLY("Playlist only"), LIBRARY("Library");
+
+    fun next(): TelegramMusicSourceMode = when (this) {
+        NONE -> PLAYLIST_ONLY
+        PLAYLIST_ONLY -> LIBRARY
+        LIBRARY -> NONE
+    }
+}
+
+/** Telegram uses negative synthetic message IDs for profile music, positive IDs for chat messages. */
+internal fun telegramSourceIsProfileMusic(messageId: Long): Boolean = messageId < 0L
+
+/** Cached chat identity for a track; no TDLib or image decoding on the UI thread. */
+data class TelegramTrackOrigin(
+    val chatId: Long,
+    val title: String,
+    val profilePhotoRef: String?,
+    val isProfileMusic: Boolean = false,
+    val availableChatCount: Int = 1,
+)
+
 data class TelegramChatSummary(
     val chatId: Long,
     val title: String,
     val kind: TelegramChatKind,
     val selected: Boolean,
     val profilePhotoRef: String? = null,
+    val isArchived: Boolean = false,
 )
 
 /** Telegram's own chat folders (not Meowzix music playlists). A chat may appear in several folders. */
@@ -58,15 +81,20 @@ data class TelegramSyncResult(
     val sourcesMarkedMissing: Int,
 )
 
+/** Retry actions map to safe user-initiated recovery operations. */
+enum class TelegramSourceRetry { REFRESH_CHATS, SYNC_SELECTED }
+
 data class TelegramMusicSourceState(
     val accountId: String? = null,
     val chats: List<TelegramChatSummary> = emptyList(),
     val selectedChatIds: Set<Long> = emptySet(),
+    val sourceModes: Map<Long, TelegramMusicSourceMode> = emptyMap(),
     val previouslySelectedChatIds: Set<Long> = emptySet(),
     val isLoadingChats: Boolean = false,
     val isSyncing: Boolean = false,
     val lastSyncResult: TelegramSyncResult? = null,
     val errorMessage: String? = null,
+    val retryAction: TelegramSourceRetry? = null,
 )
 
 data class TelegramForwardOptions(
@@ -82,6 +110,7 @@ enum class TelegramSendState {
     PREPARING_FILE,
     UPLOADING,
     SENDING,
+    CANCELING,
     VERIFYING,
     RETRYING,
     SENT,
@@ -141,11 +170,27 @@ interface TelegramRepository {
     fun clearProxyError()
 
     fun refreshSelectableChats()
-    fun setMusicSourceSelected(chatId: Long, selected: Boolean)
+    fun setMusicSourceMode(chatId: Long, mode: TelegramMusicSourceMode)
     fun syncSelectedSources()
+    /** Resolve a selected source playlist without requiring the chat picker to be open. */
+    suspend fun chatIdForPlaylist(playlistId: UUID): Long? = null
+    /** Full history rescan of one selected chat, initiated explicitly by the user. */
+    suspend fun refreshChatSource(chatId: Long): TelegramSyncResult =
+        error("Manual Telegram source refresh is unavailable.")
     /** URL/deep link for the source message, or null for tracks without Telegram sources. */
     suspend fun messageLinkForTrack(trackId: UUID): String? = null
+    /** Fast local source lookup; profile-photo resolution uses existing chat snapshots only. */
+    suspend fun chatOriginForTrack(trackId: UUID): TelegramTrackOrigin? = null
+    /** On-demand avatar refresh only for an open menu, not Library row binding. */
+    suspend fun refreshChatOriginForTrack(trackId: UUID): TelegramTrackOrigin? = null
     suspend fun trackIdsForChat(chatId: Long): List<UUID>
+    /** Profile-pinned music belongs to private user chats, not their shared message history. */
+    suspend fun profileTrackIdsForChat(chatId: Long): Set<UUID> = emptySet()
+    suspend fun messageTrackIdsForChat(chatId: Long): Set<UUID> = emptySet()
+    /** Resolves person playlists from persisted source selection, not the transient chat picker. */
+    suspend fun personChatIdForPlaylist(playlistId: UUID): Long? = null
+    /** Refreshes profile-only audio without scanning chat history; returns visible profile count. */
+    suspend fun refreshPersonProfileMusic(chatId: Long): Int = 0
     fun clearMusicSourceError()
 }
 

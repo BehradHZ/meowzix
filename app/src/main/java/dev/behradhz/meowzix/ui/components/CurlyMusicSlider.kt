@@ -104,12 +104,7 @@ fun CurlyMusicSlider(
     val wavePath = remember { Path() }
 
     val coercedValue = value.coerceIn(valueRange.start, valueRange.endInclusive)
-    val rangeLength = valueRange.endInclusive - valueRange.start
-    val progress = if (rangeLength <= 0f) {
-        0f
-    } else {
-        ((coercedValue - valueRange.start) / rangeLength).coerceIn(0f, 1f)
-    }
+    val progress = normalizedSliderProgress(value, valueRange)
 
     Box(modifier = modifier.height(visualHeight)) {
         Canvas(modifier = Modifier.fillMaxSize()) {

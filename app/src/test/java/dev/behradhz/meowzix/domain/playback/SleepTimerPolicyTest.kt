@@ -7,6 +7,26 @@ import org.junit.Test
 
 class SleepTimerPolicyTest {
     @Test
+    fun shorteningTimerNeverSchedulesImmediateUnexpectedStop() {
+        val base = SleepTimerPolicy.restore(
+            SleepTimerPolicy.duration(30 * 60_000L, 1_000L, "boot", 0),
+            1_000L,
+            "boot",
+        )
+        val shortened = SleepTimerPolicy.extend(base, -15 * 60_000L, 1_000L)
+        assertEquals(15 * 60_000L, shortened.remainingMs)
+        assertEquals(1_000L + 15 * 60_000L, shortened.deadlineElapsedRealtimeMs)
+
+        val nearEnd = SleepTimerPolicy.restore(
+            SleepTimerPolicy.duration(2 * 60_000L, 1_000L, "boot", 0),
+            91_000L, "boot",
+        )
+        val bounded = SleepTimerPolicy.extend(nearEnd, -15 * 60_000L, 91_000L)
+        assertEquals(30_000L, bounded.remainingMs)
+        assertEquals(121_000L, bounded.deadlineElapsedRealtimeMs)
+    }
+
+    @Test
     fun durationUsesMonotonicDeadlineAndCountsDown() {
         val persisted = SleepTimerPolicy.duration(30_000, 1_000, "boot-7", 5_000)
         val restored = SleepTimerPolicy.restore(persisted, 11_000, "boot-7")

@@ -1,72 +1,195 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Four-column widget: exactly one icon-row for playback, with an optional
+     second row showing the real upcoming queue. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/widget_glass_background"
-    android:gravity="center_vertical"
-    android:orientation="horizontal"
-    android:padding="12dp">
-
-    <ImageView
-        android:id="@+id/widget_artwork"
-        android:layout_width="52dp"
-        android:layout_height="52dp"
-        android:contentDescription="Meowzix"
-        android:scaleType="centerCrop"
-        android:src="@drawable/meowzix_logo" />
+    android:orientation="vertical"
+    android:clipToOutline="true"
+    android:clipChildren="true"
+    android:background="@drawable/widget_playback_background"
+    android:paddingStart="9dp"
+    android:paddingEnd="9dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
 
     <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="8dp">
+        android:id="@+id/widget_primary_row"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:baselineAligned="false"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/widget_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:text="Nothing playing"
-            android:textColor="#FFFFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+        <ImageView
+            android:id="@+id/widget_artwork"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/widget_artwork_frame"
+            android:clipToOutline="true"
+            android:contentDescription="Open player"
+            android:scaleType="centerCrop"
+            android:src="@drawable/meowzix_logo" />
 
-        <TextView
-            android:id="@+id/widget_artist"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:text="Open Meowzix to choose a track"
-            android:textColor="#BFFFFFFF"
-            android:textSize="12sp" />
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:paddingStart="7dp"
+            android:paddingEnd="2dp">
+
+            <TextView
+                android:id="@+id/widget_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="marquee"
+                android:marqueeRepeatLimit="marquee_forever"
+                android:singleLine="true"
+                android:text="Nothing playing"
+                android:textColor="#FFFFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_artist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:text="Open Meowzix"
+                android:textColor="#CDFFFFFF"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="132dp"
+            android:layout_height="44dp">
+
+            <LinearLayout
+                android:id="@+id/widget_transport"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <ImageView
+                    android:id="@+id/widget_previous"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="Previous"
+                    android:padding="8dp"
+                    android:src="@drawable/widget_previous" />
+                <ImageView
+                    android:id="@+id/widget_play_pause"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:background="@drawable/widget_play_button_background"
+                    android:contentDescription="Play"
+                    android:padding="9dp"
+                    android:src="@drawable/widget_play" />
+                <ImageView
+                    android:id="@+id/widget_next"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="Next"
+                    android:padding="8dp"
+                    android:src="@drawable/widget_next" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/widget_overflow_actions"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone">
+                <ImageView
+                    android:id="@+id/widget_favorite"
+                    android:layout_width="0dp"
+                    android:layout_height="39dp"
+                    android:layout_weight="1"
+                    android:contentDescription="Favorite"
+                    android:padding="4dp"
+                    android:src="@drawable/live_song_favorite" />
+                <ImageView
+                    android:id="@+id/widget_forward"
+                    android:layout_width="0dp"
+                    android:layout_height="39dp"
+                    android:layout_weight="1"
+                    android:contentDescription="Forward"
+                    android:padding="4dp"
+                    android:src="@drawable/ic_telegram_plane" />
+                <ImageView
+                    android:id="@+id/widget_shuffle"
+                    android:layout_width="0dp"
+                    android:layout_height="39dp"
+                    android:layout_weight="1"
+                    android:contentDescription="Shuffle"
+                    android:padding="4dp"
+                    android:src="@drawable/live_song_shuffle" />
+                <ImageView
+                    android:id="@+id/widget_repeat"
+                    android:layout_width="0dp"
+                    android:layout_height="39dp"
+                    android:layout_weight="1"
+                    android:contentDescription="Repeat"
+                    android:padding="4dp"
+                    android:src="@drawable/live_song_repeat" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <ImageView
+            android:id="@+id/widget_more"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:contentDescription="More controls"
+            android:background="@drawable/widget_more_button_background"
+            android:padding="9dp"
+            android:src="@drawable/widget_more" />
     </LinearLayout>
 
-    <ImageView
-        android:id="@+id/widget_previous"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:contentDescription="Previous"
-        android:padding="12dp"
-        android:src="@drawable/widget_previous" />
-
-    <ImageView
-        android:id="@+id/widget_play_pause"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:contentDescription="Play"
-        android:padding="11dp"
-        android:src="@drawable/widget_play" />
-
-    <ImageView
-        android:id="@+id/widget_next"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:contentDescription="Next"
-        android:padding="12dp"
-        android:src="@drawable/widget_next" />
-
+    <LinearLayout
+        android:id="@+id/widget_queue_section"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingTop="4dp"
+        android:clipChildren="true"
+        android:clipToPadding="true"
+        android:visibility="gone">
+        <TextView
+            android:id="@+id/widget_queue_heading"
+            android:layout_width="match_parent"
+            android:layout_height="16dp"
+            android:gravity="center_vertical"
+            android:paddingStart="4dp"
+            android:text="UP NEXT"
+            android:textColor="#FFFFFFFF"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+        <ListView
+            android:id="@+id/widget_queue"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="@android:color/transparent"
+            android:cacheColorHint="@android:color/transparent"
+            android:clipToPadding="true"
+            android:divider="@android:color/transparent"
+            android:dividerHeight="0dp"
+            android:fadeScrollbars="true"
+            android:scrollbars="vertical" />
+        <TextView
+            android:id="@+id/widget_queue_empty"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="center"
+            android:text="Queue is empty"
+            android:textColor="#99FFFFFF"
+            android:textSize="11sp"
+            android:visibility="gone" />
+    </LinearLayout>
 </LinearLayout>

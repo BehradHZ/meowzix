@@ -21,18 +21,26 @@ import dev.behradhz.meowzix.playback.SleepTimerManager
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackAction
 import dev.behradhz.meowzix.domain.recommendation.RecommendationFeedbackRepository
 import dev.behradhz.meowzix.domain.settings.AppearanceSettings
+import dev.behradhz.meowzix.domain.settings.LibraryDisplaySettings
+import dev.behradhz.meowzix.domain.settings.LibrarySelectionAction
 import dev.behradhz.meowzix.domain.settings.ColorThemePreference
 import dev.behradhz.meowzix.domain.settings.NetworkPlaybackSettings
 import dev.behradhz.meowzix.domain.settings.PlaybackPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.SleepTimerPresetMode
 import dev.behradhz.meowzix.domain.settings.PlayerAccentSource
 import dev.behradhz.meowzix.domain.settings.PlayerSeekBarStyle
+import dev.behradhz.meowzix.domain.settings.LauncherIconColorSource
 import dev.behradhz.meowzix.domain.settings.LiveSongCardStyle
 import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import dev.behradhz.meowzix.domain.settings.RecommendationPreferenceSettings
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
 import dev.behradhz.meowzix.domain.settings.StoragePolicySettings
 import dev.behradhz.meowzix.domain.settings.ThemePreference
+import dev.behradhz.meowzix.domain.settings.WidgetThemeMode
+import dev.behradhz.meowzix.widget.WidgetInstance
+import dev.behradhz.meowzix.widget.WidgetInstancePreferences
+import dev.behradhz.meowzix.widget.WidgetKind
+import dev.behradhz.meowzix.widget.WidgetVisualStyle
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import java.time.Instant
 import java.util.UUID
@@ -52,6 +60,7 @@ data class UnifiedSettingsState(
     val recommendations: RecommendationPreferenceSettings = RecommendationPreferenceSettings(),
     val network: NetworkPlaybackSettings = NetworkPlaybackSettings(),
     val storage: StoragePolicySettings = StoragePolicySettings(),
+    val libraryDisplay: LibraryDisplaySettings = LibraryDisplaySettings(),
 )
 
 data class FeedbackSettingRow(
@@ -67,6 +76,7 @@ data class DownloadSettingsSummary(
 
 @HiltViewModel
 class UnifiedSettingsViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val settings: SettingsRepository,
     private val history: ListeningHistoryRepository,
     private val feedback: RecommendationFeedbackRepository,
@@ -87,6 +97,8 @@ class UnifiedSettingsViewModel @Inject constructor(
         settings.storagePolicySettings,
     ) { appearance, playback, recommendations, network, storage ->
         UnifiedSettingsState(appearance, playback, recommendations, network, storage)
+    }.combine(settings.libraryDisplaySettings) { current, libraryDisplay ->
+        current.copy(libraryDisplay = libraryDisplay)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UnifiedSettingsState())
 
     // Observed only while the lazy Playback settings section is composed.
@@ -123,21 +135,61 @@ class UnifiedSettingsViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DownloadSettingsSummary())
 
+    private val _widgetInstances = MutableStateFlow<List<WidgetInstance>>(emptyList())
+    val widgetInstances = _widgetInstances.asStateFlow()
+
+    fun refreshWidgetInstances() {
+        _widgetInstances.value = WidgetInstancePreferences.installed(appContext)
+    }
+
+    fun setInstanceTheme(instance: WidgetInstance, theme: WidgetThemeMode) {
+        WidgetInstancePreferences.setTheme(appContext, instance.kind, instance.id, theme)
+        refreshWidgetInstances()
+    }
+
+    fun setInstanceStyle(instance: WidgetInstance, style: WidgetVisualStyle) {
+        WidgetInstancePreferences.setStyle(appContext, instance.kind, instance.id, style)
+        refreshWidgetInstances()
+    }
+    fun setInstanceOpacity(instance: WidgetInstance, opacityPercent: Int) {
+        WidgetInstancePreferences.setOpacity(
+            appContext, instance.kind, instance.id, opacityPercent,
+        )
+        refreshWidgetInstances()
+    }
+
+    fun setInstanceRedIntensity(instance: WidgetInstance, percent: Int) {
+        WidgetInstancePreferences.setRedIntensity(appContext, instance.kind, instance.id, percent)
+        refreshWidgetInstances()
+    }
+
     private val _storageUsage = MutableStateFlow<ManagedStorageUsage?>(null)
     val storageUsage = _storageUsage.asStateFlow()
 
     init {
+        refreshWidgetInstances()
         refreshStorageUsage()
         launch { sleepTimer.restore() }
     }
 
-    fun setTheme(value: ThemePreference) = launch { settings.setThemePreference(value) }
-    fun setColorTheme(value: ColorThemePreference) = launch { settings.setColorThemePreference(value) }
-    fun setCustomColorSeed(argb: Int) = launch { settings.setCustomColorSeed(argb) }
+    fun setTheme(value: ThemePreference) = launch {
+        settings.setThemePreference(value)
+        dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)
+    }
+    // Appearance of each installed widget is configured independently via WidgetInstancePreferences.
+    fun setColorTheme(value: ColorThemePreference) = launch {
+        settings.setColorThemePreference(value)
+        dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)
+    }
+    fun setCustomColorSeed(argb: Int) = launch {
+        settings.setCustomColorSeed(argb)
+        dev.behradhz.meowzix.widget.PlaybackWidgetProvider.requestAppearanceRefresh(appContext)
+    }
     fun setLyricsScale(value: Int) = launch { settings.setLyricsTextScalePercent(value) }
     fun setReduceMotion(value: Boolean) = launch { settings.setReduceMotion(value) }
     fun setPlayerAccentSource(source: PlayerAccentSource) = launch { settings.setPlayerAccentSource(source) }
     fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle) = launch { settings.setPlayerSeekBarStyle(style) }
+    fun setSpermerModeEnabled(enabled: Boolean) = launch { settings.setSpermerModeEnabled(enabled) }
     fun setDefaultMode(value: PlaybackMode) = launch { settings.setDefaultPlaybackMode(value) }
     fun setDefaultRepeat(value: RepeatMode) = launch { settings.setDefaultRepeatMode(value) }
     fun setResume(value: Boolean) = launch { settings.setResumeOnLaunch(value) }
@@ -149,6 +201,8 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun setLiveSongRightAction(value: LiveSongSideAction) = launch { settings.setLiveSongRightAction(value) }
     fun setLoudnessNormalization(value: Boolean) = launch { settings.setLoudnessNormalizationEnabled(value) }
     fun setCrossfadeSeconds(value: Int) = launch { settings.setCrossfadeDurationSeconds(value) }
+    fun setVolumeButtonTrackNavigationEnabled(enabled: Boolean) =
+        launch { settings.setVolumeButtonTrackNavigationEnabled(enabled) }
     fun setSleepTimerFadeEnabled(value: Boolean) = launch { settings.setSleepTimerFadeEnabled(value) }
     fun setSleepTimerMinutes(minutes: Int) = launch {
         val bounded = minutes.coerceIn(5, 180)
@@ -179,8 +233,24 @@ class UnifiedSettingsViewModel @Inject constructor(
         }
     }
     fun extendSleepTimer(minutes: Int = 15) = launch { sleepTimer.extend(minutes.coerceAtLeast(1) * 60_000L) }
+    fun shortenSleepTimer(minutes: Int = 15) = launch { sleepTimer.extend(-minutes.coerceAtLeast(1) * 60_000L) }
     fun cancelSleepTimer() = setSleepTimerEnabled(false)
+    fun setArtistBalancedShuffle(value: Boolean) = launch { settings.setArtistBalancedShuffle(value) }
+    fun setArtistShuffleAlpha(value: Float) = launch { settings.setArtistShuffleAlpha(value) }
     fun setSmart(value: Boolean) = launch { settings.setSmartRecommendationsEnabled(value) }
+    fun setHighlightNewTelegramTracks(value: Boolean) = launch { settings.setHighlightNewTelegramTracks(value) }
+    fun setLibrarySelectionDockSlot(slot: Int, action: LibrarySelectionAction) = launch {
+        val current = settings.libraryDisplaySettings.first().selection
+        settings.setLibrarySelectionSettings(current.setDockSlot(slot, action))
+    }
+    fun setLibrarySelectionMore(action: LibrarySelectionAction, enabled: Boolean) = launch {
+        val current = settings.libraryDisplaySettings.first().selection
+        settings.setLibrarySelectionSettings(current.setMoreEnabled(action, enabled))
+    }
+    fun moveLibrarySelectionMore(action: LibrarySelectionAction, targetIndex: Int) = launch {
+        val current = settings.libraryDisplaySettings.first().selection
+        settings.setLibrarySelectionSettings(current.moveMoreAction(action, targetIndex))
+    }
     fun setExploration(value: Int) = launch { settings.setExplorationPercent(value) }
     fun setAudioAnalysis(value: Boolean) = launch { settings.setAudioAnalysisEnabled(value) }
     fun setDiagnostics(value: Boolean) = launch { settings.setDiagnosticsVisible(value) }

@@ -8,6 +8,19 @@ import dev.behradhz.meowzix.domain.settings.LiveSongSideAction
 import org.junit.Test
 
 class LiveSongContentTest {
+    @Test fun liveUpdateActionsHaveVisibleOneSymbolTitlesNotHiddenWordJoiners() {
+        val labels = LiveSongAction.entries.map(::liveSongActionLabel)
+        assertEquals(LiveSongAction.entries.size, labels.distinct().size)
+        labels.forEach { label ->
+            // Variation selector FE0E controls text presentation; it is not a second visible symbol.
+            val visibleGlyph = label.replace("\uFE0E", "")
+            assertEquals(1, visibleGlyph.codePointCount(0, visibleGlyph.length))
+            assertEquals(false, label.contains('\u2060'))
+            assertEquals(false, label.isBlank())
+        }
+        assertEquals("⏸︎", liveSongActionLabel(LiveSongAction.PAUSE))
+    }
+
     @Test fun onlyPlayingTrackCanProduceACard() {
         assertNull(liveSongContent(false, false, "Track", "Artist"))
         assertNull(liveSongContent(true, true, "Track", "Artist"))

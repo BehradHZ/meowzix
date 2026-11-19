@@ -23,10 +23,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -39,9 +40,11 @@ import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,6 +74,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import dev.behradhz.meowzix.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -139,6 +144,7 @@ fun TelegramForwardSheet(
     foldersLoading: Boolean = false,
     foldersError: String? = null,
     onReloadFolders: (() -> Unit)? = null,
+    folderRefreshGeneration: Int = 0,
     successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
@@ -162,6 +168,7 @@ fun TelegramForwardSheet(
     foldersError = foldersError,
 
     onReloadFolders = onReloadFolders,
+        folderRefreshGeneration = folderRefreshGeneration,
 
     successfulForwardCount = successfulForwardCount,
     isSearching = isSearching,
@@ -187,6 +194,7 @@ fun TelegramForwardSheet(
     foldersLoading: Boolean = false,
     foldersError: String? = null,
     onReloadFolders: (() -> Unit)? = null,
+    folderRefreshGeneration: Int = 0,
     successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
@@ -199,6 +207,7 @@ fun TelegramForwardSheet(
     overlayMaxHeight: Dp = Dp.Unspecified,
     reduceMotion: Boolean = false,
     requestDismiss: Boolean = false,
+    trackIds: List<UUID> = listOf(trackId),
 ) {
     ForwardPickerBody(
         trackId = trackId,
@@ -213,6 +222,7 @@ fun TelegramForwardSheet(
         foldersError = foldersError,
 
         onReloadFolders = onReloadFolders,
+        folderRefreshGeneration = folderRefreshGeneration,
 
         successfulForwardCount = successfulForwardCount,
         isSearching = isSearching,
@@ -226,6 +236,7 @@ fun TelegramForwardSheet(
         overlayMaxHeight = overlayMaxHeight,
         reduceMotion = reduceMotion,
         requestDismiss = requestDismiss,
+        trackIds = trackIds,
     )
 }
 
@@ -240,6 +251,7 @@ private fun ForwardPickerBody(
     foldersLoading: Boolean = false,
     foldersError: String? = null,
     onReloadFolders: (() -> Unit)? = null,
+    folderRefreshGeneration: Int = 0,
     successfulForwardCount: Int = 0,
     isSearching: Boolean,
     isSending: Boolean,
@@ -252,6 +264,7 @@ private fun ForwardPickerBody(
     overlayMaxHeight: Dp,
     reduceMotion: Boolean,
     requestDismiss: Boolean,
+    trackIds: List<UUID>,
 ) {
     var includeSourceAttribution by rememberSaveable(trackId.toString()) {
         mutableStateOf(defaults.includeSourceAttribution)
@@ -260,6 +273,13 @@ private fun ForwardPickerBody(
         mutableStateOf(defaults.keepCaption)
     }
     var rememberDefaults by rememberSaveable(trackId.toString()) { mutableStateOf(false) }
+    var optionsEdited by remember(trackId) { mutableStateOf(false) }
+    LaunchedEffect(defaults.includeSourceAttribution, defaults.keepCaption) {
+        if (!optionsEdited) {
+            includeSourceAttribution = defaults.includeSourceAttribution
+            keepCaption = defaults.keepCaption
+        }
+    }
     var actionError by remember(trackId) { mutableStateOf<String?>(null) }
     val animationScope = rememberCoroutineScope()
     val latestOnDismiss by rememberUpdatedState(onDismiss)
@@ -320,21 +340,20 @@ private fun ForwardPickerBody(
         ).telegramForwardRepository()
     }
     var folderRetryKey by remember(trackId, selectedFolderId) { mutableIntStateOf(0) }
-    var loadedFolderChats by remember(trackId, selectedFolderId, folderRetryKey) {
+    var loadedFolderChats by remember(trackId, selectedFolderId, folderRefreshGeneration, folderRetryKey) {
         mutableStateOf(
             if (folderRetryKey == 0) selectedFolderId?.let(repository::cachedForwardFolderChats)
             else null
         )
     }
-    var folderLoadError by remember(trackId, selectedFolderId, folderRetryKey) {
+    var folderLoadError by remember(trackId, selectedFolderId, folderRefreshGeneration, folderRetryKey) {
         mutableStateOf(false)
     }
-    var folderLoadComplete by remember(trackId, selectedFolderId, folderRetryKey) {
+    var folderLoadComplete by remember(trackId, selectedFolderId, folderRefreshGeneration, folderRetryKey) {
         mutableStateOf(loadedFolderChats != null)
     }
-    LaunchedEffect(trackId, activeFolder?.id, folderRetryKey) {
+    LaunchedEffect(trackId, activeFolder?.id, folderRefreshGeneration, folderRetryKey) {
         val folderId = activeFolder?.id ?: return@LaunchedEffect
-        if (loadedFolderChats != null) return@LaunchedEffect
         try {
             repository.streamForwardFolderChats(folderId).collect { batch ->
                 loadedFolderChats = batch
@@ -357,13 +376,14 @@ private fun ForwardPickerBody(
     val sendJobs by repository.sendJobs.collectAsState(initial = emptyList())
     var sentVisibilityClockMs by remember(trackId) { mutableStateOf(System.currentTimeMillis()) }
 
-    LaunchedEffect(sendJobs, trackId) {
+    val forwardIds = remember(trackIds) { trackIds.toSet() }
+    LaunchedEffect(sendJobs, forwardIds) {
         while (true) {
             val now = System.currentTimeMillis()
             sentVisibilityClockMs = now
             val nextExpiry = sendJobs
                 .asSequence()
-                .filter { it.trackId == trackId && it.state == TelegramSendState.SENT }
+                .filter { it.trackId in forwardIds && it.state == TelegramSendState.SENT }
                 .map { it.updatedAtEpochMs + SentStatusVisibilityMillis }
                 .filter { it > now }
                 .minOrNull()
@@ -372,11 +392,9 @@ private fun ForwardPickerBody(
         }
     }
 
-    val trackJobs = remember(sendJobs, trackId, sentVisibilityClockMs) {
-        sendJobs.filter { job ->
-            job.trackId == trackId &&
-                (job.state != TelegramSendState.SENT ||
-                    sentVisibilityClockMs - job.updatedAtEpochMs < SentStatusVisibilityMillis)
+    val trackJobs = remember(sendJobs, forwardIds, sentVisibilityClockMs) {
+        sendJobs.filter { it.trackId in forwardIds &&
+            isForwardStatusVisible(it, it.trackId, sentVisibilityClockMs)
         }.take(4)
     }
     val scope = rememberCoroutineScope()
@@ -402,7 +420,7 @@ private fun ForwardPickerBody(
                 .then(
                     if (floatingOverlay) Modifier.height(maxPanelHeight)
                         .border(1.dp, TelegramGlassStroke, sheetShape)
-                    else Modifier.fillMaxHeight(0.90f)
+                    else Modifier.fillMaxHeight()
                 )
                 .pointerInput(trackId) {
                     awaitPointerEventScope {
@@ -448,7 +466,7 @@ private fun ForwardPickerBody(
                         contentColor = MaterialTheme.colorScheme.primary,
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.Send, contentDescription = null)
+                            Icon(painterResource(R.drawable.ic_telegram_plane), contentDescription = null)
                         }
                     }
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -463,7 +481,12 @@ private fun ForwardPickerBody(
                     }
                     if (isSending) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                     if (floatingOverlay) {
-                        TextButton(onClick = dismissWithMotion) {
+                        // Close is an explicit action: finish immediately even if the
+                        // exit animation was canceled by a concurrent send-state update.
+                        IconButton(
+                            onClick = { latestOnDismiss() },
+                            modifier = Modifier.testTag("telegram-forward-close"),
+                        ) {
                             Icon(Icons.Rounded.Close, contentDescription = "Close sharing")
                         }
                     }
@@ -475,10 +498,12 @@ private fun ForwardPickerBody(
                     keepCaption = keepCaption,
                     rememberDefaults = rememberDefaults,
                     onSourceAttributionChange = {
+                        optionsEdited = true
                         includeSourceAttribution = it
                         if (it) keepCaption = true
                     },
                     onKeepCaptionChange = {
+                        optionsEdited = true
                         keepCaption = it
                         // An attributed forward always includes its original caption.
                         if (!it) includeSourceAttribution = false
@@ -495,41 +520,32 @@ private fun ForwardPickerBody(
                     modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
                 )
 
-                // Keep search immediately above the account/chat names.
-                TextField(
-                    value = query,
-                    onValueChange = {
+                // Separate glass surfaces: Search occupies the flexible left,
+                // Refresh is a fixed 56dp button to its RIGHT, never inside the field.
+                ForwardSearchToolbar(
+                    query = query,
+                    onQueryChange = {
                         lastTouchAtMillis = SystemClock.elapsedRealtime()
                         onQueryChange(it)
                     },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f))
+                    onReloadFolders = onReloadFolders?.let { reload ->
+                        {
+                            lastTouchAtMillis = SystemClock.elapsedRealtime()
+                            reload()
+                        }
                     },
-                    placeholder = { Text("Search accounts and chats") },
-                    shape = RoundedCornerShape(22.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = TelegramGlassFill,
-                        unfocusedContainerColor = TelegramGlassFill,
-                        disabledContainerColor = TelegramGlassFill,
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
-                        unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
-                    modifier = Modifier.fillMaxWidth().border(1.dp, TelegramGlassStroke, RoundedCornerShape(22.dp)),
+                    foldersLoading = foldersLoading,
+                    hazeState = hazeState,
                 )
                 Spacer(Modifier.height(8.dp))
-                // Keep this row visible while TDLib publishes the folder list.
+                // Keep folder tabs on their own row, with the full available width.
                 ForwardFolderNavigation(
                     folders = folders,
                     selectedFolderId = activeFolder?.id,
                     loading = foldersLoading,
                     onSelectFolder = { selectedFolderId = it },
                 )
-                if (folders.isEmpty() && !foldersLoading && onReloadFolders != null) {
+                if (folders.isEmpty() && !foldersLoading) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -541,10 +557,7 @@ private fun ForwardPickerBody(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = onReloadFolders) {
-                            Icon(Icons.Rounded.Refresh, contentDescription = null)
-                            Text("Retry folders")
-                        }
+                        // The persistent Refresh action above also retries errors.
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -673,6 +686,7 @@ private fun ForwardPickerBody(
         body()
     } else {
         ModalBottomSheet(
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             onDismissRequest = dismissWithMotion,
             containerColor = Color.Transparent,
             scrimColor = Color.Black.copy(alpha = 0.66f),
@@ -687,6 +701,89 @@ private fun ForwardPickerBody(
  * One bounded destination scroller below a fixed header.
  * Used by both the in-player sheet and the notification overlay.
  */
+/**
+ * Two independent glass-hit targets. On narrow overlays the search gets the
+ * remaining width while the refresh stays 56dp, never overlapping its text.
+ */
+@Composable
+internal fun ForwardSearchToolbar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onReloadFolders: (() -> Unit)?,
+    foldersLoading: Boolean,
+    hazeState: HazeState,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("telegram-forward-search-toolbar"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        TextField(
+            value = query,
+            onValueChange = onQueryChange,
+            singleLine = true,
+            leadingIcon = {
+                Icon(
+                    Icons.Rounded.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f),
+                )
+            },
+            placeholder = { Text("Search accounts and chats", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            shape = RoundedCornerShape(20.dp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = TelegramGlassFill,
+                unfocusedContainerColor = TelegramGlassFill,
+                disabledContainerColor = TelegramGlassFill,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .42f),
+                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .42f),
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+            ),
+            modifier = Modifier
+                .weight(1f)
+                .height(56.dp)
+                .border(1.dp, TelegramGlassStroke, RoundedCornerShape(20.dp))
+                .testTag("telegram-forward-search"),
+        )
+        if (onReloadFolders != null) {
+            val shape = RoundedCornerShape(20.dp)
+            GlassSurface(
+                hazeState = hazeState,
+                shape = shape,
+                modifier = Modifier.size(56.dp)
+                    .border(1.dp, TelegramGlassStroke, shape),
+                fallbackColor = TelegramGlassFill,
+                tint = TelegramGlassChrome.stroke,
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize()
+                        .clickable(enabled = !foldersLoading, role = Role.Button, onClick = onReloadFolders)
+                        .testTag("telegram-forward-refresh"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (foldersLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f),
+                        )
+                    } else {
+                        Icon(
+                            Icons.Rounded.Refresh,
+                            contentDescription = "Refresh Telegram chats and folders",
+                            modifier = Modifier.size(26.dp),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 internal fun ForwardPanelLayout(
     modifier: Modifier = Modifier,
@@ -699,7 +796,7 @@ internal fun ForwardPanelLayout(
                 .padding(start = 18.dp, end = 18.dp, top = 14.dp)
                 .testTag("telegram-forward-header"),
         ) { header() }
-        LazyColumn(
+        GlassLazyColumn(
             modifier = Modifier.fillMaxWidth()
                 .weight(1f)
                 .testTag("telegram-forward-list"),
@@ -756,11 +853,14 @@ internal fun ForwardOptionPill(
     selected: Boolean,
     onSelectedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    tag: String = "telegram-option-${title.lowercase()}",
 ) {
     val accent = MaterialTheme.colorScheme.primary
     Box(
         modifier = modifier
             .height(44.dp)
+            .alpha(if (enabled) 1f else 0.40f)
             .background(
                 brush = if (selected) {
                     Brush.horizontalGradient(
@@ -780,10 +880,11 @@ internal fun ForwardOptionPill(
             )
             .toggleable(
                 value = selected,
+                enabled = enabled,
                 role = Role.Checkbox,
                 onValueChange = onSelectedChange,
             )
-            .testTag("telegram-option-${title.lowercase()}"),
+            .testTag(tag),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -854,20 +955,25 @@ private fun TelegramDestinationRow(chat: TelegramChatSummary, job: TelegramSendJ
 }
 
 @Composable
-private fun TelegramSendStatusCard(
+internal fun TelegramSendStatusCard(
     hazeState: HazeState,
     job: TelegramSendJob,
     onRetry: () -> Unit,
     onCancel: () -> Unit,
 ) {
     val canRetry = job.state == TelegramSendState.FAILED || job.state == TelegramSendState.VERIFYING
-    val canCancel = job.state in setOf(
+    val canCancelQueued = job.state in setOf(
         TelegramSendState.QUEUED,
         TelegramSendState.RETRYING,
         TelegramSendState.WAITING_FOR_NETWORK,
         TelegramSendState.WAITING_FOR_TELEGRAM,
-        TelegramSendState.FAILED,
-        TelegramSendState.VERIFYING,
+    )
+    val canDismiss = canRetry
+    val canStopActive = job.state in setOf(
+        TelegramSendState.CHECKING,
+        TelegramSendState.PREPARING_FILE,
+        TelegramSendState.UPLOADING,
+        TelegramSendState.SENDING,
     )
     val cardShape = RoundedCornerShape(18.dp)
 
@@ -898,14 +1004,40 @@ private fun TelegramSendStatusCard(
                         },
                     )
                 }
-                when (job.state) {
-                    TelegramSendState.SENT -> Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    TelegramSendState.FAILED, TelegramSendState.VERIFYING -> Icon(
-                        Icons.Rounded.ErrorOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                    TelegramSendState.CANCELED -> Icon(Icons.Rounded.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f))
+                when {
+                    canStopActive -> {
+                        // The progress ring is the cancellation affordance for uploads,
+                        // including profile songs falling back to file upload.
+                        Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(
+                                progress = { (job.progressPercent.coerceAtLeast(4) / 100f) },
+                                modifier = Modifier.size(36.dp),
+                                strokeWidth = 3.dp,
+                            )
+                            IconButton(
+                                onClick = onCancel,
+                                modifier = Modifier.size(44.dp)
+                                    .testTag("telegram-send-cancel-upload-" + job.id),
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = "Cancel sending to " + (job.targetTitle ?: "Telegram"),
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
+                    canDismiss -> IconButton(
+                        onClick = onCancel,
+                        modifier = Modifier.testTag("telegram-send-dismiss-" + job.id),
+                    ) {
+                        Icon(Icons.Rounded.Close,
+                            contentDescription = "Dismiss unsuccessful send",
+                            tint = MaterialTheme.colorScheme.error)
+                    }
+                    job.state == TelegramSendState.SENT ->
+                        Icon(Icons.Rounded.Check, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary)
                     else -> CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 }
             }
@@ -927,9 +1059,9 @@ private fun TelegramSendStatusCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (canRetry || canCancel) {
+            if (canRetry || canCancelQueued) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    if (canCancel) TextButton(onClick = onCancel) { Text("Cancel") }
+                    if (canCancelQueued) TextButton(onClick = onCancel) { Text("Cancel") }
                     if (canRetry) {
                         TextButton(onClick = onRetry) {
                             Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -942,6 +1074,13 @@ private fun TelegramSendStatusCard(
     }
 }
 
+/** Canceled sends must never remain in the forward panel, including old records. */
+internal fun isForwardStatusVisible(job: TelegramSendJob, trackId: UUID, nowMs: Long): Boolean =
+    job.trackId == trackId &&
+        job.state != TelegramSendState.CANCELED &&
+        (job.state != TelegramSendState.SENT ||
+            nowMs - job.updatedAtEpochMs < SentStatusVisibilityMillis)
+
 private fun TelegramSendJob.statusLabel(): String = when (state) {
     TelegramSendState.QUEUED -> "Queued"
     TelegramSendState.CHECKING -> "Checking Telegram"
@@ -950,6 +1089,7 @@ private fun TelegramSendJob.statusLabel(): String = when (state) {
     TelegramSendState.PREPARING_FILE -> "Preparing audio"
     TelegramSendState.UPLOADING -> "Uploading $progressPercent%"
     TelegramSendState.SENDING -> "Sending"
+    TelegramSendState.CANCELING -> "Canceling…"
     TelegramSendState.VERIFYING -> "Delivery needs verification"
     TelegramSendState.RETRYING -> "Retrying"
     TelegramSendState.SENT -> "Sent"
@@ -982,7 +1122,7 @@ internal fun ForwardFolderNavigation(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        ForwardFolderChip("All chats", selectedFolderId == null) { onSelectFolder(null) }
+        ForwardFolderChip("All", selectedFolderId == null) { onSelectFolder(null) }
         folders.forEach { folder ->
             ForwardFolderChip(folder.title, folder.id == selectedFolderId) { onSelectFolder(folder.id) }
         }
