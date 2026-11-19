@@ -178,6 +178,7 @@ fun UnifiedSettingsScreen(
     var includeHistoryInBackup by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<Pair<ByteArray, BackupPreview>?>(null) }
     var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
+    var activeFeedbackExpanded by rememberSaveable { mutableStateOf(false) }
     var pendingIconSource by remember { mutableStateOf<LauncherIconColorSource?>(null) }
     var versionTaps by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(enabled = selectedCategory != null) { selectedCategory = null }
@@ -406,6 +407,7 @@ fun UnifiedSettingsScreen(
                         SettingsPlaybackModeSelector(
                             selected = state.playback.defaultMode,
                             onSelect = viewModel::setDefaultMode,
+                            smartEnabled = state.recommendations.smartRecommendationsEnabled,
                         )
                         SettingsRowDivider()
                         SettingsToggleRow(
@@ -662,6 +664,7 @@ fun UnifiedSettingsScreen(
                             Icons.Rounded.AutoAwesome,
                             state.recommendations.audioAnalysisEnabled,
                             viewModel::setAudioAnalysis,
+                            enabled = state.recommendations.smartRecommendationsEnabled,
                             showSubtitle = true,
                             subtitleMaxLines = 3,
                         )
@@ -675,17 +678,45 @@ fun UnifiedSettingsScreen(
                             showSubtitle = true,
                             subtitleMaxLines = 3,
                         )
-                        feedbackRows.forEach { row ->
-                            SettingsRowDivider()
-                            SettingsActionRow(
-                                row.title,
-                                "Remove your '${feedbackActionLabel(row.action)}' feedback for this song.",
-                                Icons.AutoMirrored.Rounded.Undo,
-                                "Undo",
-                                { viewModel.undoRecommendationFeedback(row.trackId, row.action) },
-                                showSubtitle = true,
-                                subtitleMaxLines = 3,
-                            )
+                        SettingsRowDivider()
+                        SettingsActionRow(
+                            "Active feedback",
+                            if (feedbackRows.isEmpty()) "No active recommendation preferences"
+                            else "${feedbackRows.size} active preference${if (feedbackRows.size == 1) "" else "s"}",
+                            Icons.Rounded.ThumbUp,
+                            if (activeFeedbackExpanded) "Hide" else "Manage",
+                            { activeFeedbackExpanded = !activeFeedbackExpanded },
+                            showSubtitle = true,
+                            subtitleMaxLines = 3,
+                        )
+                        AnimatedVisibility(
+                            visible = activeFeedbackExpanded,
+                            enter = expandVertically(tween(if (state.appearance.reduceMotion) 0 else 240)) + fadeIn(),
+                            exit = shrinkVertically(tween(if (state.appearance.reduceMotion) 0 else 180)) + fadeOut(),
+                        ) {
+                            Column {
+                                if (feedbackRows.isEmpty()) {
+                                    Text(
+                                        "No active feedback yet. Open 'Why this song?' on a recommendation to add a preference.",
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                } else {
+                                    feedbackRows.forEach { row ->
+                                        SettingsRowDivider()
+                                        SettingsActionRow(
+                                            row.title,
+                                            "${feedbackActionLabel(row.action)} · Tap Undo to remove this preference.",
+                                            Icons.AutoMirrored.Rounded.Undo,
+                                            "Undo",
+                                            { viewModel.undoRecommendationFeedback(row.trackId, row.action) },
+                                            showSubtitle = true,
+                                            subtitleMaxLines = 2,
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
