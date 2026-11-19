@@ -294,6 +294,7 @@ private fun FirstLaunchSourcePicker(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
+            .hazeSource(hazeState)
             .statusBarsPadding()
             .padding(horizontal = 18.dp)
             .padding(top = 100.dp, bottom = dockAwareBottomPadding(198.dp))
