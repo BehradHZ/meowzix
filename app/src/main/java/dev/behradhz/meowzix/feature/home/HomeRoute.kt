@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.weight
 import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
@@ -323,7 +322,7 @@ fun HomeRoute(
                     hazeState = headerHazeState,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 18.dp, top = 8.dp, bottom = 4.dp),
+                        .padding(start = 18.dp, top = 8.dp, end = 18.dp, bottom = 4.dp),
                     onConnect = onConnectTelegram,
                     onDismiss = {
                         dismissedInSession = true
