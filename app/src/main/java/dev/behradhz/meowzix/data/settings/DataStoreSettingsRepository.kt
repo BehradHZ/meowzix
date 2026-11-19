@@ -85,6 +85,10 @@ class DataStoreSettingsRepository @Inject constructor(
         values[COLLAPSED_TELEGRAM_PLAYLIST_SECTIONS].orEmpty()
     }
 
+    override val initialSourceChoiceCompleted: Flow<Boolean> = safeData.map { values ->
+        values[INITIAL_SOURCE_CHOICE_COMPLETED] ?: false
+    }
+
     override val libraryDisplaySettings: Flow<LibraryDisplaySettings> = safeData.map { values ->
         LibraryDisplaySettings(
             sortMode = values[LIBRARY_SORT_MODE].enumOrDefault(LibrarySortMode.RECENTLY_ADDED),
@@ -176,6 +180,7 @@ class DataStoreSettingsRepository @Inject constructor(
     override suspend fun setPrefetchEnabled(enabled: Boolean) = set(PREFETCH, enabled)
     override suspend fun setPrefetchOnMetered(enabled: Boolean) = set(PREFETCH_METERED, enabled)
     override suspend fun setListeningHistoryEnabled(enabled: Boolean) = set(LISTENING_HISTORY, enabled)
+    override suspend fun setInitialSourceChoiceCompleted() = set(INITIAL_SOURCE_CHOICE_COMPLETED, true)
     override suspend fun setReduceMotion(enabled: Boolean) = set(REDUCE_MOTION, enabled)
     override suspend fun setPlayerAccentSource(source: PlayerAccentSource) = setEnum(PLAYER_ACCENT_SOURCE, source)
     override suspend fun setPlayerSeekBarStyle(style: PlayerSeekBarStyle) = setEnum(PLAYER_SEEKBAR_STYLE, style)
@@ -287,6 +292,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val PREFETCH = booleanPreferencesKey("prefetch_enabled")
         val PREFETCH_METERED = booleanPreferencesKey("prefetch_on_metered")
         val LISTENING_HISTORY = booleanPreferencesKey("listening_history_enabled")
+        val INITIAL_SOURCE_CHOICE_COMPLETED = booleanPreferencesKey("initial_source_choice_completed")
         val TEMPORARY_CACHE_BUDGET_BYTES = longPreferencesKey("temporary_cache_budget_bytes")
         val FORWARD_INCLUDE_SOURCE = booleanPreferencesKey("telegram_forward_include_source")
         val FORWARD_KEEP_CAPTION = booleanPreferencesKey("telegram_forward_keep_caption")
