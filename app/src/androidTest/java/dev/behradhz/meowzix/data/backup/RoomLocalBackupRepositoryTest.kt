@@ -40,7 +40,7 @@ class RoomLocalBackupRepositoryTest {
     fun setUp() = runTest {
         db = Room.inMemoryDatabaseBuilder(context, MeowzixDatabase::class.java).build()
         val bus = SmartQueueAdaptationBus()
-        feedback = DataStoreRecommendationFeedbackRepository(context, bus)
+        feedback = DataStoreRecommendationFeedbackRepository(context, bus, dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository(context))
         feedback.clearAll()
         val extractor = BackupTestExtractor()
         scheduler = RecordingBackupTrainingScheduler()
