@@ -120,6 +120,7 @@ import dev.behradhz.meowzix.feature.search.SearchViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthRoute
 import dev.behradhz.meowzix.feature.telegramauth.TelegramAuthViewModel
 import dev.behradhz.meowzix.feature.telegramauth.TelegramProxyPanel
+import dev.behradhz.meowzix.domain.downloads.DownloadStatus
 import dev.behradhz.meowzix.domain.telegram.TelegramAuthStep
 import dev.behradhz.meowzix.domain.telegram.telegramProxyBadge
 import dev.behradhz.meowzix.ui.theme.LocalMeowzixLogoBackground
@@ -782,6 +783,8 @@ fun MeowzixApp(
                 viewModel = playerViewModel,
                 morphState = morphingPlayerState,
                 dockCompact = dockCompact && !searchActive && !contextualSelectionVisible,
+                canRemoveOffline = libraryState.downloads[playbackState.currentTrack?.id]
+                    ?.let { it.hasManagedCopy && it.status == DownloadStatus.COMPLETED } == true,
                 onMiniPlayerTopInWindow = { floatingTouchBounds.miniPlayerTopY = it },
                 onOpenQueue = { navigateTopLevel(QUEUE_ROUTE) },
                 onGoToArtist = { artist ->
