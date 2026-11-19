@@ -212,6 +212,7 @@ private val PlayerLoadingShimmer: Color
 fun NowPlayingRoute(
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
+    onArtworkSwipeDown: () -> Unit = onBack,
     onGoToArtist: (String) -> Unit = {},
     onLyricsExpandedChange: (Boolean) -> Unit = {},
     onMoreActionsMenuExpandedChange: (Boolean) -> Unit = {},
@@ -341,6 +342,7 @@ fun NowPlayingRoute(
                 reduceMotion = appearance.reduceMotion,
                 seekBarStyle = appearance.playerSeekBarStyle,
                 onBack = closeOrCollapse,
+                onArtworkSwipeDown = onArtworkSwipeDown,
                 onMoreActionsMenuExpandedChange = onMoreActionsMenuExpandedChange,
                 onMoreActionsButtonBoundsChanged = onMoreActionsButtonBoundsChanged,
                 onToggleLyrics = panels::toggleLyrics,
@@ -460,6 +462,7 @@ private fun NowPlayingScreen(
     reduceMotion: Boolean,
     seekBarStyle: PlayerSeekBarStyle,
     onBack: () -> Unit,
+    onArtworkSwipeDown: () -> Unit,
     onMoreActionsMenuExpandedChange: (Boolean) -> Unit,
     onMoreActionsButtonBoundsChanged: (Rect) -> Unit,
     onToggleLyrics: () -> Unit,
@@ -572,7 +575,7 @@ private fun NowPlayingScreen(
                                 queueState = queueState,
                                 fallbackArtworkRef = track.artworkRef,
                                 fallbackArtworkDescription = track.title + " cover art",
-                                onBack = onBack,
+                                onBack = onArtworkSwipeDown,
                                 onSwipeUp = { onQueueExpandedChange(true) },
                                 onPrevious = onPrevious,
                                 onNext = onNext,
@@ -835,7 +838,8 @@ private fun NowPlayingScreen(
                 when {
                     action == ArtworkVerticalSwipeAction.CLOSE_PLAYER && !queueExpanded -> {
                         queueDragActive = false
-                        onBack()
+                        // Artwork release is part of the existing swipe, not another Back press.
+                        onArtworkSwipeDown()
                     }
                     action == ArtworkVerticalSwipeAction.OPEN_QUEUE && !queueExpanded -> {
                         queueDragActive = false
@@ -1178,7 +1182,7 @@ private fun NowPlayingScreen(
                             progress = maxOf(lyricsMorph, queueMorph),
                             collapsedHeightPx = fullHeroHeightPx,
                             lyricsLayoutVisible = reservedLyricsLayout,
-                            onBack = onBack,
+                            onBack = onArtworkSwipeDown,
                             onSwipeUp = { onQueueExpandedChange(true) },
                             verticalDragCallbacks = artworkVerticalDragCallbacks,
                             onPrevious = onPrevious,
