@@ -31,7 +31,7 @@ class SettingsPlaybackControlsTest {
         var result = PlaybackMode.ORDERED
         compose.setContent {
             var selected by remember { mutableStateOf(PlaybackMode.ORDERED) }
-            MeowzixTheme { SettingsPlaybackModeSelector(selected) { selected = it; result = it } }
+            MeowzixTheme { SettingsPlaybackModeSelector(selected = selected, onSelect = { selected = it; result = it }) }
         }
         PlaybackMode.entries.forEach {
             compose.onNodeWithTag("settings-playback-mode-${it.name}").assertIsDisplayed()

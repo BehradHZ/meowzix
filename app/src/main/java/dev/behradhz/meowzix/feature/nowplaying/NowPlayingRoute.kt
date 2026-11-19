@@ -486,7 +486,6 @@ private fun NowPlayingScreen(
     onGoToArtist: (String) -> Unit,
     onWhyThisSong: () -> Unit,
     onContinueVibe: () -> Unit,
-    recommendationActions: RecommendationActionsViewModel? = null,
     canRemoveOffline: Boolean,
     onRemoveFromLocations: (UUID, Boolean, Boolean) -> Unit,
     onLyricsImport: (android.net.Uri) -> Unit,

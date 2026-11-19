@@ -10,6 +10,7 @@ import dev.behradhz.meowzix.data.db.*
 import dev.behradhz.meowzix.data.recommendation.DataStoreRecommendationFeedbackRepository
 import dev.behradhz.meowzix.data.recommendation.PersonalizationTrainer
 import dev.behradhz.meowzix.data.recommendation.TrainingDatasetBuilder
+import dev.behradhz.meowzix.data.settings.DataStoreSettingsRepository
 import dev.behradhz.meowzix.domain.playback.SmartQueueAdaptationBus
 import dev.behradhz.meowzix.domain.recommendation.*
 import java.time.Instant
