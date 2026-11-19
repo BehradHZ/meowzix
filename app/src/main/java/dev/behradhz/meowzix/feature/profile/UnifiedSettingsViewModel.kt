@@ -237,7 +237,10 @@ class UnifiedSettingsViewModel @Inject constructor(
     fun cancelSleepTimer() = setSleepTimerEnabled(false)
     fun setArtistBalancedShuffle(value: Boolean) = launch { settings.setArtistBalancedShuffle(value) }
     fun setArtistShuffleAlpha(value: Float) = launch { settings.setArtistShuffleAlpha(value) }
-    fun setSmart(value: Boolean) = launch { settings.setSmartRecommendationsEnabled(value) }
+    fun setSmart(value: Boolean) = launch {
+        settings.setSmartRecommendationsEnabled(value)
+        if (!value) history.discardActiveTracking()
+    }
     fun setHighlightNewTelegramTracks(value: Boolean) = launch { settings.setHighlightNewTelegramTracks(value) }
     fun setLibrarySelectionDockSlot(slot: Int, action: LibrarySelectionAction) = launch {
         val current = settings.libraryDisplaySettings.first().selection
