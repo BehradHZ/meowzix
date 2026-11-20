@@ -98,8 +98,8 @@ class TdLibTelegramRepository @Inject constructor(
     }
 
     override fun submitPhoneNumber(phoneNumber: String) = submit(
-        value = phoneNumber,
-        emptyMessage = "Enter a phone number including its country code.",
+        value = normalizeTelegramPhoneNumber(phoneNumber),
+        emptyMessage = "Enter your phone number (e.g. 09123456789 or +989123456789).",
     ) { TdApi.SetAuthenticationPhoneNumber(it, TdApi.PhoneNumberAuthenticationSettings()) }
 
     override fun submitCode(code: String) = submit(code, "Enter the authentication code.") {

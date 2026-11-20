@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -118,13 +122,15 @@ private fun TelegramAuthScreen(
     onClearMusicSourceError: () -> Unit,
 ) {
     PlaylistGlassBackdrop(variation = 2) { hazeState ->
+        val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
         Box(Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize()
                     .hazeSource(hazeState)
+                    .imePadding()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 18.dp)
-                    .padding(top = 110.dp, bottom = dockAwareBottomPadding(176.dp)),
+                    .padding(top = 110.dp, bottom = if (keyboardVisible) 24.dp else dockAwareBottomPadding(176.dp)),
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp),
             ) {
         state.errorMessage?.let { message ->
@@ -182,7 +188,7 @@ private fun TelegramAuthScreen(
                     TelegramAuthStep.WaitPhoneNumber -> SingleValueForm(
                         icon = { Icon(Icons.Rounded.Phone, contentDescription = null) },
                         title = "Connect Telegram",
-                        guidance = "Enter the phone number attached to your Telegram account, including the country code.",
+                        guidance = "Enter your Telegram phone number. Iranian mobile numbers may start with 09 or +98; other countries require their country code.",
                         label = "Phone number",
                         submitLabel = "Continue",
                         enabled = !state.isSubmitting,
