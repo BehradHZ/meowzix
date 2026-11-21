@@ -2,6 +2,9 @@ package dev.behradhz.meowzix.navigation
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -10,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.core.model.Track
@@ -57,13 +61,15 @@ class GlobalSearchOverlayTest {
         onNextSong: () -> Unit = {},
         onQueueSong: () -> Unit = {},
         includeCollections: Boolean = true,
+        queryState: MutableState<String>? = null,
+        listState: LazyListState = LazyListState(),
     ) {
         compose.setContent {
             MeowzixTheme(darkTheme = true) {
                 DockSearchOverlay(
                     hazeState = rememberHazeState(),
                     scope = DockSearchScope.GLOBAL,
-                    query = "night",
+                    query = queryState?.value ?: "night",
                     libraryResults = songs,
                     artistResults = if (includeCollections) listOf(artist) else emptyList(),
                     albumResults = if (includeCollections) listOf(album) else emptyList(),
@@ -92,6 +98,7 @@ class GlobalSearchOverlayTest {
                     onOpenAlbum = {},
                     onOpenPlaylist = {},
                     onPlayQueueIndex = {},
+                    listState = listState,
                 )
             }
         }
@@ -101,6 +108,34 @@ class GlobalSearchOverlayTest {
         render(songs = listOf(song))
         compose.onNodeWithText("Songs").assertIsDisplayed()
         compose.onNodeWithText("Night Song").assertIsDisplayed()
+        val songsTop = compose.onNodeWithText("Songs").getUnclippedBoundsInRoot().top
+        val artistsTop = compose.onNodeWithText("Artists").getUnclippedBoundsInRoot().top
+        val albumsTop = compose.onNodeWithText("Albums").getUnclippedBoundsInRoot().top
+        assertTrue(songsTop < artistsTop)
+        assertTrue(artistsTop < albumsTop)
+    }
+
+    @Test fun changingQueryReturnsThePanelToSongsAtTheTop() {
+        val query = mutableStateOf("night")
+        val listState = LazyListState()
+        val manySongs = List(20) { index ->
+            song.copy(
+                id = UUID.randomUUID(),
+                title = "Night Song $index",
+                normalizedTitle = "night song $index",
+            )
+        }
+        render(songs = manySongs, queryState = query, listState = listState)
+
+        compose.onNodeWithTag("global-search-panel").performTouchInput { swipeUp() }
+        compose.waitForIdle()
+        assertTrue("The test must scroll beyond the Songs section", listState.firstVisibleItemIndex > 0)
+
+        compose.runOnIdle { query.value = "night changed" }
+        compose.waitForIdle()
+
+        assertEquals(0, listState.firstVisibleItemIndex)
+        compose.onNodeWithText("Songs").assertIsDisplayed()
     }
 
     @Test fun matchingSongsAppearEvenWithoutArtistOrAlbumMatches() {

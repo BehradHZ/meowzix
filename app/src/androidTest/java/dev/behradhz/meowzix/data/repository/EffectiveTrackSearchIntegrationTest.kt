@@ -107,6 +107,65 @@ class EffectiveTrackSearchIntegrationTest {
         assertTrue(repository.search("آلبوم نو").isNotEmpty())
     }
 
+    @Test
+    fun artistAndAlbumSearchRunsInSqlAndOnlyMatchesTheirOwnMetadataFields() = runTest {
+        insertTrack(
+            id = "11111111-1111-1111-1111-111111111111",
+            title = "Needle Track",
+            artist = "Fast Artist",
+            album = "Live Album",
+        )
+        insertTrack(
+            id = "22222222-2222-2222-2222-222222222222",
+            title = "Another Track",
+            artist = "Fast Artist",
+            album = "Live Album",
+        )
+        insertTrack(
+            id = "33333333-3333-3333-3333-333333333333",
+            title = "Needle Title Only",
+            artist = "Other Artist",
+            album = "Different Album",
+        )
+
+        val artists = repository.searchArtists("fast")
+        assertEquals(1, artists.size)
+        assertEquals("Fast Artist", artists.single().name)
+        assertEquals(2, artists.single().trackCount)
+        assertTrue("A title-only match must not leak into Artists", repository.searchArtists("needle").isEmpty())
+
+        val albums = repository.searchAlbums("live fast")
+        assertEquals(1, albums.size)
+        assertEquals("Live Album", albums.single().name)
+        assertEquals(2, albums.single().trackCount)
+        assertTrue("A title-only match must not leak into Albums", repository.searchAlbums("needle").isEmpty())
+
+        assertEquals("Fast Artist", repository.searchArtists("ast").single().name)
+        assertEquals("Live Album", repository.searchAlbums("ive alb").single().name)
+    }
+
+    @Test
+    fun artistAndAlbumSearchUseEffectiveMetadataOverrides() = runTest {
+        val id = "44444444-4444-4444-4444-444444444444"
+        insertTrack(id, "Provider title", "Provider artist", "Provider album")
+        db.libraryToolsDao().upsertMetadataOverride(
+            TrackMetadataOverrideEntity(
+                trackId = id,
+                title = null,
+                artist = "Effective Artist",
+                album = "Effective Album",
+                artworkRef = null,
+                updatedAtEpochMs = 20L,
+            ),
+        )
+        indexer.refreshTrack(id)
+
+        assertEquals("Effective Artist", repository.searchArtists("effective").single().name)
+        assertEquals("Effective Album", repository.searchAlbums("effective").single().name)
+        assertTrue(repository.searchArtists("provider").isEmpty())
+        assertTrue(repository.searchAlbums("provider").isEmpty())
+    }
+
     private suspend fun insertTrack(id: String, title: String, artist: String, album: String) {
         db.libraryDao().upsertTrack(
             TrackEntity(

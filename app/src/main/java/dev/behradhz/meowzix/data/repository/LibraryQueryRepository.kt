@@ -251,6 +251,112 @@ class LibraryQueryRepository @Inject constructor(
         rows.map(AlbumSummaryRow::toSummary)
     }
 
+    suspend fun searchArtists(query: String, limit: Int = 20): List<ArtistSummary> {
+        val normalized = TextNormalizer.normalize(query) ?: return emptyList()
+        val tokens = normalized.split(' ').filter(String::isNotBlank)
+        if (tokens.isEmpty()) return emptyList()
+        val safeLimit = limit.coerceIn(1, 100)
+        val tokenClause = tokens.joinToString(" AND ") {
+            "instr(COALESCE(NULLIF(track_search_fts.normalizedArtist, ''), 'unknown artist'), ?) > 0"
+        }
+        val prefixSql = artistSummarySearchSql(
+            "track_search_fts MATCH ? AND $AVAILABLE_TRACK_WHERE AND $tokenClause",
+        )
+        val prefixArgs = buildList<Any> {
+            add(buildTrackFtsMatchExpression(normalized))
+            tokens.forEach(::add)
+            add(safeLimit)
+        }.toTypedArray()
+        val prefixMatches = dao.searchArtistSummaries(SimpleSQLiteQuery(prefixSql, prefixArgs))
+        val rows = if (prefixMatches.isNotEmpty()) {
+            prefixMatches
+        } else {
+            // Preserve contains matches when the query starts in the middle of a word.
+            val containsSql = artistSummarySearchSql("$AVAILABLE_TRACK_WHERE AND $tokenClause")
+            val containsArgs = buildList<Any> {
+                tokens.forEach(::add)
+                add(safeLimit)
+            }.toTypedArray()
+            dao.searchArtistSummaries(SimpleSQLiteQuery(containsSql, containsArgs))
+        }
+        return rows.map(ArtistSummaryRow::toSummary)
+    }
+
+    suspend fun searchAlbums(query: String, limit: Int = 20): List<AlbumSummary> {
+        val normalized = TextNormalizer.normalize(query) ?: return emptyList()
+        val tokens = normalized.split(' ').filter(String::isNotBlank)
+        if (tokens.isEmpty()) return emptyList()
+        val safeLimit = limit.coerceIn(1, 100)
+        val tokenClause = tokens.joinToString(" AND ") {
+            """
+            (
+                instr(COALESCE(NULLIF(track_search_fts.album, ''), 'unknown album'), ?) > 0
+                OR instr(COALESCE(NULLIF(track_search_fts.normalizedArtist, ''), 'unknown artist'), ?) > 0
+            )
+            """.trimIndent()
+        }
+        val prefixSql = albumSummarySearchSql(
+            "track_search_fts MATCH ? AND $AVAILABLE_TRACK_WHERE AND $tokenClause",
+        )
+        val prefixArgs = buildList<Any> {
+            add(buildTrackFtsMatchExpression(normalized))
+            tokens.forEach { token ->
+                add(token)
+                add(token)
+            }
+            add(safeLimit)
+        }.toTypedArray()
+        val prefixMatches = dao.searchAlbumSummaries(SimpleSQLiteQuery(prefixSql, prefixArgs))
+        val rows = if (prefixMatches.isNotEmpty()) {
+            prefixMatches
+        } else {
+            // Keep substring matching without materializing the complete album catalog in Kotlin.
+            val containsSql = albumSummarySearchSql("$AVAILABLE_TRACK_WHERE AND $tokenClause")
+            val containsArgs = buildList<Any> {
+                tokens.forEach { token ->
+                    add(token)
+                    add(token)
+                }
+                add(safeLimit)
+            }.toTypedArray()
+            dao.searchAlbumSummaries(SimpleSQLiteQuery(containsSql, containsArgs))
+        }
+        return rows.map(AlbumSummaryRow::toSummary)
+    }
+
+    private fun artistSummarySearchSql(whereClause: String): String = """
+        SELECT
+            MIN(COALESCE(NULLIF(TRIM(COALESCE(o.artist, t.artist)), ''), 'Unknown artist')) AS name,
+            COALESCE(NULLIF(track_search_fts.normalizedArtist, ''), 'unknown artist') AS normalizedName,
+            COUNT(*) AS trackCount,
+            MAX(COALESCE(o.artworkRef, t.artworkRef)) AS artworkRef
+        FROM track_search_fts
+        INNER JOIN tracks t ON t.rowid = track_search_fts.rowid
+        LEFT JOIN track_metadata_overrides o ON o.trackId = t.id
+        WHERE $whereClause
+        GROUP BY COALESCE(NULLIF(track_search_fts.normalizedArtist, ''), 'unknown artist')
+        ORDER BY name COLLATE NOCASE ASC
+        LIMIT ?
+    """.trimIndent()
+
+    private fun albumSummarySearchSql(whereClause: String): String = """
+        SELECT
+            COALESCE(NULLIF(TRIM(COALESCE(o.album, t.album)), ''), 'Unknown album') AS name,
+            MIN(COALESCE(NULLIF(TRIM(COALESCE(o.artist, t.artist)), ''), 'Unknown artist')) AS artist,
+            COALESCE(NULLIF(track_search_fts.normalizedArtist, ''), 'unknown artist') AS normalizedArtist,
+            COUNT(*) AS trackCount,
+            MAX(COALESCE(o.artworkRef, t.artworkRef)) AS artworkRef
+        FROM track_search_fts
+        INNER JOIN tracks t ON t.rowid = track_search_fts.rowid
+        LEFT JOIN track_metadata_overrides o ON o.trackId = t.id
+        WHERE $whereClause
+        GROUP BY
+            COALESCE(NULLIF(track_search_fts.album, ''), 'unknown album'),
+            COALESCE(NULLIF(track_search_fts.normalizedArtist, ''), 'unknown artist')
+        ORDER BY name COLLATE NOCASE ASC, artist COLLATE NOCASE ASC
+        LIMIT ?
+    """.trimIndent()
+
     /**
      * Home keeps only the eight displayed artist summaries. The full artist catalog is
      * fetched only if the listener taps the artist tile.

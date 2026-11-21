@@ -31,7 +31,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
@@ -91,8 +94,12 @@ internal fun DockSearchOverlay(
     onOpenPlaylist: (PlaylistSummary) -> Unit,
     onPlayQueueIndex: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState(),
 ) {
     val normalized = TextNormalizer.normalize(query)
+    LaunchedEffect(scope, query) {
+        listState.scrollToItem(0)
+    }
     if (normalized == null) return
 
     val queueMatches = remember(queueState.items, normalized) {
@@ -126,6 +133,7 @@ internal fun DockSearchOverlay(
                 } else {
                     GlassLazyColumn(
                         modifier = Modifier.fillMaxWidth(),
+                        state = listState,
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         itemsIndexed(
@@ -152,6 +160,7 @@ internal fun DockSearchOverlay(
                 } else {
                     GlassLazyColumn(
                         modifier = Modifier.fillMaxWidth(),
+                        state = listState,
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(TRACK_ROW_SPACING),
                     ) {

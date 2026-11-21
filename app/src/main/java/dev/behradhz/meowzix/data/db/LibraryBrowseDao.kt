@@ -24,6 +24,30 @@ interface LibraryBrowseDao {
             TrackSourceEntity::class,
             TelegramTrackSourceEntity::class,
             TelegramSelectedSourceEntity::class,
+            TrackSearchFtsEntity::class,
+            TrackMetadataOverrideEntity::class,
+        ],
+    )
+    suspend fun searchArtistSummaries(query: SupportSQLiteQuery): List<ArtistSummaryRow>
+
+    @RawQuery(
+        observedEntities = [
+            TrackEntity::class,
+            TrackSourceEntity::class,
+            TelegramTrackSourceEntity::class,
+            TelegramSelectedSourceEntity::class,
+            TrackSearchFtsEntity::class,
+            TrackMetadataOverrideEntity::class,
+        ],
+    )
+    suspend fun searchAlbumSummaries(query: SupportSQLiteQuery): List<AlbumSummaryRow>
+
+    @RawQuery(
+        observedEntities = [
+            TrackEntity::class,
+            TrackSourceEntity::class,
+            TelegramTrackSourceEntity::class,
+            TelegramSelectedSourceEntity::class,
         ],
     )
     suspend fun libraryTrackIds(query: SupportSQLiteQuery): List<TrackIdRow>
