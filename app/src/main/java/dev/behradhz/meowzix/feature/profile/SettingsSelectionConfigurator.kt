@@ -12,7 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -167,7 +167,7 @@ internal fun SettingsSelectionConfigurator(
         SettingsRowDivider()
         Text("Selection menu", style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold)
-        Text("An upper-screen preview with More open. Toggle actions or drag their handles to reorder.",
+        Text("An upper-screen preview with More open. Long-press a handle, then drag to reorder; changes save on release.",
             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         SettingsSelectionMorePreview(selection, reduceMotion, onMoreEnabled, onMoreMove)
     }
@@ -361,7 +361,7 @@ private fun SettingsMoreActionRow(
             modifier = Modifier.size(26.dp)
                 .testTag("selection-settings-more-handle-" + action.name.lowercase())
                 .pointerInput(action) {
-                    detectDragGestures(
+                    detectDragGesturesAfterLongPress(
                         onDragStart = { currentStart() },
                         onDragCancel = { currentCancel() },
                         onDragEnd = { currentEnd() },
