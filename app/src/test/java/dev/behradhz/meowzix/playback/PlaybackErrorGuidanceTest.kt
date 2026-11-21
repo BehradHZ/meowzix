@@ -11,12 +11,20 @@ class PlaybackErrorGuidanceTest {
         assertTrue(message.contains("missing"))
     }
 
-    @Test fun identityFailureSuggestsRefreshingPlaylist() {
+    @Test fun identityFailureDoesNotRequirePlaylistRefresh() {
         val message = userFacingPlaybackError(
             PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
             "Telegram audio identity changed; refresh the source before playback",
         )
-        assertTrue(message.contains("Refresh the playlist"))
+        assertTrue(message.contains("Try playing the track again"))
+        assertFalse(message.contains("Refresh the playlist"))
+    }
+
+    @Test fun onlyTelegramFileIdentityFailuresTriggerTargetedRecovery() {
+        assertTrue(isTelegramIdentityFailure("Telegram audio identity changed; refresh the source"))
+        assertTrue(isTelegramIdentityFailure("Telegram source identity missing; refresh the source"))
+        assertFalse(isTelegramIdentityFailure("Telegram download stalled"))
+        assertFalse(isTelegramIdentityFailure("Decoder identity is missing"))
     }
 
     @Test fun filePathsAreNeverCopiedIntoTheUserFacingMessage() {

@@ -59,12 +59,19 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
     override suspend fun prepareRemoteForPlayback(trackId: UUID): PlayableTrack? =
         prepare(trackId, bypassLocalCache = true)
 
-    private suspend fun prepare(trackId: UUID, bypassLocalCache: Boolean): PlayableTrack? {
+    override suspend fun recoverTelegramIdentity(trackId: UUID): PlayableTrack? =
+        prepare(trackId, bypassLocalCache = false, revalidateFileId = true)
+
+    private suspend fun prepare(
+        trackId: UUID,
+        bypassLocalCache: Boolean,
+        revalidateFileId: Boolean = false,
+    ): PlayableTrack? {
         if (!bypassLocalCache) cachedLocalTrack(trackId)?.let { return it }
 
         val settings = settingsRepository.networkPlaybackSettings.first()
         networkPolicy.blockReason(settings, NetworkUse.USER_REQUEST)?.let(::error)
-        val source = resolveSource(trackId) ?: return null
+        val source = resolveSource(trackId, revalidateFileId) ?: return null
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
 
         // For a cold Telegram file prioritize the small contiguous opening range first.
@@ -255,14 +262,19 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
      * been indexed yet or TDLib rejects the persisted id, removing a metadata round-trip from the
      * normal play path.
      */
-    private suspend fun resolveSource(trackId: UUID): ResolvedTelegramSource? {
+    private suspend fun resolveSource(trackId: UUID, revalidateFileId: Boolean = false): ResolvedTelegramSource? {
         val accountId = telegramRepository.musicSourceState.value.accountId ?: return null
         val client = TdLibClientAdapter.activeOrNull() ?: error("Telegram is not ready yet.")
         for (telegramSource in telegramDao.telegramSourcesForTrack(accountId, trackId.toString())) {
             val remoteSource = libraryDao.sourceById(telegramSource.trackSourceId) ?: continue
 
             telegramSource.tdFileId?.let { persistedFileId ->
-                val persisted = runCatching { client.seedFileState(persistedFileId) }.getOrNull()
+                // A recovery request must bypass the cached UpdateFile snapshot: it may
+                // still contain the recycled numeric ID that just failed in Media3.
+                val persisted = runCatching {
+                    if (revalidateFileId) client.refreshFileState(persistedFileId)
+                    else client.seedFileState(persistedFileId)
+                }.getOrNull()
                 // Numeric TDLib IDs can be reused after reconnecting. The remote unique
                 // file ID must still match before using cached state.
                 if (persisted != null && matchesTelegramFileIdentity(
