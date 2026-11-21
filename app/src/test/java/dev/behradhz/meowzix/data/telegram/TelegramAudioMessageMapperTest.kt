@@ -46,6 +46,13 @@ class TelegramAudioMessageMapperTest {
                 TdApi.RemoteFile(),
             ),
         )
+        val audioFile = TdApi.File(
+            85,
+            0L,
+            0L,
+            TdApi.LocalFile(),
+            TdApi.RemoteFile(),
+        )
         val audio = TdApi.Audio(
             180,
             "Track",
@@ -55,7 +62,7 @@ class TelegramAudioMessageMapperTest {
             null,
             null,
             arrayOf(externalThumbnail),
-            TdApi.File(),
+            audioFile,
         )
 
         assertEquals(listOf(84), audio.toAudioCandidate(1L).artworkFileIds)
