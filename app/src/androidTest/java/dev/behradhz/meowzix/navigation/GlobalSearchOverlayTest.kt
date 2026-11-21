@@ -4,6 +4,12 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.behradhz.meowzix.core.model.Track
@@ -16,6 +22,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import java.time.Instant
 import java.util.UUID
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -47,6 +54,9 @@ class GlobalSearchOverlayTest {
         songs: List<Track>,
         onQueueArtist: () -> Unit = {},
         onNextAlbum: () -> Unit = {},
+        onNextSong: () -> Unit = {},
+        onQueueSong: () -> Unit = {},
+        includeCollections: Boolean = true,
     ) {
         compose.setContent {
             MeowzixTheme(darkTheme = true) {
@@ -55,8 +65,8 @@ class GlobalSearchOverlayTest {
                     scope = DockSearchScope.GLOBAL,
                     query = "night",
                     libraryResults = songs,
-                    artistResults = listOf(artist),
-                    albumResults = listOf(album),
+                    artistResults = if (includeCollections) listOf(artist) else emptyList(),
+                    albumResults = if (includeCollections) listOf(album) else emptyList(),
                     playlistResults = emptyList(),
                     allPlaylists = emptyList(),
                     libraryAvailability = mapOf(song.id to LibraryTrackAvailability.CLOUD),
@@ -64,8 +74,8 @@ class GlobalSearchOverlayTest {
                     queueState = QueueState(),
                     currentTrackId = null,
                     onPlayLibraryTrack = {},
-                    onPlayNext = {},
-                    onAddToQueue = {},
+                    onPlayNext = { onNextSong() },
+                    onAddToQueue = { onQueueSong() },
                     onPinOffline = {},
                     onRemoveOfflineCopy = {},
                     onRemoveTrack = { _, _, _ -> },
@@ -91,6 +101,39 @@ class GlobalSearchOverlayTest {
         render(songs = listOf(song))
         compose.onNodeWithText("Songs").assertIsDisplayed()
         compose.onNodeWithText("Night Song").assertIsDisplayed()
+    }
+
+    @Test fun matchingSongsAppearEvenWithoutArtistOrAlbumMatches() {
+        render(songs = listOf(song), includeCollections = false)
+        compose.onNodeWithText("Songs").assertIsDisplayed()
+        compose.onNodeWithText("Night Song").assertIsDisplayed()
+    }
+
+    @Test fun songCardsAreInsetInsideTheGlassSearchPanel() {
+        render(songs = listOf(song), includeCollections = false)
+        val panel = compose.onNodeWithTag("global-search-panel").getUnclippedBoundsInRoot()
+        val songRow = compose.onNodeWithTag("global-search-song:${song.id}").getUnclippedBoundsInRoot()
+        assertTrue(songRow.left > panel.left)
+        assertTrue(songRow.right < panel.right)
+    }
+
+    @Test fun songCardsSupportBothSharedSwipeActions() {
+        var next = 0
+        var queued = 0
+        render(
+            songs = listOf(song),
+            includeCollections = false,
+            onNextSong = { next++ },
+            onQueueSong = { queued++ },
+        )
+
+        val songCard = compose.onNodeWithTag("global-search-song:${song.id}")
+        songCard.assertIsDisplayed()
+        songCard.performTouchInput { swipeRight() }
+        compose.runOnIdle { assertEquals(1, next) }
+
+        songCard.performTouchInput { swipeLeft() }
+        compose.runOnIdle { assertEquals(1, queued) }
     }
 
     @Test fun artistsExposeTheSharedQueueActions() {

@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.navigation
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,6 +32,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,6 +46,7 @@ import dev.behradhz.meowzix.domain.playback.QueueItem
 import dev.behradhz.meowzix.domain.playback.QueueState
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TrackArtwork
+import dev.behradhz.meowzix.ui.components.TRACK_ROW_SPACING
 import dev.chrisbanes.haze.HazeState
 import java.util.UUID
 
@@ -108,7 +112,8 @@ internal fun DockSearchOverlay(
         hazeState = hazeState,
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(max = 390.dp),
+            .heightIn(max = 390.dp)
+            .testTag("global-search-panel"),
         shape = RoundedCornerShape(28.dp),
         fallbackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         tint = Color.White.copy(alpha = 0.12f),
@@ -147,30 +152,41 @@ internal fun DockSearchOverlay(
                 } else {
                     GlassLazyColumn(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(TRACK_ROW_SPACING),
                     ) {
                         if (libraryResults.isNotEmpty()) {
                             item(key = "songs-header") { SearchCategoryHeading("Songs") }
                             items(libraryResults, key = { "track:${it.id}" }) { track ->
-                                SwipeableLibraryTrackRow(
-                                    track = track,
-                                    isCurrent = currentTrackId == track.id,
-                                    onClick = { onPlayLibraryTrack(track) },
-                                    onPlayNext = { onPlayNext(track) },
-                                    onAddToQueue = { onAddToQueue(track) },
-                                    onPinOffline = { onPinOffline(track) },
-                                    onRemoveOfflineCopy = { onRemoveOfflineCopy(track) },
-                                    onRemoveTrack = { offline, library -> onRemoveTrack(track, offline, library) },
-                                    availability = libraryAvailability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
-                                    download = downloads[track.id],
-                                    playlists = allPlaylists,
-                                    onFavorite = { onFavorite(track) },
-                                    onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
-                                    onGoToArtist = { onGoToArtist(track) },
-                                    onEnsureArtwork = { onEnsureArtwork(track) },
-                                    onTrackInteracted = { onTrackInteracted(track) },
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
-                                )
+                                // Inset every swipe surface from the glass panel and clip the
+                                // moving card to its own row. The shared track row masks action
+                                // layers against the card's actual rounded silhouette.
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clipToBounds()
+                                        .testTag("global-search-song:${track.id}"),
+                                ) {
+                                    SwipeableLibraryTrackRow(
+                                        track = track,
+                                        isCurrent = currentTrackId == track.id,
+                                        onClick = { onPlayLibraryTrack(track) },
+                                        onPlayNext = { onPlayNext(track) },
+                                        onAddToQueue = { onAddToQueue(track) },
+                                        onPinOffline = { onPinOffline(track) },
+                                        onRemoveOfflineCopy = { onRemoveOfflineCopy(track) },
+                                        onRemoveTrack = { offline, library -> onRemoveTrack(track, offline, library) },
+                                        availability = libraryAvailability[track.id] ?: LibraryTrackAvailability.UNAVAILABLE,
+                                        download = downloads[track.id],
+                                        playlists = allPlaylists,
+                                        onFavorite = { onFavorite(track) },
+                                        onAddToPlaylist = { playlistId -> onAddToPlaylist(track, playlistId) },
+                                        onGoToArtist = { onGoToArtist(track) },
+                                        onEnsureArtwork = { onEnsureArtwork(track) },
+                                        onTrackInteracted = { onTrackInteracted(track) },
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                                    )
+                                }
                             }
                         }
                         if (artistResults.isNotEmpty()) {
