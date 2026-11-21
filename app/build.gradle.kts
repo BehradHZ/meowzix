@@ -151,6 +151,7 @@ dependencies {
     implementation("androidx.media3:media3-session:1.11.1")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("io.github.tdlib-android:core:0.1.0")
+    implementation("com.googlecode.libphonenumber:libphonenumber:9.0.43")
 
     baselineProfile(project(":baselineprofile"))
 

@@ -2,6 +2,9 @@ package dev.behradhz.meowzix.data.telegram
 
 import android.content.Context
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.SystemClock
 import android.os.Build
 import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -37,6 +40,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramMusicSourceState
 import dev.behradhz.meowzix.domain.telegram.TelegramSourceRetry
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramSyncResult
+import dev.behradhz.meowzix.domain.telegram.telegramAuthRecoveryTimeoutMs
 import dev.behradhz.meowzix.domain.telegram.telegramPlaylistId
 import java.io.File
 import java.time.Instant
@@ -85,6 +89,10 @@ class TdLibTelegramRepository @Inject constructor(
     private var clientStartJob: Job? = null
     private var clientCollectors: Job? = null
     private var resetJob: Job? = null
+    private var authRecoveryJob: Job? = null
+    @Volatile private var lastAuthProgressElapsedMs = SystemClock.elapsedRealtime()
+    private var autoRecoveryAttempts = 0
+    private var lastAutoRecoveryElapsedMs = 0L
     private var restartAfterClose = false
     @Volatile private var resettingClient = false
     private var restartAttempts = 0
@@ -183,6 +191,43 @@ class TdLibTelegramRepository @Inject constructor(
             }
         }
     }
+
+    override fun setAuthScreenActive(active: Boolean) {
+        if (!active) {
+            authRecoveryJob?.cancel()
+            authRecoveryJob = null
+            return
+        }
+        if (authRecoveryJob?.isActive == true) return
+        authRecoveryJob = scope.launch {
+            while (true) {
+                delay(10_000L)
+                val state = _authState.value
+                val timeout = telegramAuthRecoveryTimeoutMs(state) ?: continue
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastAuthProgressElapsedMs < timeout) continue
+                // TDLib reconnects itself after normal network loss. Restarting while offline
+                // only destroys pending login requests and creates a reconnect storm.
+                if (!hasValidatedNetwork()) continue
+                if (resetJob?.isActive == true) continue
+                val retryDelayMs = (30_000L * (1L shl autoRecoveryAttempts.coerceAtMost(3)))
+                    .coerceAtMost(240_000L)
+                if (lastAutoRecoveryElapsedMs != 0L &&
+                    now - lastAutoRecoveryElapsedMs < retryDelayMs
+                ) continue
+                lastAutoRecoveryElapsedMs = now
+                autoRecoveryAttempts++
+                resetClient()
+            }
+        }
+    }
+
+    private fun hasValidatedNetwork(): Boolean = runCatching {
+        val manager = context.getSystemService(ConnectivityManager::class.java)
+        val network = manager?.activeNetwork ?: return@runCatching false
+        manager.getNetworkCapabilities(network)
+            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+    }.getOrDefault(false)
 
     override fun refreshProxies() { proxyCoordinator.refresh() }
     override fun addProxy(draft: TelegramProxyDraft) { proxyCoordinator.add(draft) }
@@ -405,6 +450,7 @@ class TdLibTelegramRepository @Inject constructor(
     }
 
     private fun startClient() {
+        lastAuthProgressElapsedMs = SystemClock.elapsedRealtime()
         val apiId = BuildConfig.TELEGRAM_API_ID.toIntOrNull()?.takeIf { it > 0 }
         if (apiId == null || BuildConfig.TELEGRAM_API_HASH.isBlank()) {
             _authState.value = TelegramAuthState(step = TelegramAuthStep.ConfigurationRequired)
@@ -452,6 +498,10 @@ class TdLibTelegramRepository @Inject constructor(
                 }
                 val previous = _authState.value.connectionStatus
                 _authState.update { it.copy(connectionStatus = status) }
+                if (status == TelegramConnectionStatus.CONNECTED && previous != status) {
+                    lastAuthProgressElapsedMs = SystemClock.elapsedRealtime()
+                    autoRecoveryAttempts = 0
+                }
                 if (status == TelegramConnectionStatus.CONNECTED &&
                     previous != TelegramConnectionStatus.CONNECTED &&
                     _authState.value.step == TelegramAuthStep.Ready && currentUserId != null
@@ -485,6 +535,13 @@ class TdLibTelegramRepository @Inject constructor(
             return
         }
         val step = authorizationState.toDomainStep()
+        if (_authState.value.step != step) {
+            lastAuthProgressElapsedMs = SystemClock.elapsedRealtime()
+            if (step is TelegramAuthStep.WaitPhoneNumber ||
+                step is TelegramAuthStep.WaitCode ||
+                step is TelegramAuthStep.Ready
+            ) autoRecoveryAttempts = 0
+        }
         _authState.update { it.copy(step = step, isSubmitting = false, errorMessage = null) }
         when (step) {
             TelegramAuthStep.Ready -> {
@@ -1107,6 +1164,7 @@ class TdLibTelegramRepository @Inject constructor(
             return
         }
         val stepAtRequest = _authState.value.step
+        lastAuthProgressElapsedMs = SystemClock.elapsedRealtime()
         _authState.update { it.copy(isSubmitting = true, errorMessage = null) }
         scope.launch {
             runCatching { activeClient.send(request()) }
