@@ -83,9 +83,11 @@ class ArtworkRepairCoordinator @Inject constructor(
                 }
             }
 
-            // Prefer a Telegram-provided full thumbnail from any occurrence.
-            for (candidate in candidates.distinctBy { it.artworkFileId }) {
-                val fileId = candidate.artworkFileId?.takeIf { it > 0 } ?: continue
+            // Prefer a primary album thumbnail from any occurrence, then TDLib's
+            // external album-cover variants (which are supplied when the file has no embedded art).
+            val artworkFileIds = candidates.mapNotNull { it.artworkFileId } +
+                candidates.flatMap { it.additionalArtworkFileIds }
+            for (fileId in artworkFileIds.distinct().filter { it > 0 }) {
                 val highQualityRef = downloadTelegramArtwork(client, trackId, fileId) ?: continue
                 libraryDao.setArtworkRef(trackId, highQualityRef, Instant.now().toEpochMilli())
                 if (existingIsPreview && existingRef != null) deletePreview(existingRef)
