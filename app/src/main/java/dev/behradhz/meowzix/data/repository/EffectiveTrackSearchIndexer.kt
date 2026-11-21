@@ -27,23 +27,13 @@ class EffectiveTrackSearchIndexer @Inject constructor(
     private val toolsDao: LibraryToolsDao,
 ) {
     private val initializationMutex = Mutex()
-    @Volatile private var fullyNormalized = false
 
-    suspend fun ensureReady() {
-        if (fullyNormalized) return
-        initializationMutex.withLock {
-            if (!fullyNormalized) {
-                refreshAllInternal()
-                fullyNormalized = true
-            }
-        }
-    }
-
+    /**
+     * Explicit index repair only. Search must never call this: FTS is durable and kept
+     * current by database triggers plus targeted refreshes for metadata overrides.
+     */
     suspend fun refreshAll() {
-        initializationMutex.withLock {
-            refreshAllInternal()
-            fullyNormalized = true
-        }
+        initializationMutex.withLock { refreshAllInternal() }
     }
 
     suspend fun refreshTrack(trackId: String) {

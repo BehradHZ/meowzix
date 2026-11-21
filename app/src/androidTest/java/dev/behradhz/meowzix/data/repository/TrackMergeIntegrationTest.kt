@@ -35,7 +35,9 @@ class TrackMergeIntegrationTest {
 
     @Before
     fun setUp() = runTest {
-        db = Room.inMemoryDatabaseBuilder(context, MeowzixDatabase::class.java).build()
+        db = Room.inMemoryDatabaseBuilder(context, MeowzixDatabase::class.java)
+            .addCallback(TRACK_SEARCH_DATABASE_CALLBACK)
+            .build()
         val bus = SmartQueueAdaptationBus()
         feedback = DataStoreRecommendationFeedbackRepository(context, bus)
         feedback.clearAll()
@@ -64,7 +66,7 @@ class TrackMergeIntegrationTest {
             searchIndexer = searchIndexer,
             clock = FixedMergeClock(5_000L),
         )
-        search = LibraryQueryRepository(db.libraryBrowseDao(), db.libraryDao(), searchIndexer)
+        search = LibraryQueryRepository(db.libraryBrowseDao(), db.libraryDao())
         seed()
     }
 

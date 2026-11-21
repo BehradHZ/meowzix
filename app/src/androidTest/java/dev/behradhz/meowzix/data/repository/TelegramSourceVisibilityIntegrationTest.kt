@@ -35,10 +35,7 @@ class TelegramSourceVisibilityIntegrationTest {
     @Before fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         db = Room.inMemoryDatabaseBuilder(context, MeowzixDatabase::class.java).build()
-        library = LibraryQueryRepository(
-            db.libraryBrowseDao(), db.libraryDao(),
-            EffectiveTrackSearchIndexer(db, db.libraryDao(), db.libraryToolsDao()),
-        )
+        library = LibraryQueryRepository(db.libraryBrowseDao(), db.libraryDao())
         paged = PagedLibraryTracks(db.libraryDao(), db.libraryBrowseDao())
     }
 
