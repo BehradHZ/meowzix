@@ -33,6 +33,35 @@ class TelegramAudioMessageMapperTest {
     }
 
     @Test
+    fun `audio exposes external album cover variants`() {
+        val externalThumbnail = TdApi.Thumbnail(
+            TdApi.ThumbnailFormatJpeg(),
+            320,
+            320,
+            TdApi.File(
+                84,
+                0L,
+                0L,
+                TdApi.LocalFile(),
+                TdApi.RemoteFile(),
+            ),
+        )
+        val audio = TdApi.Audio(
+            180,
+            "Track",
+            "Artist",
+            "track.mp3",
+            "audio/mpeg",
+            null,
+            null,
+            arrayOf(externalThumbnail),
+            TdApi.File(),
+        )
+
+        assertEquals(listOf(84), audio.toAudioCandidate(1L).artworkFileIds)
+    }
+
+    @Test
     fun `accepts audio mime types`() {
         assertTrue(isSupportedAudioDocument("audio/mpeg", "anything.bin"))
         assertTrue(isSupportedAudioDocument("audio/flac", null))
