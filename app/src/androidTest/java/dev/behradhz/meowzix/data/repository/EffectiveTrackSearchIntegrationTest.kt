@@ -8,6 +8,7 @@ import dev.behradhz.meowzix.core.common.TextNormalizer
 import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.core.model.TrackSourceType
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
+import dev.behradhz.meowzix.data.db.TRACK_SEARCH_DATABASE_CALLBACK
 import dev.behradhz.meowzix.data.db.TrackEntity
 import dev.behradhz.meowzix.data.db.TrackMetadataOverrideEntity
 import dev.behradhz.meowzix.data.db.TrackSourceEntity
@@ -28,13 +29,46 @@ class EffectiveTrackSearchIntegrationTest {
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(context, MeowzixDatabase::class.java).build()
+        db = Room.inMemoryDatabaseBuilder(context, MeowzixDatabase::class.java)
+            .addCallback(TRACK_SEARCH_DATABASE_CALLBACK)
+            .build()
         indexer = EffectiveTrackSearchIndexer(db, db.libraryDao(), db.libraryToolsDao())
-        repository = LibraryQueryRepository(db.libraryBrowseDao(), db.libraryDao(), indexer)
+        repository = LibraryQueryRepository(db.libraryBrowseDao(), db.libraryDao())
     }
 
     @After
     fun tearDown() = db.close()
+
+    @Test
+    fun coldSearchFindsTriggerIndexedTrackWithoutFullRebuild() = runTest {
+        insertTrack(
+            id = "cccccccc-cccc-cccc-cccc-cccccccccccc",
+            title = "Instant Search",
+            artist = "Fast Artist",
+            album = "Live Index",
+        )
+        // No indexer.refreshAll() call: production trigger should have indexed this row.
+        assertEquals("Instant Search", repository.search("instant").single().title)
+    }
+
+    @Test
+    fun effectiveMetadataSurvivesRepositoryRecreationWithoutRebuild() = runTest {
+        val id = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        insertTrack(id, "Provider song", "Provider artist", "Provider album")
+        db.libraryToolsDao().upsertMetadataOverride(
+            TrackMetadataOverrideEntity(
+                trackId = id,
+                title = "Overridden song",
+                artist = "Effective artist",
+                album = null,
+                artworkRef = null,
+                updatedAtEpochMs = 10L,
+            ),
+        )
+        indexer.refreshTrack(id)
+        val recreated = LibraryQueryRepository(db.libraryBrowseDao(), db.libraryDao())
+        assertEquals("Overridden song", recreated.search("effective artist").single().title)
+    }
 
     @Test
     fun mixedPersianEnglishAndCompoundTitleArtistQueriesUseEffectiveNormalizedIndex() = runTest {

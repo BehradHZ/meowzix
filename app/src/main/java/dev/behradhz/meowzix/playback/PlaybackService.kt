@@ -285,6 +285,7 @@ class PlaybackService : MediaLibraryService() {
     private var missingSourceCheckJob: Job? = null
     private var missingSourceMediaId: String? = null
     private var retryMediaId: String? = null
+    private var retryOccurrenceId: UUID? = null
     private var remoteFallbackMediaId: String? = null
     private var retryCount = 0
     private var isRestoring = true
@@ -685,7 +686,14 @@ class PlaybackService : MediaLibraryService() {
                 startNextQueueCycle()
             }
             if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
-                clearPlaybackRetry()
+                // Replacing a stale URI for the SAME queue occurrence isn't a new
+                // selection: retain its bounded retry budget until audio is ready.
+                if (!keepTelegramPlaybackRetryForOccurrence(
+                        retryMediaId, retryOccurrenceId,
+                        player.currentMediaItem?.mediaId,
+                        player.currentMediaItem?.queueOccurrenceId(),
+                    )
+                ) clearPlaybackRetry()
                 syncLogicalCurrentFromPlayer()
                 expandProgressiveWindow()
                 runCatching { audioVisualizer.analyze(player.currentMediaItem?.localConfiguration?.uri?.toString()) }
@@ -1669,12 +1677,15 @@ class PlaybackService : MediaLibraryService() {
         val mediaId = currentItem?.mediaId
         val uri = currentItem?.localConfiguration?.uri
         val isTelegramStream = uri?.scheme == TDLIB_SCHEME
+        val identityFailure = isTelegramStream && isTelegramIdentityFailure(error)
         Log.w(
             TAG,
             "Media3 failure: ${error.errorCodeName} (${error.errorCode}), source=${uri?.scheme}",
             error,
         )
-        if (isTelegramStream && mediaId != null && uri != null) {
+        // An invalid numeric ID is not evidence that the original message was deleted.
+        // Avoid a redundant GetMessage alongside the targeted identity recovery.
+        if (isTelegramStream && !identityFailure && mediaId != null && uri != null) {
             investigateDeletedTelegramSource(mediaId, uri)
         }
 
@@ -1730,45 +1741,48 @@ class PlaybackService : MediaLibraryService() {
         }
 
         if (isTelegramStream && mediaId != null) {
-            if (retryMediaId != mediaId) {
+            val failedOccurrence = currentItem?.queueOccurrenceId()
+            if (!keepTelegramPlaybackRetryForOccurrence(
+                    retryMediaId, retryOccurrenceId, mediaId, failedOccurrence,
+                )
+            ) {
                 clearPlaybackRetry()
                 retryMediaId = mediaId
+                retryOccurrenceId = failedOccurrence
             }
             if (retryCount < MAX_REMOTE_PLAYBACK_RETRIES) {
                 retryCount += 1
                 val attempt = retryCount
                 val shouldResume = player.playWhenReady
+                val failedUri = uri
+                val resumePositionMs = player.currentPosition.coerceAtLeast(0L)
                 playbackRetryJob?.cancel()
                 Log.w(
                     TAG,
                     "Telegram playback failed for $mediaId; retrying attempt $attempt/$MAX_REMOTE_PLAYBACK_RETRIES",
                     error,
                 )
-                val failedUri = uri
                 playbackRetryJob = serviceScope.launch {
-                    delay(REMOTE_PLAYBACK_RETRY_BASE_DELAY_MS * attempt)
-                    // A source check wins over retrying the same stale Media3 URI.
-                    // If Telegram confirms deletion, the check closes the stream and
-                    // removes the occurrence; no retry may resurrect the old source.
-                    if (missingSourceMediaId == mediaId) {
-                        missingSourceCheckJob?.join()
-                    }
-                    // A new user selection wins over any delayed recovery.
-                    if (player.currentMediaItem?.mediaId != mediaId ||
-                        player.currentMediaItem?.localConfiguration?.uri != failedUri
+                    // Only the identity failure needs an immediate GetFile validation.
+                    // Other transient errors retain their bounded retry backoff.
+                    if (!identityFailure) delay(REMOTE_PLAYBACK_RETRY_BASE_DELAY_MS * attempt)
+                    if (missingSourceMediaId == mediaId) missingSourceCheckJob?.join()
+                    // A new queue occurrence wins even when it references the same song.
+                    if (failedUri == null ||
+                        !isStillFailedSource(mediaId, failedUri, failedOccurrence)
                     ) return@launch
-                    val stillWantsPlayback = player.playWhenReady
                     val trackId = runCatching { UUID.fromString(mediaId) }.getOrNull()
                     val refreshed = trackId?.let { id ->
-                        runCatching { remotePlaybackResolver.prepareForPlayback(id) }
-                            .onFailure { Log.w(TAG, "Unable to refresh Telegram playback source", it) }
+                        runCatching {
+                            if (identityFailure) remotePlaybackResolver.recoverTelegramIdentity(id)
+                            else remotePlaybackResolver.prepareForPlayback(id)
+                        }.onFailure { Log.w(TAG, "Unable to refresh Telegram playback source", it) }
                             .getOrNull()
                     }
-                    if (refreshed != null &&
-                        refreshed.contentUri != failedUri?.toString()
-                    ) {
-                        // A completed download or refreshed Telegram file ID can
-                        // have a different URI than the one cached in Media3.
+                    if (!isStillFailedSource(mediaId, failedUri, failedOccurrence)) return@launch
+                    if (refreshed != null && refreshed.contentUri != failedUri.toString()) {
+                        // Prefer an existing verified local copy. Otherwise refresh only
+                        // the originating Telegram message and its numeric file ID.
                         progressiveQueue.replacePlayableSource(refreshed.id, refreshed)
                         player.replaceMediaItem(
                             player.currentMediaItemIndex,
@@ -1777,9 +1791,11 @@ class PlaybackService : MediaLibraryService() {
                                 player.currentMediaItem?.queueOccurrenceId(),
                             ),
                         )
+                        if (resumePositionMs > 0L) player.seekTo(resumePositionMs)
                     }
-                    // If the URI is still the same, the TDLib data source will
-                    // continue waiting for a readable prefix instead of skipping.
+                    // An unchanged URI may succeed after a transient TDLib state race,
+                    // but cannot spin forever: the retry budget survives replacement.
+                    val stillWantsPlayback = player.playWhenReady
                     player.prepare()
                     if (shouldResume && stillWantsPlayback) player.play()
                 }
@@ -1958,6 +1974,7 @@ class PlaybackService : MediaLibraryService() {
         playbackRetryJob?.cancel()
         playbackRetryJob = null
         retryMediaId = null
+        retryOccurrenceId = null
         retryCount = 0
     }
 

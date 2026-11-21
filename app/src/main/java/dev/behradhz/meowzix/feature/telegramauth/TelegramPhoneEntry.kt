@@ -3,6 +3,7 @@ package dev.behradhz.meowzix.feature.telegramauth
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,7 +14,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
@@ -59,31 +59,32 @@ internal fun TelegramPhoneEntry(
         message = "Choose your country code and enter your phone number to receive a Telegram sign-in code.",
     )
 
-    OutlinedButton(
-        onClick = { countryPickerOpen = true },
-        enabled = enabled,
-        shape = RoundedCornerShape(22.dp),
+    Row(
         modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
-        Text(selected.flag, style = MaterialTheme.typography.titleMedium)
+        OutlinedButton(
+            onClick = { countryPickerOpen = true },
+            enabled = enabled,
+            shape = RoundedCornerShape(22.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            modifier = Modifier.height(56.dp),
+        ) {
+            Text(selected.dialCode, fontWeight = FontWeight.SemiBold)
+        }
         Spacer(Modifier.size(10.dp))
-        Text(selected.name, modifier = Modifier.weight(1f), maxLines = 1)
-        Text(selected.dialCode, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.size(6.dp))
-        Icon(Icons.Rounded.ArrowDropDown, contentDescription = "Choose country")
+        TelegramGlassInput(
+            value = nationalNumber,
+            onValueChange = {
+                onNationalNumberChange(it)
+                invalidPhone = false
+            },
+            label = "Phone number",
+            modifier = Modifier.weight(1f),
+            keyboardType = KeyboardType.Phone,
+            enabled = enabled,
+        )
     }
-    Spacer(Modifier.height(12.dp))
-    TelegramGlassInput(
-        value = nationalNumber,
-        onValueChange = {
-            onNationalNumberChange(it)
-            invalidPhone = false
-        },
-        label = "Phone number (without country code)",
-        modifier = Modifier.fillMaxWidth(),
-        keyboardType = KeyboardType.Phone,
-        enabled = enabled,
-    )
     if (invalidPhone) {
         Text(
             "Enter a valid national phone number for ${selected.name}.",

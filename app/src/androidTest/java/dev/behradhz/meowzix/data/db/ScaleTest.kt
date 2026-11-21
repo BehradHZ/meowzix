@@ -69,21 +69,19 @@ class ScaleTest {
             historyPlan.contains("index_listening_events_occurredAtEpochMs"),
         )
 
-        val library = LibraryQueryRepository(
-            database.libraryBrowseDao(),
-            database.libraryDao(),
-            dev.behradhz.meowzix.data.repository.EffectiveTrackSearchIndexer(
-                database,
-                database.libraryDao(),
-                database.libraryToolsDao(),
-            ),
-        )
-        library.search("needle", limit = 20) // warm statement/cache paths before timing
+        val library = LibraryQueryRepository(database.libraryBrowseDao(), database.libraryDao())
+        // The first user query used to rebuild the entire FTS table before searching.
+        // Guard the cold path, not just the warm statement-cache path.
+        val coldSearchMs = measureMs {
+            val results = library.search("needle", limit = 20)
+            assertTrue(results.any { it.id == trackId(NEEDLE_TRACK_INDEX) })
+        }
+        assertTrue("10k-track cold FTS search took ${coldSearchMs}ms", coldSearchMs < QUERY_BUDGET_MS)
         val searchMs = measureMs {
             val results = library.search("needle", limit = 20)
             assertTrue(results.any { it.id == trackId(NEEDLE_TRACK_INDEX) })
         }
-        assertTrue("10k-track FTS search took ${searchMs}ms", searchMs < QUERY_BUDGET_MS)
+        assertTrue("10k-track warm FTS search took ${searchMs}ms", searchMs < QUERY_BUDGET_MS)
 
         database.historyDao().recentSelectionEvents(100) // warm
         val historyMs = measureMs {

@@ -14,12 +14,21 @@ internal fun userFacingPlaybackError(error: PlaybackException): String =
             .joinToString(" | "),
     )
 
+/** Only these specific TDLib validation failures warrant a targeted identity re-fetch. */
+internal fun isTelegramIdentityFailure(causeMessages: String): Boolean =
+    causeMessages.contains("Telegram audio identity changed", ignoreCase = true) ||
+        causeMessages.contains("Telegram source identity missing", ignoreCase = true)
+
+internal fun isTelegramIdentityFailure(error: PlaybackException): Boolean =
+    generateSequence(error.cause) { it.cause }
+        .mapNotNull { it.message }
+        .any { isTelegramIdentityFailure(it) }
+
 // Keep the policy pure so JVM tests do not need Android's SystemClock used by PlaybackException.
 internal fun userFacingPlaybackError(errorCode: Int, causeMessages: String): String =
     when {
-        causeMessages.contains("identity", ignoreCase = true) ||
-            causeMessages.contains("stable identity", ignoreCase = true) ->
-            "Telegram audio identity changed. Refresh the playlist and try again."
+        isTelegramIdentityFailure(causeMessages) ->
+            "Telegram audio identity couldn't be verified. Try playing the track again."
         causeMessages.contains("not ready", ignoreCase = true) ||
             causeMessages.contains("disconnected", ignoreCase = true) ->
             "Telegram is not connected. Reconnect and try again."

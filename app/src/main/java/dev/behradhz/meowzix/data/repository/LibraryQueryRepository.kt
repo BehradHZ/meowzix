@@ -37,7 +37,6 @@ data class AlbumSummary(
 class LibraryQueryRepository @Inject constructor(
     private val dao: LibraryBrowseDao,
     private val libraryDao: LibraryDao,
-    private val searchIndexer: EffectiveTrackSearchIndexer,
 ) {
     fun managedOfflineTrackIds(): Flow<Set<UUID>> =
         libraryDao.observeManagedOfflineTrackIds().map { ids ->
@@ -46,7 +45,8 @@ class LibraryQueryRepository @Inject constructor(
 
     suspend fun search(query: String, limit: Int = 80): List<Track> {
         val normalized = TextNormalizer.normalize(query) ?: return emptyList()
-        searchIndexer.ensureReady()
+        // The persistent FTS index is backfilled by migration and updated by database
+        // triggers / targeted metadata refreshes. Never rebuild it on the search path.
         val matchExpression = buildTrackFtsMatchExpression(normalized)
         if (matchExpression.isBlank()) return emptyList()
         val safeLimit = limit.coerceIn(1, 200)
