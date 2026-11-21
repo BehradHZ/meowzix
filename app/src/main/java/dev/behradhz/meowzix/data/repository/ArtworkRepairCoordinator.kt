@@ -247,18 +247,18 @@ class ArtworkRepairCoordinator @Inject constructor(
         options.outWidth > 0 && options.outHeight > 0
     }.getOrDefault(false)
 
-    private fun isImage(bytes: ByteArray): Boolean {
-        if (bytes.isEmpty()) return false
+    private fun isImage(bytes: ByteArray): Boolean = runCatching {
+        if (bytes.isEmpty()) return@runCatching false
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-        return options.outWidth > 0 && options.outHeight > 0
-    }
+        options.outWidth > 0 && options.outHeight > 0
+    }.getOrDefault(false)
 
     private fun deletePreview(value: String) {
         runCatching {
             val candidate = Uri.parse(value).path?.let(::File)?.canonicalFile ?: return@runCatching
             val root = previewDirectory.canonicalFile
-            if (candidate.path.startsWith(root.path)) candidate.delete()
+            if (candidate.parentFile == root) candidate.delete()
         }
     }
 
