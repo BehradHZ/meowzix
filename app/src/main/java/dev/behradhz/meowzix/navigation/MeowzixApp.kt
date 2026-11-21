@@ -424,6 +424,8 @@ fun MeowzixApp(
 
     LaunchedEffect(openNowPlayingRequest) {
         if (openNowPlayingRequest) {
+            // Opening the player from a widget must release stale search focus and IME.
+            clearSearchState()
             morphingPlayerState.expand()
             onNowPlayingRequestConsumed()
         }

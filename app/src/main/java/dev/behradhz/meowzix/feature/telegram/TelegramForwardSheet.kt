@@ -1,5 +1,13 @@
 package dev.behradhz.meowzix.feature.telegram
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -28,6 +36,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -74,6 +83,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import dev.behradhz.meowzix.R
 import androidx.compose.ui.text.font.FontWeight
@@ -102,6 +112,15 @@ import dev.chrisbanes.haze.rememberHazeState
 import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private const val ForwardFolderSlideDurationMs = 165
+private const val ForwardFolderFadeDurationMs = 125
+
+/** "All" comes first; the remaining tabs follow their visible Telegram folder order. */
+internal fun forwardFolderSlideDirection(fromId: Int?, toId: Int?, folderIds: List<Int>): Int {
+    fun position(id: Int?) = if (id == null) 0 else (folderIds.indexOf(id) + 1).coerceAtLeast(0)
+    return if (position(toId) >= position(fromId)) 1 else -1
+}
 
 private val TelegramGlass: Color
     @Composable get() = TelegramGlassChrome.base
@@ -331,7 +350,6 @@ private fun ForwardPickerBody(
     }
 
     var selectedFolderId by rememberSaveable(trackId.toString()) { mutableStateOf<Int?>(null) }
-    val activeFolder = folders.firstOrNull { it.id == selectedFolderId }
     val appContext = LocalContext.current.applicationContext
     val repository: TelegramForwardRepository = remember(appContext) {
         EntryPointAccessors.fromApplication(
@@ -339,40 +357,6 @@ private fun ForwardPickerBody(
             TelegramForwardSheetEntryPoint::class.java,
         ).telegramForwardRepository()
     }
-    var folderRetryKey by remember(trackId, selectedFolderId) { mutableIntStateOf(0) }
-    var loadedFolderChats by remember(trackId, selectedFolderId, folderRefreshGeneration, folderRetryKey) {
-        mutableStateOf(
-            if (folderRetryKey == 0) selectedFolderId?.let(repository::cachedForwardFolderChats)
-            else null
-        )
-    }
-    var folderLoadError by remember(trackId, selectedFolderId, folderRefreshGeneration, folderRetryKey) {
-        mutableStateOf(false)
-    }
-    var folderLoadComplete by remember(trackId, selectedFolderId, folderRefreshGeneration, folderRetryKey) {
-        mutableStateOf(loadedFolderChats != null)
-    }
-    LaunchedEffect(trackId, activeFolder?.id, folderRefreshGeneration, folderRetryKey) {
-        val folderId = activeFolder?.id ?: return@LaunchedEffect
-        try {
-            repository.streamForwardFolderChats(folderId).collect { batch ->
-                loadedFolderChats = batch
-                folderLoadError = false
-            }
-            folderLoadComplete = true
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            folderLoadError = true
-            folderLoadComplete = true
-        }
-    }
-    val folderLoading = activeFolder != null && loadedFolderChats == null && !folderLoadError
-    val visibleChats = visibleForwardChats(
-        chats,
-        activeFolder?.copy(chats = loadedFolderChats.orEmpty()),
-        query,
-    )
     val sendJobs by repository.sendJobs.collectAsState(initial = emptyList())
     var sentVisibilityClockMs by remember(trackId) { mutableStateOf(System.currentTimeMillis()) }
 
@@ -406,6 +390,7 @@ private fun ForwardPickerBody(
     val sheetShape = if (floatingOverlay) RoundedCornerShape(28.dp)
         else RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp)
     val exitFrame = forwardPanelExitFrame(exitProgress.value)
+    val folderSlideDistancePx = with(LocalDensity.current) { 20.dp.roundToPx() }
 
     val body: @Composable () -> Unit = {
         GlassSurface(
@@ -445,7 +430,7 @@ private fun ForwardPickerBody(
                     .fillMaxSize()
                     .background(TelegramGlassChrome.backdrop),
             ) {
-                ForwardPanelLayout(
+                ForwardPanelScaffold(
                     modifier = Modifier.fillMaxSize(),
                     header = {
                 if (!floatingOverlay) {
@@ -541,7 +526,7 @@ private fun ForwardPickerBody(
                 // Keep folder tabs on their own row, with the full available width.
                 ForwardFolderNavigation(
                     folders = folders,
-                    selectedFolderId = activeFolder?.id,
+                    selectedFolderId = selectedFolderId,
                     loading = foldersLoading,
                     onSelectFolder = { selectedFolderId = it },
                 )
@@ -562,122 +547,186 @@ private fun ForwardPickerBody(
                 }
                 Spacer(Modifier.height(10.dp))
                     },
-                    listContent = {
-                        // Send status and transient errors scroll with destinations so they
-                        // cannot crowd the permanently visible sharing controls.
-                        if (trackJobs.isNotEmpty()) {
-                            item(key = "send-statuses") {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    trackJobs.forEach { job ->
-                                        TelegramSendStatusCard(
-                                            hazeState = hazeState,
-                                            job = job,
-                                            onRetry = {
-                                                scope.launch {
-                                                    actionError = runCatching { repository.retrySend(job.id) }
-                                                        .exceptionOrNull()?.message
-                                                }
-                                            },
-                                            onCancel = {
-                                                scope.launch {
-                                                    actionError = runCatching { repository.cancelSend(job.id) }
-                                                        .exceptionOrNull()?.message
-                                                }
-                                            },
+                    destinations = {
+                        AnimatedContent(
+                            targetState = selectedFolderId,
+                            modifier = Modifier.fillMaxSize().clipToBounds()
+                                .testTag("telegram-forward-folder-pages"),
+                            transitionSpec = {
+                                if (reduceMotion) {
+                                    EnterTransition.None togetherWith ExitTransition.None
+                                } else {
+                                    val direction = forwardFolderSlideDirection(
+                                        initialState, targetState, folders.map { it.id },
+                                    )
+                                    (slideInHorizontally(
+                                        animationSpec = tween(ForwardFolderSlideDurationMs, easing = FastOutSlowInEasing),
+                                        initialOffsetX = { direction * folderSlideDistancePx },
+                                    ) + fadeIn(animationSpec = tween(ForwardFolderFadeDurationMs))) togetherWith
+                                        (slideOutHorizontally(
+                                            animationSpec = tween(ForwardFolderSlideDurationMs, easing = FastOutSlowInEasing),
+                                            targetOffsetX = { -direction * folderSlideDistancePx },
+                                        ) + fadeOut(animationSpec = tween(ForwardFolderFadeDurationMs)))
+                                }
+                            },
+                            label = "telegram-forward-folder-transition",
+                        ) { pageFolderId ->
+                            val activeFolder = folders.firstOrNull { it.id == pageFolderId }
+                            var folderRetryKey by remember(trackId, pageFolderId) { mutableIntStateOf(0) }
+                            var loadedFolderChats by remember(trackId, pageFolderId, folderRefreshGeneration, folderRetryKey) {
+                                mutableStateOf(
+                                    if (folderRetryKey == 0) pageFolderId?.let(repository::cachedForwardFolderChats)
+                                    else null
+                                )
+                            }
+                            var folderLoadError by remember(trackId, pageFolderId, folderRefreshGeneration, folderRetryKey) {
+                                mutableStateOf(false)
+                            }
+                            var folderLoadComplete by remember(trackId, pageFolderId, folderRefreshGeneration, folderRetryKey) {
+                                mutableStateOf(loadedFolderChats != null)
+                            }
+                            LaunchedEffect(trackId, activeFolder?.id, folderRefreshGeneration, folderRetryKey) {
+                                val folderId = activeFolder?.id ?: return@LaunchedEffect
+                                try {
+                                    repository.streamForwardFolderChats(folderId).collect { batch ->
+                                        loadedFolderChats = batch
+                                        folderLoadError = false
+                                    }
+                                    folderLoadComplete = true
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    folderLoadError = true
+                                    folderLoadComplete = true
+                                }
+                            }
+                            val folderLoading = activeFolder != null && loadedFolderChats == null && !folderLoadError
+                            val visibleChats = visibleForwardChats(
+                                chats,
+                                activeFolder?.copy(chats = loadedFolderChats.orEmpty()),
+                                query,
+                            )
+                            GlassLazyColumn(
+                                modifier = Modifier.fillMaxSize().testTag("telegram-forward-list"),
+                                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 22.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                // Send status and transient errors scroll with destinations so they
+                                // cannot crowd the permanently visible sharing controls.
+                                if (trackJobs.isNotEmpty()) {
+                                    item(key = "send-statuses") {
+                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            trackJobs.forEach { job ->
+                                                TelegramSendStatusCard(
+                                                    hazeState = hazeState,
+                                                    job = job,
+                                                    onRetry = {
+                                                        scope.launch {
+                                                            actionError = runCatching { repository.retrySend(job.id) }
+                                                                .exceptionOrNull()?.message
+                                                        }
+                                                    },
+                                                    onCancel = {
+                                                        scope.launch {
+                                                            actionError = runCatching { repository.cancelSend(job.id) }
+                                                                .exceptionOrNull()?.message
+                                                        }
+                                                    },
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                val visibleMessage = actionError ?: errorMessage
+                                if (!visibleMessage.isNullOrBlank()) {
+                                    item(key = "forward-message") {
+                                        val informational = visibleMessage.startsWith("Already", ignoreCase = true) ||
+                                            visibleMessage.startsWith("Added", ignoreCase = true)
+                                        Surface(
+                                            shape = RoundedCornerShape(18.dp),
+                                            color = if (informational) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                else MaterialTheme.colorScheme.error.copy(alpha = 0.13f),
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Text(
+                                                visibleMessage,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = if (informational) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            when {
+                                (folderLoading || (isSearching && activeFolder == null)) && visibleChats.isEmpty() -> item(key = "loading") {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().height(150.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+                                    }
+                                }
+                                visibleChats.isEmpty() -> item(key = "empty") {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().height(130.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            if (folderLoadError) "Couldn't load this folder yet."
+                                            else if (activeFolder != null && query.isBlank()) "This folder is empty."
+                                            else if (activeFolder != null) "No matching chats in ${activeFolder.title}."
+                                            else if (query.isBlank()) "No Telegram chats available."
+                                            else "No chats match your search.",
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
                                         )
                                     }
                                 }
-                            }
-                        }
-
-                        val visibleMessage = actionError ?: errorMessage
-                        if (!visibleMessage.isNullOrBlank()) {
-                            item(key = "forward-message") {
-                                val informational = visibleMessage.startsWith("Already", ignoreCase = true) ||
-                                    visibleMessage.startsWith("Added", ignoreCase = true)
-                                Surface(
-                                    shape = RoundedCornerShape(18.dp),
-                                    color = if (informational) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                        else MaterialTheme.colorScheme.error.copy(alpha = 0.13f),
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text(
-                                        visibleMessage,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (informational) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                else -> items(visibleChats, key = { "chat:${it.chatId}" }) { chat ->
+                                    val latestJob = trackJobs.firstOrNull {
+                                        it.targetChatId == chat.chatId && it.state != TelegramSendState.CANCELED
+                                    }
+                                    TelegramDestinationRow(
+                                        chat = chat,
+                                        job = latestJob,
+                                        repository = repository,
+                                        onClick = {
+                                            if (isSending) return@TelegramDestinationRow
+                                            actionError = null
+                                            onForward(
+                                                chat.chatId,
+                                                TelegramForwardOptions(
+                                                    includeSourceAttribution = includeSourceAttribution,
+                                                    keepCaption = keepCaption,
+                                                ),
+                                                rememberDefaults,
+                                            )
+                                        },
                                     )
                                 }
                             }
-                        }
-                    when {
-                        (folderLoading || (isSearching && activeFolder == null)) && visibleChats.isEmpty() -> item(key = "loading") {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().height(150.dp),
-                                contentAlignment = Alignment.Center,
+                            if (activeFolder != null && folderLoadError) {
+                                item(key = "folder-retry") {
+                                    TextButton(onClick = { folderRetryKey++ }) {
+                                        Icon(Icons.Rounded.Refresh, contentDescription = null)
+                                        Text("Retry loading folder")
+                                    }
+                                }
+                            }
+                            if (activeFolder != null && loadedFolderChats?.isNotEmpty() == true &&
+                                !folderLoadComplete && !folderLoadError
                             ) {
-                                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
-                            }
-                        }
-                        visibleChats.isEmpty() -> item(key = "empty") {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().height(130.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    if (folderLoadError) "Couldn't load this folder yet."
-                                    else if (activeFolder != null && query.isBlank()) "This folder is empty."
-                                    else if (activeFolder != null) "No matching chats in ${activeFolder.title}."
-                                    else if (query.isBlank()) "No Telegram chats available."
-                                    else "No chats match your search.",
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
-                                )
-                            }
-                        }
-                        else -> items(visibleChats, key = { "chat:${it.chatId}" }) { chat ->
-                            val latestJob = trackJobs.firstOrNull {
-                                it.targetChatId == chat.chatId && it.state != TelegramSendState.CANCELED
-                            }
-                            TelegramDestinationRow(
-                                chat = chat,
-                                job = latestJob,
-                                repository = repository,
-                                onClick = {
-                                    if (isSending) return@TelegramDestinationRow
-                                    actionError = null
-                                    onForward(
-                                        chat.chatId,
-                                        TelegramForwardOptions(
-                                            includeSourceAttribution = includeSourceAttribution,
-                                            keepCaption = keepCaption,
-                                        ),
-                                        rememberDefaults,
+                                item(key = "folder-more-loading") {
+                                    Text(
+                                        "Loading more chats…",
+                                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall,
                                     )
-                                },
-                            )
-                        }
-                    }
-                    if (activeFolder != null && folderLoadError) {
-                        item(key = "folder-retry") {
-                            TextButton(onClick = { folderRetryKey++ }) {
-                                Icon(Icons.Rounded.Refresh, contentDescription = null)
-                                Text("Retry loading folder")
+                                }
+                            }
+                            item(key = "bottom-clearance") { Spacer(Modifier.height(8.dp)) }
                             }
                         }
-                    }
-                    if (activeFolder != null && loadedFolderChats?.isNotEmpty() == true &&
-                        !folderLoadComplete && !folderLoadError
-                    ) {
-                        item(key = "folder-more-loading") {
-                            Text(
-                                "Loading more chats…",
-                                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
-                    }
-                    item(key = "bottom-clearance") { Spacer(Modifier.height(8.dp)) }
                     },
                 )
             }
@@ -785,11 +834,12 @@ internal fun ForwardSearchToolbar(
     }
 }
 
+/** Header stays fixed while destination pages slide beneath it. */
 @Composable
-internal fun ForwardPanelLayout(
+internal fun ForwardPanelScaffold(
     modifier: Modifier = Modifier,
     header: @Composable ColumnScope.() -> Unit,
-    listContent: LazyListScope.() -> Unit,
+    destinations: @Composable () -> Unit,
 ) {
     Column(modifier) {
         Column(
@@ -797,10 +847,20 @@ internal fun ForwardPanelLayout(
                 .padding(start = 18.dp, end = 18.dp, top = 14.dp)
                 .testTag("telegram-forward-header"),
         ) { header() }
+        Box(Modifier.fillMaxWidth().weight(1f)) { destinations() }
+    }
+}
+
+/** Stable header and scrollable list, also used by existing layout tests. */
+@Composable
+internal fun ForwardPanelLayout(
+    modifier: Modifier = Modifier,
+    header: @Composable ColumnScope.() -> Unit,
+    listContent: LazyListScope.() -> Unit,
+) {
+    ForwardPanelScaffold(modifier, header) {
         GlassLazyColumn(
-            modifier = Modifier.fillMaxWidth()
-                .weight(1f)
-                .testTag("telegram-forward-list"),
+            modifier = Modifier.fillMaxSize().testTag("telegram-forward-list"),
             contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 22.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
             content = listContent,
