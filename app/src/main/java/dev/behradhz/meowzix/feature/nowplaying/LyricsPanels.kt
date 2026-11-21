@@ -528,6 +528,7 @@ internal fun lyricLineOpacity(index: Int, activeIndex: Int, browsingReveal: Floa
 internal fun lyricLineBlur(index: Int, activeIndex: Int, browsingReveal: Float = 0f): Float {
     val syncBlur = when {
         activeIndex < 0 -> 0f
+        index == activeIndex -> 0f
         abs(index - activeIndex) == 1 -> 0.8f
         abs(index - activeIndex) == 2 -> 1.6f
         else -> 2.4f
