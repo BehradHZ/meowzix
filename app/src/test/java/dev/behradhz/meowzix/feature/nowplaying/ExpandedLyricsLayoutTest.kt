@@ -73,7 +73,9 @@ class ExpandedLyricsLayoutTest {
         assertEquals(0.70f, lyricLineOpacity(0, -1))
         assertEquals(0f, lyricLineBlur(3, 3))
         assertEquals(0.8f, lyricLineBlur(2, 3))
+        assertEquals(0.8f, lyricLineBlur(4, 3))
         assertEquals(1.6f, lyricLineBlur(1, 3))
+        assertEquals(1.6f, lyricLineBlur(5, 3))
         assertEquals(2.4f, lyricLineBlur(0, 3))
     }
 }
