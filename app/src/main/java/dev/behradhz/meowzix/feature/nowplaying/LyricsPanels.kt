@@ -541,6 +541,6 @@ internal fun compactPreviewLineIndices(activeIndex: Int): List<Int> =
     if (activeIndex < 0) listOf(0, 1, 2)
     else listOf(activeIndex - 1, activeIndex, activeIndex + 1)
 
-/** Keep one preceding lyric row above the synchronized row whenever it exists. */
+/** Target the row immediately before the synchronized line; LazyColumn clamps at the list end. */
 internal fun firstVisibleLyricsIndexForSync(activeIndex: Int): Int =
     (activeIndex - 1).coerceAtLeast(0)
