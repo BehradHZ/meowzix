@@ -395,7 +395,7 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                 val current = libraryDao.trackById(trackId.toString())?.artworkRef
                 if (!current.isNullOrBlank() && !current.contains("/artwork-preview/")) return@runCatching
                 val client = TdLibClientAdapter.activeOrNull() ?: return@runCatching
-                val candidate = if (source.candidate.artworkFileId != null) {
+                val candidate = if (source.candidate.artworkFileIds.isNotEmpty()) {
                     source.candidate
                 } else {
                     val accountId = telegramRepository.musicSourceState.value.accountId ?: return@runCatching
@@ -422,43 +422,49 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
         val current = libraryDao.trackById(trackIdString)?.artworkRef
         if (!current.isNullOrBlank() && !current.contains("/artwork-preview/")) return current
 
-        val artworkFileId = candidate.artworkFileId ?: return current
-        val downloaded = runCatching {
-            client.send(
-                TdApi.DownloadFile(
-                    artworkFileId,
-                    TdDownloadPriority.VISIBLE_ARTWORK,
-                    0L,
-                    0L,
-                    true,
-                ),
-            )
-        }.getOrNull() ?: return current
-        val sourcePath = downloaded.local.path.takeIf {
-            downloaded.local.isDownloadingCompleted && it.isNotBlank()
-        } ?: return current
-        val sourceFile = File(sourcePath).takeIf(File::isFile) ?: return current
+        val artworkFileIds = candidate.artworkFileIds
+        if (artworkFileIds.isEmpty()) return current
 
         artworkDirectory.mkdirs()
         val artworkFile = File(artworkDirectory, "$trackId.artwork")
         val partial = File(artworkDirectory, "$trackId.artwork.part")
-        return runCatching {
-            sourceFile.inputStream().buffered().use { input ->
-                partial.outputStream().buffered().use(input::copyTo)
-            }
-            if (artworkFile.exists() && !artworkFile.delete()) {
-                error("Unable to replace cached artwork")
-            }
-            if (!partial.renameTo(artworkFile)) {
-                error("Unable to finalize cached artwork")
-            }
-            val uri = Uri.fromFile(artworkFile).toString()
-            libraryDao.setArtworkRef(trackIdString, uri, Instant.now().toEpochMilli())
-            uri
-        }.getOrElse {
-            partial.delete()
-            current
+        for (artworkFileId in artworkFileIds) {
+            val downloaded = runCatching {
+                client.send(
+                    TdApi.DownloadFile(
+                        artworkFileId,
+                        TdDownloadPriority.VISIBLE_ARTWORK,
+                        0L,
+                        0L,
+                        true,
+                    ),
+                )
+            }.getOrNull() ?: continue
+            val sourcePath = downloaded.local.path.takeIf {
+                downloaded.local.isDownloadingCompleted && it.isNotBlank()
+            } ?: continue
+            val sourceFile = File(sourcePath).takeIf(File::isFile) ?: continue
+
+            val uri = runCatching {
+                sourceFile.inputStream().buffered().use { input ->
+                    partial.outputStream().buffered().use(input::copyTo)
+                }
+                if (artworkFile.exists() && !artworkFile.delete()) {
+                    error("Unable to replace cached artwork")
+                }
+                if (!partial.renameTo(artworkFile)) {
+                    error("Unable to finalize cached artwork")
+                }
+                Uri.fromFile(artworkFile).toString().also { ref ->
+                    libraryDao.setArtworkRef(trackIdString, ref, Instant.now().toEpochMilli())
+                }
+            }.getOrElse {
+                partial.delete()
+                null
+            } ?: continue
+            return uri
         }
+        return current
     }
 
     private data class ResolvedTelegramSource(

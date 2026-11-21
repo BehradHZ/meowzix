@@ -13,14 +13,14 @@ class ExpandedLyricsLayoutTest {
         assertEquals(listOf(2, 3, 4), compactPreviewLineIndices(3))
     }
 
-    @Test fun synchronizedLineIsTheFourthVisibleRowWheneverThreePreviousLinesExist() {
+    @Test fun synchronizedLineIsTheSecondVisibleRowWheneverAPreviousLineExists() {
         assertEquals(0, firstVisibleLyricsIndexForSync(-1))
         assertEquals(0, firstVisibleLyricsIndexForSync(0))
         assertEquals(0, firstVisibleLyricsIndexForSync(1))
-        assertEquals(0, firstVisibleLyricsIndexForSync(2))
-        assertEquals(0, firstVisibleLyricsIndexForSync(3))
-        assertEquals(1, firstVisibleLyricsIndexForSync(4))
-        assertEquals(7, firstVisibleLyricsIndexForSync(10))
+        assertEquals(1, firstVisibleLyricsIndexForSync(2))
+        assertEquals(2, firstVisibleLyricsIndexForSync(3))
+        assertEquals(3, firstVisibleLyricsIndexForSync(4))
+        assertEquals(9, firstVisibleLyricsIndexForSync(10))
     }
 
     @Test fun morphKeepsOneFullSizeHeroAndEndsInARealCompactHeader() {
@@ -43,11 +43,11 @@ class ExpandedLyricsLayoutTest {
         assertEquals(1f, lyricLineOpacity(3, 3, 1f))
         assertEquals(0f, lyricLineBlur(3, 3, 1f))
 
-        assertEquals(0.38f, lyricLineOpacity(1, 3, 0f))
-        assertEquals(0.69f, lyricLineOpacity(1, 3, 0.5f), 0.0001f)
+        assertEquals(0.30f, lyricLineOpacity(1, 3, 0f))
+        assertEquals(0.65f, lyricLineOpacity(1, 3, 0.5f), 0.0001f)
         assertEquals(1f, lyricLineOpacity(1, 3, 1f))
-        assertEquals(1.2f, lyricLineBlur(1, 3, 0f))
-        assertEquals(0.6f, lyricLineBlur(1, 3, 0.5f), 0.0001f)
+        assertEquals(1.6f, lyricLineBlur(1, 3, 0f))
+        assertEquals(0.8f, lyricLineBlur(1, 3, 0.5f), 0.0001f)
         assertEquals(0f, lyricLineBlur(1, 3, 1f))
     }
 
@@ -72,8 +72,10 @@ class ExpandedLyricsLayoutTest {
         assertTrue(opacities[1] > opacities[0])
         assertEquals(0.70f, lyricLineOpacity(0, -1))
         assertEquals(0f, lyricLineBlur(3, 3))
-        assertEquals(0f, lyricLineBlur(2, 3))
-        assertEquals(1.2f, lyricLineBlur(1, 3))
-        assertEquals(2f, lyricLineBlur(0, 3))
+        assertEquals(0.8f, lyricLineBlur(2, 3))
+        assertEquals(0.8f, lyricLineBlur(4, 3))
+        assertEquals(1.6f, lyricLineBlur(1, 3))
+        assertEquals(1.6f, lyricLineBlur(5, 3))
+        assertEquals(2.4f, lyricLineBlur(0, 3))
     }
 }

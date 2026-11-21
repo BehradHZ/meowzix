@@ -1,10 +1,73 @@
 package dev.behradhz.meowzix.data.telegram
 
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.drinkless.tdlib.TdApi
 
 class TelegramAudioMessageMapperTest {
+    @Test
+    fun `document thumbnail metadata is available to artwork repair`() {
+        val minithumbnailBytes = byteArrayOf(1, 2, 3, 4)
+        val thumbnailFile = TdApi.File(
+            42,
+            0L,
+            0L,
+            TdApi.LocalFile(),
+            TdApi.RemoteFile(),
+        )
+        val document = TdApi.Document(
+            "track.mp3",
+            "audio/mpeg",
+            TdApi.Minithumbnail(40, 40, minithumbnailBytes),
+            TdApi.Thumbnail(TdApi.ThumbnailFormatJpeg(), 320, 320, thumbnailFile),
+            TdApi.File(),
+        )
+
+        val artwork = document.toArtworkMetadata()
+
+        assertArrayEquals(minithumbnailBytes, artwork.minithumbnail)
+        assertEquals(42, artwork.thumbnailFileId)
+    }
+
+    @Test
+    fun `audio exposes external album cover variants`() {
+        val externalThumbnail = TdApi.Thumbnail(
+            TdApi.ThumbnailFormatJpeg(),
+            320,
+            320,
+            TdApi.File(
+                84,
+                0L,
+                0L,
+                TdApi.LocalFile(),
+                TdApi.RemoteFile(),
+            ),
+        )
+        val audioFile = TdApi.File(
+            85,
+            0L,
+            0L,
+            TdApi.LocalFile(),
+            TdApi.RemoteFile(),
+        )
+        val audio = TdApi.Audio(
+            180,
+            "Track",
+            "Artist",
+            "track.mp3",
+            "audio/mpeg",
+            null,
+            null,
+            arrayOf(externalThumbnail),
+            audioFile,
+        )
+
+        assertEquals(listOf(84), audio.toAudioCandidate(1L).artworkFileIds)
+    }
+
     @Test
     fun `accepts audio mime types`() {
         assertTrue(isSupportedAudioDocument("audio/mpeg", "anything.bin"))

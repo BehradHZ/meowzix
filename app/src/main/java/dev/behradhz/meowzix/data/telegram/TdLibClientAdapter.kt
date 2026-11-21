@@ -2,6 +2,7 @@ package dev.behradhz.meowzix.data.telegram
 
 import dev.behradhz.meowzix.data.downloads.ProcessTransferBudget
 import dev.behradhz.meowzix.data.downloads.TransferPriority
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -10,7 +11,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import org.drinkless.tdlib.Client
@@ -97,8 +97,7 @@ class TdLibClientAdapter {
                 physicalKey = key,
                 priority = transferPriority(function.priority),
                 begin = {
-                    val lock = target.downloadCommandLocks[(request.fileId and Int.MAX_VALUE) % target.downloadCommandLocks.size]
-                    lock.withLock {
+                    target.downloadCommandLock(request.fileId).withLock {
                         target.sendDirect(request).also(target.fileStates::publish)
                     }
                 },
@@ -110,8 +109,86 @@ class TdLibClientAdapter {
             @Suppress("UNCHECKED_CAST")
             return result as R
         }
+        if (function is TdApi.CancelDownloadFile) {
+            return target.downloadCommandLock(function.fileId).withLock {
+                target.sendDirect(function)
+            }
+        }
+        if (function is TdApi.DeleteFile) {
+            return target.downloadCommandLock(function.fileId).withLock {
+                target.sendDirect(function)
+            }
+        }
         return target.sendDirect(function)
     }
+
+    /**
+     * Cancel and restart a stalled transfer under the same per-file command lock used by normal
+     * DownloadFile/CancelDownloadFile calls. Keep the earliest known range so a seek recovery cannot
+     * replace a concurrent full offline download with a later byte range.
+     */
+    internal suspend fun restartDownload(
+        fileId: Int,
+        priority: Int,
+        offset: Long,
+        limit: Long = 0L,
+        expectedUniqueId: String? = null,
+    ): TdApi.File {
+        val target = activeInstance?.takeIf { it !== this } ?: this
+        val key = "td-restart:$fileId:$offset:$limit:${expectedUniqueId.orEmpty()}"
+        return ProcessTransferBudget.scheduler.run(key, transferPriority(priority)) {
+            target.downloadCommandLock(fileId).withLock {
+                fun verifyIdentity(file: TdApi.File) {
+                    if (!expectedUniqueId.isNullOrBlank() &&
+                        !matchesTelegramFileIdentity(expectedUniqueId, file.remote.uniqueId)
+                    ) {
+                        throw IOException("Telegram audio identity changed; refresh the source before playback")
+                    }
+                }
+
+                val before = target.sendDirect(TdApi.GetFile(fileId))
+                verifyIdentity(before)
+                target.fileStates.publish(before)
+                if (before.local.isDownloadingCompleted) return@withLock before
+
+                val hadExistingRange = before.local.isDownloadingActive || before.local.downloadedSize > 0
+                var restartOffset = if (hadExistingRange) {
+                    minOf(offset.coerceAtLeast(0L), before.local.downloadOffset.coerceAtLeast(0L))
+                } else {
+                    offset.coerceAtLeast(0L)
+                }
+                try {
+                    target.sendDirect(TdApi.CancelDownloadFile(fileId, false))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Cancellation can race with a transfer that just stopped on its own.
+                }
+
+                val refreshed = target.sendDirect(TdApi.GetFile(fileId))
+                verifyIdentity(refreshed)
+                target.fileStates.publish(refreshed)
+                if (refreshed.local.isDownloadingCompleted) return@withLock refreshed
+                if (refreshed.local.isDownloadingActive || refreshed.local.downloadedSize > 0) {
+                    restartOffset = minOf(restartOffset, refreshed.local.downloadOffset.coerceAtLeast(0L))
+                }
+
+                target.sendDirect(
+                    TdApi.DownloadFile(fileId, priority, restartOffset, limit, false),
+                ).also(target.fileStates::publish)
+            }
+        }
+    }
+
+    internal suspend fun cancelDownload(fileId: Int) {
+        val target = activeInstance?.takeIf { it !== this } ?: this
+        target.downloadCommandLock(fileId).withLock {
+            target.sendDirect(TdApi.CancelDownloadFile(fileId, false))
+        }
+    }
+
+    private fun downloadCommandLock(fileId: Int): Mutex =
+        downloadCommandLocks[(fileId and Int.MAX_VALUE) % downloadCommandLocks.size]
 
     /**
      * Emulate synchronous DownloadFile without monopolizing the process-wide
@@ -131,29 +208,60 @@ class TdLibClientAdapter {
         )
 
         var current = initial
-        var lastProgress = initial.local.downloadedSize.toLong()
-        var stalledIntervals = 0
+        var recoveryAttempts = 0
+        val watchdog = TdDownloadProgressWatchdog()
+        watchdog.reset(
+            initial.local.downloadedSize.toLong(),
+            initial.readableEndAt(request.offset),
+            System.nanoTime() / 1_000_000L,
+        )
+
         while (true) {
             if (ready(current)) return current
-            val previousProgress = lastProgress
             val next = withTimeoutOrNull(DOWNLOAD_UPDATE_WAIT_MS) {
-                fileStates.observe(request.fileId).first { file ->
-                    ready(file) ||
-                        file.local.downloadedSize.toLong() > previousProgress ||
-                        (!file.local.isDownloadingActive && file !== current)
-                }
+                fileStates.awaitProgressOrReadable(
+                    request.fileId,
+                    current,
+                )
             }
             current = next ?: refreshFileState(request.fileId)
             if (ready(current)) return current
-            if (!current.local.isDownloadingActive) {
-                throw IOException("Telegram download stopped before the requested bytes were available")
-            }
-            val progress = current.local.downloadedSize.toLong()
-            if (progress > lastProgress) {
-                lastProgress = progress
-                stalledIntervals = 0
-            } else if (++stalledIntervals >= MAX_STALLED_DOWNLOAD_INTERVALS) {
-                throw IOException("Telegram download stalled while waiting for audio bytes")
+
+            val nowMs = System.nanoTime() / 1_000_000L
+            when (watchdog.observe(
+                current.local.downloadedSize.toLong(),
+                current.readableEndAt(request.offset),
+                nowMs,
+            )) {
+                TdDownloadProgressState.PROGRESSED -> recoveryAttempts = 0
+                TdDownloadProgressState.STALLED -> {
+                    if (recoveryAttempts >= TD_DOWNLOAD_MAX_RECOVERIES) {
+                        try {
+                            cancelDownload(request.fileId)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Preserve the original timeout as the actionable failure.
+                        }
+                        throw IOException("Telegram download stalled after recovery attempts")
+                    }
+                    current = restartDownload(
+                        fileId = request.fileId,
+                        priority = request.priority,
+                        offset = request.offset,
+                        limit = request.limit,
+                        expectedUniqueId = initial.remote.uniqueId,
+                    )
+                    recoveryAttempts += 1
+                    watchdog.reset(
+                        current.local.downloadedSize.toLong(),
+                        current.readableEndAt(request.offset),
+                        System.nanoTime() / 1_000_000L,
+                    )
+                }
+                TdDownloadProgressState.INITIAL,
+                TdDownloadProgressState.WAITING,
+                -> Unit
             }
         }
     }
@@ -203,8 +311,7 @@ class TdLibClientAdapter {
     }
 
     companion object {
-        private const val DOWNLOAD_UPDATE_WAIT_MS = 15_000L
-        private const val MAX_STALLED_DOWNLOAD_INTERVALS = 4
+        private const val DOWNLOAD_UPDATE_WAIT_MS = 5_000L
         private val globalUpdateChannel = MutableSharedFlow<TdApi.Object>(replay = 1, extraBufferCapacity = 64)
         private val globalFailureChannel = MutableSharedFlow<Throwable>(replay = 1, extraBufferCapacity = 8)
         private val globalChatFolders = MutableStateFlow<List<TdApi.ChatFolderInfo>>(emptyList())

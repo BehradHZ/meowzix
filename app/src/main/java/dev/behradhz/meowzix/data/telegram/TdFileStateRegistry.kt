@@ -31,6 +31,26 @@ internal class TdFileStateRegistry {
             file.local.isDownloadingCompleted || file.readableEndAt(offset) > offset
         }
 
+    /**
+     * Wait for actual transfer progress as well as bytes becoming readable. A seek can legitimately
+     * wait while TDLib downloads the prefix before [readableOffset]; that is progress, not a stall.
+     */
+    suspend fun awaitProgressOrReadable(
+        fileId: Int,
+        previous: TdApi.File,
+        readableOffset: Long? = null,
+    ): TdApi.File = observe(fileId).first { file ->
+        (readableOffset?.let { offset ->
+            file.local.isDownloadingCompleted || file.readableEndAt(offset) > offset
+        } == true) ||
+            file.local.downloadedSize != previous.local.downloadedSize ||
+            file.local.downloadOffset != previous.local.downloadOffset ||
+            file.local.downloadedPrefixSize != previous.local.downloadedPrefixSize ||
+            file.local.isDownloadingActive != previous.local.isDownloadingActive ||
+            file.local.isDownloadingCompleted != previous.local.isDownloadingCompleted ||
+            file.local.path != previous.local.path
+    }
+
     private fun state(fileId: Int): MutableStateFlow<TdApi.File?> =
         states.getOrPut(fileId) { MutableStateFlow(null) }
 }

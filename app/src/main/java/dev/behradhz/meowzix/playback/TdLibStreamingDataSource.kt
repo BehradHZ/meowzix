@@ -14,6 +14,10 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.TransferListener
 import dev.behradhz.meowzix.data.downloads.ManagedAudioIntegrity
 import dev.behradhz.meowzix.data.telegram.TdDownloadPriority
+import dev.behradhz.meowzix.data.telegram.TdDownloadProgressState
+import dev.behradhz.meowzix.data.telegram.TdDownloadProgressWatchdog
+import dev.behradhz.meowzix.data.telegram.TD_DOWNLOAD_MAX_RECOVERIES
+import dev.behradhz.meowzix.data.telegram.TD_DOWNLOAD_STALL_TIMEOUT_MS
 import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
 import dev.behradhz.meowzix.data.telegram.TELEGRAM_FILE_UNIQUE_ID_QUERY
 import dev.behradhz.meowzix.data.telegram.matchesTelegramFileIdentity
@@ -24,6 +28,7 @@ import java.io.InterruptedIOException
 import java.io.RandomAccessFile
 import java.util.UUID
 import kotlin.math.min
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -238,6 +243,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     // Keeping the loop as the last expression of runBlocking inferred Unit instead.
     private suspend fun readFromGrowingFile(buffer: ByteArray, offset: Int, length: Int): Int {
         var staleHandleRecoveries = 0
+        var staleHandleRestarts = 0
         while (true) {
             checkOpen()
             val window = waitForReadableWindow(readPosition)
@@ -259,11 +265,11 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             val toRead = min(length, min(available, remainingLimit))
             if (toRead <= 0) return C.RESULT_END_OF_INPUT
 
-            val read = runCatching {
+            val read = try {
                 val raf = openFileForState(window.state)
                 raf.seek(readPosition)
                 raf.read(buffer, offset, toRead)
-            }.getOrElse {
+            } catch (_: IOException) {
                 resetFileHandle()
                 -1
             }
@@ -271,6 +277,8 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             if (read > 0) {
                 readPosition += read
                 if (bytesRemaining != C.LENGTH_UNSET.toLong()) bytesRemaining -= read
+                staleHandleRecoveries = 0
+                staleHandleRestarts = 0
                 bytesTransferred(read)
                 return read
             }
@@ -280,14 +288,36 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             }
 
             // TDLib may rotate/recreate the growing local file while retaining the same path.
-            // Reopen the descriptor and wait for the filesystem view to catch up instead of
-            // reporting a fatal source error to ExoPlayer.
+            // Reopen first; if repeated reads still fail, refresh and restart the transfer a bounded
+            // number of times instead of spinning forever on a stale filesystem view.
             resetFileHandle()
             staleHandleRecoveries += 1
-            if (staleHandleRecoveries > MAX_STALE_FILE_RECOVERIES) {
+            if (staleHandleRecoveries >= MAX_STALE_FILE_RECOVERIES) {
                 val activeClient = awaitActiveClient()
                     ?: throw IOException("Telegram remained disconnected during playback")
-                runCatching { activeClient.refreshFileState(fileId) }
+                val refreshed = activeClient.refreshFileState(fileId)
+                checkOpen()
+                verifyFileIdentity(refreshed)
+                if (refreshed.local.path != window.state.local.path) {
+                    staleHandleRecoveries = 0
+                    continue
+                }
+                if (staleHandleRestarts >= MAX_STALE_FILE_RESTARTS) {
+                    throw IOException("Telegram audio file remained unreadable after recovery")
+                }
+                val priority = if (readPosition > 0L) {
+                    TdDownloadPriority.CURRENT_TRACK_SEEK
+                } else {
+                    TdDownloadPriority.CURRENT_TRACK_AUDIO
+                }
+                val restarted = activeClient.restartDownload(
+                    fileId = fileId,
+                    priority = priority,
+                    offset = readPosition,
+                    expectedUniqueId = expectedFileUniqueId,
+                )
+                verifyFileIdentity(restarted)
+                staleHandleRestarts += 1
                 staleHandleRecoveries = 0
             }
             delay(STALE_FILE_RETRY_BASE_DELAY_MS * staleHandleRecoveries.coerceAtLeast(1).coerceAtMost(6))
@@ -356,9 +386,13 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         var lastError: Throwable? = null
         repeat(FILE_STATE_SEED_ATTEMPTS) { attempt ->
             checkOpen()
-            runCatching { client.seedFileState(id) }
-                .onSuccess { return it }
-                .onFailure { lastError = it }
+            try {
+                return client.seedFileState(id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                lastError = failure
+            }
             delay(FILE_STATE_RETRY_BASE_DELAY_MS * (attempt + 1))
         }
         throw IOException("Unable to resolve Telegram file state after retrying", lastError)
@@ -371,8 +405,11 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
     }
 
     private suspend fun waitForReadableWindow(position: Long): ReadableWindow {
-        var recoveryAttempts = 0
+        var stallRecoveries = 0
         var corruptCompletionRetries = 0
+        var requestInitialized = false
+        val watchdog = TdDownloadProgressWatchdog(TD_DOWNLOAD_STALL_TIMEOUT_MS)
+
         while (true) {
             checkOpen()
             val client = awaitActiveClient()
@@ -382,7 +419,7 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
             if (state.local.isDownloadingCompleted && !isValidCompletedFile(state)) {
                 // Completed with missing or truncated bytes is not EOF. Retry real Telegram bytes.
                 if (++corruptCompletionRetries > MAX_CORRUPT_COMPLETION_RETRIES) {
-                    throw IOException("Telegram repeatedly returned incomplete audio for file $fileId")
+                    throw IOException("Telegram repeatedly returned incomplete audio")
                 }
                 resetFileHandle()
                 client.send(TdApi.DeleteFile(fileId))
@@ -393,70 +430,104 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
                 )
                 verifyFileIdentity(restarted)
                 client.fileStates.publish(restarted)
+                watchdog.reset(
+                    restarted.local.downloadedSize.toLong(),
+                    restarted.readableEndAt(position),
+                    SystemClock.elapsedRealtime(),
+                )
+                requestInitialized = true
                 continue
             }
+
             val readableEnd = resolveReadableEnd(client, state, position)
             if (readableEnd > position || isAtEnd(state, position)) {
                 return ReadableWindow(state, readableEnd)
             }
 
-            ensureDownload(
-                client = client,
-                state = state,
-                position = position,
-                priority = if (position > 0L) {
-                    TdDownloadPriority.CURRENT_TRACK_SEEK
-                } else {
-                    TdDownloadPriority.CURRENT_TRACK_AUDIO
-                },
-                force = false,
-            )
+            val nowMs = SystemClock.elapsedRealtime()
+            if (!requestInitialized) {
+                ensureDownload(
+                    client = client,
+                    state = state,
+                    position = position,
+                    priority = if (position > 0L) {
+                        TdDownloadPriority.CURRENT_TRACK_SEEK
+                    } else {
+                        TdDownloadPriority.CURRENT_TRACK_AUDIO
+                    },
+                    force = position > 0L,
+                )
+                state = client.fileStates.current(fileId) ?: state
+                watchdog.reset(
+                    state.local.downloadedSize.toLong(),
+                    state.readableEndAt(position),
+                    SystemClock.elapsedRealtime(),
+                )
+                requestInitialized = true
+            } else {
+                when (watchdog.observe(
+                    state.local.downloadedSize.toLong(),
+                    readableEnd,
+                    nowMs,
+                )) {
+                    TdDownloadProgressState.PROGRESSED -> stallRecoveries = 0
+                    TdDownloadProgressState.STALLED -> {
+                        if (stallRecoveries >= TD_DOWNLOAD_MAX_RECOVERIES) {
+                            try {
+                                client.cancelDownload(fileId)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                // Preserve the original stall failure.
+                            }
+                            throw IOException("Telegram audio stalled after recovery attempts")
+                        }
+                        state = client.restartDownload(
+                            fileId = fileId,
+                            priority = if (position > 0L) {
+                                TdDownloadPriority.CURRENT_TRACK_SEEK
+                            } else {
+                                TdDownloadPriority.CURRENT_TRACK_AUDIO
+                            },
+                            offset = position,
+                            expectedUniqueId = expectedFileUniqueId,
+                        )
+                        verifyFileIdentity(state)
+                        stallRecoveries += 1
+                        watchdog.reset(
+                            state.local.downloadedSize.toLong(),
+                            state.readableEndAt(position),
+                            SystemClock.elapsedRealtime(),
+                        )
+                        continue
+                    }
+                    TdDownloadProgressState.INITIAL,
+                    TdDownloadProgressState.WAITING,
+                    -> Unit
+                }
+            }
 
+            val observed = client.fileStates.current(fileId) ?: state
             val pushedState = withTimeoutOrNull(UPDATE_WAIT_TIMEOUT_MS) {
-                client.fileStates.awaitReadableOrCompleted(fileId, position)
+                client.fileStates.awaitProgressOrReadable(fileId, observed, position)
             }
             checkOpen()
             if (pushedState != null) {
-                state = pushedState
-                verifyFileIdentity(state)
-                val pushedReadableEnd = resolveReadableEnd(client, state, position)
-                if (pushedReadableEnd > position || isAtEnd(state, position)) {
-                    return ReadableWindow(state, pushedReadableEnd)
-                }
+                verifyFileIdentity(pushedState)
                 continue
             }
 
-            recoveryAttempts += 1
-            if (recoveryAttempts > MAX_UPDATE_RECOVERIES) {
-                throw IOException("Timed out waiting for Telegram audio data at offset $position")
+            val refreshed = try {
+                client.refreshFileState(fileId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
             }
-
-            val refreshed = runCatching { client.refreshFileState(fileId) }.getOrNull()
             if (refreshed != null) {
-                state = refreshed
-                verifyFileIdentity(state)
-                val refreshedReadableEnd = resolveReadableEnd(client, state, position)
-                if (refreshedReadableEnd > position || isAtEnd(state, position)) {
-                    return ReadableWindow(state, refreshedReadableEnd)
-                }
-
-                // If TDLib stopped the request (for example after a client restart or a previous
-                // finite-range request), resume continuously from the byte Media3 currently needs.
-                if (!state.local.isDownloadingActive && !state.local.isDownloadingCompleted) {
-                    ensureDownload(
-                        client = client,
-                        state = state,
-                        position = position,
-                        priority = if (position > 0L) {
-                            TdDownloadPriority.CURRENT_TRACK_SEEK
-                        } else {
-                            TdDownloadPriority.CURRENT_TRACK_AUDIO
-                        },
-                        force = true,
-                    )
-                }
+                verifyFileIdentity(refreshed)
             } else {
-                delay(FILE_STATE_RETRY_BASE_DELAY_MS * recoveryAttempts.coerceAtMost(6))
+                delay(FILE_STATE_RETRY_BASE_DELAY_MS)
             }
         }
     }
@@ -478,9 +549,13 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         val path = state.local.path
         if (path.isBlank()) return position
 
-        val prefixSize = runCatching {
+        val prefixSize = try {
             client.send(TdApi.GetFileDownloadedPrefixSize(fileId, position)).size
-        }.getOrDefault(0L)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            0L
+        }
         checkOpen()
         if (prefixSize <= 0L) return position
 
@@ -500,24 +575,34 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
         if (state.local.isDownloadingCompleted) return
         val normalizedPosition = position.coerceAtLeast(0L)
 
-        // The playback resolver already starts an unlimited download from offset 0. Do not replace
-        // that healthy request every time Media3 reaches the current prefix: a different offset or
-        // limit replaces TDLib's active request. Only reprioritize when seeking or after it stopped.
+        // TDLib keeps one active byte range per file. When a seek arrives during an existing
+        // sequential download, reprioritize that same earlier range instead of replacing it with
+        // a later offset; otherwise playback can silently starve the retained offline download.
         val activeRequestCanReachPosition =
             state.local.isDownloadingActive && state.local.downloadOffset <= normalizedPosition
         if (!force && activeRequestCanReachPosition) return
+        val hasExistingRange = state.local.isDownloadingActive || state.local.downloadedSize > 0
+        val requestOffset = if (hasExistingRange) {
+            minOf(normalizedPosition, state.local.downloadOffset.coerceAtLeast(0L))
+        } else {
+            normalizedPosition
+        }
 
-        val requested = runCatching {
+        val requested = try {
             client.send(
                 TdApi.DownloadFile(
                     fileId,
                     priority,
-                    normalizedPosition,
+                    requestOffset,
                     0L,
                     false,
                 ),
             )
-        }.getOrNull() ?: return
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return
+        }
         checkOpen()
         client.fileStates.publish(requested)
     }
@@ -566,8 +651,8 @@ private class TdLibStreamingDataSource : BaseDataSource(true) {
 
     private companion object {
         const val UPDATE_WAIT_TIMEOUT_MS = 4_000L
-        const val MAX_UPDATE_RECOVERIES = 15
         const val MAX_STALE_FILE_RECOVERIES = 8
+        const val MAX_STALE_FILE_RESTARTS = 2
         const val MAX_CORRUPT_COMPLETION_RETRIES = 2
         const val STALE_FILE_RETRY_BASE_DELAY_MS = 50L
         const val CLIENT_READY_ATTEMPTS = 8

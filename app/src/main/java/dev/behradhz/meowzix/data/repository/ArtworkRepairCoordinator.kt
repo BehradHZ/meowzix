@@ -9,6 +9,7 @@ import dev.behradhz.meowzix.core.model.SourceAvailability
 import dev.behradhz.meowzix.data.db.LibraryDao
 import dev.behradhz.meowzix.data.db.TelegramDao
 import dev.behradhz.meowzix.data.telegram.TdLibClientAdapter
+import dev.behradhz.meowzix.data.telegram.findTelegramProfileAudio
 import dev.behradhz.meowzix.data.telegram.toAudioCandidate
 import java.io.File
 import java.time.Instant
@@ -16,6 +17,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -58,37 +60,68 @@ class ArtworkRepairCoordinator @Inject constructor(
 
         if (existingIsReadable && existingIsFinalAppArtwork) return
 
-        val telegram = telegramDao.telegramSourceForAnyAccountTrack(trackId)
-        if (telegram != null) {
-            val client = TdLibClientAdapter.activeOrNull()
-            if (client != null) {
-                val message = runCatching {
-                    client.send(TdApi.GetMessage(telegram.chatId, telegram.messageId))
-                }.getOrNull()
-                val candidate = message?.toAudioCandidate()
-                if (candidate != null) {
-                    val highQualityRef = candidate.artworkFileId?.let { fileId ->
-                        downloadTelegramArtwork(client, trackId, fileId)
+        val client = TdLibClientAdapter.activeOrNull()
+        if (client != null) {
+            // A logical Track can have several Telegram occurrences. A newer occurrence may not
+            // carry artwork even when an older/alternate upload does, so inspect every usable one.
+            val candidates = telegramDao.telegramSourcesForAnyAccountTrack(trackId).mapNotNull { source ->
+                try {
+                    if (source.messageId < 0L) {
+                        findTelegramProfileAudio(
+                            client,
+                            source.chatId,
+                            source.messageId,
+                            source.tdPersistentFileId,
+                        )?.toAudioCandidate(source.messageId)
+                    } else {
+                        client.send(TdApi.GetMessage(source.chatId, source.messageId)).toAudioCandidate()
                     }
-                    if (highQualityRef != null) {
-                        libraryDao.setArtworkRef(trackId, highQualityRef, Instant.now().toEpochMilli())
-                        if (existingIsPreview && existingRef != null) deletePreview(existingRef)
-                        return
-                    }
-
-                    if (candidate.artworkMinithumbnail != null && (!existingIsReadable || existingIsPreview)) {
-                        val previewRef = writePreview(trackId, candidate.artworkMinithumbnail)
-                        if (previewRef != null && previewRef != existingRef) {
-                            libraryDao.setArtworkRef(trackId, previewRef, Instant.now().toEpochMilli())
-                        }
-                        // Keep the preview as a non-destructive fallback. A later visible/now-playing
-                        // request can still upgrade it when TDLib exposes the full thumbnail.
-                        return
-                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
                 }
+            }
+
+            // Prefer a primary album thumbnail from any occurrence, then TDLib's
+            // external album-cover variants (which are supplied when the file has no embedded art).
+            val artworkFileIds = candidates.mapNotNull { it.artworkFileId } +
+                candidates.flatMap { it.additionalArtworkFileIds }
+            for (fileId in artworkFileIds.distinct().filter { it > 0 }) {
+                val highQualityRef = downloadTelegramArtwork(client, trackId, fileId) ?: continue
+                libraryDao.setArtworkRef(trackId, highQualityRef, Instant.now().toEpochMilli())
+                if (existingIsPreview && existingRef != null) deletePreview(existingRef)
+                return
+            }
+
+            // Some send-as-file uploads have no Telegram thumbnail but do contain embedded ID3
+            // artwork. Use it only when TDLib has already completed the audio download: artwork
+            // repair must never trigger a full audio download just to obtain a cover.
+            for (candidate in candidates.distinctBy { it.fileId }) {
+                if (candidate.fileId <= 0) continue
+                val embedded = embeddedArtworkFromCompletedTelegramFile(client, candidate.fileId) ?: continue
+                val ref = writeFinalArtwork(trackId, embedded) ?: continue
+                libraryDao.setArtworkRef(trackId, ref, Instant.now().toEpochMilli())
+                if (existingIsPreview && existingRef != null) deletePreview(existingRef)
+                return
+            }
+
+            // Keep the best available low-resolution image as a fallback while waiting for a
+            // full thumbnail. Do not replace a readable local cover with a tiny Telegram preview.
+            val minithumbnail = candidates
+                .mapNotNull { it.artworkMinithumbnail }
+                .maxByOrNull { it.size }
+            if (minithumbnail != null && (!existingIsReadable || existingIsPreview)) {
+                val previewRef = writePreview(trackId, minithumbnail)
+                if (previewRef != null && previewRef != existingRef) {
+                    libraryDao.setArtworkRef(trackId, previewRef, Instant.now().toEpochMilli())
+                    if (existingIsPreview && existingRef != null) deletePreview(existingRef)
+                }
+                return
             }
         }
 
+        // Local embedded artwork remains the final source-agnostic fallback.
         val embedded = libraryDao.sourcesForTrack(trackId)
             .asSequence()
             .filter { it.availability == SourceAvailability.AVAILABLE_LOCAL }
@@ -120,13 +153,17 @@ class ArtworkRepairCoordinator @Inject constructor(
         trackId: String,
         fileId: Int,
     ): String? {
-        val downloaded = runCatching {
+        val downloaded = try {
             client.send(TdApi.DownloadFile(fileId, ARTWORK_PRIORITY, 0L, 0L, true))
-        }.getOrNull() ?: return null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return null
+        }
         val path = downloaded.local.path.takeIf {
             downloaded.local.isDownloadingCompleted && it.isNotBlank()
         } ?: return null
-        val source = File(path).takeIf(File::isFile) ?: return null
+        val source = File(path).takeIf { it.isFile && isImageFile(it) } ?: return null
         artworkDirectory.mkdirs()
         val target = File(artworkDirectory, "$trackId.artwork")
         return runCatching {
@@ -135,6 +172,21 @@ class ArtworkRepairCoordinator @Inject constructor(
             }
             Uri.fromFile(target).toString()
         }.getOrNull()
+    }
+
+    private suspend fun embeddedArtworkFromCompletedTelegramFile(
+        client: TdLibClientAdapter,
+        fileId: Int,
+    ): ByteArray? {
+        val file = try {
+            client.send(TdApi.GetFile(fileId))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return null
+        }
+        if (!file.local.isDownloadingCompleted || file.local.path.isBlank()) return null
+        return embeddedArtworkFromPath(file.local.path)
     }
 
     private fun writeFinalArtwork(trackId: String, bytes: ByteArray): String? {
@@ -150,7 +202,7 @@ class ArtworkRepairCoordinator @Inject constructor(
     private fun writePreview(trackId: String, bytes: ByteArray): String? {
         if (!isImage(bytes)) return null
         previewDirectory.mkdirs()
-        val target = File(previewDirectory, "$trackId.jpg")
+        val target = File(previewDirectory, "$trackId-${bytes.contentHashCode()}.jpg")
         return runCatching {
             target.writeBytes(bytes)
             Uri.fromFile(target).toString()
@@ -189,18 +241,24 @@ class ArtworkRepairCoordinator @Inject constructor(
         } ?: false
     }.getOrDefault(false)
 
-    private fun isImage(bytes: ByteArray): Boolean {
-        if (bytes.isEmpty()) return false
+    private fun isImageFile(file: File): Boolean = runCatching {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, options)
+        options.outWidth > 0 && options.outHeight > 0
+    }.getOrDefault(false)
+
+    private fun isImage(bytes: ByteArray): Boolean = runCatching {
+        if (bytes.isEmpty()) return@runCatching false
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-        return options.outWidth > 0 && options.outHeight > 0
-    }
+        options.outWidth > 0 && options.outHeight > 0
+    }.getOrDefault(false)
 
     private fun deletePreview(value: String) {
         runCatching {
             val candidate = Uri.parse(value).path?.let(::File)?.canonicalFile ?: return@runCatching
             val root = previewDirectory.canonicalFile
-            if (candidate.path.startsWith(root.path)) candidate.delete()
+            if (candidate.parentFile == root) candidate.delete()
         }
     }
 

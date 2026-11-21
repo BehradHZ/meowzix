@@ -77,10 +77,11 @@ class SettingsSelectionConfiguratorTest {
         val handle = compose.onNodeWithTag("selection-settings-more-handle-add_to_queue")
         val initialTop = neighbor.fetchSemanticsNode().boundsInRoot.top
 
-        // Intentionally keep the pointer down across tool calls to inspect mid-drag layout.
+        // Long-press the dedicated handle so the parent LazyColumn cannot steal
+        // the vertical gesture, then inspect the reordered layout before release.
         handle.performTouchInput {
             down(center)
-            advanceEventTime(32L)
+            advanceEventTime(600L)
             moveBy(Offset(0f, 24f))
             advanceEventTime(32L)
             moveBy(Offset(0f, 65f))

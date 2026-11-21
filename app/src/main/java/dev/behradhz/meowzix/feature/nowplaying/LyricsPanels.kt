@@ -14,7 +14,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -264,7 +263,7 @@ fun ExpandedLyricsPanel(
             )
             LyricsContentType.PLAIN -> GlassLazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth().lyricsEdgeFade(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 96.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 items(selected.parsed.plainLines.size) { index ->
@@ -329,8 +328,8 @@ private fun TimedLyricsList(
 
     suspend fun settle(index: Int, animated: Boolean = true) {
         if (index !in lines.indices) return
-        // With enough preceding content, the playing line occupies the fourth visible row.
-        // For the first three timestamps the list stays at the top, without artificial blanks.
+        // Keep one preceding line above the playing line whenever one exists.
+        // At the end of the song the list naturally clamps without artificial trailing space.
         val firstVisible = firstVisibleLyricsIndexForSync(index)
         programmaticScroll = true
         try {
@@ -402,18 +401,14 @@ private fun TimedLyricsList(
         }
     }
 
-    BoxWithConstraints(modifier.fillMaxWidth()) {
+    Box(modifier.fillMaxWidth()) {
         GlassLazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize()
                 .lyricsEdgeFade(browsingReveal, revealTop = listState.firstVisibleItemIndex == 0)
                 .testTag("expanded-lyrics-scroll"),
-            // No 120.dp leading gap: the pre-lyrics first line belongs at the top.
-            // Trailing space still allows the last playing line to occupy the fourth row.
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                top = 12.dp,
-                bottom = maxHeight.coerceAtLeast(120.dp),
-            ),
+            // Keep a small top inset, but no artificial trailing space after the final lyric.
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             items(lines.size, key = { index -> "${lines[index].timeMs}-${lines[index].originalOrder}" }) { index ->
@@ -523,9 +518,9 @@ internal fun lyricLineOpacity(index: Int, activeIndex: Int, browsingReveal: Floa
     val syncOpacity = when {
         activeIndex < 0 -> 0.70f
         index == activeIndex -> 1f
-        abs(index - activeIndex) == 1 -> 0.62f
-        abs(index - activeIndex) == 2 -> 0.38f
-        else -> 0.22f
+        abs(index - activeIndex) == 1 -> 0.52f
+        abs(index - activeIndex) == 2 -> 0.30f
+        else -> 0.18f
     }
     return syncOpacity + (1f - syncOpacity) * browsingReveal.coerceIn(0f, 1f)
 }
@@ -533,9 +528,10 @@ internal fun lyricLineOpacity(index: Int, activeIndex: Int, browsingReveal: Floa
 internal fun lyricLineBlur(index: Int, activeIndex: Int, browsingReveal: Float = 0f): Float {
     val syncBlur = when {
         activeIndex < 0 -> 0f
-        abs(index - activeIndex) <= 1 -> 0f
-        abs(index - activeIndex) == 2 -> 1.2f
-        else -> 2f
+        index == activeIndex -> 0f
+        abs(index - activeIndex) == 1 -> 0.8f
+        abs(index - activeIndex) == 2 -> 1.6f
+        else -> 2.4f
     }
     return syncBlur * (1f - browsingReveal.coerceIn(0f, 1f))
 }
@@ -545,6 +541,6 @@ internal fun compactPreviewLineIndices(activeIndex: Int): List<Int> =
     if (activeIndex < 0) listOf(0, 1, 2)
     else listOf(activeIndex - 1, activeIndex, activeIndex + 1)
 
-/** Keep three preceding lyric rows above the synchronized row whenever they exist. */
+/** Target the row immediately before the synchronized line; LazyColumn clamps at the list end. */
 internal fun firstVisibleLyricsIndexForSync(activeIndex: Int): Int =
-    (activeIndex - 3).coerceAtLeast(0)
+    (activeIndex - 1).coerceAtLeast(0)
