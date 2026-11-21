@@ -23,6 +23,7 @@ class TelegramAuthViewModel @Inject constructor(
     fun register(firstName: String, lastName: String) = repository.register(firstName, lastName)
     fun logout() = repository.logout()
     fun resetTelegram() = repository.resetClient()
+    fun setAuthScreenActive(active: Boolean) = repository.setAuthScreenActive(active)
     fun clearError() = repository.clearError()
 
     fun refreshProxies() = repository.refreshProxies()

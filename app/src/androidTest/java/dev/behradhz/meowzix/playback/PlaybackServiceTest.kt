@@ -314,8 +314,9 @@ class PlaybackServiceTest {
         }
         waitUntil { onMain { !controller.isPlaying && controller.currentPosition >= 1_300 } }
         onMain { controller.seekToNextMediaItem() }
-        waitUntil { onMain { controller.currentMediaItemIndex == 1 } }
+        waitUntil { onMain { controller.currentMediaItemIndex == 1 && controller.isPlaying } }
 
+        assertTrue(onMain { controller.playWhenReady })
         assertEquals("Second", onMain { controller.currentMediaItem?.mediaMetadata?.title })
     }
 
@@ -349,12 +350,28 @@ class PlaybackServiceTest {
         // Regression: the old LiveSongControlsReceiver silently dropped ALL actions
         // when playWhenReady was false. Next and previous must still reach playback.
         press(LiveSongAction.NEXT)
-        waitUntil { onMain { controller.currentMediaItemIndex == 1 } }
-        assertFalse(onMain { controller.playWhenReady })
+        waitUntil { onMain { controller.currentMediaItemIndex == 1 && controller.isPlaying } }
+        assertTrue(onMain { controller.playWhenReady })
 
         press(LiveSongAction.PREVIOUS)
         waitUntil { onMain { controller.currentMediaItemIndex == 0 } }
         assertEquals(first.mediaId, onMain { controller.currentMediaItem?.mediaId })
+    }
+
+    @Test
+    fun nextWithoutSuccessorDoesNotResumePausedPlayback() {
+        val only = playableItem("Only", createWaveFile("only-next.wav", 12_000))
+        onMain {
+            controller.setMediaItem(only)
+            controller.prepare()
+            controller.pause()
+        }
+        waitUntil { onMain { !controller.playWhenReady && controller.currentMediaItemIndex == 0 } }
+
+        onMain { controller.seekToNextMediaItem() }
+
+        assertEquals(only.mediaId, onMain { controller.currentMediaItem?.mediaId })
+        assertFalse(onMain { controller.playWhenReady })
     }
 
     @Test

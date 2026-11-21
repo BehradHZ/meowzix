@@ -280,6 +280,7 @@ fun MeowzixApp(
         else -> DockSearchScope.GLOBAL
     }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val telegramAuthKeyboardVisible = imeVisible && currentRoute == TELEGRAM_AUTH_ROUTE
     var dockCompact by rememberSaveable { mutableStateOf(false) }
     val queueReorderGestureState = remember { QueueReorderGestureState() }
     var reachedScrollEnd by remember(currentRoute) { mutableStateOf(false) }
@@ -423,6 +424,8 @@ fun MeowzixApp(
 
     LaunchedEffect(openNowPlayingRequest) {
         if (openNowPlayingRequest) {
+            // Opening the player from a widget must release stale search focus and IME.
+            clearSearchState()
             morphingPlayerState.expand()
             onNowPlayingRequestConsumed()
         }
@@ -718,7 +721,7 @@ fun MeowzixApp(
                     floatingTouchBounds.dockTopY = coordinates.boundsInWindow().top
                 },
             ) {
-            MorphingDock(
+            if (!telegramAuthKeyboardVisible) MorphingDock(
                 hazeState = hazeState,
                 destinations = destinations,
                 selectedRoute = if (searchActive) SEARCH_ROUTE else selectedDockRoute,
@@ -776,7 +779,8 @@ fun MeowzixApp(
         val searchOccludesPlayer = searchActive && (
             imeVisible || (searchScope == DockSearchScope.GLOBAL && searchQuery.isNotBlank())
         )
-        if (playbackState.currentTrack != null && (!searchOccludesPlayer || morphingPlayerState.targetExpanded)) {
+        if (!telegramAuthKeyboardVisible && playbackState.currentTrack != null &&
+            (!searchOccludesPlayer || morphingPlayerState.targetExpanded)) {
             MorphingPlayerOverlay(
                 hazeState = hazeState,
                 state = playbackState,

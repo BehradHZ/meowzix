@@ -152,7 +152,13 @@ internal object ExternalPlaybackDispatcher {
             ExternalPlaybackAction.Next ->
                 if (controller.isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) &&
                     controller.hasNextMediaItem()
-                ) controller.seekToNextMediaItem()
+                ) {
+                    controller.seekToNextMediaItem()
+                    if (controller.playbackState == Player.STATE_IDLE &&
+                        controller.isCommandAvailable(Player.COMMAND_PREPARE)
+                    ) controller.prepare()
+                    if (controller.isCommandAvailable(Player.COMMAND_PLAY_PAUSE)) controller.play()
+                }
             is ExternalPlaybackAction.QueueSelection -> {
                 if (action.mediaId.isNotBlank() &&
                     controller.isCommandAvailable(Player.COMMAND_GET_TIMELINE) &&

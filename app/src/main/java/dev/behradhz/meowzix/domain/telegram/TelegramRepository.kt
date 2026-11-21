@@ -157,6 +157,9 @@ interface TelegramRepository {
     /** Restart the TDLib process client without logging out or deleting imported/local music. */
     fun resetClient()
 
+    /** Run transport recovery only while the Telegram sign-in screen is foregrounded. */
+    fun setAuthScreenActive(active: Boolean)
+
     fun clearError()
 
     /** TDLib owns/persists the proxy list; these commands work even before Telegram login. */

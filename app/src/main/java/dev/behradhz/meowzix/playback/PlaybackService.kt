@@ -308,6 +308,7 @@ class PlaybackService : MediaLibraryService() {
     private val shuffleCommand = SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY)
     private val repeatCommand = SessionCommand(ACTION_CYCLE_REPEAT, Bundle.EMPTY)
     private val favoriteCommand = SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY)
+    private var resumeOnNextItemTransition = false
 
     private val sessionCallback = object : MediaLibrarySession.Callback {
         @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
@@ -323,6 +324,13 @@ class PlaybackService : MediaLibraryService() {
                 // system interruption has already set playWhenReady=false.
                 // A subsequent explicit Play will re-establish user intent.
                 cancelAutoResumeForUserIntent()
+            }
+            if (playerCommand == Player.COMMAND_SEEK_TO_NEXT ||
+                playerCommand == Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM
+            ) {
+                // MediaSession transport commands seek without changing playWhenReady.
+                // Resume only after the requested item actually becomes current.
+                resumeOnNextItemTransition = !player.playWhenReady && player.hasNextMediaItem()
             }
             return super.onPlayerCommandRequest(session, controller, playerCommand)
         }
@@ -592,6 +600,12 @@ class PlaybackService : MediaLibraryService() {
 
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            val resumeForNext = resumeOnNextItemTransition
+            resumeOnNextItemTransition = false
+            if (resumeForNext && reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
+                if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                player.play()
+            }
             if (mediaItem?.mediaId != missingSourceMediaId) {
                 missingSourceCheckJob?.cancel()
                 missingSourceCheckJob = null
@@ -1268,7 +1282,11 @@ class PlaybackService : MediaLibraryService() {
                 if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem()
             }
             ExternalPlaybackAction.Next -> {
-                if (player.hasNextMediaItem()) player.seekToNextMediaItem()
+                if (player.hasNextMediaItem()) {
+                    player.seekToNextMediaItem()
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                    player.play()
+                }
             }
             is ExternalPlaybackAction.QueueSelection -> playWidgetQueueOccurrence(action)
             ExternalPlaybackAction.Favorite ->

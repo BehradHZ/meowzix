@@ -1,11 +1,22 @@
 package dev.behradhz.meowzix.feature.telegramauth
 
+import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.google.i18n.phonenumbers.PhoneNumberUtil
+import java.util.Locale
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -78,6 +90,10 @@ fun TelegramAuthRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val musicSourceState by viewModel.musicSourceState.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(viewModel) {
+        viewModel.setAuthScreenActive(true)
+        onPauseOrDispose { viewModel.setAuthScreenActive(false) }
+    }
     TelegramAuthScreen(
             state = state,
             musicSourceState = musicSourceState,
@@ -89,7 +105,6 @@ fun TelegramAuthRoute(
             onEmailCode = viewModel::submitEmailCode,
             onRegister = viewModel::register,
             onLogout = viewModel::logout,
-            onResetTelegram = viewModel::resetTelegram,
             onClearError = viewModel::clearError,
             onRefreshSources = viewModel::refreshMusicSources,
             onSetSourceMode = viewModel::setMusicSourceMode,
@@ -110,21 +125,80 @@ private fun TelegramAuthScreen(
     onEmailCode: (String) -> Unit,
     onRegister: (String, String) -> Unit,
     onLogout: () -> Unit,
-    onResetTelegram: () -> Unit,
     onClearError: () -> Unit,
     onRefreshSources: () -> Unit,
     onSetSourceMode: (Long, TelegramMusicSourceMode) -> Unit,
     onSyncSources: () -> Unit,
     onClearMusicSourceError: () -> Unit,
 ) {
+    var region by rememberSaveable {
+        mutableStateOf(Locale.getDefault().country.takeIf { it.length == 2 } ?: "IR")
+    }
+    var nationalNumber by rememberSaveable { mutableStateOf("") }
+    var pendingPhone by rememberSaveable { mutableStateOf("") }
+    val history = remember { mutableStateListOf<TelegramAuthStep>() }
+    var previouslySeen by remember { mutableStateOf<TelegramAuthStep?>(null) }
+    var historyPosition by remember { mutableIntStateOf(-1) }
+    var restartingChallenge by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.step) {
+        val current = state.step
+        if (current is TelegramAuthStep.WaitPhoneNumber || current is TelegramAuthStep.Ready) {
+            history.clear()
+        } else if (restartingChallenge) {
+            history.clear()
+            history.add(TelegramAuthStep.WaitPhoneNumber)
+            restartingChallenge = false
+        } else if (previouslySeen != current) {
+            if (history.isEmpty() && current !is TelegramAuthStep.Initializing &&
+                current !is TelegramAuthStep.ConfigurationRequired
+            ) history.add(TelegramAuthStep.WaitPhoneNumber)
+            val prior = previouslySeen
+            if (prior != null && prior !is TelegramAuthStep.Initializing &&
+                prior !is TelegramAuthStep.WaitPhoneNumber &&
+                prior !is TelegramAuthStep.ConfigurationRequired &&
+                prior !is TelegramAuthStep.Closed &&
+                prior !is TelegramAuthStep.Closing &&
+                prior !is TelegramAuthStep.Ready &&
+                prior != current && history.lastOrNull() != prior
+            ) history.add(prior)
+        }
+        if (current is TelegramAuthStep.WaitCode) {
+            pendingPhone = current.phoneNumber
+            if (nationalNumber.isBlank()) {
+                runCatching {
+                    val util = PhoneNumberUtil.getInstance()
+                    val parsed = util.parse(current.phoneNumber, "ZZ")
+                    val resolved = util.getRegionCodeForNumber(parsed)
+                        ?: util.getRegionCodeForCountryCode(parsed.countryCode)
+                    if (resolved.length == 2) region = resolved
+                    nationalNumber = util.getNationalSignificantNumber(parsed)
+                }
+            }
+        }
+        previouslySeen = current
+        historyPosition = -1
+    }
+
+    val replaying = historyPosition in history.indices
+    val displayedStep = if (replaying) history[historyPosition] else state.step
+    val backAction: () -> Unit = {
+        val previous = if (state.step is TelegramAuthStep.Ready) null
+            else telegramPreviousStepIndex(historyPosition, history.size)
+        if (previous == null) onBack() else historyPosition = previous
+    }
+    BackHandler { backAction() }
+
     PlaylistGlassBackdrop(variation = 2) { hazeState ->
+        val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
         Box(Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize()
                     .hazeSource(hazeState)
+                    .imePadding()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 18.dp)
-                    .padding(top = 110.dp, bottom = dockAwareBottomPadding(176.dp)),
+                    .padding(top = 110.dp, bottom = if (keyboardVisible) 24.dp else dockAwareBottomPadding(176.dp)),
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp),
             ) {
         state.errorMessage?.let { message ->
@@ -168,26 +242,42 @@ private fun TelegramAuthScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                when (val step = state.step) {
-                    TelegramAuthStep.Initializing -> InitializingState(
-                        message = "Starting Telegram…",
-                        enabled = !state.isSubmitting,
-                        onResetTelegram = onResetTelegram,
+                if (replaying && displayedStep !is TelegramAuthStep.WaitPhoneNumber) {
+                    PreviousTelegramStep(
+                        step = displayedStep,
+                        canRequestCode = displayedStep is TelegramAuthStep.WaitCode && pendingPhone.isNotBlank(),
+                        onRestart = {
+                            if (displayedStep is TelegramAuthStep.WaitCode && pendingPhone.isNotBlank()) {
+                                restartingChallenge = true
+                                historyPosition = -1
+                                onPhoneNumber(pendingPhone)
+                            } else {
+                                historyPosition = 0
+                            }
+                        },
+                        onReturnToCurrent = { historyPosition = -1 },
                     )
+                } else when (val step = displayedStep) {
+                    TelegramAuthStep.Initializing -> ProgressState("Connecting to Telegram…")
                     TelegramAuthStep.ConfigurationRequired -> MessageState(
                         icon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
                         title = "Telegram setup required",
                         message = "This development build needs its Telegram API configuration before sign-in can start.",
                     )
-                    TelegramAuthStep.WaitPhoneNumber -> SingleValueForm(
-                        icon = { Icon(Icons.Rounded.Phone, contentDescription = null) },
-                        title = "Connect Telegram",
-                        guidance = "Enter the phone number attached to your Telegram account, including the country code.",
-                        label = "Phone number",
-                        submitLabel = "Continue",
+                    TelegramAuthStep.WaitPhoneNumber -> TelegramPhoneEntry(
+                        region = region,
+                        onRegionChange = { region = it },
+                        nationalNumber = nationalNumber,
+                        onNationalNumberChange = { nationalNumber = it },
                         enabled = !state.isSubmitting,
-                        keyboardType = KeyboardType.Phone,
-                        onSubmit = onPhoneNumber,
+                        onSubmit = { phone ->
+                            pendingPhone = phone
+                            if (replaying) {
+                                restartingChallenge = true
+                                historyPosition = -1
+                            }
+                            onPhoneNumber(phone)
+                        },
                     )
                     is TelegramAuthStep.WaitCode -> SingleValueForm(
                         icon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
@@ -246,33 +336,13 @@ private fun TelegramAuthScreen(
                         onLogout = onLogout,
                     )
                     TelegramAuthStep.LoggingOut -> ProgressState("Logging out…")
-                    TelegramAuthStep.Closing -> InitializingState("Closing Telegram session…", !state.isSubmitting, onResetTelegram)
-                    TelegramAuthStep.Closed -> InitializingState("Telegram session closed", !state.isSubmitting, onResetTelegram)
+                    TelegramAuthStep.Closing -> ProgressState("Reconnecting to Telegram…")
+                    TelegramAuthStep.Closed -> ProgressState("Restoring Telegram session…")
                     is TelegramAuthStep.Unsupported -> MessageState(
                         icon = { Icon(Icons.Rounded.ErrorOutline, contentDescription = null) },
                         title = "Telegram needs attention",
                         message = step.reason,
                     )
-                }
-
-                // A non-destructive reset must be reachable from every sign-in/connected state.
-                // Initializing and Closed already render their own reset control.
-                if (state.step !is TelegramAuthStep.Initializing &&
-                    state.step !is TelegramAuthStep.Closing &&
-                    state.step !is TelegramAuthStep.Closed &&
-                    state.step !is TelegramAuthStep.ConfigurationRequired
-                ) {
-                    OutlinedButton(
-                        onClick = onResetTelegram,
-                        // A stuck authentication request is precisely when Reset must remain usable.
-                        enabled = true,
-                        shape = RoundedCornerShape(22.dp),
-                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                    ) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.size(8.dp))
-                        Text("Reset connection (keep login & music)")
-                    }
                 }
 
                 if (state.isSubmitting && state.step !is TelegramAuthStep.Initializing) {
@@ -294,7 +364,7 @@ private fun TelegramAuthScreen(
                 hazeState = hazeState,
                 modifier = Modifier.align(Alignment.TopCenter),
                 leadingActions = {
-                    MeowzixHeaderAction("Back", Icons.AutoMirrored.Rounded.ArrowBack, onBack)
+                    MeowzixHeaderAction("Back", Icons.AutoMirrored.Rounded.ArrowBack, backAction)
                 },
             )
         }
@@ -302,19 +372,37 @@ private fun TelegramAuthScreen(
 }
 
 @Composable
-private fun InitializingState(message: String, enabled: Boolean, onResetTelegram: () -> Unit) {
-    ProgressState(message)
-    OutlinedButton(
-        onClick = onResetTelegram,
-        enabled = enabled,
+private fun PreviousTelegramStep(
+    step: TelegramAuthStep,
+    canRequestCode: Boolean,
+    onRestart: () -> Unit,
+    onReturnToCurrent: () -> Unit,
+) {
+    MessageState(
+        icon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
+        title = when (step) {
+            is TelegramAuthStep.WaitCode -> "Authentication code"
+            is TelegramAuthStep.WaitEmailAddress -> "Email address"
+            is TelegramAuthStep.WaitEmailCode -> "Email code"
+            is TelegramAuthStep.WaitPassword -> "Two-step verification"
+            is TelegramAuthStep.WaitRegistration -> "Registration"
+            else -> "Previous sign-in step"
+        },
+        message = if (canRequestCode) {
+            "Telegram has already moved beyond this code. Request a fresh code to verify again."
+        } else {
+            "Telegram has already completed this step. To change it, restart sign-in from your phone number."
+        },
+    )
+    Button(
+        onClick = onRestart,
         shape = RoundedCornerShape(22.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 20.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.size(8.dp))
-        Text("Reset Telegram", fontWeight = FontWeight.SemiBold)
+        Text(if (canRequestCode) "Request a new code" else "Edit phone number")
+    }
+    TextButton(onClick = onReturnToCurrent) {
+        Text("Return to current step")
     }
 }
 
@@ -339,9 +427,7 @@ private fun SingleValueForm(
     )
     Button(
         onClick = {
-            val submitted = value
-            value = ""
-            onSubmit(submitted)
+            onSubmit(value)
         },
         enabled = enabled && value.isNotBlank(),
         shape = RoundedCornerShape(22.dp),
@@ -450,7 +536,7 @@ private fun ReadyState(
 }
 
 @Composable
-private fun MessageState(
+internal fun MessageState(
     icon: @Composable () -> Unit,
     title: String,
     message: String,
