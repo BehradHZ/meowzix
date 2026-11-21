@@ -455,12 +455,13 @@ class TdLibRemoteTrackPlaybackResolver @Inject constructor(
                 if (!partial.renameTo(artworkFile)) {
                     error("Unable to finalize cached artwork")
                 }
-                Uri.fromFile(artworkFile).toString()
+                Uri.fromFile(artworkFile).toString().also { ref ->
+                    libraryDao.setArtworkRef(trackIdString, ref, Instant.now().toEpochMilli())
+                }
             }.getOrElse {
                 partial.delete()
                 null
             } ?: continue
-            libraryDao.setArtworkRef(trackIdString, uri, Instant.now().toEpochMilli())
             return uri
         }
         return current
