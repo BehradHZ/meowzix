@@ -200,7 +200,7 @@ class ArtworkRepairCoordinator @Inject constructor(
     private fun writePreview(trackId: String, bytes: ByteArray): String? {
         if (!isImage(bytes)) return null
         previewDirectory.mkdirs()
-        val target = File(previewDirectory, "$trackId.jpg")
+        val target = File(previewDirectory, "$trackId-${bytes.contentHashCode()}.jpg")
         return runCatching {
             target.writeBytes(bytes)
             Uri.fromFile(target).toString()
