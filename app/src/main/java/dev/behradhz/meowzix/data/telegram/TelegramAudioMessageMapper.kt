@@ -15,7 +15,14 @@ internal data class TelegramAudioCandidate(
     val fileSizeBytes: Long?,
     val artworkMinithumbnail: ByteArray?,
     val artworkFileId: Int?,
-)
+    val additionalArtworkFileIds: List<Int> = emptyList(),
+) {
+    val artworkFileIds: List<Int>
+        get() = (
+            listOfNotNull(artworkFileId?.takeIf { it > 0 }) +
+                additionalArtworkFileIds.filter { it > 0 }
+            ).distinct()
+}
 
 internal data class TelegramArtworkMetadata(
     val minithumbnail: ByteArray?,
@@ -83,6 +90,8 @@ internal fun TdApi.Audio.toAudioCandidate(messageId: Long): TelegramAudioCandida
         fileSizeBytes = audio.size.toLong().takeIf { it > 0L },
         artworkMinithumbnail = albumCoverMinithumbnail?.data?.copyOf(),
         artworkFileId = albumCoverThumbnail?.file?.id,
+        additionalArtworkFileIds = externalAlbumCovers.orEmpty()
+            .mapNotNull { it.file?.id?.takeIf { fileId -> fileId > 0 } },
     )
 
 private fun bestTitle(explicitTitle: String?, fileName: String?): String =
