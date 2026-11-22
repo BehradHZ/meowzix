@@ -31,9 +31,13 @@ internal class TelegramSourceSyncCoordinator(private val scope: CoroutineScope) 
     suspend fun <T> foreground(block: suspend () -> T): T {
         val canceledBackground = synchronized(monitor) {
             foregroundRequests++
-            backgroundJob?.takeIf { it.isActive }?.also { job ->
-                if (queuedBackground == null) queuedBackground = runningBackground
-                job.cancel()
+            backgroundJob?.also { job ->
+                if (job.isActive) {
+                    if (queuedBackground == null) queuedBackground = runningBackground
+                    job.cancel()
+                }
+                // Also join an already canceled job: its non-cancellable cleanup may still
+                // be running, and the next user scan must not overlap that cleanup.
             }
         }
         try {

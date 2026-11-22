@@ -1,6 +1,8 @@
 package dev.behradhz.meowzix.data.telegram
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runCurrent
@@ -50,6 +52,34 @@ class TelegramSourceSyncCoordinatorTest {
         runCurrent()
         manual.await()
         assertEquals(listOf("manual-start", "manual-end", "automatic"), events)
+    }
+
+    @Test fun secondRefreshWaitsForBackgroundCancellationCleanup() = runTest {
+        val scheduler = TelegramSourceSyncCoordinator(backgroundScope)
+        val releaseCleanup = CompletableDeferred<Unit>()
+        val events = mutableListOf<String>()
+        scheduler.requestBackground {
+            try {
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) { releaseCleanup.await() }
+            }
+        }
+        runCurrent()
+        val first = backgroundScope.async {
+            scheduler.foreground { events += "first" }
+        }
+        runCurrent()
+        val second = backgroundScope.async {
+            scheduler.foreground { events += "second" }
+        }
+        runCurrent()
+        assertEquals(emptyList<String>(), events)
+        releaseCleanup.complete(Unit)
+        runCurrent()
+        first.await()
+        second.await()
+        assertEquals(listOf("first", "second"), events)
     }
 
     @Test fun repeatedBackgroundRequestsAreCoalesced() = runTest {
