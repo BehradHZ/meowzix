@@ -683,8 +683,8 @@ class TdLibTelegramRepository @Inject constructor(
             // because the in-memory StateFlow has not caught up yet during startup/reconnect.
             val selected = telegramDao.selectedSource(accountId, message.chatId) ?: return@launch
             val imported = persistTelegramMessage(accountId, message)
-            val newest = maxOf(selected.newestMessageId ?: 0L, message.id)
-            telegramDao.updateSyncCheckpoint(accountId, message.chatId, newest, selected.initialScanComplete, Instant.now().toEpochMilli())
+            // Live updates can arrive out of order. Only a history scan may advance its
+            // checkpoint; otherwise a newer unrelated message can hide unsynced songs.
             if (imported != null) {
                 syncChatPlaylist(accountId, message.chatId, selected.title)
                 reloadPersistedSelection(accountId)
@@ -781,7 +781,15 @@ class TdLibTelegramRepository @Inject constructor(
         }
 
         while (!reachedCheckpoint) {
-            val page = activeClient.send(TdApi.GetChatHistory(selected.chatId, fromMessageId, 0, 100, false))
+            val page = try {
+                activeClient.send(TdApi.GetChatHistory(selected.chatId, fromMessageId, 0, 100, false))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Private profile-pinned audio must still refresh if chat history is restricted.
+                if (pagesScanned == 0) refreshProfileAfterLatestMessages()
+                throw error
+            }
             if (page.messages.isEmpty()) {
                 reachedHistoryEnd = true
                 break
