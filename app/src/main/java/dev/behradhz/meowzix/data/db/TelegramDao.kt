@@ -22,7 +22,18 @@ interface TelegramDao {
     @Query("DELETE FROM telegram_selected_sources WHERE accountId = :accountId AND chatId = :chatId")
     suspend fun deleteSelectedSource(accountId: String, chatId: Long)
 
-    @Query("UPDATE telegram_selected_sources SET newestMessageId = :newestMessageId, initialScanComplete = :initialScanComplete, lastSyncedAtEpochMs = :syncedAt WHERE accountId = :accountId AND chatId = :chatId")
+    // A live message can advance the checkpoint while a history scan is still running.
+    @Query("""
+        UPDATE telegram_selected_sources
+        SET newestMessageId = CASE
+                WHEN :newestMessageId IS NULL THEN newestMessageId
+                WHEN newestMessageId IS NULL OR newestMessageId < :newestMessageId THEN :newestMessageId
+                ELSE newestMessageId
+            END,
+            initialScanComplete = CASE WHEN initialScanComplete = 1 THEN 1 ELSE :initialScanComplete END,
+            lastSyncedAtEpochMs = :syncedAt
+        WHERE accountId = :accountId AND chatId = :chatId
+    """)
     suspend fun updateSyncCheckpoint(
         accountId: String,
         chatId: Long,
