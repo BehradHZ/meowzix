@@ -200,6 +200,9 @@ class PlaybackServiceTest {
         val info = context.packageManager.getActivityInfo(
             ComponentName(context, TelegramForwardActivity::class.java), 0,
         )
+        val mainInfo = context.packageManager.getActivityInfo(ComponentName(context, MainActivity::class.java), 0)
+        assertTrue("Forward must not bring the main app task to the foreground", info.taskAffinity != mainInfo.taskAffinity)
+        assertEquals("${context.packageName}.notificationForward", info.taskAffinity)
         val theme = context.resources.newTheme().apply { applyStyle(info.theme, true) }
         val values = theme.obtainStyledAttributes(intArrayOf(android.R.attr.windowIsTranslucent))
         try {

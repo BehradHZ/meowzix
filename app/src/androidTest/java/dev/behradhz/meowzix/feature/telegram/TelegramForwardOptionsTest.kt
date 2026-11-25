@@ -18,7 +18,7 @@ import org.junit.runner.RunWith
 class TelegramForwardOptionsTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun senderCaptionRememberAreIndependentOneRowTogglePills() {
+    @Test fun senderCaptionPillsAndRememberCheckboxAreIndependent() {
         var sender by mutableStateOf(false)
         var caption by mutableStateOf(false)
         var remember by mutableStateOf(false)

@@ -1,7 +1,7 @@
 # Notification Forward: direct translucent Telegram picker
 
 The MediaSession Forward command launches `TelegramForwardActivity` directly
-with an immutable activity `PendingIntent`. No opaque black gateway frame is
+with an immutable activity `PendingIntent`. The picker has its own task affinity, separate from the main player task, so opening it from another app does not bring Meowzix's main screen to the foreground. No opaque black gateway frame is
 present. Android SystemUI/OEM firmware controls the notification-shade
 transition; a direct translucent activity cannot guarantee automatic shade
 dismissal on every Android build. No hidden status-bar APIs or system-overlay

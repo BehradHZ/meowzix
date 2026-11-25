@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -898,12 +899,25 @@ internal fun GlassOptionGroup(
             onSelectedChange = onKeepCaptionChange,
             modifier = Modifier.weight(1f),
         )
-        ForwardOptionPill(
-            title = "Remember",
-            selected = rememberDefaults,
-            onSelectedChange = onRememberDefaultsChange,
-            modifier = Modifier.weight(1f),
-        )
+        Column(
+            modifier = Modifier
+                .size(width = 60.dp, height = 52.dp)
+                .toggleable(
+                    value = rememberDefaults,
+                    role = Role.Checkbox,
+                    onValueChange = onRememberDefaultsChange,
+                )
+                .testTag("telegram-option-remember"),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Checkbox(
+                checked = rememberDefaults,
+                onCheckedChange = null,
+                modifier = Modifier.size(24.dp),
+            )
+            Text("Remember", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
     }
 }
 
