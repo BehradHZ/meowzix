@@ -45,6 +45,8 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dagger.hilt.android.AndroidEntryPoint
+import dev.behradhz.meowzix.domain.playback.ForwardTimestampSnapshot
+import dev.behradhz.meowzix.domain.playback.forwardTimestampSnapshot
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.settings.SettingsRepository
@@ -133,6 +135,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
         val cachedChats = forward.cachedRecentForwardChats().orEmpty()
         _ui.value = OverlayForwardState(
             track = snapshot,
+            initialTimestamp = playback.state.value.forwardTimestampSnapshot(snapshot.id),
             chats = cachedChats,
             folders = cachedFolders.orEmpty(),
             foldersLoading = cachedFolders == null,
@@ -218,6 +221,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
                         ) {
                             TelegramForwardSheet(
                                 trackId = selected.id,
+                                initialTimestamp = state.initialTimestamp,
                                 title = selected.title,
                                 artist = selected.artist,
                                 query = state.query,
@@ -390,6 +394,7 @@ class TelegramForwardOverlayService : Service(), LifecycleOwner, SavedStateRegis
 
 private data class OverlayForwardState(
     val track: NowPlayingTrack? = null,
+    val initialTimestamp: ForwardTimestampSnapshot? = null,
     val query: String = "",
     val chats: List<TelegramChatSummary> = emptyList(),
     val folders: List<TelegramForwardFolder> = emptyList(),

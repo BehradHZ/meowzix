@@ -404,6 +404,7 @@ fun NowPlayingRoute(
     if (forwardState.isOpen && track != null) {
         TelegramForwardSheet(
             track = track,
+            initialTimestamp = forwardState.initialTimestamp,
             query = forwardState.query,
             chats = forwardState.chats,
             folders = forwardState.folders,

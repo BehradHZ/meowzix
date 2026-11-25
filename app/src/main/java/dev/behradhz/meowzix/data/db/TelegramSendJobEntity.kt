@@ -28,4 +28,5 @@ data class TelegramSendJobEntity(
     val errorMessage: String?,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
+    val timestampSeconds: Int? = null,
 )

@@ -100,7 +100,17 @@ data class TelegramMusicSourceState(
 data class TelegramForwardOptions(
     val includeSourceAttribution: Boolean = true,
     val keepCaption: Boolean = true,
+    /** One-shot media position; never persisted as a Remember preference. */
+    val timestampSeconds: Int? = null,
 )
+
+fun formatTelegramMediaTimestamp(seconds: Int): String {
+    require(seconds >= 0)
+    val minutes = (seconds / 60 % 60).toString().padStart(2, '0')
+    val remainder = (seconds % 60).toString().padStart(2, '0')
+    return if (seconds >= 3600) "${seconds / 3600}:$minutes:$remainder"
+    else "${seconds / 60}:$remainder"
+}
 
 enum class TelegramSendState {
     QUEUED,

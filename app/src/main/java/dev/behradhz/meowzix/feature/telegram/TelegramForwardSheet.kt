@@ -14,6 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,6 +84,11 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -96,12 +102,16 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import dev.behradhz.meowzix.domain.playback.ForwardTimestampSnapshot
+import dev.behradhz.meowzix.domain.playback.PlaybackController
+import dev.behradhz.meowzix.domain.playback.livePosition
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardFolder
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardOptions
+import dev.behradhz.meowzix.domain.telegram.formatTelegramMediaTimestamp
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramSendJob
 import dev.behradhz.meowzix.domain.telegram.TelegramSendState
@@ -111,6 +121,7 @@ import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.rememberHazeState
 import java.util.UUID
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -153,6 +164,7 @@ internal fun forwardIdleRemainingMillis(
 @InstallIn(SingletonComponent::class)
 interface TelegramForwardSheetEntryPoint {
     fun telegramForwardRepository(): TelegramForwardRepository
+    fun playbackController(): PlaybackController
 }
 
 @Composable
@@ -175,6 +187,7 @@ fun TelegramForwardSheet(
     onDismiss: () -> Unit,
     reduceMotion: Boolean = false,
     requestDismiss: Boolean = false,
+    initialTimestamp: ForwardTimestampSnapshot? = null,
 ) = TelegramForwardSheet(
     trackId = track.id,
     title = track.title,
@@ -200,6 +213,7 @@ fun TelegramForwardSheet(
     onDismiss = onDismiss,
     reduceMotion = reduceMotion,
     requestDismiss = requestDismiss,
+    initialTimestamp = initialTimestamp,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -228,6 +242,7 @@ fun TelegramForwardSheet(
     reduceMotion: Boolean = false,
     requestDismiss: Boolean = false,
     trackIds: List<UUID> = listOf(trackId),
+    initialTimestamp: ForwardTimestampSnapshot? = null,
 ) {
     ForwardPickerBody(
         trackId = trackId,
@@ -257,6 +272,7 @@ fun TelegramForwardSheet(
         reduceMotion = reduceMotion,
         requestDismiss = requestDismiss,
         trackIds = trackIds,
+        initialTimestamp = initialTimestamp,
     )
 }
 
@@ -285,6 +301,7 @@ private fun ForwardPickerBody(
     reduceMotion: Boolean,
     requestDismiss: Boolean,
     trackIds: List<UUID>,
+    initialTimestamp: ForwardTimestampSnapshot?,
 ) {
     var includeSourceAttribution by rememberSaveable(trackId.toString()) {
         mutableStateOf(defaults.includeSourceAttribution)
@@ -293,6 +310,9 @@ private fun ForwardPickerBody(
         mutableStateOf(defaults.keepCaption)
     }
     var rememberDefaults by rememberSaveable(trackId.toString()) { mutableStateOf(false) }
+    val timestampSnapshot = initialTimestamp.takeIf { trackIds.size == 1 }
+    var timestampMs by remember(trackId, timestampSnapshot) { mutableStateOf(timestampSnapshot?.positionMs) }
+    var timestampSelected by remember(trackId, timestampSnapshot) { mutableStateOf(false) }
     var optionsEdited by remember(trackId) { mutableStateOf(false) }
     LaunchedEffect(defaults.includeSourceAttribution, defaults.keepCaption) {
         if (!optionsEdited) {
@@ -357,6 +377,9 @@ private fun ForwardPickerBody(
             appContext,
             TelegramForwardSheetEntryPoint::class.java,
         ).telegramForwardRepository()
+    }
+    val playbackController = remember(appContext) {
+        EntryPointAccessors.fromApplication(appContext, TelegramForwardSheetEntryPoint::class.java).playbackController()
     }
     val sendJobs by repository.sendJobs.collectAsState(initial = emptyList())
     var sentVisibilityClockMs by remember(trackId) { mutableStateOf(System.currentTimeMillis()) }
@@ -495,6 +518,11 @@ private fun ForwardPickerBody(
                         if (!it) includeSourceAttribution = false
                     },
                     onRememberDefaultsChange = { rememberDefaults = it },
+                    timestampMs = timestampMs,
+                    timestampSelected = timestampSelected,
+                    onTimestampSelected = { timestampSelected = it },
+                    onTimestampPosition = { timestampMs = it },
+                    liveTimestamp = { timestampSnapshot?.livePosition(playbackController.state.value, trackId) },
                 )
 
                 Spacer(Modifier.height(16.dp))
@@ -698,6 +726,7 @@ private fun ForwardPickerBody(
                                                 TelegramForwardOptions(
                                                     includeSourceAttribution = includeSourceAttribution,
                                                     keepCaption = keepCaption,
+                                                    timestampSeconds = timestampMs?.takeIf { timestampSelected }?.let { (it / 1000L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt() },
                                                 ),
                                                 rememberDefaults,
                                             )
@@ -877,6 +906,11 @@ internal fun GlassOptionGroup(
     onSourceAttributionChange: (Boolean) -> Unit,
     onKeepCaptionChange: (Boolean) -> Unit,
     onRememberDefaultsChange: (Boolean) -> Unit,
+    timestampMs: Long? = null,
+    timestampSelected: Boolean = false,
+    onTimestampSelected: (Boolean) -> Unit = {},
+    onTimestampPosition: (Long) -> Unit = {},
+    liveTimestamp: () -> Long? = { null },
 ) {
     Row(
         modifier = Modifier
@@ -899,6 +933,16 @@ internal fun GlassOptionGroup(
             onSelectedChange = onKeepCaptionChange,
             modifier = Modifier.weight(1f),
         )
+        if (timestampMs != null) {
+            ForwardTimestampPill(
+                timestampMs = timestampMs,
+                selected = timestampSelected,
+                onSelectedChange = onTimestampSelected,
+                onPositionChange = onTimestampPosition,
+                liveTimestamp = liveTimestamp,
+                modifier = Modifier.weight(1f),
+            )
+        }
         Column(
             modifier = Modifier
                 .size(width = 60.dp, height = 52.dp)
@@ -918,6 +962,80 @@ internal fun GlassOptionGroup(
             )
             Text("Remember", style = MaterialTheme.typography.labelSmall, maxLines = 1)
         }
+    }
+}
+
+/** Tap toggles the captured timestamp; a held press tracks the actual player until release. */
+@Composable
+private fun ForwardTimestampPill(
+    timestampMs: Long,
+    selected: Boolean,
+    onSelectedChange: (Boolean) -> Unit,
+    onPositionChange: (Long) -> Unit,
+    liveTimestamp: () -> Long?,
+    modifier: Modifier = Modifier,
+) {
+    val currentPosition by rememberUpdatedState(timestampMs)
+    val currentSelected by rememberUpdatedState(selected)
+    val changeSelected by rememberUpdatedState(onSelectedChange)
+    val changePosition by rememberUpdatedState(onPositionChange)
+    val readPosition by rememberUpdatedState(liveTimestamp)
+    val accent = MaterialTheme.colorScheme.primary
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .background(
+                if (selected) accent.copy(alpha = 0.28f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.065f),
+                CircleShape,
+            )
+            .border(1.dp, if (selected) accent.copy(alpha = 0.72f) else TelegramGlassStroke, CircleShape)
+            .semantics(mergeDescendants = true) {
+                role = Role.Checkbox
+                toggleableState = ToggleableState(selected)
+                onClick {
+                    changeSelected(!currentSelected)
+                    true
+                }
+            }
+            .pointerInput(Unit) {
+                val holdTimeout = viewConfiguration.longPressTimeoutMillis
+                detectTapGestures(onPress = {
+                    coroutineScope {
+                        val originalPosition = currentPosition
+                        var held = false
+                        val tracking = launch {
+                            delay(holdTimeout)
+                            held = true
+                            while (true) {
+                                readPosition()?.let(changePosition)
+                                delay(50L)
+                            }
+                        }
+                        val released = try {
+                            tryAwaitRelease()
+                        } finally {
+                            tracking.cancel()
+                        }
+                        if (released && held) {
+                            readPosition()?.let(changePosition)
+                            changeSelected(true)
+                        } else if (released) {
+                            changeSelected(!currentSelected)
+                        } else {
+                            changePosition(originalPosition)
+                        }
+                    }
+                })
+            }
+            .testTag("telegram-option-timestamp"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = formatTelegramMediaTimestamp((timestampMs / 1000L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()),
+            maxLines = 1,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+        )
     }
 }
 

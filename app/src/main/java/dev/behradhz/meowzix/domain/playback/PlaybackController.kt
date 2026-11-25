@@ -36,6 +36,23 @@ data class PlaybackState(
     val userInterruptedPrevious: Boolean = false,
 )
 
+/** Position captured when Forward is requested, tied to one playback occurrence. */
+data class ForwardTimestampSnapshot(val positionMs: Long, val occurrenceId: UUID?)
+
+fun PlaybackState.forwardTimestampSnapshot(trackId: UUID): ForwardTimestampSnapshot? {
+    if (currentTrack?.id != trackId) return null
+    val position = positionMs.coerceAtLeast(0L)
+    return ForwardTimestampSnapshot(
+        if (durationMs > 0L) position.coerceAtMost(durationMs) else position,
+        playbackOccurrenceId,
+    )
+}
+
+fun ForwardTimestampSnapshot.livePosition(state: PlaybackState, trackId: UUID): Long? =
+    state.forwardTimestampSnapshot(trackId)
+        ?.takeIf { it.occurrenceId == occurrenceId }
+        ?.positionMs
+
 interface PlaybackController {
     val state: StateFlow<PlaybackState>
 
