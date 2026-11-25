@@ -366,6 +366,32 @@ class MigrationTest {
         database.close()
     }
 
+    @Test
+    fun migrateTwentyOneToTwentyTwoRetainsQueuedSendsWithoutTimestamp() {
+        val database = helper.createDatabase("migration-test-21-22", 16)
+        MIGRATION_16_17.migrate(database)
+        MIGRATION_17_18.migrate(database)
+        MIGRATION_18_19.migrate(database)
+        MIGRATION_19_20.migrate(database)
+        MIGRATION_20_21.migrate(database)
+        database.version = 21
+        database.execSQL(
+            "INSERT INTO telegram_send_jobs(id, accountId, trackId, targetChatId, targetTitle, state, " +
+                "progressPercent, attemptCount, includeSourceAttribution, keepCaption, activeDedupeKey, " +
+                "sentMessageId, errorMessage, createdAtEpochMs, updatedAtEpochMs) " +
+                "VALUES ('job', 'account', 'track', 123, 'Chat', 'QUEUED', 0, 0, 1, 1, 'dedupe', NULL, NULL, 1, 1)",
+        )
+        MIGRATION_21_22.migrate(database)
+        database.version = 22
+        database.query("SELECT state, activeDedupeKey, timestampSeconds FROM telegram_send_jobs WHERE id = 'job'").use {
+            assertTrue(it.moveToFirst())
+            assertEquals("QUEUED", it.getString(0))
+            assertEquals("dedupe", it.getString(1))
+            assertTrue(it.isNull(2))
+        }
+        database.close()
+    }
+
     private companion object {
         const val TEST_DATABASE_1_2 = "migration-test-1-2"
         const val TEST_DATABASE_2_3 = "migration-test-2-3"

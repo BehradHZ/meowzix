@@ -16,7 +16,9 @@ permission are used.
 - The floating card remains transparent around its edges and uses the available
   screen height (minus status/navigation bars and comfortable top/bottom margins), allowing more visible
   chats. The player sheet also extends nearly to the top.
-- The selected track ID/title/artist remain pinned across notification launch.
+- The selected track ID/title/artist and playback position remain pinned across notification launch.
+- A single currently playing track offers an optional timestamp pill. Tap toggles it; hold follows the same playback occurrence until release. Remember applies to Sender and Caption only, not a track-specific timestamp.
+- The send queue checkpoints the confirmed audio message before sending the timestamp as a text reply in the same chat. Retry after the checkpoint sends only the reply. If reply delivery is uncertain, check Telegram before retrying. Cancel after the audio checkpoint does not remove the delivered song.
 - Enqueue failures and duplicate/already-sent attempts do not arm auto-close.
 
 **Real-device QA:** Check Forward from Android 13+ expanded media controls,

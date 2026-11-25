@@ -42,4 +42,30 @@ class TelegramForwardOptionsTest {
         compose.onNodeWithTag("telegram-option-remember").assertIsOff().performClick()
         compose.onNodeWithTag("telegram-option-remember").assertIsOn()
     }
+
+    @Test fun timestampStartsOffAndTogglesIndependentlyOfRemember() {
+        var timestampSelected by mutableStateOf(false)
+        var remembered by mutableStateOf(false)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                GlassOptionGroup(
+                    includeSourceAttribution = true,
+                    keepCaption = true,
+                    rememberDefaults = remembered,
+                    onSourceAttributionChange = {},
+                    onKeepCaptionChange = {},
+                    onRememberDefaultsChange = { remembered = it },
+                    timestampMs = 102345L,
+                    timestampSelected = timestampSelected,
+                    onTimestampSelected = { timestampSelected = it },
+                )
+            }
+        }
+        compose.onNodeWithTag("telegram-option-timestamp").assertIsOff().performClick()
+        compose.onNodeWithTag("telegram-option-timestamp").assertIsOn()
+        compose.onNodeWithTag("telegram-option-remember").assertIsOff().performClick()
+        compose.onNodeWithTag("telegram-option-timestamp").assertIsOn().performClick()
+        compose.onNodeWithTag("telegram-option-timestamp").assertIsOff()
+        compose.onNodeWithTag("telegram-option-remember").assertIsOn()
+    }
 }

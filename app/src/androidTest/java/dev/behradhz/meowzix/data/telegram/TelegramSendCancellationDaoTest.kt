@@ -87,6 +87,32 @@ class TelegramSendCancellationDaoTest {
         assertEquals(emptyList<String>(), dao.observeRecent().first().map { it.id })
     }
 
+    @Test fun confirmedAudioCheckpointSurvivesRetryAndDismissal() = runTest {
+        val dao = db.telegramSendDao()
+        val queued = job("QUEUED").copy(timestampSeconds = 102)
+        dao.insert(queued)
+        assertEquals(1, dao.claimForProcessing(queued.id, 1, 10L))
+        assertEquals(1, dao.recordDeliveredAudio(queued.id, 456L, 20L))
+        dao.recoverInterrupted("Check delivery", 30L)
+        assertEquals("VERIFYING", dao.jobById(queued.id)!!.state)
+        assertEquals(1, dao.retry(queued.id, 40L))
+        val retry = dao.nextRunnable()!!
+        assertEquals(456L, retry.sentMessageId)
+        assertEquals(102, retry.timestampSeconds)
+        assertEquals(1, dao.cancel(queued.id, 50L))
+        assertEquals(456L, dao.sentForTrackDestination(queued.accountId, queued.targetChatId, queued.trackId)?.sentMessageId)
+    }
+
+    @Test fun canceledSendCannotCheckpointAnAudioMessage() = runTest {
+        val dao = db.telegramSendDao()
+        val queued = job("QUEUED").copy(timestampSeconds = 102)
+        dao.insert(queued)
+        assertEquals(1, dao.claimForProcessing(queued.id, 1, 10L))
+        assertEquals(1, dao.requestCancelActive(queued.id, 20L))
+        assertEquals(0, dao.recordDeliveredAudio(queued.id, 456L, 30L))
+        assertNull(dao.jobById(queued.id)!!.sentMessageId)
+    }
+
     private fun job(state: String) = TelegramSendJobEntity(
         id = UUID.randomUUID().toString(),
         accountId = "42",
