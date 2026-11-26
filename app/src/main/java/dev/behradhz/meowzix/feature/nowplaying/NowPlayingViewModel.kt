@@ -9,6 +9,8 @@ import dev.behradhz.meowzix.data.settings.PlaybackContextPolicyStore
 import dev.behradhz.meowzix.domain.library.MusicLibraryRepository
 import dev.behradhz.meowzix.domain.library.RemoveTrackFromLocations
 import dev.behradhz.meowzix.domain.playback.AudioVisualizerRepository
+import dev.behradhz.meowzix.domain.playback.ForwardTimestampSnapshot
+import dev.behradhz.meowzix.domain.playback.forwardTimestampSnapshot
 import dev.behradhz.meowzix.domain.playback.PlaybackController
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
@@ -53,6 +55,7 @@ data class TelegramForwardUiState(
     val track: NowPlayingTrack? = null,
     /** Canonical IDs in their chosen order, including bulk Forward from Library. */
     val trackIds: List<UUID> = emptyList(),
+    val initialTimestamp: ForwardTimestampSnapshot? = null,
     val query: String = "",
     val chats: List<TelegramChatSummary> = emptyList(),
     val folders: List<TelegramForwardFolder> = emptyList(),
@@ -311,12 +314,16 @@ class NowPlayingViewModel @Inject constructor(
         openForwardPickerForTrack(id)
     }
 
-    fun openForwardPickerForTrack(trackId: UUID, fallbackTrack: NowPlayingTrack? = null) {
+    fun openForwardPickerForTrack(
+        trackId: UUID,
+        fallbackTrack: NowPlayingTrack? = null,
+        initialTimestamp: ForwardTimestampSnapshot? = playbackController.state.value.forwardTimestampSnapshot(trackId),
+    ) {
         val request = ++forwardPickerRequest
         val selectedTrack = state.value.currentTrack?.takeIf { it.id == trackId }
             ?: fallbackTrack?.takeIf { it.id == trackId }
         if (selectedTrack != null) {
-            showForwardPicker(selectedTrack)
+            showForwardPicker(selectedTrack, initialTimestamp = initialTimestamp)
             return
         }
         // Arbitrary Queue/Library tracks are fetched only when Forward is requested.
@@ -329,7 +336,7 @@ class NowPlayingViewModel @Inject constructor(
                 null
             } ?: return@launch
             if (forwardPickerRequest != request) return@launch
-            showForwardPicker(NowPlayingTrack(track.id, track.title, track.artist, track.artworkRef))
+            showForwardPicker(NowPlayingTrack(track.id, track.title, track.artist, track.artworkRef), initialTimestamp = initialTimestamp)
         }
     }
 
@@ -352,6 +359,7 @@ class NowPlayingViewModel @Inject constructor(
     private fun showForwardPicker(
         selectedTrack: NowPlayingTrack,
         trackIds: List<UUID> = listOf(selectedTrack.id),
+        initialTimestamp: ForwardTimestampSnapshot? = if (trackIds.size == 1) playbackController.state.value.forwardTimestampSnapshot(selectedTrack.id) else null,
     ) {
         forwardSearchJob?.cancel()
         forwardFoldersJob?.cancel()
@@ -364,6 +372,7 @@ class NowPlayingViewModel @Inject constructor(
                 isOpen = true,
                 track = selectedTrack,
                 trackIds = forwardTrackIds,
+                initialTimestamp = initialTimestamp.takeIf { forwardTrackIds.size == 1 },
                 query = "",
                 chats = cachedChats,
                 folders = cachedFolders.orEmpty(),
@@ -432,6 +441,7 @@ class NowPlayingViewModel @Inject constructor(
                 isOpen = false,
                 track = null,
                 trackIds = emptyList(),
+                initialTimestamp = null,
                 query = "",
                 chats = emptyList(),
                 folders = emptyList(),

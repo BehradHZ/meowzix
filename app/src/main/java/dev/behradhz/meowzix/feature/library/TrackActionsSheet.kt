@@ -569,6 +569,7 @@ internal fun TrackForwardOverlay(
             title = selection.title,
             artist = selection.artist,
             trackIds = state.trackIds,
+            initialTimestamp = state.initialTimestamp,
             query = state.query,
             chats = state.chats,
             folders = state.folders,

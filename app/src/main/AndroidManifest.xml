@@ -284,9 +284,10 @@
             android:taskAffinity=""
             android:theme="@android:style/Theme.NoDisplay" />
 
-        <!-- Reuse the app task so closing the forward sheet reveals the existing player. -->
+        <!-- Keep notification Forward out of the main app task so the previous app stays behind it. -->
         <activity
             android:name=".feature.telegram.TelegramForwardActivity"
+            android:taskAffinity="${applicationId}.notificationForward"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTop"

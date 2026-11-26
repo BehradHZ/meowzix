@@ -18,7 +18,7 @@ import org.junit.runner.RunWith
 class TelegramForwardOptionsTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun senderCaptionRememberAreIndependentOneRowTogglePills() {
+    @Test fun senderCaptionPillsAndRememberCheckboxAreIndependent() {
         var sender by mutableStateOf(false)
         var caption by mutableStateOf(false)
         var remember by mutableStateOf(false)
@@ -40,6 +40,32 @@ class TelegramForwardOptionsTest {
         compose.onNodeWithTag("telegram-option-sender").assertIsOff()
         compose.onNodeWithTag("telegram-option-caption").assertIsOff()
         compose.onNodeWithTag("telegram-option-remember").assertIsOff().performClick()
+        compose.onNodeWithTag("telegram-option-remember").assertIsOn()
+    }
+
+    @Test fun timestampStartsOffAndTogglesIndependentlyOfRemember() {
+        var timestampSelected by mutableStateOf(false)
+        var remembered by mutableStateOf(false)
+        compose.setContent {
+            MeowzixTheme(darkTheme = true) {
+                GlassOptionGroup(
+                    includeSourceAttribution = true,
+                    keepCaption = true,
+                    rememberDefaults = remembered,
+                    onSourceAttributionChange = {},
+                    onKeepCaptionChange = {},
+                    onRememberDefaultsChange = { remembered = it },
+                    timestampMs = 102345L,
+                    timestampSelected = timestampSelected,
+                    onTimestampSelected = { timestampSelected = it },
+                )
+            }
+        }
+        compose.onNodeWithTag("telegram-option-timestamp").assertIsOff().performClick()
+        compose.onNodeWithTag("telegram-option-timestamp").assertIsOn()
+        compose.onNodeWithTag("telegram-option-remember").assertIsOff().performClick()
+        compose.onNodeWithTag("telegram-option-timestamp").assertIsOn().performClick()
+        compose.onNodeWithTag("telegram-option-timestamp").assertIsOff()
         compose.onNodeWithTag("telegram-option-remember").assertIsOn()
     }
 }

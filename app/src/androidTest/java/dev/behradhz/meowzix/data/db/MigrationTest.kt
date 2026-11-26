@@ -389,9 +389,9 @@ class MigrationTest {
         db.close()
 
         val migrated = helper.runMigrationsAndValidate(
-            TEST_DATABASE_16_22, 22, true,
+            TEST_DATABASE_16_22, 23, true,
             MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19,
-            MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
+            MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23,
         )
         migrated.query(
             "SELECT type, outputClass, offlineOnly FROM listening_events WHERE id = 'context-event'"
@@ -412,6 +412,34 @@ class MigrationTest {
             assertEquals(1, cursor.getInt(1))
         }
         migrated.close()
+    }
+
+    @Test
+    fun migrateTwentyOneToTwentyThreeRetainsQueuedSendsWithoutTimestamp() {
+        val database = helper.createDatabase("migration-test-21-22", 16)
+        MIGRATION_16_17.migrate(database)
+        MIGRATION_17_18.migrate(database)
+        MIGRATION_18_19.migrate(database)
+        MIGRATION_19_20.migrate(database)
+        MIGRATION_20_21.migrate(database)
+        database.version = 21
+        database.execSQL(
+            "INSERT INTO telegram_send_jobs(id, accountId, trackId, targetChatId, targetTitle, state, " +
+                "progressPercent, attemptCount, includeSourceAttribution, keepCaption, activeDedupeKey, " +
+                "sentMessageId, errorMessage, createdAtEpochMs, updatedAtEpochMs) " +
+                "VALUES ('job', 'account', 'track', 123, 'Chat', 'QUEUED', 0, 0, 1, 1, 'dedupe', NULL, NULL, 1, 1)",
+        )
+        MIGRATION_21_22.migrate(database)
+        database.version = 22
+        MIGRATION_22_23.migrate(database)
+        database.version = 23
+        database.query("SELECT state, activeDedupeKey, timestampSeconds FROM telegram_send_jobs WHERE id = 'job'").use {
+            assertTrue(it.moveToFirst())
+            assertEquals("QUEUED", it.getString(0))
+            assertEquals("dedupe", it.getString(1))
+            assertTrue(it.isNull(2))
+        }
+        database.close()
     }
 
     private companion object {

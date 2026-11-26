@@ -20,7 +20,7 @@ interface TelegramSendDao {
     @Query("SELECT * FROM telegram_send_jobs WHERE activeDedupeKey = :dedupeKey LIMIT 1")
     suspend fun activeByDedupeKey(dedupeKey: String): TelegramSendJobEntity?
 
-    @Query("SELECT * FROM telegram_send_jobs WHERE accountId = :accountId AND targetChatId = :targetChatId AND trackId = :trackId AND state = 'SENT' ORDER BY updatedAtEpochMs DESC LIMIT 1")
+    @Query("SELECT * FROM telegram_send_jobs WHERE accountId = :accountId AND targetChatId = :targetChatId AND trackId = :trackId AND (state = 'SENT' OR (timestampSeconds IS NOT NULL AND sentMessageId > 0)) ORDER BY updatedAtEpochMs DESC LIMIT 1")
     suspend fun sentForTrackDestination(
         accountId: String,
         targetChatId: Long,
@@ -81,6 +81,16 @@ interface TelegramSendDao {
         """,
     )
     suspend fun updateProgress(id: String, progressPercent: Int, updatedAtEpochMs: Long)
+
+    /** Checkpoint confirmed audio before submitting the optional timestamp reply. */
+    @Query(
+        """
+        UPDATE telegram_send_jobs SET state = 'SENDING', progressPercent = 95,
+            sentMessageId = :messageId, updatedAtEpochMs = :updatedAtEpochMs
+        WHERE id = :id AND state IN ('CHECKING', 'PREPARING_FILE', 'UPLOADING', 'SENDING')
+        """,
+    )
+    suspend fun recordDeliveredAudio(id: String, messageId: Long, updatedAtEpochMs: Long): Int
 
     @Query(
         """

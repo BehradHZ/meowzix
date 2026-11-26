@@ -1,7 +1,7 @@
 # Notification Forward: direct translucent Telegram picker
 
 The MediaSession Forward command launches `TelegramForwardActivity` directly
-with an immutable activity `PendingIntent`. No opaque black gateway frame is
+with an immutable activity `PendingIntent`. The picker has its own task affinity, separate from the main player task, so opening it from another app does not bring Meowzix's main screen to the foreground. No opaque black gateway frame is
 present. Android SystemUI/OEM firmware controls the notification-shade
 transition; a direct translucent activity cannot guarantee automatic shade
 dismissal on every Android build. No hidden status-bar APIs or system-overlay
@@ -16,7 +16,9 @@ permission are used.
 - The floating card remains transparent around its edges and uses the available
   screen height (minus status/navigation bars and comfortable top/bottom margins), allowing more visible
   chats. The player sheet also extends nearly to the top.
-- The selected track ID/title/artist remain pinned across notification launch.
+- The selected track ID/title/artist and playback position remain pinned across notification launch.
+- A single currently playing track offers an optional timestamp pill. Tap toggles it; hold follows the same playback occurrence until release. Remember applies to Sender and Caption only, not a track-specific timestamp.
+- The send queue checkpoints the confirmed audio message before sending the timestamp as a text reply in the same chat. Retry after the checkpoint sends only the reply. If reply delivery is uncertain, check Telegram before retrying. Cancel after the audio checkpoint does not remove the delivered song.
 - Enqueue failures and duplicate/already-sent attempts do not arm auto-close.
 
 **Real-device QA:** Check Forward from Android 13+ expanded media controls,

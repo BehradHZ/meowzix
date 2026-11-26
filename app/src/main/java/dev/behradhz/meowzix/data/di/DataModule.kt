@@ -35,6 +35,7 @@ import dev.behradhz.meowzix.data.db.MIGRATION_18_19
 import dev.behradhz.meowzix.data.db.MIGRATION_19_20
 import dev.behradhz.meowzix.data.db.MIGRATION_20_21
 import dev.behradhz.meowzix.data.db.MIGRATION_21_22
+import dev.behradhz.meowzix.data.db.MIGRATION_22_23
 import dev.behradhz.meowzix.data.db.LoudnessAnalysisDao
 import dev.behradhz.meowzix.data.db.MeowzixDatabase
 import dev.behradhz.meowzix.data.db.PlaylistDao
@@ -140,6 +141,7 @@ object DatabaseModule {
                 MIGRATION_19_20,
                 MIGRATION_20_21,
                 MIGRATION_21_22,
+                MIGRATION_22_23,
             )
             .addCallback(TRACK_SEARCH_DATABASE_CALLBACK)
             .build()

@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
+import dev.behradhz.meowzix.domain.playback.ForwardTimestampSnapshot
+import dev.behradhz.meowzix.domain.playback.forwardTimestampSnapshot
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.feature.nowplaying.NowPlayingViewModel
 import dev.behradhz.meowzix.ui.theme.MeowzixTheme
@@ -115,7 +117,15 @@ class TelegramForwardActivity : ComponentActivity() {
                         artworkRef = null,
                     )
                 }
-                viewModel.openForwardPickerForTrack(trackId, fallbackTrack = snapshot)
+                val initialTimestamp = intent.getLongExtra(EXTRA_TIMESTAMP_MS, -1L)
+                    .takeIf { it >= 0L }
+                    ?.let { position ->
+                        ForwardTimestampSnapshot(
+                            position,
+                            intent.getStringExtra(EXTRA_OCCURRENCE_ID)?.let { runCatching { UUID.fromString(it) }.getOrNull() },
+                        )
+                    } ?: playbackState.forwardTimestampSnapshot(trackId)
+                viewModel.openForwardPickerForTrack(trackId, fallbackTrack = snapshot, initialTimestamp = initialTimestamp)
             }
         }
         LaunchedEffect(forwardState.isOpen) {
@@ -155,6 +165,7 @@ class TelegramForwardActivity : ComponentActivity() {
                 if (forwardState.isOpen && selectedTrack != null) {
                     TelegramForwardSheet(
                         trackId = selectedTrack.id,
+                        initialTimestamp = forwardState.initialTimestamp,
                         title = selectedTrack.title,
                         artist = selectedTrack.artist,
                         query = forwardState.query,
@@ -203,7 +214,13 @@ class TelegramForwardActivity : ComponentActivity() {
         private const val EXTRA_TITLE = "forward_track_title"
         private const val EXTRA_ARTIST = "forward_track_artist"
 
-        fun intent(context: Context, trackId: String?, title: String?, artist: String?): Intent =
+        private const val EXTRA_TIMESTAMP_MS = "forward_timestamp_ms"
+        private const val EXTRA_OCCURRENCE_ID = "forward_occurrence_id"
+
+        fun intent(
+            context: Context, trackId: String?, title: String?, artist: String?,
+            timestampMs: Long? = null, occurrenceId: String? = null,
+        ): Intent =
             Intent(context, TelegramForwardActivity::class.java).apply {
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -215,6 +232,8 @@ class TelegramForwardActivity : ComponentActivity() {
                 putExtra(EXTRA_TRACK_ID, trackId)
                 putExtra(EXTRA_TITLE, title)
                 putExtra(EXTRA_ARTIST, artist)
+                timestampMs?.let { putExtra(EXTRA_TIMESTAMP_MS, it) }
+                putExtra(EXTRA_OCCURRENCE_ID, occurrenceId)
             }
     }
 }

@@ -21,6 +21,12 @@ class TelegramManualRefreshPolicyTest {
         assertTrue(shouldReconcileTelegramMissing(false, false, true))
     }
 
+    @Test fun interruptedInitialIndexDoesNotClaimToHaveReadAllHistory() {
+        assertFalse(telegramInitialScanComplete(false, false))
+        assertTrue(telegramInitialScanComplete(false, true))
+        assertTrue(telegramInitialScanComplete(true, false))
+    }
+
     @Test fun resolvesOnlyTheSelectedChatForItsOwnAccountAndPlaylist() {
         fun source(account: String, chatId: Long, kind: TelegramChatKind) =
             TelegramSelectedSourceEntity(

@@ -26,6 +26,7 @@ import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
 import dev.behradhz.meowzix.domain.telegram.TelegramChatSummary
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardFolder
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardOptions
+import dev.behradhz.meowzix.domain.telegram.formatTelegramMediaTimestamp
 import dev.behradhz.meowzix.domain.telegram.TelegramForwardRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramRepository
 import dev.behradhz.meowzix.domain.telegram.TelegramSendEnqueueResult
@@ -662,15 +663,16 @@ class TdLibTelegramForwardRepository @Inject constructor(
             ?: error("Connect Telegram before sending music.")
         val trackKey = trackId.toString()
 
+        require(options.timestampSeconds == null || options.timestampSeconds >= 0)
+        val dedupeKey = telegramSendDedupeKey(accountId, targetChatId, trackKey)
+        sendDao.activeByDedupeKey(dedupeKey)?.let {
+            return TelegramSendEnqueueResult.AlreadyQueued(it.toDomain())
+        }
+
         if (telegramDao.telegramSourceForTrackInChat(accountId, targetChatId, trackKey) != null ||
             sendDao.sentForTrackDestination(accountId, targetChatId, trackKey) != null
         ) {
             return TelegramSendEnqueueResult.AlreadyInChat(targetTitle)
-        }
-
-        val dedupeKey = telegramSendDedupeKey(accountId, targetChatId, trackKey)
-        sendDao.activeByDedupeKey(dedupeKey)?.let {
-            return TelegramSendEnqueueResult.AlreadyQueued(it.toDomain())
         }
 
         val now = System.currentTimeMillis()
@@ -685,6 +687,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
             attemptCount = 0,
             includeSourceAttribution = options.includeSourceAttribution,
             keepCaption = options.keepCaption,
+            timestampSeconds = options.timestampSeconds,
             activeDedupeKey = dedupeKey,
             sentMessageId = null,
             errorMessage = null,
@@ -811,7 +814,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
     }
 
     private suspend fun processOne(job: TelegramSendJobEntity, client: TdLibClientAdapter) {
-        val active = ActiveSend()
+        val active = ActiveSend().apply { audioDelivered = job.timestampSeconds != null && (job.sentMessageId ?: 0L) > 0L }
         activeSends[job.id] = active
         val attempt = job.attemptCount + 1
 
@@ -821,6 +824,10 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 return
             }
             ensureNotCancelRequested(active)
+            if (active.audioDelivered) {
+                finishDeliveredAudio(client, job, checkNotNull(job.sentMessageId), active, alreadyCheckpointed = true)
+                return
+            }
             val knownDestinationSource = telegramDao.telegramSourceForTrackInChat(
                 job.accountId,
                 job.targetChatId,
@@ -829,7 +836,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
             if (knownDestinationSource != null) {
                 // Nothing is being delivered here; cancellation only dismisses our queue item.
                 ensureNotCancelRequested(active)
-                sendDao.markSent(job.id, knownDestinationSource.messageId, System.currentTimeMillis())
+                finishDeliveredAudio(client, job, knownDestinationSource.messageId, active)
                 if (active.cancelSignal.isCompleted &&
                     sendDao.jobById(job.id)?.state == TelegramSendState.CANCELING.name
                 ) throw SendCancellationRequested()
@@ -838,7 +845,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
             sendDao.sentForTrackDestination(job.accountId, job.targetChatId, job.trackId)?.let { existing ->
                 ensureNotCancelRequested(active)
-                sendDao.markSent(job.id, existing.sentMessageId ?: 0L, System.currentTimeMillis())
+                finishDeliveredAudio(client, job, existing.sentMessageId ?: 0L, active)
                 if (active.cancelSignal.isCompleted &&
                     sendDao.jobById(job.id)?.state == TelegramSendState.CANCELING.name
                 ) throw SendCancellationRequested()
@@ -883,13 +890,8 @@ class TdLibTelegramForwardRepository @Inject constructor(
                 active.pendingMessageId = deliveredMessageId
                 throw SendCancellationRequested()
             }
-            sendDao.markSent(job.id, deliveredMessageId, System.currentTimeMillis())
-            if (active.cancelSignal.isCompleted &&
-                sendDao.jobById(job.id)?.state == TelegramSendState.CANCELING.name
-            ) {
-                active.pendingMessageId = deliveredMessageId
-                throw SendCancellationRequested()
-            }
+            active.pendingMessageId = deliveredMessageId
+            finishDeliveredAudio(client, job, deliveredMessageId, active)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: SendCancellationRequested) {
@@ -902,7 +904,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
                     job,
                     TelegramSendState.VERIFYING,
                     attemptCount = attempt,
-                    errorMessage = "Meowzix couldn't confirm delivery. Check Telegram before retrying so the song isn't sent twice.",
+                    errorMessage = if (active.audioDelivered) "Song sent. Timestamp reply delivery wasn't confirmed; check Telegram before retrying." else "Meowzix couldn't confirm delivery. Check Telegram before retrying so the song isn't sent twice.",
                 )
             }
         } catch (error: Throwable) {
@@ -915,7 +917,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
                     job,
                     TelegramSendState.WAITING_FOR_NETWORK,
                     attemptCount = attempt,
-                    errorMessage = "Connection lost. The song is still queued.",
+                    errorMessage = if (active.audioDelivered) "Song sent. Timestamp reply is waiting for connection." else "Connection lost. The song is still queued.",
                 )
 
                 error is TdLibException && error.errorCode == 401 -> setState(
@@ -937,13 +939,50 @@ class TdLibTelegramForwardRepository @Inject constructor(
 
                 else -> sendDao.markFailed(
                     job.id,
-                    userFacingTelegramError(error),
+                    if (active.audioDelivered) "Song sent. Timestamp reply failed: ${userFacingTelegramError(error)}" else userFacingTelegramError(error),
                     System.currentTimeMillis(),
                 )
             }
         } finally {
             activeSends.remove(job.id, active)
         }
+    }
+
+    private suspend fun finishDeliveredAudio(
+        client: TdLibClientAdapter,
+        job: TelegramSendJobEntity,
+        audioMessageId: Long,
+        active: ActiveSend,
+        alreadyCheckpointed: Boolean = false,
+    ) {
+        val timestamp = job.timestampSeconds
+        if (timestamp != null) {
+            require(audioMessageId > 0L) { "No Telegram audio message is available for the timestamp reply." }
+            if (!alreadyCheckpointed &&
+                sendDao.recordDeliveredAudio(job.id, audioMessageId, System.currentTimeMillis()) == 0
+            ) {
+                throw SendCancellationRequested()
+            }
+            // After this checkpoint retries send only the reply, and cancel cannot delete the confirmed audio.
+            active.audioDelivered = true
+            active.pendingMessageId = null
+            active.submissionStarted = false
+            ensureNotCancelRequested(active)
+            setState(job, TelegramSendState.SENDING, progressPercent = 95, attemptCount = job.attemptCount + 1, errorMessage = null)
+            val replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = audioMessageId }
+            val content = TdApi.InputMessageText().apply {
+                text = TdApi.FormattedText(formatTelegramMediaTimestamp(timestamp), null)
+            }
+            ensureNotCancelRequested(active)
+            active.submissionStarted = true
+            val pending = client.send(TdApi.SendMessage(job.targetChatId, null, replyTo, null, null, content))
+            active.pendingMessageId = awaitDelivery(client, pending, job.id, null, active)
+            ensureNotCancelRequested(active)
+        }
+        sendDao.markSent(job.id, audioMessageId, System.currentTimeMillis())
+        if (active.cancelSignal.isCompleted &&
+            sendDao.jobById(job.id)?.state == TelegramSendState.CANCELING.name
+        ) throw SendCancellationRequested()
     }
 
     private suspend fun confirmSendCancellation(
@@ -988,6 +1027,7 @@ class TdLibTelegramForwardRepository @Inject constructor(
         @Volatile var pendingMessageId: Long? = null,
         @Volatile var submissionStarted: Boolean = false,
         @Volatile var ownedDownloadFileId: Int? = null,
+        @Volatile var audioDelivered: Boolean = false,
     )
 
     private class SendCancellationRequested : Exception()
@@ -1279,9 +1319,9 @@ class TdLibTelegramForwardRepository @Inject constructor(
                         client.updates.mapNotNull { update ->
                             when (update) {
                                 is TdApi.UpdateMessageSendSucceeded ->
-                                    if (update.oldMessageId == pending.id) DeliveryResult.Success(update.message.id) else null
+                                    if (update.oldMessageId == pending.id && update.message.chatId == pending.chatId) DeliveryResult.Success(update.message.id) else null
                                 is TdApi.UpdateMessageSendFailed ->
-                                    if (update.oldMessageId == pending.id)
+                                    if (update.oldMessageId == pending.id && update.message.chatId == pending.chatId)
                                         DeliveryResult.Failure(update.error.code, update.error.message) else null
                                 else -> null
                             }

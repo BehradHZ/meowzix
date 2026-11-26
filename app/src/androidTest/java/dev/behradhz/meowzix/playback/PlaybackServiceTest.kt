@@ -188,7 +188,10 @@ class PlaybackServiceTest {
     @Test
     fun notificationForwardUsesDirectTransparentPickerAndPreservesPinnedSelection() {
         val trackId = UUID.randomUUID().toString()
-        val launch = TelegramForwardActivity.intent(context, trackId, "Selected title", "Selected artist")
+        val occurrenceId = UUID.randomUUID().toString()
+        val launch = TelegramForwardActivity.intent(context, trackId, "Selected title", "Selected artist", 102345L, occurrenceId)
+        assertEquals(102345L, launch.getLongExtra("forward_timestamp_ms", -1L))
+        assertEquals(occurrenceId, launch.getStringExtra("forward_occurrence_id"))
         assertEquals(TelegramForwardActivity::class.java.name, launch.component?.className)
         assertEquals(trackId, launch.getStringExtra("forward_track_id"))
         assertEquals("Selected title", launch.getStringExtra("forward_track_title"))
@@ -200,6 +203,9 @@ class PlaybackServiceTest {
         val info = context.packageManager.getActivityInfo(
             ComponentName(context, TelegramForwardActivity::class.java), 0,
         )
+        val mainInfo = context.packageManager.getActivityInfo(ComponentName(context, MainActivity::class.java), 0)
+        assertTrue("Forward must not bring the main app task to the foreground", info.taskAffinity != mainInfo.taskAffinity)
+        assertEquals("${context.packageName}.notificationForward", info.taskAffinity)
         val theme = context.resources.newTheme().apply { applyStyle(info.theme, true) }
         val values = theme.obtainStyledAttributes(intArrayOf(android.R.attr.windowIsTranslucent))
         try {
