@@ -117,14 +117,17 @@ class TelegramForwardActivity : ComponentActivity() {
                         artworkRef = null,
                     )
                 }
-                val initialTimestamp = intent.getLongExtra(EXTRA_TIMESTAMP_MS, -1L)
+                val queueOccurrence = intent.getStringExtra(EXTRA_OCCURRENCE_ID)
+                    ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                val currentSnapshot = playbackState.forwardTimestampSnapshot(trackId)
+                    ?.takeIf { queueOccurrence == null || it.queueOccurrenceId == queueOccurrence }
+                // The PendingIntent contains a queue occurrence, NOT the controller's
+                // playback instance. Bind to the latter when it is already available.
+                val initialTimestamp = currentSnapshot ?: intent.getLongExtra(EXTRA_TIMESTAMP_MS, -1L)
                     .takeIf { it >= 0L }
                     ?.let { position ->
-                        ForwardTimestampSnapshot(
-                            position,
-                            intent.getStringExtra(EXTRA_OCCURRENCE_ID)?.let { runCatching { UUID.fromString(it) }.getOrNull() },
-                        )
-                    } ?: playbackState.forwardTimestampSnapshot(trackId)
+                        ForwardTimestampSnapshot(position, occurrenceId = null, queueOccurrenceId = queueOccurrence)
+                    }
                 viewModel.openForwardPickerForTrack(trackId, fallbackTrack = snapshot, initialTimestamp = initialTimestamp)
             }
         }

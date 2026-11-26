@@ -16,6 +16,23 @@ class ForwardTimestampTest {
         assertEquals("1:02:03", formatTelegramMediaTimestamp(3723))
     }
 
+    @Test fun notificationQueueIdentityIsNotThePlaybackInstanceIdentity() {
+        val track = UUID.randomUUID()
+        val queue = UUID.randomUUID()
+        val playback = UUID.randomUUID()
+        val state = PlaybackState(
+            currentTrack = NowPlayingTrack(track, "Song", null, null),
+            positionMs = 120000,
+            playbackOccurrenceId = playback,
+            queueOccurrenceId = queue,
+        )
+        val notification = dev.behradhz.meowzix.domain.playback.ForwardTimestampSnapshot(100000, null, queue)
+        assertEquals(120000L, notification.livePosition(state, track))
+        assertNull(notification.livePosition(state.copy(queueOccurrenceId = UUID.randomUUID()), track))
+        val bound = requireNotNull(state.forwardTimestampSnapshot(track))
+        assertNull(bound.livePosition(state.copy(playbackOccurrenceId = UUID.randomUUID()), track))
+    }
+
     @Test fun capturesPositionAndFollowsOnlyTheOriginalOccurrence() {
         val id = UUID.randomUUID()
         val occurrence = UUID.randomUUID()
