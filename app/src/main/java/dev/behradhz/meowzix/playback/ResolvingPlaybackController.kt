@@ -7,6 +7,7 @@ import dev.behradhz.meowzix.domain.history.ListeningHistoryRepository
 import dev.behradhz.meowzix.domain.history.PlaybackInitiator
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
+import dev.behradhz.meowzix.domain.playback.ForwardTimestampSnapshot
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
@@ -104,6 +105,9 @@ class ResolvingPlaybackController @Inject constructor(
                 }
         }
     }
+
+    override fun forwardTimestampPosition(snapshot: ForwardTimestampSnapshot, trackId: UUID): Long? =
+        delegate.forwardTimestampPosition(snapshot, trackId)
 
     override fun playTrack(trackId: UUID) {
         neutralizeTimerFadeForManualPlayback()

@@ -1,6 +1,9 @@
 package dev.behradhz.meowzix.feature.telegram
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
@@ -32,6 +35,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.widthIn
 import dev.behradhz.meowzix.ui.components.GlassLazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -47,7 +53,6 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Send
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -77,6 +82,9 @@ import androidx.compose.runtime.setValue
 import android.os.SystemClock
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -104,7 +112,7 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import dev.behradhz.meowzix.domain.playback.ForwardTimestampSnapshot
 import dev.behradhz.meowzix.domain.playback.PlaybackController
-import dev.behradhz.meowzix.domain.playback.livePosition
+import dev.behradhz.meowzix.domain.playback.forwardTimestampSnapshot
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
@@ -118,10 +126,11 @@ import dev.behradhz.meowzix.domain.telegram.TelegramSendState
 import dev.behradhz.meowzix.ui.components.ChatAvatar
 import dev.behradhz.meowzix.ui.components.GlassSurface
 import dev.behradhz.meowzix.ui.components.TelegramGlassChrome
+import dev.behradhz.meowzix.ui.haptics.MeowzixHapticCue
+import dev.behradhz.meowzix.ui.haptics.rememberMeowzixHaptics
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.rememberHazeState
 import java.util.UUID
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -311,6 +320,9 @@ private fun ForwardPickerBody(
     }
     var rememberDefaults by rememberSaveable(trackId.toString()) { mutableStateOf(false) }
     val timestampSnapshot = initialTimestamp.takeIf { trackIds.size == 1 }
+    // Cold notification launches may only know the queue identity initially.
+    // Bind once the controller publishes its matching playback instance.
+    val liveSnapshot = remember(trackId, timestampSnapshot) { mutableStateOf(timestampSnapshot) }
     var timestampMs by remember(trackId, timestampSnapshot) { mutableStateOf(timestampSnapshot?.positionMs) }
     var timestampSelected by remember(trackId, timestampSnapshot) { mutableStateOf(false) }
     var optionsEdited by remember(trackId) { mutableStateOf(false) }
@@ -452,6 +464,7 @@ private fun ForwardPickerBody(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .then(if (floatingOverlay) Modifier.background(TelegramGlass) else Modifier)
                     .background(TelegramGlassChrome.backdrop),
             ) {
                 ForwardPanelScaffold(
@@ -522,7 +535,22 @@ private fun ForwardPickerBody(
                     timestampSelected = timestampSelected,
                     onTimestampSelected = { timestampSelected = it },
                     onTimestampPosition = { timestampMs = it },
-                    liveTimestamp = { timestampSnapshot?.livePosition(playbackController.state.value, trackId) },
+                    liveTimestamp = {
+                        liveSnapshot.value?.let { snapshot ->
+                            if (snapshot.occurrenceId == null) {
+                                val current = playbackController.state.value.forwardTimestampSnapshot(trackId)
+                                    ?.takeIf { snapshot.queueOccurrenceId == null || it.queueOccurrenceId == snapshot.queueOccurrenceId }
+                                if (current?.occurrenceId != null) {
+                                    liveSnapshot.value = snapshot.copy(
+                                        occurrenceId = current.occurrenceId,
+                                        queueOccurrenceId = current.queueOccurrenceId,
+                                    )
+                                }
+                            }
+                            playbackController.forwardTimestampPosition(requireNotNull(liveSnapshot.value), trackId)
+                        }
+                    },
+                    reduceMotion = reduceMotion,
                 )
 
                 Spacer(Modifier.height(16.dp))
@@ -911,12 +939,15 @@ internal fun GlassOptionGroup(
     onTimestampSelected: (Boolean) -> Unit = {},
     onTimestampPosition: (Long) -> Unit = {},
     liveTimestamp: () -> Long? = { null },
+    reduceMotion: Boolean = false,
 ) {
+    val groupShape = RoundedCornerShape(20.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(TelegramGlass.copy(alpha = 0.50f), CircleShape)
-            .border(1.dp, TelegramGlassStroke, CircleShape)
+            .zIndex(1f)
+            .background(TelegramGlass.copy(alpha = 0.50f), groupShape)
+            .border(1.dp, TelegramGlassStroke, groupShape)
             .padding(5.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -940,32 +971,26 @@ internal fun GlassOptionGroup(
                 onSelectedChange = onTimestampSelected,
                 onPositionChange = onTimestampPosition,
                 liveTimestamp = liveTimestamp,
+                reduceMotion = reduceMotion,
                 modifier = Modifier.weight(1f),
             )
         }
-        Column(
-            modifier = Modifier
-                .size(width = 60.dp, height = 52.dp)
-                .toggleable(
-                    value = rememberDefaults,
-                    role = Role.Checkbox,
-                    onValueChange = onRememberDefaultsChange,
-                )
-                .testTag("telegram-option-remember"),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Checkbox(
-                checked = rememberDefaults,
-                onCheckedChange = null,
-                modifier = Modifier.size(24.dp),
-            )
-            Text("Remember", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
+        val haptics = rememberMeowzixHaptics()
+        ForwardOptionPill(
+            title = "Keep",
+            selected = rememberDefaults,
+            onSelectedChange = {
+                haptics.perform(MeowzixHapticCue.Toggle)
+                onRememberDefaultsChange(it)
+            },
+            modifier = Modifier.weight(0.82f),
+            tag = "telegram-option-remember",
+            shape = RoundedCornerShape(7.dp),
+        )
     }
 }
 
-/** Tap toggles the captured timestamp; a held press tracks the actual player until release. */
+/** Tap toggles the captured timestamp; a hold previews live player time above the finger. */
 @Composable
 private fun ForwardTimestampPill(
     timestampMs: Long,
@@ -973,6 +998,7 @@ private fun ForwardTimestampPill(
     onSelectedChange: (Boolean) -> Unit,
     onPositionChange: (Long) -> Unit,
     liveTimestamp: () -> Long?,
+    reduceMotion: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val currentPosition by rememberUpdatedState(timestampMs)
@@ -980,62 +1006,137 @@ private fun ForwardTimestampPill(
     val changeSelected by rememberUpdatedState(onSelectedChange)
     val changePosition by rememberUpdatedState(onPositionChange)
     val readPosition by rememberUpdatedState(liveTimestamp)
+    val haptics = rememberMeowzixHaptics()
     val accent = MaterialTheme.colorScheme.primary
+    var holding by remember { mutableStateOf(false) }
+    var previewMs by remember { mutableLongStateOf(timestampMs) }
+    var liveAvailable by remember { mutableStateOf(false) }
+    var liveEnded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(holding) {
+        if (!holding) return@LaunchedEffect
+        var lastSecond = previewMs / 1000L
+        while (true) {
+            val live = readPosition()
+            if (live != null) {
+                previewMs = live
+                liveAvailable = true
+                val second = live / 1000L
+                if (second != lastSecond) {
+                    haptics.perform(MeowzixHapticCue.Selection)
+                    lastSecond = second
+                }
+            } else if (liveAvailable) {
+                // Once the original occurrence ends, never capture a different song.
+                liveEnded = true
+                break
+            }
+            delay(50L)
+        }
+    }
+
     Box(
         modifier = modifier
-            .height(44.dp)
-            .background(
-                if (selected) accent.copy(alpha = 0.28f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.065f),
-                CircleShape,
-            )
-            .border(1.dp, if (selected) accent.copy(alpha = 0.72f) else TelegramGlassStroke, CircleShape)
-            .semantics(mergeDescendants = true) {
-                role = Role.Checkbox
-                toggleableState = ToggleableState(selected)
-                onClick {
-                    changeSelected(!currentSelected)
-                    true
-                }
-            }
-            .pointerInput(Unit) {
-                val holdTimeout = viewConfiguration.longPressTimeoutMillis
-                detectTapGestures(onPress = {
-                    coroutineScope {
-                        val originalPosition = currentPosition
-                        var held = false
-                        val tracking = launch {
-                            delay(holdTimeout)
-                            held = true
-                            while (true) {
-                                readPosition()?.let(changePosition)
-                                delay(50L)
-                            }
-                        }
-                        val released = try {
-                            tryAwaitRelease()
-                        } finally {
-                            tracking.cancel()
-                        }
-                        if (released && held) {
-                            readPosition()?.let(changePosition)
-                            changeSelected(true)
-                        } else if (released) {
-                            changeSelected(!currentSelected)
-                        } else {
-                            changePosition(originalPosition)
-                        }
-                    }
-                })
-            }
-            .testTag("telegram-option-timestamp"),
+            .zIndex(2f)
+            .height(44.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = formatTelegramMediaTimestamp((timestampMs / 1000L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()),
-            maxLines = 1,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    if (selected || holding) accent.copy(alpha = 0.28f)
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.065f),
+                    CircleShape,
+                )
+                .border(1.dp, if (selected || holding) accent.copy(alpha = 0.72f) else TelegramGlassStroke, CircleShape)
+                .semantics(mergeDescendants = true) {
+                    role = Role.Checkbox
+                    toggleableState = ToggleableState(selected)
+                    onClick {
+                        haptics.perform(MeowzixHapticCue.Toggle)
+                        changeSelected(!currentSelected)
+                        true
+                    }
+                }
+                .pointerInput(haptics) {
+                    detectTapGestures(
+                        onPress = {
+                            haptics.perform(MeowzixHapticCue.LightClick)
+                            try {
+                                val released = tryAwaitRelease()
+                                if (holding) {
+                                    if (released) {
+                                        val finalPosition = if (liveEnded) previewMs else readPosition() ?: previewMs
+                                        changePosition(finalPosition)
+                                        changeSelected(true)
+                                        haptics.perform(MeowzixHapticCue.Success)
+                                    } else {
+                                        haptics.perform(MeowzixHapticCue.Reject)
+                                    }
+                                }
+                            } finally {
+                                holding = false
+                            }
+                        },
+                        onLongPress = {
+                            val live = readPosition()
+                            previewMs = live ?: currentPosition
+                            liveAvailable = live != null
+                            liveEnded = false
+                            holding = true
+                            haptics.perform(MeowzixHapticCue.LongPress)
+                        },
+                        onTap = {
+                            changeSelected(!currentSelected)
+                            haptics.perform(MeowzixHapticCue.Toggle)
+                        },
+                    )
+                }
+                .testTag("telegram-option-timestamp"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = formatTelegramMediaTimestamp(((if (holding) previewMs else timestampMs) / 1000L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()),
+                maxLines = 1,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (selected || holding) FontWeight.Bold else FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+
+        // In-window overlay: no separate focusable Popup or window token. This
+        // keeps the original pointer gesture alive in notification and normal sheets.
+        AnimatedVisibility(
+            visible = holding,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = (-57).dp)
+                .wrapContentSize(Alignment.Center, unbounded = true),
+            enter = if (reduceMotion) EnterTransition.None else fadeIn(tween(120)) +
+                scaleIn(initialScale = 0.78f, transformOrigin = TransformOrigin(0.5f, 1f)),
+            exit = if (reduceMotion) ExitTransition.None else fadeOut(tween(100)) +
+                scaleOut(targetScale = 0.78f, transformOrigin = TransformOrigin(0.5f, 1f)),
+        ) {
+            Surface(
+                modifier = Modifier.widthIn(min = 94.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                shadowElevation = 8.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.65f)),
+            ) {
+                Box(Modifier.padding(horizontal = 16.dp, vertical = 9.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = formatTelegramMediaTimestamp((previewMs / 1000L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()),
+                        modifier = Modifier.testTag("telegram-timestamp-bubble"),
+                        style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1048,6 +1149,7 @@ internal fun ForwardOptionPill(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     tag: String = "telegram-option-${title.lowercase()}",
+    shape: Shape = CircleShape,
 ) {
     val accent = MaterialTheme.colorScheme.primary
     Box(
@@ -1064,12 +1166,12 @@ internal fun ForwardOptionPill(
                         listOf(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.065f), MaterialTheme.colorScheme.onSurface.copy(alpha = 0.025f)),
                     )
                 },
-                shape = CircleShape,
+                shape = shape,
             )
             .border(
                 1.dp,
                 if (selected) accent.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
-                CircleShape,
+                shape,
             )
             .toggleable(
                 value = selected,

@@ -15,6 +15,8 @@ import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.playback.ModeSwitchCandidates
 import dev.behradhz.meowzix.domain.playback.PlaybackCatalog
 import dev.behradhz.meowzix.domain.playback.PlaybackController
+import dev.behradhz.meowzix.domain.playback.ForwardTimestampSnapshot
+import dev.behradhz.meowzix.domain.playback.livePosition
 import dev.behradhz.meowzix.domain.playback.PlaybackMode
 import dev.behradhz.meowzix.domain.playback.PlaybackState
 import dev.behradhz.meowzix.domain.playback.PlaybackStatus
@@ -155,6 +157,20 @@ class AndroidPlaybackController @Inject constructor(
                 controller?.let(::updateState)
             }
         }
+    }
+
+    override fun forwardTimestampPosition(snapshot: ForwardTimestampSnapshot, trackId: UUID): Long? {
+        val player = controller ?: return null
+        val item = player.currentMediaItem ?: return null
+        if (item.mediaId != trackId.toString()) return null
+        return snapshot.livePosition(
+            state.value.copy(
+                positionMs = player.currentPosition.coerceAtLeast(0L),
+                playbackOccurrenceId = playbackOccurrenceId,
+                queueOccurrenceId = item.queueOccurrenceId(),
+            ),
+            trackId,
+        )
     }
 
     override fun playTrack(trackId: UUID) = playNow(trackId)
@@ -1307,6 +1323,7 @@ class AndroidPlaybackController @Inject constructor(
             canSkipNext = logical?.let { it.currentIndex < it.tracks.lastIndex } ?: player.hasNextMediaItem(),
             errorMessage = errorMessage,
             playbackOccurrenceId = playbackOccurrenceId,
+            queueOccurrenceId = mediaItem?.queueOccurrenceId(),
             seekRevision = seekRevision,
             userSelectedOccurrence = userSelectedOccurrence,
             userInterruptedPrevious = userInterruptedPrevious,

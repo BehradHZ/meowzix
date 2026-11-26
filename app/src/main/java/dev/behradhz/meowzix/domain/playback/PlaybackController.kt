@@ -34,10 +34,16 @@ data class PlaybackState(
     val seekRevision: Long = 0L,
     val userSelectedOccurrence: Boolean = false,
     val userInterruptedPrevious: Boolean = false,
+    /** Stable MediaItem queue identity; distinct from the listening/playback instance. */
+    val queueOccurrenceId: UUID? = null,
 )
 
 /** Position captured when Forward is requested, tied to one playback occurrence. */
-data class ForwardTimestampSnapshot(val positionMs: Long, val occurrenceId: UUID?)
+data class ForwardTimestampSnapshot(
+    val positionMs: Long,
+    val occurrenceId: UUID?,
+    val queueOccurrenceId: UUID? = null,
+)
 
 fun PlaybackState.forwardTimestampSnapshot(trackId: UUID): ForwardTimestampSnapshot? {
     if (currentTrack?.id != trackId) return null
@@ -45,16 +51,28 @@ fun PlaybackState.forwardTimestampSnapshot(trackId: UUID): ForwardTimestampSnaps
     return ForwardTimestampSnapshot(
         if (durationMs > 0L) position.coerceAtMost(durationMs) else position,
         playbackOccurrenceId,
+        queueOccurrenceId,
     )
 }
 
 fun ForwardTimestampSnapshot.livePosition(state: PlaybackState, trackId: UUID): Long? =
     state.forwardTimestampSnapshot(trackId)
-        ?.takeIf { it.occurrenceId == occurrenceId }
+        ?.takeIf { live ->
+            if (queueOccurrenceId != null) {
+                live.queueOccurrenceId == queueOccurrenceId &&
+                    (occurrenceId == null || live.occurrenceId == occurrenceId)
+            } else {
+                live.occurrenceId == occurrenceId
+            }
+        }
         ?.positionMs
 
 interface PlaybackController {
     val state: StateFlow<PlaybackState>
+
+    /** Read on the UI thread; implementations may sample the live player directly. */
+    fun forwardTimestampPosition(snapshot: ForwardTimestampSnapshot, trackId: UUID): Long? =
+        snapshot.livePosition(state.value, trackId)
 
     fun playTrack(trackId: UUID)
     fun resume()
