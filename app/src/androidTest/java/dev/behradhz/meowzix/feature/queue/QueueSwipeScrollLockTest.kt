@@ -75,20 +75,30 @@ class QueueSwipeScrollLockTest {
         val horizontal = with(compose.density) { 110.dp.toPx() }
         val vertical = with(compose.density) { 90.dp.toPx() }
 
+        // Start with only a small motion beyond touch slop, then allow
+        // recomposition before continuing. A one-shot 110dp motion could
+        // miss a detector that gets canceled after its first event.
+        val initialMotion = with(compose.density) { 24.dp.toPx() }
         row.performTouchInput {
             down(0, Offset(width * 0.25f, center.y))
             advanceEventTime(32)
-            moveBy(0, Offset(horizontal, 0f))
+            moveBy(0, Offset(initialMotion, 0f))
+        }
+        compose.waitForIdle()
+
+        row.performTouchInput {
             advanceEventTime(32)
-            // Pure vertical movement after the horizontal action is claimed.
+            moveBy(0, Offset((horizontal - initialMotion) / 2, 0f))
+            advanceEventTime(32)
             moveBy(0, Offset(0f, -vertical))
-            advanceEventTime(100)
         }
         assertEquals("Queue moved during held swipe", startTop,
             row.getUnclippedBoundsInRoot().top.value, 0.5f)
+        compose.runOnIdle { assertTrue(playNext.isEmpty()) }
 
         row.performTouchInput {
-            moveBy(0, Offset(0f, vertical / 2))
+            advanceEventTime(32)
+            moveBy(0, Offset((horizontal - initialMotion) / 2, vertical / 2))
             advanceEventTime(100)
             up(0)
         }
@@ -100,6 +110,31 @@ class QueueSwipeScrollLockTest {
         assertEquals("Queue moved on swipe release", startTop,
             row.getUnclippedBoundsInRoot().top.value, 0.5f)
 
+        // Reach the second-stage Remove threshold across multiple events.
+        val removeMotion = with(compose.density) { 180.dp.toPx() }
+        row.performTouchInput {
+            down(0, Offset(width * 0.25f, center.y))
+            advanceEventTime(32)
+            moveBy(0, Offset(initialMotion, 0f))
+        }
+        compose.waitForIdle()
+        row.performTouchInput {
+            repeat(4) {
+                advanceEventTime(32)
+                moveBy(0, Offset((removeMotion - initialMotion) / 4, 0f))
+            }
+            advanceEventTime(32)
+            moveBy(0, Offset(0f, -vertical))
+            up(0)
+        }
+        compose.runOnIdle {
+            assertEquals(listOf(target.occurrenceId), removed)
+            assertEquals(listOf(target.id), playNext)
+            assertTrue(moves.isEmpty())
+        }
+        assertEquals("Queue moved during Remove swipe", startTop,
+            row.getUnclippedBoundsInRoot().top.value, 0.5f)
+
         // Cancellation must also release ownership without firing an action.
         row.performTouchInput {
             down(0, Offset(width * 0.25f, center.y))
@@ -109,7 +144,7 @@ class QueueSwipeScrollLockTest {
         }
         compose.runOnIdle {
             assertEquals(listOf(target.id), playNext)
-            assertTrue(removed.isEmpty())
+            assertEquals(listOf(target.occurrenceId), removed)
         }
         val ordinaryScroll = with(compose.density) { 38.dp.toPx() }
         row.performTouchInput {

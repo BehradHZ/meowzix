@@ -432,10 +432,15 @@ internal fun QueueScreen(
     var dragHoveredOrigin by remember { mutableStateOf<QueueItemOrigin?>(null) }
     var dragCapturedByRoot by remember { mutableStateOf(false) }
     var manualScrollActive by remember { mutableStateOf(false) }
-    var horizontalSwipeOwners by remember { mutableStateOf(emptySet<PointerId>()) }
-    val onSwipeOwnershipChanged: (PointerId, Boolean) -> Unit = { pointer, active ->
-        horizontalSwipeOwners = if (active) horizontalSwipeOwners + pointer
-            else horizontalSwipeOwners - pointer
+    // Gesture ownership is only read by pointer handlers. Do not recompose
+    // or toggle the LazyColumn/fast-scroll modifiers during a held swipe.
+    val horizontalSwipeOwners = remember { mutableSetOf<PointerId>() }
+    val onSwipeOwnershipChanged: (PointerId, Boolean) -> Unit = remember {
+        { pointer, active ->
+            if (active) horizontalSwipeOwners.add(pointer)
+            else horizontalSwipeOwners.remove(pointer)
+            Unit
+        }
     }
     var rootTopInWindow by remember { mutableFloatStateOf(0f) }
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
@@ -757,7 +762,7 @@ internal fun QueueScreen(
                                     .forEach { it.consume() }
                             }
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!captured && change.pressed &&
+                            if (!captured && change.pressed && horizontalSwipeOwners.isEmpty() &&
                                 (draggedQueueIndex != null || draggedGroupId != null) &&
                                 dragCenterY.isFinite()) {
                                 captured = true
@@ -875,7 +880,6 @@ internal fun QueueScreen(
                 .onGloballyPositioned { listTopInWindow = it.boundsInWindow().top }
                 .hazeSource(feedbackHazeState),
             state = listState,
-            userScrollEnabled = horizontalSwipeOwners.isEmpty(),
             contentPadding = if (inlineMode) PaddingValues(horizontal = 2.dp, vertical = 8.dp)
                              else PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = dockAwareBottomPadding(206.dp)),
             // Adjacent grouped rows share one continuous glass container.
@@ -1311,8 +1315,11 @@ private suspend fun PointerInputScope.detectLockedQueueSwipe(
             onDragStart()
             onHorizontalDrag(drag, overSlop)
             while (true) {
-                val change = awaitPointerEvent().changes.firstOrNull { it.id == drag.id }
-                    ?: break
+                // Slop is resolved normally in Main. Once claimed, intercept
+                // subsequent events in Initial, before nested reorder handles
+                // and the ancestor scroll recognizer can consume vertical motion.
+                val change = awaitPointerEvent(PointerEventPass.Initial)
+                    .changes.firstOrNull { it.id == drag.id } ?: break
                 if (change.isConsumed) break
                 if (!change.pressed) {
                     change.consume()
