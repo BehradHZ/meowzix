@@ -112,6 +112,7 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import dev.behradhz.meowzix.domain.playback.ForwardTimestampSnapshot
 import dev.behradhz.meowzix.domain.playback.PlaybackController
+import dev.behradhz.meowzix.domain.playback.forwardTimestampSnapshot
 import dev.behradhz.meowzix.domain.playback.NowPlayingTrack
 import dev.behradhz.meowzix.domain.settings.TelegramForwardSettings
 import dev.behradhz.meowzix.domain.telegram.TelegramChatKind
@@ -319,6 +320,9 @@ private fun ForwardPickerBody(
     }
     var rememberDefaults by rememberSaveable(trackId.toString()) { mutableStateOf(false) }
     val timestampSnapshot = initialTimestamp.takeIf { trackIds.size == 1 }
+    // Cold notification launches may only know the queue identity initially.
+    // Bind once the controller publishes its matching playback instance.
+    val liveSnapshot = remember(trackId, timestampSnapshot) { mutableStateOf(timestampSnapshot) }
     var timestampMs by remember(trackId, timestampSnapshot) { mutableStateOf(timestampSnapshot?.positionMs) }
     var timestampSelected by remember(trackId, timestampSnapshot) { mutableStateOf(false) }
     var optionsEdited by remember(trackId) { mutableStateOf(false) }
@@ -531,7 +535,21 @@ private fun ForwardPickerBody(
                     timestampSelected = timestampSelected,
                     onTimestampSelected = { timestampSelected = it },
                     onTimestampPosition = { timestampMs = it },
-                    liveTimestamp = { timestampSnapshot?.let { playbackController.forwardTimestampPosition(it, trackId) } },
+                    liveTimestamp = {
+                        liveSnapshot.value?.let { snapshot ->
+                            if (snapshot.occurrenceId == null) {
+                                val current = playbackController.state.value.forwardTimestampSnapshot(trackId)
+                                    ?.takeIf { snapshot.queueOccurrenceId == null || it.queueOccurrenceId == snapshot.queueOccurrenceId }
+                                if (current?.occurrenceId != null) {
+                                    liveSnapshot.value = snapshot.copy(
+                                        occurrenceId = current.occurrenceId,
+                                        queueOccurrenceId = current.queueOccurrenceId,
+                                    )
+                                }
+                            }
+                            playbackController.forwardTimestampPosition(requireNotNull(liveSnapshot.value), trackId)
+                        }
+                    },
                     reduceMotion = reduceMotion,
                 )
 
@@ -993,6 +1011,7 @@ private fun ForwardTimestampPill(
     var holding by remember { mutableStateOf(false) }
     var previewMs by remember { mutableLongStateOf(timestampMs) }
     var liveAvailable by remember { mutableStateOf(false) }
+    var liveEnded by remember { mutableStateOf(false) }
 
     LaunchedEffect(holding) {
         if (!holding) return@LaunchedEffect
@@ -1009,6 +1028,7 @@ private fun ForwardTimestampPill(
                 }
             } else if (liveAvailable) {
                 // Once the original occurrence ends, never capture a different song.
+                liveEnded = true
                 break
             }
             delay(50L)
@@ -1047,7 +1067,7 @@ private fun ForwardTimestampPill(
                                 val released = tryAwaitRelease()
                                 if (holding) {
                                     if (released) {
-                                        val finalPosition = readPosition() ?: previewMs
+                                        val finalPosition = if (liveEnded) previewMs else readPosition() ?: previewMs
                                         changePosition(finalPosition)
                                         changeSelected(true)
                                         haptics.perform(MeowzixHapticCue.Success)
@@ -1063,6 +1083,7 @@ private fun ForwardTimestampPill(
                             val live = readPosition()
                             previewMs = live ?: currentPosition
                             liveAvailable = live != null
+                            liveEnded = false
                             holding = true
                             haptics.perform(MeowzixHapticCue.LongPress)
                         },
@@ -1098,7 +1119,7 @@ private fun ForwardTimestampPill(
                 scaleOut(targetScale = 0.78f, transformOrigin = TransformOrigin(0.5f, 1f)),
         ) {
             Surface(
-                modifier = Modifier.widthIn(min = 94.dp).testTag("telegram-timestamp-bubble"),
+                modifier = Modifier.widthIn(min = 94.dp),
                 shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.onSurface,
@@ -1108,6 +1129,7 @@ private fun ForwardTimestampPill(
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 9.dp), contentAlignment = Alignment.Center) {
                     Text(
                         text = formatTelegramMediaTimestamp((previewMs / 1000L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()),
+                        modifier = Modifier.testTag("telegram-timestamp-bubble"),
                         style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
