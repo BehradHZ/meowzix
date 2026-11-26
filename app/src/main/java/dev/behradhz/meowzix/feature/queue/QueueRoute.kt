@@ -22,8 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -97,6 +96,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -430,6 +432,11 @@ internal fun QueueScreen(
     var dragHoveredOrigin by remember { mutableStateOf<QueueItemOrigin?>(null) }
     var dragCapturedByRoot by remember { mutableStateOf(false) }
     var manualScrollActive by remember { mutableStateOf(false) }
+    var horizontalSwipeOwners by remember { mutableStateOf(emptySet<PointerId>()) }
+    val onSwipeOwnershipChanged: (PointerId, Boolean) -> Unit = { pointer, active ->
+        horizontalSwipeOwners = if (active) horizontalSwipeOwners + pointer
+            else horizontalSwipeOwners - pointer
+    }
     var rootTopInWindow by remember { mutableFloatStateOf(0f) }
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
     val reorderGestureState = LocalQueueReorderGestureState.current
@@ -743,6 +750,12 @@ internal fun QueueScreen(
                     try {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
+                            // A held horizontal action owns the queue; unlike reorder,
+                            // it does not permit a second finger to scroll or move a row.
+                            if (horizontalSwipeOwners.isNotEmpty()) {
+                                event.changes.filter { it.id !in horizontalSwipeOwners }
+                                    .forEach { it.consume() }
+                            }
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!captured && change.pressed &&
                                 (draggedQueueIndex != null || draggedGroupId != null) &&
@@ -862,6 +875,7 @@ internal fun QueueScreen(
                 .onGloballyPositioned { listTopInWindow = it.boundsInWindow().top }
                 .hazeSource(feedbackHazeState),
             state = listState,
+            userScrollEnabled = horizontalSwipeOwners.isEmpty(),
             contentPadding = if (inlineMode) PaddingValues(horizontal = 2.dp, vertical = 8.dp)
                              else PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = dockAwareBottomPadding(206.dp)),
             // Adjacent grouped rows share one continuous glass container.
@@ -981,6 +995,7 @@ internal fun QueueScreen(
                                 reorderEnabled = !selectionMode && (!touchBlocked || isGroupDragging) &&
                                     !searchActive && draggedQueueIndex == null,
                                 interactionEnabled = !touchBlocked || isGroupDragging,
+                                onSwipeOwnershipChanged = onSwipeOwnershipChanged,
                                 onStart = {
                                     dragCapturedByRoot = false
                                     if (!inlineMode) reorderGestureState?.active = true
@@ -1029,6 +1044,7 @@ internal fun QueueScreen(
                                 queueIndex != state.currentIndex,
                             protectDragHandleFromDock = !inlineMode,
                             interactionEnabled = !touchBlocked || isDragging,
+                            onSwipeOwnershipChanged = onSwipeOwnershipChanged,
                             onPlay = { if (!touchBlocked && state.items.getOrNull(queueIndex) == item) onPlay(queueIndex) },
                             selectionMode = selectionMode,
                             selected = item.occurrenceId in selectedOccurrences,
@@ -1269,6 +1285,54 @@ internal fun QueueScreen(
     }
 }
 
+/**
+ * Let vertical scrolling/reorder win before horizontal touch slop. After a
+ * swipe wins, consume every movement of its pointer, including pure Y motion.
+ * The stock horizontal detector only dispatches horizontal changes.
+ */
+private suspend fun PointerInputScope.detectLockedQueueSwipe(
+    onSwipeOwnershipChanged: (PointerId, Boolean) -> Unit,
+    onDragStart: () -> Unit,
+    onHorizontalDrag: (PointerInputChange, Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
+) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        var overSlop = 0f
+        val drag = awaitHorizontalTouchSlopOrCancellation(down.id) { change, amount ->
+            change.consume()
+            overSlop = amount
+        } ?: return@awaitEachGesture
+
+        var completed = false
+        onSwipeOwnershipChanged(drag.id, true)
+        try {
+            onDragStart()
+            onHorizontalDrag(drag, overSlop)
+            while (true) {
+                val change = awaitPointerEvent().changes.firstOrNull { it.id == drag.id }
+                    ?: break
+                if (change.isConsumed) break
+                if (!change.pressed) {
+                    change.consume()
+                    completed = true
+                    onDragEnd()
+                    break
+                }
+                val delta = change.positionChange()
+                // Consume Y even when X has not changed, before the ancestor
+                // LazyColumn or the player's nested-scroll connection sees it.
+                change.consume()
+                if (delta.x != 0f) onHorizontalDrag(change, delta.x)
+            }
+        } finally {
+            onSwipeOwnershipChanged(drag.id, false)
+            if (!completed) onDragCancel()
+        }
+    }
+}
+
 @Composable
 private fun GroupQueueHeader(
     group: QueueGroup,
@@ -1282,6 +1346,7 @@ private fun GroupQueueHeader(
     onRemove: () -> Unit,
     onMoveToFront: () -> Unit,
     onMoveToEnd: () -> Unit,
+    onSwipeOwnershipChanged: (PointerId, Boolean) -> Unit,
     interactionEnabled: Boolean = true,
     showOverflowActions: Boolean = true,
 ) {
@@ -1317,7 +1382,8 @@ private fun GroupQueueHeader(
                     clip = true
                 }
                 .pointerInput(group.id, actionThreshold, removeThreshold, interactionEnabled) {
-                    if (interactionEnabled) detectHorizontalDragGestures(
+                    if (interactionEnabled) detectLockedQueueSwipe(
+                        onSwipeOwnershipChanged = onSwipeOwnershipChanged,
                         onDragStart = { horizontalDrag = true },
                         onHorizontalDrag = { change, delta ->
                             change.consume()
@@ -1368,12 +1434,12 @@ private fun GroupQueueHeader(
                 // Match single-track cards: drag handle before the overflow button.
                 Box(
                     modifier = Modifier.size(48.dp).pointerInput(group.id, reorderEnabled) {
-                        if (reorderEnabled) detectDragGestures(
+                        if (reorderEnabled) detectVerticalDragGestures(
                             onDragStart = {
                                 haptics.perform(MeowzixHapticCue.Threshold)
                                 onStart()
                             },
-                            onDrag = { change, delta -> change.consume(); onDrag(delta.y) },
+                            onVerticalDrag = { change, delta -> change.consume(); onDrag(delta) },
                             onDragEnd = { onStop(true) },
                             onDragCancel = { onStop(false) },
                         )
@@ -1471,6 +1537,7 @@ private fun SwipeableQueueItem(
     onFavorite: () -> Unit,
     onAddToPlaylist: (UUID) -> Unit,
     onGoToArtist: (String) -> Unit,
+    onSwipeOwnershipChanged: (PointerId, Boolean) -> Unit,
     interactionEnabled: Boolean = true,
     showOverflowActions: Boolean = true,
 ) {
@@ -1568,7 +1635,8 @@ private fun SwipeableQueueItem(
                 }
                 .pointerInput(item.occurrenceId, actionThreshold, removeThreshold, interactionEnabled, selectionMode) {
                     if (!selectionMode && !draggingNow && interactionEnabled) {
-                        detectHorizontalDragGestures(
+                        detectLockedQueueSwipe(
+                            onSwipeOwnershipChanged = onSwipeOwnershipChanged,
                             onDragStart = {
                                 horizontalDragActive = true
                                 swipeStage = 0
