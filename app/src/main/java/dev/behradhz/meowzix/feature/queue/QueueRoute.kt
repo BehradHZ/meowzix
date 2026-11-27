@@ -457,6 +457,10 @@ internal fun QueueScreen(
             .mapNotNull { it.groupId }.groupingBy { it }.eachCount()
     }
     var hasFocusedCurrent by remember { mutableStateOf(false) }
+    // A tap is a request, not a playback acknowledgement: remote preparation
+    // may delay the queue update, and duplicate songs have distinct occurrences.
+    var pendingPlaybackFocus by remember { mutableStateOf<UUID?>(null) }
+    val currentOccurrence = state.items.getOrNull(state.currentIndex)?.occurrenceId
     // Use the authoritative queue immediately outside a drag. A cached display list can
     // otherwise show removed items until a deferred LaunchedEffect catches up.
     val queueItems = if (draggedQueueIndex == null && draggedGroupId == null &&
@@ -502,6 +506,25 @@ internal fun QueueScreen(
         if (!searchActive && !hasFocusedCurrent && state.currentIndex in state.items.indices) {
             hasFocusedCurrent = true
             listState.scrollToItem(1)
+        }
+    }
+    val pendingFocusStillInQueue = pendingPlaybackFocus?.let { requested ->
+        state.items.any { it.occurrenceId == requested }
+    } ?: false
+    LaunchedEffect(
+        pendingPlaybackFocus, currentOccurrence, visibleItems.firstOrNull()?.value?.occurrenceId,
+        pendingFocusStillInQueue, isActive,
+    ) {
+        val requested = pendingPlaybackFocus ?: return@LaunchedEffect
+        if (!isActive || !pendingFocusStillInQueue) {
+            pendingPlaybackFocus = null
+            return@LaunchedEffect
+        }
+        if (currentOccurrence == requested && visibleItems.firstOrNull()?.value?.occurrenceId == requested) {
+            // Explicitly reset the keyed list's anchor after the selected
+            // occurrence becomes the first row of the updated queue.
+            listState.scrollToItem(1)
+            pendingPlaybackFocus = null
         }
     }
 
@@ -1049,7 +1072,12 @@ internal fun QueueScreen(
                             protectDragHandleFromDock = !inlineMode,
                             interactionEnabled = !touchBlocked || isDragging,
                             onSwipeOwnershipChanged = onSwipeOwnershipChanged,
-                            onPlay = { if (!touchBlocked && state.items.getOrNull(queueIndex) == item) onPlay(queueIndex) },
+                            onPlay = {
+                                if (!touchBlocked && state.items.getOrNull(queueIndex) == item) {
+                                    pendingPlaybackFocus = item.occurrenceId
+                                    onPlay(queueIndex)
+                                }
+                            },
                             selectionMode = selectionMode,
                             selected = item.occurrenceId in selectedOccurrences,
                             onSelect = { toggleSelection(item.occurrenceId) },
