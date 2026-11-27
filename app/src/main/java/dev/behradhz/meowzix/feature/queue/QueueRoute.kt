@@ -432,10 +432,15 @@ internal fun QueueScreen(
     var dragHoveredOrigin by remember { mutableStateOf<QueueItemOrigin?>(null) }
     var dragCapturedByRoot by remember { mutableStateOf(false) }
     var manualScrollActive by remember { mutableStateOf(false) }
-    var horizontalSwipeOwners by remember { mutableStateOf(emptySet<PointerId>()) }
-    val onSwipeOwnershipChanged: (PointerId, Boolean) -> Unit = { pointer, active ->
-        horizontalSwipeOwners = if (active) horizontalSwipeOwners + pointer
-            else horizontalSwipeOwners - pointer
+    // Gesture ownership is only read by pointer handlers. Do not recompose
+    // or toggle the LazyColumn/fast-scroll modifiers during a held swipe.
+    val horizontalSwipeOwners = remember { mutableSetOf<PointerId>() }
+    val onSwipeOwnershipChanged: (PointerId, Boolean) -> Unit = remember {
+        { pointer, active ->
+            if (active) horizontalSwipeOwners.add(pointer)
+            else horizontalSwipeOwners.remove(pointer)
+            Unit
+        }
     }
     var rootTopInWindow by remember { mutableFloatStateOf(0f) }
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
@@ -452,6 +457,10 @@ internal fun QueueScreen(
             .mapNotNull { it.groupId }.groupingBy { it }.eachCount()
     }
     var hasFocusedCurrent by remember { mutableStateOf(false) }
+    // A tap is a request, not a playback acknowledgement: remote preparation
+    // may delay the queue update, and duplicate songs have distinct occurrences.
+    var pendingPlaybackFocus by remember { mutableStateOf<UUID?>(null) }
+    val currentOccurrence = state.items.getOrNull(state.currentIndex)?.occurrenceId
     // Use the authoritative queue immediately outside a drag. A cached display list can
     // otherwise show removed items until a deferred LaunchedEffect catches up.
     val queueItems = if (draggedQueueIndex == null && draggedGroupId == null &&
@@ -497,6 +506,25 @@ internal fun QueueScreen(
         if (!searchActive && !hasFocusedCurrent && state.currentIndex in state.items.indices) {
             hasFocusedCurrent = true
             listState.scrollToItem(1)
+        }
+    }
+    val pendingFocusStillInQueue = pendingPlaybackFocus?.let { requested ->
+        state.items.any { it.occurrenceId == requested }
+    } ?: false
+    LaunchedEffect(
+        pendingPlaybackFocus, currentOccurrence, visibleItems.firstOrNull()?.value?.occurrenceId,
+        pendingFocusStillInQueue, isActive,
+    ) {
+        val requested = pendingPlaybackFocus ?: return@LaunchedEffect
+        if (!isActive || !pendingFocusStillInQueue) {
+            pendingPlaybackFocus = null
+            return@LaunchedEffect
+        }
+        if (currentOccurrence == requested && visibleItems.firstOrNull()?.value?.occurrenceId == requested) {
+            // Explicitly reset the keyed list's anchor after the selected
+            // occurrence becomes the first row of the updated queue.
+            listState.scrollToItem(1)
+            pendingPlaybackFocus = null
         }
     }
 
@@ -757,7 +785,7 @@ internal fun QueueScreen(
                                     .forEach { it.consume() }
                             }
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!captured && change.pressed &&
+                            if (!captured && change.pressed && horizontalSwipeOwners.isEmpty() &&
                                 (draggedQueueIndex != null || draggedGroupId != null) &&
                                 dragCenterY.isFinite()) {
                                 captured = true
@@ -875,7 +903,6 @@ internal fun QueueScreen(
                 .onGloballyPositioned { listTopInWindow = it.boundsInWindow().top }
                 .hazeSource(feedbackHazeState),
             state = listState,
-            userScrollEnabled = horizontalSwipeOwners.isEmpty(),
             contentPadding = if (inlineMode) PaddingValues(horizontal = 2.dp, vertical = 8.dp)
                              else PaddingValues(start = 12.dp, end = 12.dp, top = 100.dp, bottom = dockAwareBottomPadding(206.dp)),
             // Adjacent grouped rows share one continuous glass container.
@@ -1045,7 +1072,12 @@ internal fun QueueScreen(
                             protectDragHandleFromDock = !inlineMode,
                             interactionEnabled = !touchBlocked || isDragging,
                             onSwipeOwnershipChanged = onSwipeOwnershipChanged,
-                            onPlay = { if (!touchBlocked && state.items.getOrNull(queueIndex) == item) onPlay(queueIndex) },
+                            onPlay = {
+                                if (!touchBlocked && state.items.getOrNull(queueIndex) == item) {
+                                    pendingPlaybackFocus = item.occurrenceId
+                                    onPlay(queueIndex)
+                                }
+                            },
                             selectionMode = selectionMode,
                             selected = item.occurrenceId in selectedOccurrences,
                             onSelect = { toggleSelection(item.occurrenceId) },
@@ -1311,8 +1343,11 @@ private suspend fun PointerInputScope.detectLockedQueueSwipe(
             onDragStart()
             onHorizontalDrag(drag, overSlop)
             while (true) {
-                val change = awaitPointerEvent().changes.firstOrNull { it.id == drag.id }
-                    ?: break
+                // Slop is resolved normally in Main. Once claimed, intercept
+                // subsequent events in Initial, before nested reorder handles
+                // and the ancestor scroll recognizer can consume vertical motion.
+                val change = awaitPointerEvent(PointerEventPass.Initial)
+                    .changes.firstOrNull { it.id == drag.id } ?: break
                 if (change.isConsumed) break
                 if (!change.pressed) {
                     change.consume()
